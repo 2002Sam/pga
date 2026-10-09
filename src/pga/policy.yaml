@@ -1,0 +1,188 @@
+# Perpetual Generalist Agent — runtime policy (spec v0.3).
+# Every number here is a default, not a constant (spec §6, §8). Override with
+# PGA_POLICY_FILE=/path/to/your.yaml (merged over this file; omitted keys keep these values).
+
+locale:
+  default_ui_locale: zh-CN
+  model_language: en
+
+limits:
+  # V1 scope (§24): 1–3 perpetual responsibilities per user. Candidates and
+  # completed/archived responsibilities do not count.
+  max_perpetual_responsibilities_per_user: 3
+  max_candidate_depth: 2            # candidate → candidate child at most this deep
+  max_open_candidates_per_parent: 3
+
+# §6 — share of the compute budget each category may spend per budget period.
+budget:
+  period_hours: 24
+  total_units: 2000000              # abstract cost units per period (see llm.unit_costs)
+  shares:
+    active_responsibilities: 0.45
+    monitoring: 0.10
+    free_exploration: 0.10
+    self_improvement: 0.05
+    user_reserve: 0.30
+  # Reactive (user-facing) work draws on user_reserve first and may then use
+  # whatever the proactive categories left unspent. Proactive categories can
+  # never borrow from user_reserve, and free_exploration never borrows at all.
+  reactive_may_use_unspent: true
+  exploration_mix:                  # sub-shares inside free_exploration
+    neighborhood: 0.70
+    adjacent: 0.20
+    distant: 0.10
+
+# §8 — premium quota. One entry per provider window you want to protect.
+quotas:
+  - key: anthropic-premium
+    provider: anthropic
+    applies_to_tiers: [3]
+    window_mode: fixed              # fixed: window starts at first use; rolling: trailing window
+    window_seconds: 18000           # 5 hours, provider-defined
+    capacity_units: 1500000
+    proactive_target_ratio: 0.70
+    reserve_ratio: 0.30
+    after_target:
+      allow: [deterministic_tools, cache, cheap_models, monitoring, retrieval]
+      pause: [deep_research, expensive_multi_agent, nonurgent_video_render]
+
+# §7 — model tiers. Model ids are configuration, swap freely.
+llm:
+  provider: anthropic               # "anthropic" or "fake" (offline/dev/tests)
+  tiers:
+    1: claude-haiku-5-5
+    2: claude-sonnet-5-5
+    3: claude-opus-5-5
+  # cost units per token, used for budget accounting (output tokens weigh more)
+  unit_costs:
+    0: {input: 0.0, output: 0.0}
+    1: {input: 0.2, output: 1.0}
+    2: {input: 1.0, output: 5.0}
+    3: {input: 3.0, output: 15.0}
+
+allocator:
+  weights:
+    information_gain: 1.0
+    decision_impact: 1.0
+    user_relevance: 0.8
+    urgency: 0.8
+    reuse_value: 0.4
+    compute_cost: 0.6
+    interruption_cost: 0.8
+    staleness_risk: 0.4
+  min_score_by_tier: {0: -10.0, 1: 0.0, 2: 0.6, 3: 1.2}
+  # Runs at or above this tier must state why_now, expected_gain,
+  # decision_affected, budget and stop_condition (invariant 3).
+  justification_required_from_tier: 2
+  reference_cost_units: 200000      # cost that maps to compute_cost = 1.0
+  default_limits_by_tier:
+    0: {max_output_tokens: 0, timeout_s: 30, max_tool_calls: 20}
+    1: {max_output_tokens: 2000, timeout_s: 60, max_tool_calls: 10}
+    2: {max_output_tokens: 8000, timeout_s: 300, max_tool_calls: 30}
+    3: {max_output_tokens: 16000, timeout_s: 900, max_tool_calls: 60}
+  # tier: the tier a task normally runs at. min_tier: the lowest tier it may be
+  # downgraded to when budget/quota is short (omitted = cannot downgrade).
+  # category: the budget it is billed to. reactive: user-facing/urgent work that
+  # may use the premium reserve.
+  tasks:
+    user_interaction:      {tier: 3, category: user_reserve,            reactive: true, min_tier: 2}
+    urgent_event:          {tier: 3, category: user_reserve,            reactive: true, min_tier: 2}
+    critical_validation:   {tier: 3, category: user_reserve,            reactive: true}
+    meeting:               {tier: 3, category: user_reserve,            reactive: true, min_tier: 2}
+    high_priority_artifact: {tier: 2, category: user_reserve,           reactive: true, min_tier: 1}
+    deep_research:         {tier: 3, category: active_responsibilities, quota_class: deep_research,         min_tier: 3}
+    expensive_multi_agent: {tier: 3, category: active_responsibilities, quota_class: expensive_multi_agent, min_tier: 3}
+    nonurgent_video_render: {tier: 2, category: active_responsibilities, quota_class: nonurgent_video_render, min_tier: 2}
+    synthesis:             {tier: 2, category: active_responsibilities, min_tier: 1}
+    comparison:            {tier: 2, category: active_responsibilities, min_tier: 1}
+    monitoring:            {tier: 1, category: monitoring,              quota_class: monitoring}
+    extraction:            {tier: 1, category: monitoring,              quota_class: cheap_models}
+    classification:        {tier: 1, category: monitoring,              quota_class: cheap_models}
+    event_scoring:         {tier: 1, category: monitoring,              quota_class: cheap_models}
+    translation:           {tier: 1, category: user_reserve,            reactive: true, quota_class: cheap_models}
+    retrieval:             {tier: 0, category: monitoring,              quota_class: retrieval}
+    deterministic:         {tier: 0, category: monitoring,              quota_class: deterministic_tools}
+    exploration:           {tier: 2, category: free_exploration,        min_tier: 1}
+    self_improvement:      {tier: 2, category: self_improvement,        min_tier: 1}
+
+# §5 — responsibility tension.
+tension:
+  default_wake_threshold: 0.75
+  default_sleep_threshold: 0.35
+  deep_sleep_threshold: 0.10        # MONITORING → SLEEPING once this low and stagnant
+  half_life_hours: 72
+  stagnation_hours: 168             # no meaningful change for this long → faster decay
+  stagnation_half_life_hours: 24
+  min_relevance: 0.15               # below this an event does not touch the responsibility
+  core_gain: 1.0                    # weight of relevance*novelty*uncertainty*decision_impact
+  weights:
+    deadline: 0.25
+    dependency: 0.15
+    user_interest: 0.15
+    contradiction: 0.55             # contradictions raise tension strongly
+    opportunity: 0.25
+  duplicate_decay: 0.30             # nth source in the same cluster contributes duplicate_decay**n
+  absorbed_factor: 0.10             # cluster already absorbed by a run → contributes this fraction
+  absorption_relief: 0.80           # fraction of a cluster's live contribution removed on absorb
+  rejection_relief: 0.60            # fraction of tension removed when the user rejects a direction
+  meaningful_delta: 0.02            # smaller changes don't reset the stagnation clock
+  defaults:                          # signal values when the scorer has no opinion
+    uncertainty: 0.5
+    decision_impact: 0.5
+    novelty: 1.0
+  clustering:
+    num_perm: 64
+    shingle_words: 3
+    shingle_chars: 3
+    similarity_threshold: 0.55
+    lookback_days: 14
+
+# §19 — permission defaults ("auto" | "approval" | "deny").
+permissions:
+  READ: auto
+  RESEARCH: auto
+  PREPARE: auto
+  SUGGEST: auto
+  EXECUTE: approval
+  EXTERNAL_ACTION: approval
+  SPEND: approval
+  PUBLISH: approval
+
+translation:
+  # Spans shorter than this are shown to the translator inside <keep> tags so it
+  # keeps sentence context; longer ones become opaque <ph/> placeholders.
+  visible_span_max_chars: 80
+  max_retries: 1
+  cache: true
+  # Terms never translated (product / model / proper names, spec §10.3).
+  do_not_translate:
+    - Claude
+    - Opus
+    - Sonnet
+    - Haiku
+    - Anthropic
+    - OpenAI
+    - ChatGPT
+    - Temporal
+    - Celery
+    - Redis
+    - PostgreSQL
+    - pgvector
+    - Qdrant
+    - Honcho
+    - Hindsight
+    - Graphiti
+    - Neo4j
+    - Letta
+    - Hermes
+    - OpenClaw
+    - Lindy
+    - Perplexity
+    - Gamma
+    - HeyGen
+    - Synthesia
+    - NotebookLM
+    - LiveKit
+    - Langfuse
+    - OpenTelemetry
+    - GitHub

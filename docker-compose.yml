@@ -1,0 +1,23 @@
+# Local infrastructure. Postgres is the source of truth (spec §4); the pgvector
+# image is used so Phase 3 retrieval needs no infra change. Redis is for the
+# Phase 2 scheduler fallback (Celery) and is unused in Phase 1.
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pga
+    ports: ["5432:5432"]
+    volumes: [pga-pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    ports: ["6379:6379"]
+
+volumes:
+  pga-pg:
