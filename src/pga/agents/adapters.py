@@ -423,12 +423,20 @@ class LLM(Adapter):
         return True, f"{self.rt.provider.name} · tier {int(self.config.get('tier', 2))} · {self.rt.router.model_for(int(self.config.get('tier', 2)))}"
 
     def _run(self, task: AgentTask) -> AgentResult:
-        tier = int(self.config.get("tier", 2))
-        r = self.rt.router.complete(tier, system=task.system or "You are one agent in a team working for the user. Be concrete.",
-                                    messages=[{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}],
-                                    max_tokens=int(self.config.get("max_tokens", 2500)), usage=None, delegate=False)
         from pga.agents import live
-        live.append(task.meta.get("live_id"), r.text)
+        tier = int(self.config.get("tier", 2))
+        system = task.system or "You are one agent in a team working for the user. Be concrete."
+        messages = [{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}]
+        lid, provider = task.meta.get("live_id"), self.rt.router.provider
+        if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written
+            r = provider.stream(model=self.rt.router.model_for(tier), system=system, messages=messages,
+                                max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None,
+                                on_delta=lambda piece: live.append(lid, piece))
+            r.tier = tier
+        else:
+            r = self.rt.router.complete(tier, system=system, messages=messages, max_tokens=int(self.config.get("max_tokens", 2500)),
+                                        usage=None, delegate=False)
+            live.append(lid, r.text)
         return AgentResult(ok=bool(r.text.strip()), text=r.text, model=r.model, usage=r)
 
 

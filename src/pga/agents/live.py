@@ -51,7 +51,7 @@ def snapshot() -> list[dict]:
     now = time.time()
     with _LOCK:
         _prune(now)
-        return [{**r, "elapsed_s": round((r["finished"] or now) - r["started"], 1), "text": r["text"][-1800:],
+        return [{**r, "elapsed_s": round((r["finished"] or now) - r["started"], 1), "text": r["text"],
                  "running": r["finished"] is None} for r in sorted(_RUNS.values(), key=lambda x: x["started"])]
 
 

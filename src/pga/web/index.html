@@ -571,14 +571,15 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #agOverlay > #agBubbles { pointer-events: none; }
 #app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
 .nlabel.pool small { color: rgba(243,211,138,.75); } .nlabel.pool.off { opacity: .55 !important; }
-.ag-bubble { position: absolute; left: 0; top: 0; width: 280px; max-height: 190px; overflow: hidden; display: flex; flex-direction: column; padding: 8px 11px 9px;
-  background: rgba(6,8,10,.86); border: 1px solid rgba(233,169,75,.5); border-left: 2px solid #e9a94b; color: #efe7d6; font-size: 12px; line-height: 1.6;
-  transition: opacity .6s; pointer-events: none; box-shadow: 0 0 24px rgba(233,169,75,.08); }
-.ag-bubble .m { font: var(--cap); font-size: 9.5px; letter-spacing: .12em; color: #e9a94b; margin-bottom: 4px; display: flex; gap: 8px; }
-.ag-bubble .m b { color: #fff3d6; font-weight: 500; } .ag-bubble .m i { font-style: normal; margin-left: auto; color: rgba(214,222,226,.6); }
-.ag-bubble .t { white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; display: flex; flex-direction: column-reverse; mask-image: linear-gradient(transparent, #000 22%); -webkit-mask-image: linear-gradient(transparent, #000 22%); }
-.ag-bubble.done { border-left-color: rgba(214,222,226,.4); } .ag-bubble.fail { border-left-color: var(--acc-2); }
-.ag-bubble .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e9a94b; animation: blink 1.1s infinite; margin-top: 3px; }
+.ag-bubble { position: absolute; left: 0; top: 0; width: 290px; max-height: 150px; overflow: hidden; display: flex; flex-direction: column;
+  color: #f4ead6; font-size: 12.5px; line-height: 1.7; transition: opacity 1.2s; pointer-events: none;
+  text-shadow: 0 0 6px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.95), 0 0 14px rgba(3,5,8,.8); }
+.ag-bubble .m { font: var(--cap); font-size: 9.5px; letter-spacing: .16em; color: rgba(233,169,75,.9); margin-bottom: 2px; text-transform: uppercase; }
+.ag-bubble .t { white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; display: flex; flex-direction: column-reverse;
+  mask-image: linear-gradient(transparent, #000 40%); -webkit-mask-image: linear-gradient(transparent, #000 40%); }
+.ag-bubble .t span::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
+.ag-bubble.done .t span::after { content: ""; }
+.ag-msg.it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; }
 .ag-top { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 14px 18px; pointer-events: none; flex-wrap: wrap; }
 .ag-top > * { pointer-events: auto; }
 .ag-title { font: var(--cap); font-size: 11px; letter-spacing: .34em; color: #e9a94b; text-transform: uppercase; white-space: nowrap; }
@@ -1032,6 +1033,8 @@ const NODE_KIND = { core: "长期目标", ai: "AI agent", user: "你", agent: "A
 const DEFAULTS = { chart: "ecg", range: "live", motion: "full", autoRotate: true, showEvidence: true, labelsAlways: true, showEn: false, browserNotify: false, followProgress: true };
 const SET = Object.assign({}, DEFAULTS, store.json("pga_settings", {}));
 const AS_UID = new URLSearchParams(location.search).get("as");
+// testing aid: ?rafpoly keeps animation running when the page is not being composited (a hidden preview pane)
+if (new URLSearchParams(location.search).has("rafpoly")) { window.PGA_RAFPOLY = true; window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16); }
 if (AS_UID) {                                            // everything this tab saves stays in memory
   const mem = {}, get = store.get;
   store.get = (k) => (k in mem ? mem[k] : get(k));
@@ -1305,6 +1308,25 @@ async function loadAgentView() {
 
 /* ---- the agents side of the sky: the same 3D scene turned over around Earth */
 const AGM = { on: false, busy: false, fold: null, live: [], seen: new Set(), poll: 0, raf: 0 };
+// text flows in: whatever has arrived is revealed a few characters per frame, and the planet beats as it does
+const FLOW = new Map();                                                    // key → { target, n, el, agent }
+function flowTo(key, text, el, agent) {
+  const f = FLOW.get(key) || { n: 0 }; f.target = text || ""; f.agent = agent;
+  if (el && el !== f.el) { f.el = el; el.textContent = f.target.slice(0, f.n); }      // re-rendered: carry on where it was
+  FLOW.set(key, f); return f;
+}
+function flowTick() {
+  for (const [key, f] of FLOW) {
+    if (!f.el || !f.el.isConnected) { FLOW.delete(key); continue; }
+    if (f.n > f.target.length) f.n = f.target.length;
+    if (f.n < f.target.length) {
+      const behind = f.target.length - f.n;
+      f.n += Math.max(1, Math.ceil(behind / 18));
+      f.el.textContent = f.target.slice(0, f.n);
+      if (f.agent && (!f.beat || performance.now() - f.beat > 140)) { f.beat = performance.now(); window.PGA_BEAT?.("pa:" + f.agent); }
+    }
+  }
+}
 function agentGraph(d) {
   const nodes = [{ id: "you", kind: "user", label: "你" }], links = [];
   for (const [n, a] of Object.entries(d.agents)) {
@@ -1329,21 +1351,29 @@ async function enterAgentMode() {
   if (!AGV.data || !window.PGA_FLIP_TO?.("agents")) { AGM.busy = false; return; }
   AGM.on = true; AGM.fold = Object.assign({}, S.fold); closePop();
   setFold({ l: true, r: true, t: true }); $("#app").classList.add("agentmode");
-  pollLive(); clearInterval(AGM.poll); AGM.poll = setInterval(pollLive, 1200);
+  clearTimeout(AGM.poll); pollLive();
   if (!AGM.raf) AGM.raf = requestAnimationFrame(placeBubbles);
   setTimeout(() => { AGM.busy = false; }, 1900);
 }
 function exitAgentMode() {
   if (!AGM.on || AGM.busy) return; AGM.busy = true;
   if (!window.PGA_FLIP_TO?.("galaxy")) { AGM.busy = false; return; }
-  AGM.on = false; clearInterval(AGM.poll); window.PGA_RUNNING?.([]);
+  AGM.on = false; clearTimeout(AGM.poll); window.PGA_RUNNING?.([]); FLOW.clear();
   $("#app").classList.remove("agentmode"); $("#agBubbles").innerHTML = "";
   setTimeout(() => { setFold(AGM.fold || { l: true, r: true, t: true }); AGM.busy = false; window.dispatchEvent(new Event("resize")); }, 1900);
 }
 async function pollLive() {
+  clearTimeout(AGM.poll);
   if (!AGM.on) return;
-  let list = []; try { list = await api("/v1/agents/live"); } catch { return; }
+  let list = []; try { list = await api("/v1/agents/live"); } catch { AGM.poll = setTimeout(pollLive, 2500); return; }
   AGM.live = list;
+  const busy = list.some((r) => r.running) || AGV.busy;
+  AGM.poll = setTimeout(pollLive, busy ? 500 : 1600);                    // quicker while someone is answering
+  const pend = AGV.chat.find((m) => m.pending);                           // the chat answer flows from the live board too
+  if (pend && pend.target) {
+    const r = [...list].reverse().find((x) => x.agent === pend.target && x.workflow === "chat" && x.started >= pend.since - 2);
+    if (r && r.text) { pend.stream = r.text; const el = document.querySelector("#agLog .ag-msg.flowing .body"); if (el) flowTo("chat", r.text, el, r.agent); }
+  }
   window.PGA_RUNNING?.(list.filter((r) => r.running).map((r) => "pa:" + r.agent));
   for (const r of list) if (!AGM.seen.has(r.id)) {                         // a new piece of work: show its gold path
     AGM.seen.add(r.id);
@@ -1359,23 +1389,26 @@ function renderBubbles() {
   for (const r of Object.values(latest)) {
     keep.add(r.agent);
     let el = box.querySelector(`[data-agent="${CSS.escape(r.agent)}"]`);
-    if (!el) { el = document.createElement("div"); el.className = "ag-bubble"; el.dataset.agent = r.agent; el.innerHTML = `<div class="m"></div><div class="t"><div></div></div>`; box.appendChild(el); }
+    if (!el) { el = document.createElement("div"); el.className = "ag-bubble"; el.dataset.agent = r.agent; el.innerHTML = `<div class="m"></div><div class="t"><span></span></div>`; box.appendChild(el); }
     const what = r.workflow === "long-term" ? `长期任务 · ${r.task_kind}` : r.workflow === "chat" ? "对话" : r.workflow || r.step || "";
-    el.querySelector(".m").innerHTML = `${r.running ? `<span class="dot"></span>` : r.ok ? "✓" : "✕"}<b>${esc(r.agent)}</b>${esc(CAT_ZH[r.category] || r.category || "")} · ${esc(what)}<i>${r.elapsed_s}s</i>`;
-    el.querySelector(".t > div").textContent = (r.text || (r.running ? "思考中…" : r.error || "")).trim().slice(-900);
-    el.classList.toggle("done", !r.running && r.ok !== false); el.classList.toggle("fail", !r.running && r.ok === false);
-    el.style.opacity = r.running ? 1 : Math.max(0, 1 - (r.elapsed_s ? 0 : 0) - (Date.now() / 1000 - (r.finished || Date.now() / 1000)) / 30);
+    el.querySelector(".m").textContent = `${r.agent} · ${CAT_ZH[r.category] || r.category || ""} · ${what}`;
+    const said = (r.text || "").replace(/\n{3,}/g, "\n\n");
+    if (el.dataset.run !== r.id) { el.dataset.run = r.id; FLOW.delete("b:" + r.agent); el.querySelector(".t span").textContent = ""; }
+    flowTo("b:" + r.agent, said.slice(-700), el.querySelector(".t span"), r.running ? r.agent : null);
+    el.classList.toggle("done", !r.running);
+    el.style.opacity = r.running ? 1 : Math.max(0, 1 - (Date.now() / 1000 - (r.finished || Date.now() / 1000)) / 25);
   }
   box.querySelectorAll(".ag-bubble").forEach((el) => { if (!keep.has(el.dataset.agent)) el.remove(); });
 }
-function placeBubbles() {                                                 // keep each bubble beside its planet
+function placeBubbles() {                                                 // keep each flow of text beside its planet
   AGM.raf = AGM.on ? requestAnimationFrame(placeBubbles) : 0;
+  flowTick();
   const box = $("#agBubbles"); if (!box) return;
   const m = $("#main"), W = m.clientWidth, H = m.clientHeight, used = [];
   box.querySelectorAll(".ag-bubble").forEach((el) => {
     const b = window.PGA_BODY?.("pa:" + el.dataset.agent); if (!b || !b.visible) { el.style.visibility = "hidden"; return; }
     const w = el.offsetWidth, h = el.offsetHeight, rightEdge = AGV.sel ? W - 360 : W - 16, right = b.x + b.r + 24 + w < rightEdge;
-    let x = right ? b.x + b.r + 24 : b.x - b.r - 24 - w, y = b.y - h / 2;
+    let x = right ? b.x + b.r + 26 : b.x - b.r - 26 - w, y = b.y - h + 18;
     for (const u of used) if (Math.abs(u.x - x) < w && Math.abs(u.y - y) < h) y = u.y + h + 8;   // do not stack on another bubble
     x = Math.max(8, Math.min(rightEdge - w, x)); y = Math.max(52, Math.min(H - h - 16, y));
     used.push({ x, y }); el.style.visibility = "visible"; el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
@@ -1435,20 +1468,25 @@ const agMd = (t) => esc(t).replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/`
 function renderAgLog() {
   const el = $("#agLog"); if (!el) return;
   el.innerHTML = AGV.chat.slice(-30).map((m) => m.role === "user" ? `<div class="ag-msg me">${esc(m.text)}</div>`
-    : `<div class="ag-msg it ${m.ok === false ? "err" : ""}"><span class="m">${m.pending ? "…" : esc(m.agent || "—")} · ${esc(CAT_ZH[m.category] || m.category || "")}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.why ? ` · ${esc(m.why)}` : ""}</span>${m.pending ? "思考中…" : m.text ? agMd(m.text) : esc(m.error || "")}${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
+    : m.pending ? `<div class="ag-msg it flowing"><span class="m">${esc(m.agent || "…")} · ${esc(CAT_ZH[m.category] || m.category || "")} · 正在回答</span><span class="body"></span></div>`
+    : `<div class="ag-msg it ${m.ok === false ? "err" : ""}"><span class="m">${esc(m.agent || "—")} · ${esc(CAT_ZH[m.category] || m.category || "")}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.why ? ` · ${esc(m.why)}` : ""}</span>${m.text ? agMd(m.text) : esc(m.error || "")}${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
   el.scrollTop = el.scrollHeight;
 }
 async function agSend(text) {
   if (!text || AGV.busy) return;
   AGV.busy = true; $("#agSend").disabled = true; $("#agChat").classList.add("busy");
   const history = AGV.chat.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
-  AGV.chat.push({ role: "user", text }); const pend = { role: "agent", pending: true }; AGV.chat.push(pend); renderAgLog();
+  FLOW.delete("chat");
+  AGV.chat.push({ role: "user", text }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; AGV.chat.push(pend); renderAgLog();
   let target = AGV.pick, cat = null;
   try { const r = await api(`/v1/agents/route?text=${encodeURIComponent(text.slice(0, 600))}`); cat = r.category; if (target === "auto") target = r.ranking.find((x) => x.usable)?.agent; } catch {}
+  pend.target = target; pend.agent = target; pend.category = cat; renderAgLog();
   if (target) window.PGA_ROUTE?.(cat && AGV.pick === "auto" ? ["you", "pc:" + cat, "pa:" + target] : ["you", "pa:" + target]);
   pollLive();
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: AGV.pick, history } });
+    const el = document.querySelector("#agLog .ag-msg.flowing .body");          // let the rest of the answer flow out before it settles
+    if (el && r.text) { const f = flowTo("chat", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
     Object.assign(pend, r, { pending: false });
     if (r.agent) window.PGA_ROUTE?.(["pa:" + r.agent, "you"], 2500);
   } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
@@ -3100,9 +3138,9 @@ function buildSystemDecor() {
     for (const ring of sys.rings || []) { const l = ring.dashed ? new THREE.LineSegments(DASH, shiverMat(.22, { amp: .006 })) : new THREE.Line(CIRCLE, shiverMat(.16, { amp: .006 })); l.scale.setScalar(ring.r); g.add(l); }
   }
 }
-const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 } }, transparent: true, depthWrite: false,
+const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
   vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; attribute float aT; attribute float aA; attribute float aN; attribute float aS; attribute float aSeed; attribute vec3 aSide; attribute float aGold;
-    varying float vT; varying float vA; varying float vS; varying float vD; varying float vG;
+    varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
     void main(){
       // a vibrating string: two slow standing waves, a quick tremor, and a lift out of the plane
       float w = sin(aS * 1.7 + uTime * 1.1 + aSeed) * .55 + sin(aS * 3.9 - uTime * 2.3 + aSeed * 1.7) * .3 + sin(aS * 11. + uTime * 6.5 + aSeed * 3.) * .15;
@@ -3112,11 +3150,13 @@ const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value
       // a soft round edge, slightly ragged and slowly breathing — never the square the seeds started on
       vec2 q = position.xz - uC; float ang = atan(q.y, q.x);
       vD = length(q) / uR + .06 * sin(ang * 5. + aSeed) + .04 * sin(ang * 11. - uTime * .3 + aSeed * 2.) + .02 * sin(uTime * .5 + aSeed);
+      vR = length(p.xz);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
-  fragmentShader: `uniform float uTime; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG;
+  fragmentShader: `uniform float uTime; uniform vec3 uWave; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
+    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float e = smoothstep(0., .04, vT) * smoothstep(1., .96, vT) * (1. - smoothstep(.55, 1., vD)); float flow = .8 + .2 * sin(vS * 2. - uTime * 1.4);
-      vec3 c = mix(vec3(.9, .93, .94), vec3(.91, .66, .3), vG);
-      gl_FragColor = vec4(c, vA * e * flow * (1. + vG * .6)); }` });
+      float gl = waveGlow(vR); vec3 c = mix(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), vG), vec3(1., .78, .42), min(1., gl));
+      gl_FragColor = vec4(c, vA * e * flow * (1. + vG * .6) * waveMask(vR) * (1. + gl * 2.5)); }` });
 function buildFieldLines() {
   flowSamples.length = 0;
   if (!systems.length) return;
@@ -3178,8 +3218,9 @@ fleckGeo.setAttribute("aVel", fattr(FLECKS * FV, 3));
 fleckGeo.setAttribute("aU", fattr(FLECKS * FV, 1));
 fleckGeo.setAttribute("aSide", fattr(FLECKS * FV, 3));
 fleckGeo.setAttribute("aWave", fattr(FLECKS * FV, 4));    // cycles, amplitude, speed, phase
-const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 } }, transparent: true, depthWrite: false,
-  vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR;
+const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
+  vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; uniform vec3 uWave;
+    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     attribute float aBirth; attribute float aLife; attribute float aHue; attribute vec3 aVel; attribute float aU; attribute vec3 aSide; attribute vec4 aWave;
     varying float vA; varying float vH;
     void main(){ float age = uTime - aBirth, t = age / aLife;
@@ -3189,7 +3230,7 @@ const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value
       vec3 p = position + aVel * max(age, 0.) + aSide * w * amp;
       p.y += sin(aU * 9. - uTime * 1.6 + aWave.w) * amp * .6;
       float ends = smoothstep(0., .18, aU) * smoothstep(1., .82, aU);
-      vA = t < 0. || t > 1. ? 0. : smoothstep(0., .3, t) * smoothstep(1., .5, t) * ends * (1. - smoothstep(.5, .95, length(p.xz - uC) / uR));
+      vA = t < 0. || t > 1. ? 0. : smoothstep(0., .3, t) * smoothstep(1., .5, t) * ends * (1. - smoothstep(.5, .95, length(p.xz - uC) / uR)) * waveMask(length(p.xz));
       vH = aHue; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
   fragmentShader: `varying float vA; varying float vH; void main(){ if (vA < .003) discard;
       vec3 c = vH > 1.5 ? vec3(1., .48, .23) : vH > .5 ? vec3(.91, .66, .3) : vec3(.9, .93, .94); gl_FragColor = vec4(c, vA * (vH > .5 ? .7 : .58)); }` });
@@ -3396,14 +3437,15 @@ function placeAll(dt, motion) {
 /* ------------------------------------------------ links: strings between bodies; activity plucks them */
 const SEG = 16;
 const linkMat = new THREE.ShaderMaterial({
-  uniforms: { uTime, uHover: { value: 0 } }, transparent: true, depthWrite: false,
+  uniforms: { uTime, uHover: { value: 0 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
   vertexShader: `attribute float aT; attribute float aSeed; attribute float aHi; attribute float aW; attribute float aGold;
-    varying float vT; varying float vS; varying float vH; varying float vW; varying float vG;
-    void main(){ vT = aT; vS = aSeed; vH = aHi; vW = aW; vG = aGold; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
-  fragmentShader: `uniform float uTime, uHover; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG;
+    varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR;
+    void main(){ vT = aT; vS = aSeed; vH = aHi; vW = aW; vG = aGold; vR = length(position.xz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
+  fragmentShader: `uniform float uTime, uHover; uniform vec3 uWave; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR;
+    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float f = pow(1. - fract(vT - uTime * (.16 + vH * .3) + vS), 10.);
       float a = (.1 * vW + f * .22 + vH * .45) * mix(1., mix(.25, 1., step(.5, vH)), uHover);
-      gl_FragColor = vec4(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), max(vH * .55, vG * .9)), a * (1. + vG * 1.6)); }` });
+      gl_FragColor = vec4(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), max(vH * .55, vG * .9)), a * (1. + vG * 1.6) * waveMask(vR)); }` });
 let linkGeo = new THREE.BufferGeometry(), linkMesh = new THREE.LineSegments(linkGeo, linkMat);
 linkMesh.frustumCulled = false; world.add(linkMesh);
 const LINK_W = { route1: 2.6, route2: 1.1, route3: .55, spoke: .5, bridge: 2.2, aim: 1.6, agent: 1.4, talk: 1.3, ai: 1, candidate: 1, belief: .8, supports: .8, contradicts: 1.4, signal: .5, feed: .7, slot: .4 };
@@ -3679,18 +3721,56 @@ window.PGA_FOCUS = () => focusId;                                         // whi
 const ORIGIN = new THREE.Vector3(), EARTH_FILL_W = new THREE.Color("#e9e6df"), EARTH_RIM_W = new THREE.Color("#ffffff");
 window.PGA_MODE = () => (FLIP ? FLIP.to : MODE);
 window.PGA_SET_AGENTS = (g) => { AGENT_GRAPH = g; if (MODE === "agents" && !FLIP) syncGraph(); };
-window.PGA_FLIP_TO = (to) => {                                            // turn the world over: galaxy ⇄ agents
+const smoothstep01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+window.PGA_FLIP_TO = (to) => {                                            // turn the sky over: galaxy ⇄ agents, spreading out from Earth
   if (FLIP || to === MODE || (to === "agents" && !AGENT_GRAPH)) return false;
   focusId = null; focusedId = null; flyT = 1;
-  camera.updateMatrixWorld();
-  const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize(), c = camera.position.clone().normalize();
-  let best = { deg: 55, sgn: 1 };
-  search: for (let deg = 1; deg <= 89; deg++) for (const sgn of [1, -1]) {   // the angle at which the disc is seen edge-on
-    if (new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, sgn * deg * Math.PI / 180).dot(c) <= 0) { best = { deg, sgn }; break search; }
+  const dying = [], dead = new THREE.Group(); world.add(dead);
+  let oldR = 0;
+  for (const n of [...nodes.values()]) {                                   // the old side keeps drawing until the front reaches it
+    if (n.id === "you") continue;
+    oldR = Math.max(oldR, Math.hypot(n.pos.x, n.pos.z));
+    nodes.delete(n.id); const k = pickables.indexOf(n.mesh); if (k >= 0) pickables.splice(k, 1);
+    n.label?.remove(); n.label = null; n.passed = false; dying.push(n);
   }
-  const edge = best.sgn * best.deg * Math.PI / 180;
-  FLIP = { to, t0: performance.now(), dur: 1800, axis, edge, back: edge - best.sgn * Math.PI, swapped: false };
+  const deadField = fieldMat.clone(), deadLink = linkMat.clone();
+  for (const m of [deadField, deadLink]) { m.uniforms.uTime = uTime; m.uniforms.uWave = { value: new THREE.Vector3(0, -1, 1) }; }
+  deadField.uniforms.uExc = uExc;
+  for (const c of [...scenery.children]) { scenery.remove(c); dead.add(c); c.traverse?.((o) => { if (o.material === fieldMat) o.material = deadField; }); }
+  const oldLinks = new THREE.LineSegments(linkGeo, deadLink); oldLinks.frustumCulled = false; dead.add(oldLinks);   // old strings, frozen
+  linkGeo = new THREE.BufferGeometry(); linkMesh.geometry = linkGeo; links = []; pulses.forEach((p) => p.balls.forEach((m) => fxGroup.remove(m))); pulses.length = 0;
+  MODE = to; layoutKey = ""; syncGraph();                                   // the new side, waiting behind the front
+  let newR = boundR;
+  for (const n of nodes.values()) { if (n.id !== "you") { n.wv = 0; newR = Math.max(newR, Math.hypot(n.pos.x, n.pos.z)); } }
+  const ring = new THREE.Line(CIRCLE, shiverMat(1, { amp: .03, color: GOLD })), ring2 = new THREE.Line(CIRCLE, shiverMat(.4, { amp: .02 }));
+  ring.position.y = ring2.position.y = .02; world.add(ring, ring2);
+  const you = nodes.get("you"); if (you) { you.flash = 1; ripple(you.pos, 1.6, GOLD); ripple(you.pos, 1.1); }
+  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 1, 1);
+  FLIP = { to, t0: performance.now(), dur: 2600, Rmax: Math.max(oldR, newR) + 3, r: 0, dying, dead, deadMats: [deadField, deadLink], ring, ring2 };
   return true;
+};
+function endTurn() {
+  for (const n of FLIP.dying) {
+    n.group.parent?.remove(n.group); if (n.orbitLine) world.remove(n.orbitLine);
+    n.group.traverse((x) => { if (x.geometry && !SHARED.has(x.geometry)) x.geometry.dispose(); x.material?.dispose?.(); });
+    n.orbitLine?.material.dispose();
+  }
+  clearGroup(FLIP.dead); world.remove(FLIP.dead);
+  for (const r of [FLIP.ring, FLIP.ring2]) { world.remove(r); r.material.dispose(); }
+  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 0, 0);
+  for (const n of nodes.values()) { delete n.wv; n.group.rotation.x = 0; }
+  FLIP = null;
+  window.dispatchEvent(new CustomEvent("pga:flipped", { detail: { mode: MODE } }));
+}
+window.PGA_TURN = () => FLIP && {                                         // for checks: how far the front has spread
+  u: +((performance.now() - FLIP.t0) / FLIP.dur).toFixed(2), r: +FLIP.r.toFixed(2), Rmax: +FLIP.Rmax.toFixed(2),
+  oldShown: FLIP.dying.filter((n) => n.group.scale.x > .05).length, oldTotal: FLIP.dying.length,
+  newShown: [...nodes.values()].filter((n) => n.id !== "you" && (n.wv ?? 1) > .5).length, newTotal: nodes.size - 1,
+};
+window.PGA_BEAT = (id) => {                                                // a planet answering: it beats with each piece of text
+  const n = nodes.get(id); if (!n) return;
+  n.energy = Math.min(1.7, n.energy + .55); n.flash = Math.max(n.flash, .35);
+  const t = performance.now(); if (!n.lastBeat || t - n.lastBeat > 320) { n.lastBeat = t; ripple(n.pos, .8 + n.r * 2.2, GOLD); }
 };
 window.PGA_ROUTE = (path, ms = 5000) => {                                 // a gold path: you → kind of work → agent
   const ids = path.filter((id) => nodes.has(id)); if (ids.length < 2) return;
@@ -3731,7 +3811,7 @@ let lastFrame = 0;
 function frame(now) {
   requestAnimationFrame(frame);
   const st = ST(), set = st.settings;
-  if (document.hidden || !mainEl.clientWidth || st.flipping) { clock.getDelta(); return; }
+  if ((document.hidden && !window.PGA_RAFPOLY) || !mainEl.clientWidth || st.flipping) { clock.getDelta(); return; }
   if (set.motion === "eco" && now - lastFrame < 30) return;
   lastFrame = now;
   const dt = Math.min(clock.getDelta(), .05);
@@ -3744,16 +3824,28 @@ function frame(now) {
   placeAll(dt, motion);
   if (motion) respawnFlecks(uTime.value);
   let flipU = 0;
-  if (FLIP) {                                                              // the world turns over around Earth like a page
+  if (FLIP) {                                                              // the change spreads out from Earth
     flipU = Math.min(1, (now - FLIP.t0) / FLIP.dur);
-    if (flipU >= .5 && !FLIP.swapped) { FLIP.swapped = true; MODE = FLIP.to; layoutKey = ""; syncGraph(); flyT = 1; }
-    const phi = flipU < .5 ? FLIP.edge * Math.pow(flipU / .5, 1.7) : FLIP.back * Math.pow(1 - (flipU - .5) / .5, 2.3);
-    world.quaternion.setFromAxisAngle(FLIP.axis, phi);
-    if (flipU >= 1) { world.quaternion.identity(); FLIP = null; window.dispatchEvent(new CustomEvent("pga:flipped", { detail: { mode: MODE } })); }
+    const R = FLIP.Rmax * (1 - Math.pow(1 - flipU, 1.5));
+    FLIP.r = R;
+    for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(R, 1, 1);
+    for (const m of FLIP.deadMats) m.uniforms.uWave.value.set(R, -1, 1);
+    FLIP.ring.scale.setScalar(Math.max(.01, R)); setOp(FLIP.ring.material, .95 * Math.pow(1 - flipU, .6));
+    FLIP.ring2.scale.setScalar(Math.max(.01, R * .965)); setOp(FLIP.ring2.material, .35 * (1 - flipU));
+    for (const n of FLIP.dying) {                                          // the old side folds away as the front passes it
+      const d = Math.hypot(n.pos.x, n.pos.z), v = 1 - smoothstep01(d - .55, d + .25, R);
+      n.group.scale.setScalar(Math.max(.001, v)); n.group.position.copy(n.pos); n.group.position.y += (1 - v) * .9;
+      n.group.rotation.x = (1 - v) * Math.PI * .5;
+      if (n.orbitLine) setOp(n.orbitLine.material, .16 * v);
+      if (!n.passed && v < .6) { n.passed = true; ripple(n.pos, .7 + n.r * 2, GOLD); }
+    }
+    for (const g of FLIP.dead.children) if (g.userData.sys) { const d = Math.hypot(g.position.x, g.position.z); g.scale.setScalar(Math.max(.001, 1 - smoothstep01(d - 1, d + 1, R))); }
+    for (const n of nodes.values()) if (n.id !== "you") { const d = Math.hypot(n.pos.x, n.pos.z); n.wv = smoothstep01(d - .9, d - .1, R); }
+    if (flipU >= 1) endTurn();
   }
   const youN = nodes.get("you");                                           // Earth turns white on the agents side
   if (youN?.mesh.material.uniforms?.uFill) {
-    const goal = Math.max(MODE === "agents" ? 1 : 0, FLIP ? Math.sin(Math.PI * flipU) : 0);
+    const goal = Math.max(MODE === "agents" ? 1 : 0, FLIP ? Math.max(0, 1 - flipU * 3) : 0);   // a white flash as the turn leaves Earth
     EARTH_W += (goal - EARTH_W) * Math.min(1, dt * 3.2);
     const u = youN.mesh.material.uniforms; youN.fill0 ||= u.uFill.value.clone(); youN.rim0 ||= u.uC.value.clone();
     u.uFill.value.copy(youN.fill0).lerp(EARTH_FILL_W, EARTH_W); u.uC.value.copy(youN.rim0).lerp(EARTH_RIM_W, EARTH_W);
@@ -3788,7 +3880,9 @@ function frame(now) {
     n.energy *= Math.pow(.2, dt); n.flash *= Math.pow(.06, dt); n.spawn = Math.min(1, n.spawn + dt * 1.5);
     n.group.position.copy(n.pos);
     const appear = 1 - Math.pow(1 - n.spawn, 3);
-    const s = n.r * appear * (1 + n.energy * .15) * (st.selected === n.id ? 1.12 : 1);
+    const wv = n.wv ?? 1;
+    if (wv < 1) { n.group.position.y += (1 - wv) * .9; n.group.rotation.x = -(1 - wv) * Math.PI * .5; } else if (n.group.rotation.x) n.group.rotation.x = 0;
+    const s = n.r * appear * (1 + n.energy * .15) * (st.selected === n.id ? 1.12 : 1) * Math.max(.001, wv);
     n.mesh.scale.setScalar(s);
     if (n.d.kind !== "aim") n.mesh.rotation.y += dt * .25 * motion;
     if (n.d.kind === "source") n.mesh.rotation.x += dt * .5 * motion;
@@ -3811,13 +3905,13 @@ function frame(now) {
       const o = n.orbit, p = nodes.get(o.parent);
       n.orbitLine.position.copy(p ? p.pos : _v.set(0, 0, 0)); n.orbitLine.scale.setScalar(Math.max(.01, o.r)); n.orbitLine.rotation.x = -o.incl;
       const base = n.d.kind === "belief" ? (o.parent === focusParent ? .14 : .03) : n.d.kind === "slot" ? .07 : .16;
-      setOp(n.orbitLine.material, base + ((hovered === n || st.selected === n.id) ? .25 : 0));
+      setOp(n.orbitLine.material, (base + ((hovered === n || st.selected === n.id) ? .25 : 0)) * (n.wv ?? 1));
     }
     if (n.label) {
       v3.copy(n.pos).project(camera);
       const vis = v3.z < 1 && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
       const minor = !n.d.pool && (n.d.kind === "database" || n.d.kind === "skill");
-      const show = !FLIP && vis && (minor ? (hovered === n || drag?.target === n || drag?.n === n || camera.position.distanceTo(n.pos) < 13) : (labelsAlways || n.d.pool || hovered === n || st.selected === n.id || n.d.kind === "aim" || n.d.kind === "user"));
+      const show = (n.wv ?? 1) > .85 && vis && (minor ? (hovered === n || drag?.target === n || drag?.n === n || camera.position.distanceTo(n.pos) < 13) : (labelsAlways || n.d.pool || hovered === n || st.selected === n.id || n.d.kind === "aim" || n.d.kind === "user"));
       n.label.style.opacity = show ? (n.d.kind === "slot" ? .55 : 1) : 0;
       n.label.style.transition = FLIP ? "none" : "";
       if (vis) {

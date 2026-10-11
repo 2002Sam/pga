@@ -118,6 +118,40 @@ class OpenAICompatibleProvider:
                          output_tokens=int(usage.get("completion_tokens", 0)),
                          model=data.get("model") or model, provider=self.name, tier=-1)
 
+    def stream(self, *, model: str, system: str, messages: list[dict[str, str]], max_tokens: int,
+               temperature: float | None, on_delta: Callable[[str], None]) -> LLMResult:
+        """Same as complete(), but the text arrives piece by piece (server-sent events) and each piece is passed
+        to `on_delta` as it comes — the agent chat shows the answer flowing."""
+        body: dict[str, Any] = {"model": model, "max_tokens": max_tokens, "stream": True, "stream_options": {"include_usage": True},
+                                "messages": ([{"role": "system", "content": system}] if system else []) + messages}
+        if temperature is not None:
+            body["temperature"] = temperature
+        parts: list[str] = []
+        usage: dict = {}
+        used_model = model
+        with self._client.stream("POST", "/chat/completions", json=body) as resp:
+            if resp.status_code >= 400:
+                raise LLMError(f"{self.name} returned HTTP {resp.status_code}: {resp.read()[:300]!r}")
+            for line in resp.iter_lines():
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                used_model = chunk.get("model") or used_model
+                usage = chunk.get("usage") or usage
+                for ch in chunk.get("choices") or []:
+                    piece = (ch.get("delta") or {}).get("content") or ""
+                    if piece:
+                        parts.append(piece)
+                        on_delta(piece)
+        return LLMResult(text="".join(parts), input_tokens=int(usage.get("prompt_tokens", 0)),
+                         output_tokens=int(usage.get("completion_tokens", 0)), model=used_model, provider=self.name, tier=-1)
+
 
 class ClaudeCLIProvider:
     """Runs each call through the official Claude Code CLI (`claude -p`), so it draws on the
