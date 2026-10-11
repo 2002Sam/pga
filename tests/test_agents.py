@@ -109,7 +109,8 @@ def test_api_config_status_background_run_and_history(session_factory, policy, p
     with TestClient(app) as c:
         uid = c.post("/v1/users", json={"locale": "en"}).json()["id"]
         view = c.get("/v1/agents").json()
-        assert view["configured"] is False and {"claude", "codex", "hermes", "model"} <= set(view["agents"])
+        assert view["configured"] is False and {"deepseek", "chatgpt", "claude", "workbuddy", "codex", "hermes"} <= set(view["agents"])
+        assert view["routing"]["categories"]["office"]["prefer"][0] == "workbuddy" and "quota" in view["status"]["chatgpt"]
         assert c.put("/v1/agents", json={**cfg, "agents": {"x": {"adapter": "nope"}}}).status_code == 422
         bad_flow = {**cfg, "workflows": {"w": {"pattern": "single", "agents": ["ghost"]}}}
         assert c.put("/v1/agents", json=bad_flow).status_code == 422

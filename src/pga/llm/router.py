@@ -7,6 +7,8 @@ Resource Allocator's job, which runs before any tier ≥ 2 call.
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 import json
 import logging
 import os
@@ -216,11 +218,18 @@ def default_fake_reply(model: str, system: str, messages: list[dict[str, str]]) 
     return f"[{model} offline] {last}"
 
 
+# the kind of run the current call belongs to (set by RunTracker.track), so a delegate can route it to an agent
+CURRENT_TASK: ContextVar[str | None] = ContextVar("pga_current_task", default=None)
+
+
 class LLMRouter:
     def __init__(self, policy: LLMPolicy, provider: LLMProvider, usage_sink: UsageSink | None = None):
         self.policy = policy
         self.provider = provider
         self.usage_sink = usage_sink
+        # optional: (task kind, tier, system, messages, max_tokens) → LLMResult | None. The agent router plugs in here
+        # so long-term work can go to Claude / ChatGPT / WorkBuddy; None means "use the provider".
+        self.delegate: Callable[..., LLMResult | None] | None = None
 
     @property
     def provider_name(self) -> str:
@@ -236,10 +245,19 @@ class LLMRouter:
 
     def complete(self, tier: int, *, system: str = "", messages: list[dict[str, str]],
                  max_tokens: int = 1024, temperature: float | None = None,
-                 usage: UsageContext | None = None) -> LLMResult:
+                 usage: UsageContext | None = None, delegate: bool = True) -> LLMResult:
         model = self.model_for(tier)
-        result = self.provider.complete(model=model, system=system, messages=messages,
-                                        max_tokens=max_tokens, temperature=temperature)
+        result = None
+        kind = CURRENT_TASK.get()
+        if delegate and self.delegate is not None and kind:
+            try:
+                result = self.delegate(kind, tier, system, messages, max_tokens)
+            except Exception as exc:  # noqa: BLE001 - routing must never break the work; fall back to the provider
+                log.warning("agent routing failed for %s: %s", kind, exc)
+                result = None
+        if result is None:
+            result = self.provider.complete(model=model, system=system, messages=messages,
+                                            max_tokens=max_tokens, temperature=temperature)
         result.tier = tier
         log.debug("llm tier=%s model=%s in=%s out=%s", tier, model, result.input_tokens, result.output_tokens)
         if self.usage_sink and usage:

@@ -132,6 +132,8 @@ class RunService:
         """`with runs.track(decision) as guard:` — starts, guards and always closes the run record."""
         run = self.start(decision, now)
         guard = RunGuard(self.session, run, decision.limits, now)
+        from pga.llm.router import CURRENT_TASK
+        task = CURRENT_TASK.set(decision.kind)                  # lets the agent router see what kind of work this is
         try:
             yield guard
         except RunBudgetExceeded as exc:
@@ -148,6 +150,8 @@ class RunService:
                 # the work finished; flag the overspend for review instead of discarding the result
                 reason += f" (over budget: {used:.0f} > {float(max_units):.0f} units)"
             self._close(guard, RunStatus.SUCCEEDED, reason)
+        finally:
+            CURRENT_TASK.reset(task)
 
     def _close(self, guard: RunGuard, status: RunStatus, reason: str, error: str | None = None) -> None:
         self.finish(guard.run, status=status, stop_reason=reason, new_evidence=guard.new_evidence,

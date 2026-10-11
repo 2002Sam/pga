@@ -57,29 +57,78 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[3]                           # …/pga
 CONFIG = Path(os.environ.get("PGA_AGENTS_FILE") or ROOT / "agents.yaml")
 PATTERNS = ("single", "council", "convoy")
+# routing modes (internal preference): weights for (preference order, quality, speed, cost, remaining usage)
+MODES = {"performance": (3.0, 2.0, 0.5, 0.0, 1.0), "balanced": (3.0, 1.0, 1.0, 1.0, 1.5),
+         "economy": (2.0, 0.5, 0.5, 2.5, 2.0), "speed": (2.0, 0.5, 2.5, 0.5, 1.0)}
+
+CHATGPT_CODEX = "/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex"       # newer than ~/.local/bin/codex
+WORKBUDDY_CLI = "/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy"
 
 DEFAULT: dict[str, Any] = {
+    # traits: 1–5 (quality, speed, cost — cost 5 = most expensive); quota: where "remaining usage" comes from
     "agents": {
-        "model": {"adapter": "llm", "tier": 2, "role": "PGA 自己的模型（设置 → 模型与 API）",
-                  "capabilities": ["research", "review", "write", "plan", "general"], "max_concurrent": 3},
-        "claude": {"adapter": "claude_local", "role": "工程师 · Claude Code（订阅）",
-                   "capabilities": ["code", "review", "research", "write", "plan", "general"], "timeout_s": 900, "max_turns": 40},
-        "codex": {"adapter": "codex_local", "role": "工程师 · Codex CLI", "capabilities": ["code", "review", "general"],
-                  "timeout_s": 900, "max_turns": 40},
-        "hermes": {"adapter": "hermes_local", "role": "研究助理 · Hermes Agent", "capabilities": ["research", "write", "general"],
-                   "timeout_s": 600, "max_turns": 30},
-        "gemini": {"adapter": "gemini_local", "role": "Gemini CLI", "capabilities": ["research", "review", "general"]},
+        "deepseek": {"adapter": "llm", "tier": 2, "role": "日常快速 · DeepSeek（PGA 自己的模型）", "max_concurrent": 3,
+                     "capabilities": ["quick", "serious", "research", "review", "write", "plan", "general"],
+                     "traits": {"quality": 3, "speed": 5, "cost": 1}, "quota": {"source": "deepseek_balance", "full": 50},
+                     "link": "DeepSeek API（设置 → 模型与 API 里的通道和密钥），PGA 直接调用"},
+        "chatgpt": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "严肃问题 · ChatGPT（gpt-astra）",
+                    "capabilities": ["serious", "research", "review", "write", "code", "general"], "reasoning": "medium",
+                    "timeout_s": 600, "max_turns": 20, "traits": {"quality": 5, "speed": 2, "cost": 3},
+                    "quota": {"source": "codex_sessions"},
+                    "link": "ChatGPT 应用自带的 Codex CLI（codex exec，只读沙箱），用你登录的 ChatGPT 账号；默认模型 = ~/.codex/config.toml（gpt-astra）"},
+        "claude": {"adapter": "claude_local", "role": "代码 · Claude Code（订阅）",
+                   "capabilities": ["code", "serious", "review", "research", "write", "plan", "general"], "timeout_s": 900,
+                   "max_turns": 40, "traits": {"quality": 5, "speed": 3, "cost": 3},
+                   "quota": {"source": "observed", "window_hours": 5, "window_runs": 40},
+                   "link": "Claude Code CLI（claude -p），Claude 订阅；后台服务需要 `claude setup-token` 生成的令牌"},
+        "workbuddy": {"adapter": "codebuddy_local", "command": WORKBUDDY_CLI, "role": "办公 · WorkBuddy",
+                      "capabilities": ["office", "write", "general"], "timeout_s": 600, "max_turns": 30,
+                      "traits": {"quality": 4, "speed": 3, "cost": 2}, "quota": {"source": "observed", "window_hours": 24, "window_runs": 60},
+                      "link": "WorkBuddy 应用自带的 CodeBuddy CLI（codebuddy -p），文件只写进它自己的工作目录；需要 CODEBUDDY_API_KEY 或在终端运行一次 codebuddy 登录"},
+        "hermes": {"adapter": "hermes_local", "role": "研究助理 · Hermes Agent", "capabilities": ["research", "serious", "write", "quick", "general"],
+                   "timeout_s": 600, "max_turns": 30, "traits": {"quality": 4, "speed": 3, "cost": 3},
+                   "quota": {"source": "codex_sessions"},
+                   "link": "Hermes Agent CLI（hermes chat -Q），用 ~/.hermes 里的模型（openai-codex · gpt-astra，与 ChatGPT 共用额度）"},
+        "codex": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "工程师 · Codex", "capabilities": ["code", "review", "general"],
+                  "timeout_s": 900, "max_turns": 40, "traits": {"quality": 4, "speed": 2, "cost": 3}, "quota": {"source": "codex_sessions"},
+                  "link": "同 ChatGPT 的 Codex CLI，但用于写代码（工作目录可写）"},
+        "gemini": {"adapter": "gemini_local", "role": "Gemini CLI", "capabilities": ["research", "review", "general"],
+                   "traits": {"quality": 4, "speed": 3, "cost": 2}, "quota": {"source": "observed", "window_hours": 24, "window_runs": 100},
+                   "link": "Gemini CLI（gemini -p）；本机未安装"},
     },
     "workflows": {
-        "general": {"pattern": "single", "agents": ["model", "claude", "hermes"], "label": "一般问题 · 一个 agent 回答"},
+        "general": {"pattern": "single", "agents": ["deepseek", "chatgpt", "hermes"], "label": "一般问题 · 一个 agent 回答"},
         "implement": {"pattern": "single", "agents": ["claude", "codex"], "permissions": WORKSPACE_WRITE,
                       "label": "写代码 · 在工作目录里改文件（自我改进用它）"},
-        "review": {"pattern": "council", "members": ["claude", "codex", "model"], "chair": "model", "peer_review": True,
+        "review": {"pattern": "council", "members": ["claude", "chatgpt", "deepseek"], "chair": "chatgpt", "peer_review": True,
                    "label": "评审 · 多个 agent 各自评审、互评、再综合"},
-        "research": {"pattern": "council", "members": ["model", "hermes", "claude"], "chair": "model", "peer_review": True,
+        "research": {"pattern": "council", "members": ["chatgpt", "hermes", "claude", "deepseek"], "chair": "chatgpt", "peer_review": True,
                      "label": "研究 · 议会：并行回答 → 匿名互评 → 主席综合"},
-        "deep_dive": {"pattern": "convoy", "planner": "model", "workers": ["claude", "hermes", "model"], "merge": "model",
+        "deep_dive": {"pattern": "convoy", "planner": "deepseek", "workers": ["chatgpt", "claude", "hermes"], "merge": "chatgpt",
                       "max_subtasks": 4, "label": "深挖 · 车队：拆成子任务并行做，再合并"},
+    },
+    # how work is dispatched: each category prefers agents in order; the mode weighs quality / speed / cost;
+    # agents low on remaining usage drop down or out
+    "routing": {
+        "enabled": True,
+        "mode": "performance",                      # performance 性能优先 | balanced 均衡 | economy 省钱 | speed 速度优先
+        "long_tasks": True,                         # route the work of long-term responsibilities too (not only the chat box)
+        "min_remaining": 0.1,                       # skip an agent with less than 10% of its usage left
+        "categories": {
+            "code": {"label": "代码", "prefer": ["claude", "codex", "chatgpt", "workbuddy", "deepseek"]},
+            "serious": {"label": "严肃问题", "prefer": ["chatgpt", "claude", "hermes", "deepseek"]},
+            "office": {"label": "办公", "prefer": ["workbuddy", "chatgpt", "claude", "deepseek"]},
+            "quick": {"label": "日常快速", "prefer": ["deepseek", "hermes", "chatgpt"]},
+        },
+        # which internal tasks belong to which category (others stay on PGA's own model)
+        "task_kinds": {
+            "serious": ["synthesis", "deep_research", "comparison", "exploration", "motivation_forward", "r0_forward",
+                        "evolution_diagnose", "evolution_review", "evolution_propose", "evolution_propose_strong",
+                        "critical_validation", "high_priority_artifact", "aim_expand"],
+            "code": ["evolution_implement"],
+            "quick": ["translation", "classification", "extraction", "event_scoring", "monitoring", "layers_build",
+                      "hub_summary", "hub_background"],
+        },
     },
     "run": {"max_parallel": 3, "retries": 1, "max_backoff_s": 20, "daily_usd_cap": 10.0, "default_timeout_s": 300,
             "workspace_root": str(ROOT.parent / "workspaces")},
@@ -115,11 +164,15 @@ def load() -> dict:
         data = yaml.safe_load(CONFIG.read_text(encoding="utf-8")) or {}
     else:
         data = {}
-    out = {"agents": dict(DEFAULT["agents"]), "workflows": dict(DEFAULT["workflows"]), "run": dict(DEFAULT["run"])}
+    import copy
+    out = copy.deepcopy({k: DEFAULT[k] for k in ("agents", "workflows", "routing", "run")})
     if data:
         out["agents"] = data.get("agents") or {}
         out["workflows"] = data.get("workflows") or {}
         out["run"] = {**DEFAULT["run"], **(data.get("run") or {})}
+        r = data.get("routing") or {}
+        out["routing"] = {**out["routing"], **r, "categories": r.get("categories") or out["routing"]["categories"],
+                          "task_kinds": r.get("task_kinds") or out["routing"]["task_kinds"]}
     return out
 
 
@@ -142,11 +195,19 @@ def validate(data: dict) -> dict:
                 raise PoolError(f"workflow {name}: unknown agent {r!r}")
         if w.get("permissions", READ_ONLY) not in (READ_ONLY, WORKSPACE_WRITE):
             raise PoolError(f"workflow {name}: permissions must be {READ_ONLY} or {WORKSPACE_WRITE}")
+    r = data.get("routing") or {}
+    if r.get("mode", "performance") not in MODES:
+        raise PoolError(f"routing mode must be one of {list(MODES)}")
+    for cat, c in (r.get("categories") or {}).items():
+        for n in c.get("prefer") or []:
+            if n not in agents:
+                raise PoolError(f"routing {cat}: unknown agent {n!r}")
     return data
 
 
 def save(data: dict) -> dict:
-    data = validate({"agents": data.get("agents") or {}, "workflows": data.get("workflows") or {}, "run": data.get("run") or {}})
+    data = validate({"agents": data.get("agents") or {}, "workflows": data.get("workflows") or {},
+                     "routing": data.get("routing") or {}, "run": data.get("run") or {}})
     header = ("# PGA agent pool — which agents exist and how each kind of work is run.\n"
               "# adapters: claude_local | codex_local | hermes_local | gemini_local | opencode_local | process | http | llm\n"
               "# patterns: single (first available) · council (answer → peer review → chair) · convoy (plan → parallel → merge)\n")
@@ -202,6 +263,9 @@ class AgentPool:
         self.rt = rt
         self.cfg = config or load()
         self.runcfg = self.cfg["run"]
+        if "routing" not in self.cfg:
+            import copy
+            self.cfg["routing"] = copy.deepcopy(DEFAULT["routing"])
         self.adapters: dict[str, Adapter] = {}
         for name, a in self.cfg["agents"].items():
             cls = ADAPTERS.get(a.get("adapter"))

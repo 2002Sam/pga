@@ -95,6 +95,10 @@ def _isolated_model_config(tmp_path, monkeypatch):
     from pga.agents import pool
     monkeypatch.setattr(pool, "CONFIG", tmp_path / "agents.yaml")          # …nor the real agents.yaml or snapshot folder
     monkeypatch.setattr(snapshot, "SNAP_DIR", tmp_path / "snapshots")
+    monkeypatch.setitem(pool.DEFAULT["routing"], "enabled", False)          # …nor call real agent CLIs
+    from pga.agents import quota
+    monkeypatch.setattr(quota, "CODEX_SESSIONS", tmp_path / "codex-sessions")
+    quota.clear()
 
 
 @pytest.fixture(scope="session")

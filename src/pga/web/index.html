@@ -564,6 +564,79 @@ form.add { background: transparent; }
 /* settings, toast */
 dialog.settings { background: #070707 !important; border: 1px solid var(--line-3); box-shadow: none; }
 dialog.settings::backdrop { background: rgba(0,0,0,.75); }
+/* ---------------------------------------------------------------- the agent constellation (调度星图) */
+.face.agents { background: #05070a; color: var(--text); }
+#agSky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
+#wormhole { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 400; pointer-events: none; }
+.ag-top { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 14px 18px; pointer-events: none; flex-wrap: wrap; }
+.ag-top > * { pointer-events: auto; }
+.ag-title { font: var(--cap); font-size: 11px; letter-spacing: .34em; color: #e9a94b; text-transform: uppercase; white-space: nowrap; }
+.ag-title b { color: #f3e6c9; font-weight: 400; margin-left: 10px; letter-spacing: .22em; }
+.ag-btn { border: 1px solid rgba(233,169,75,.45); color: #f3d38a; background: rgba(8,10,12,.7); padding: 6px 12px; font: var(--cap); font-size: 10px; letter-spacing: .16em; cursor: pointer; border-radius: 0; }
+.ag-btn:hover { background: rgba(233,169,75,.14); color: #fff3d6; }
+.ag-btn.on { background: rgba(233,169,75,.22); color: #fff3d6; border-color: #e9a94b; }
+.ag-btn:disabled { opacity: .45; cursor: default; }
+.ag-spend { font: var(--cap); font-size: 10px; letter-spacing: .1em; color: rgba(243,211,138,.7); }
+.ag-panel { position: absolute; z-index: 3; background: rgba(6,8,10,.84); border: 1px solid rgba(233,169,75,.26); padding: 14px 16px; overflow: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(233,169,75,.3) transparent; font-size: 12.5px; }
+.ag-panel::before, .ag-panel::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid #e9a94b; pointer-events: none; }
+.ag-panel::before { left: -4px; top: -4px; border-width: 1px 0 0 1px; } .ag-panel::after { right: -4px; bottom: -4px; border-width: 0 1px 1px 0; }
+.ag-left { left: 16px; top: 62px; width: 282px; bottom: 236px; }
+.ag-right { right: 16px; top: 62px; width: 336px; bottom: 236px; }
+.ag-h { display: flex; align-items: baseline; gap: 8px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: #e9a94b; text-transform: uppercase; margin-bottom: 8px; }
+.ag-h small { color: var(--muted); letter-spacing: .08em; text-transform: none; }
+.ag-h .x { margin-left: auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; }
+.ag-sub { color: var(--muted); font-size: 11.5px; line-height: 1.55; margin-bottom: 8px; }
+.ag-modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 6px 0 10px; }
+.ag-modes .ag-btn { padding: 6px 2px; letter-spacing: .06em; font-size: 10px; }
+.ag-tog { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; margin: 6px 0 10px; cursor: pointer; }
+.ag-tog input { width: auto; margin-top: 2px; accent-color: #e9a94b; }
+.ag-tog small { display: block; color: var(--muted); font-size: 10.5px; line-height: 1.5; }
+.ag-cat { padding: 9px 0; border-top: 1px solid rgba(233,169,75,.16); }
+.ag-cat .t { font-size: 12.5px; color: #f3e6c9; margin-bottom: 6px; display: flex; gap: 6px; align-items: baseline; }
+.ag-cat .t small { color: var(--dim); font: var(--cap); font-size: 9px; letter-spacing: .14em; }
+.ag-cat.hot .t { color: #ffd98a; }
+.ag-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.ag-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px; border: 1px solid rgba(233,169,75,.38); font-size: 11.5px; color: #f3e6c9; cursor: pointer; }
+.ag-chip.first { border-color: #e9a94b; background: rgba(233,169,75,.12); }
+.ag-chip.off { opacity: .45; border-style: dashed; }
+.ag-chip i { font-style: normal; color: rgba(243,211,138,.7); font-size: 10px; }
+.ag-chip button { border: 0; background: transparent; color: var(--muted); padding: 0 2px; cursor: pointer; font-size: 11px; }
+.ag-chip button:hover { color: #fff; }
+.ag-cat select { width: auto; font-size: 11px; padding: 2px 4px; margin-top: 5px; background: transparent; border: 1px dashed rgba(233,169,75,.3); color: var(--muted); }
+.ag-kv { display: grid; grid-template-columns: 64px 1fr; gap: 6px 10px; font-size: 12px; margin: 8px 0; }
+.ag-kv dt { color: var(--muted); font: var(--cap); font-size: 9.5px; letter-spacing: .14em; padding-top: 2px; }
+.ag-kv dd { margin: 0; overflow-wrap: anywhere; line-height: 1.55; }
+.ag-qbar { height: 4px; background: rgba(233,169,75,.14); margin: 4px 0; } .ag-qbar i { display: block; height: 100%; background: #e9a94b; }
+.ag-traits { display: grid; grid-template-columns: 42px 1fr; gap: 5px 8px; align-items: center; font-size: 11.5px; margin: 6px 0; }
+.ag-traits span { color: var(--muted); } .ag-dots { display: flex; gap: 3px; }
+.ag-dots button { width: 18px; height: 14px; border: 1px solid rgba(233,169,75,.4); background: transparent; cursor: pointer; padding: 0; }
+.ag-dots button.on { background: rgba(233,169,75,.75); }
+.ag-out { margin-top: 8px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
+.ag-out.ok { color: #f3d38a; } .ag-out.bad { color: var(--acc-2); }
+.ag-chat { left: 50%; transform: translateX(-50%); bottom: 14px; width: min(780px, calc(100% - 32px)); max-height: 222px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: hidden; }
+.ag-chat:focus-within, .ag-chat.busy { max-height: min(56vh, 520px); z-index: 6; }
+.ag-chat:focus-within .ag-log, .ag-chat.busy .ag-log { max-height: calc(min(56vh, 520px) - 120px); }
+.ag-msg code { font-family: var(--mono); font-size: 12px; background: rgba(233,169,75,.1); padding: 0 3px; }
+.ag-msg b { color: #ffe3a6; font-weight: 600; }
+.ag-picker { display: flex; flex-wrap: wrap; gap: 4px; }
+.ag-picker .ag-btn { padding: 4px 9px; letter-spacing: .06em; font-size: 10.5px; text-transform: none; }
+.ag-picker .ag-btn.dead { opacity: .38; }
+.ag-log { overflow: auto; max-height: 106px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; }
+.ag-log:empty { display: none; }
+.ag-msg { font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ag-msg.me { align-self: flex-end; max-width: 80%; padding: 6px 10px; border: 1px solid rgba(220,232,238,.18); color: #e9e4da; }
+.ag-msg.it { padding-left: 10px; border-left: 2px solid #e9a94b; color: #efe7d6; }
+.ag-msg.it .m { display: block; font: var(--cap); font-size: 9.5px; letter-spacing: .12em; color: rgba(243,211,138,.8); margin-bottom: 3px; white-space: normal; }
+.ag-msg.it.err { border-left-color: var(--acc-2); color: var(--muted); }
+.ag-msg .files { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
+.ag-ask { display: flex; gap: 8px; align-items: flex-end; }
+.ag-ask textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; background: rgba(0,0,0,.35); border: 1px solid rgba(233,169,75,.3); color: var(--text); font-size: 13px; padding: 8px 10px; }
+.ag-ask textarea:focus { border-color: #e9a94b; outline: none; box-shadow: none; }
+.ag-ask .ag-btn { height: 38px; padding: 0 16px; }
+@media (max-width: 1100px) { .ag-left { display: none; } .ag-left.show { display: block; z-index: 5; } }
+@media (max-width: 760px) { .ag-right { left: 12px; right: 12px; width: auto; bottom: 46vh; } .ag-chat { max-height: 52vh; } }
+
 /* settings → agent pool */
 .ag-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .ag-row input[type=checkbox] { width: auto; margin: 0; }
@@ -763,7 +836,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
     <div id="labels"></div>
     <div class="hud tl">
       <div class="legend"><span><i style="background:#000 !important"></i>黑洞 · 抱负</span><span><i style="background:#eef1f2 !important"></i>白色星球 · 数据库</span><span><i style="transform:rotate(45deg)"></i>晶体 · 技能</span><span><i></i>暗色行星 · agent</span><span><i class="f"></i>卫星 · 判断 / 证据</span><span><i></i>地球 · 你</span></div>
-      <div class="hint">单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
+      <div class="hint">单击地球：穿过虫洞到 agent 调度星图 · 单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
     </div>
     <div class="state-pill" id="statePill">STANDBY</div>
     <div id="feed" aria-live="polite"></div>
@@ -838,7 +911,26 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
   </div>
 </section>
 </div>
-</div><div class="glare" id="glare"></div></div>
+</div>
+<div class="face agents idle-hidden" id="faceAgents" aria-label="Agent 调度星图">
+  <canvas id="agSky" aria-label="agent 星系：每颗星是一个 agent，金线是调度偏好"></canvas>
+  <div class="ag-top">
+    <span class="ag-title">Agent Constellation<b>调度星图</b></span>
+    <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
+    <span class="grow"></span>
+    <span class="ag-spend" id="agSpend"></span>
+    <button class="ag-btn" id="agToAtlas" title="你和各个 AI 的历史对话星图">对话星图</button>
+    <button class="ag-btn" id="agBack" title="穿回星空">← 星空</button>
+  </div>
+  <aside class="ag-panel ag-left" id="agRoutes"></aside>
+  <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
+  <section class="ag-panel ag-chat" id="agChat">
+    <div class="ag-picker" id="agPicker"></div>
+    <div class="ag-log" id="agLog"></div>
+    <form class="ag-ask" id="agAsk"><textarea id="agInput" rows="1" placeholder="问一个问题 · 选「自动」会按类别、偏好和剩余用量挑 agent（Enter 发送，Shift+Enter 换行）"></textarea><button class="ag-btn" type="submit" id="agSend">发送</button></form>
+  </section>
+</div>
+<div class="glare" id="glare"></div></div><canvas id="wormhole" hidden aria-hidden="true"></canvas>
 
 <dialog class="settings" id="settings">
   <form method="dialog">
@@ -1101,7 +1193,7 @@ function bindUI() {
   $("#testNotify").onclick = testNotify;
   bindHub();
   $("#modeTag").onclick = openSettings;
-  bindModels(); bindAgents();
+  bindModels(); bindAgents(); bindAgentView();
   $("#provider").onclick = openSettings; $("#provider").style.cursor = "pointer";
   $("#settings").addEventListener("change", (e) => {
     const el = e.target; if (!el.name) return;
@@ -1183,6 +1275,327 @@ function openSettings() {
 const dur = (s) => { s = Math.round(s || 0); return s < 90 ? `${s} 秒` : s < 5400 ? `${Math.round(s / 60)} 分钟` : s < 172800 ? `${(s / 3600).toFixed(1)} 小时` : `${(s / 86400).toFixed(1)} 天`; };
 
 /* ---------------------------------------------------------------- settings → agent pool */
+/* ---------------------------------------------------------------- the agent constellation (调度星图)
+   Earth → page turn → wormhole → a gold star map of every agent: strings from each category (代码 / 严肃 / 办公 / 日常)
+   to the agents it prefers, an arc of remaining usage around each, the dispatch rules on the left, one agent's
+   connection and settings on the right, and a chat that can name an agent or let routing choose. */
+const AGV = { data: null, sel: null, hover: null, hoverCat: null, chat: store.json("pga_agchat", []), pick: "auto", pulses: [], raf: 0, busy: false, pos: {}, cats: {}, earth: null };
+const GOLD = "233,169,75", GOLDHI = "255,222,150", PALE = "214,222,226";
+const CAT_ZH = { code: "代码", serious: "严肃问题", office: "办公", quick: "日常快速" };
+const MODE_ZH = { performance: "性能优先", balanced: "均衡", economy: "省钱", speed: "速度优先" };
+const CAT_ANGLE = { code: -2.45, serious: -0.69, office: 0.69, quick: 2.45 };
+const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+async function loadAgentView() {
+  try { AGV.data = await api("/v1/agents"); } catch (e) { toast("读取 agent 失败：" + e.message); return; }
+  if (AGV.sel && !AGV.data.agents[AGV.sel]) AGV.sel = null;
+  $("#agSpend").textContent = `今天外部 agent 花费 $${(AGV.data.spent_today || 0).toFixed(2)} / $${(+AGV.data.run.daily_usd_cap || 0).toFixed(0)}`;
+  renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
+}
+
+/* ---- the wormhole: Earth turns like a page, a gold tunnel opens, the constellation turns in */
+async function wormholeTo(target) {
+  if (S.flipping) return;
+  const front = $("#faceFront"), ag = $("#faceAgents"), back = $("#faceBack");
+  const from = [front, ag, back].find((f) => !f.classList.contains("idle-hidden")), to = target === "agents" ? ag : front;
+  if (!from || from === to) return;
+  S.flipping = true; pushState({ flipping: true });
+  const m = $("#main").getBoundingClientRect(), b = from === front ? window.PGA_BODY?.("you") : null;
+  const origin = b && b.visible ? { x: m.left + b.x, y: m.top + b.y } : { x: innerWidth / 2, y: innerHeight * .45 };
+  if (target === "agents") await Promise.race([loadAgentView(), new Promise((r) => setTimeout(r, 900))]);
+  const cv = $("#wormhole"), dpr = Math.min(2, devicePixelRatio || 1);
+  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cv.hidden = false;
+  const T = 2200, t0 = performance.now();
+  from.style.transformOrigin = `${origin.x}px ${origin.y}px`;
+  const out = from.animate([{ transform: "perspective(1400px) rotateY(0deg) scale(1)", opacity: 1, filter: "brightness(1)" },
+                            { transform: "perspective(1400px) rotateY(86deg) scale(.78)", opacity: .15, filter: "brightness(2.2) sepia(.6)" }],
+                           { duration: T * .44, easing: "cubic-bezier(.6,0,.8,.25)", fill: "forwards" });
+  let swapped = false;
+  const swap = () => {
+    if (swapped) return; swapped = true;
+    out.cancel(); from.style.transformOrigin = ""; from.classList.add("idle-hidden"); to.classList.remove("idle-hidden");
+    if (target === "agents") startAgentSky(); else stopAgentSky();
+    to.animate([{ transform: "perspective(1400px) rotateY(-86deg) scale(.78)", opacity: .1, filter: "brightness(2)" },
+                { transform: "perspective(1400px) rotateY(0deg) scale(1)", opacity: 1, filter: "brightness(1)" }],
+               { duration: T * .46, easing: "cubic-bezier(.15,.75,.3,1)" });
+  };
+  await new Promise((done) => {
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / T);
+      drawWormhole(cv, dpr, t, origin);
+      if (t > .5) swap();
+      if (t < 1) requestAnimationFrame(step); else done();
+    };
+    requestAnimationFrame(step);
+    setTimeout(done, T + 1200);                            // a hidden tab does not animate: still arrive
+  });
+  swap(); cv.hidden = true;
+  S.flipping = false; pushState({ flipping: false, flipped: target !== "front" });
+  if (target === "front") { window.dispatchEvent(new Event("resize")); MON.dirty = true; }
+}
+function drawWormhole(cv, dpr, t, origin) {
+  const ctx = cv.getContext("2d"), W = innerWidth, H = innerHeight;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const env = Math.sin(Math.PI * t), dark = smooth(.12, .42, t) * (1 - smooth(.6, .96, t));
+  const c = { x: origin.x + (W / 2 - origin.x) * smooth(0, .45, t), y: origin.y + (H * .45 - origin.y) * smooth(0, .45, t) };
+  if (dark > 0) { ctx.fillStyle = `rgba(3,4,6,${.94 * dark})`; ctx.fillRect(0, 0, W, H); }
+  if (t < .3) {                                            // the iris: a gold ring bursting out of Earth
+    const k = t / .3;
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(origin.x, origin.y, 8 + Math.pow(k, 1.4) * (120 + i * 70), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${GOLDHI},${(1 - k) * (.9 - i * .25)})`; ctx.lineWidth = 2.2 - i * .6; ctx.stroke(); }
+  }
+  const R = Math.hypot(W, H) * .75, phase = t * t * 3.4, N = 36;
+  for (let i = 0; i < N; i++) {                            // rings of the tunnel rushing past
+    const z = (i / N + phase) % 1, r = 5 + Math.pow(z, 3.1) * R, rot = z * 1.7 + t * 2.6;
+    const a = env * Math.pow(1 - z, .55) * Math.min(1, z * 3.5);
+    if (a < .01) continue;
+    ctx.save(); ctx.translate(c.x + Math.sin(rot * .9) * z * 34, c.y + Math.cos(rot * .7) * z * 22); ctx.rotate(rot * .22);
+    ctx.beginPath(); ctx.ellipse(0, 0, r, r * (.74 + .14 * Math.sin(rot + i)), 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${i % 5 === 0 ? GOLDHI : GOLD},${a * .85})`; ctx.lineWidth = .5 + z * 2.6; ctx.stroke(); ctx.restore();
+  }
+  for (let k = 0; k < 170; k++) {                          // light streaking toward you
+    const h1 = (Math.sin(k * 12.9898) * 43758.5453) % 1, h2 = (Math.sin(k * 78.233 + 1.7) * 24634.6345) % 1;
+    const ang = Math.abs(h1) * Math.PI * 2 + t * .4, z = (Math.abs(h2) + phase * 1.4) % 1;
+    const r0 = Math.pow(z, 2.3) * R * .9, r1 = r0 * (1.05 + z * (.2 + env * .5)), a = env * z * (1 - z) * 2.6;
+    if (a < .02) continue;
+    ctx.beginPath(); ctx.moveTo(c.x + Math.cos(ang) * r0, c.y + Math.sin(ang) * r0 * .8); ctx.lineTo(c.x + Math.cos(ang) * r1, c.y + Math.sin(ang) * r1 * .8);
+    ctx.strokeStyle = `rgba(${k % 7 ? GOLD : PALE},${a})`; ctx.lineWidth = .6 + z * 1.4; ctx.stroke();
+  }
+  const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, 30 + env * 200);
+  g.addColorStop(0, `rgba(255,244,214,${.85 * env})`); g.addColorStop(.25, `rgba(${GOLD},${.45 * env})`); g.addColorStop(1, "rgba(233,169,75,0)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, 30 + env * 200, 0, Math.PI * 2); ctx.fill();
+}
+
+/* ---- the constellation */
+function startAgentSky() { if (!AGV.raf) AGV.raf = requestAnimationFrame(drawAgSky); }
+function stopAgentSky() { cancelAnimationFrame(AGV.raf); AGV.raf = 0; }
+function agLayout(W, H, t) {
+  const d = AGV.data; if (!d) return;
+  const names = Object.keys(d.agents), n = names.length;
+  const left = W > 1100 ? 300 : 0, right = AGV.sel && W > 760 ? 352 : 0, bottom = Math.min(H * .46, 240);
+  const cx = left + (W - left - right) / 2, cy = 70 + (H - 70 - bottom) * .5;
+  const rx = Math.max(140, Math.min((W - left - right) * .3, 420)), ry = Math.max(70, Math.min(rx * .42, (H - 70 - bottom) * .26));
+  AGV.earth = { x: cx, y: cy };
+  names.forEach((name, i) => {
+    const a = -Math.PI / 2 + (i / n) * Math.PI * 2 + t * .018;
+    const q = d.agents[name].traits?.quality || 3;
+    AGV.pos[name] = { x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry, r: 9 + q * 1.8, a };
+  });
+  for (const [cat, ang] of Object.entries(CAT_ANGLE)) AGV.cats[cat] = { x: cx + Math.cos(ang) * rx * 1.42, y: cy + Math.sin(ang) * ry * 1.95 };
+  AGV.geo = { cx, cy, rx, ry };
+}
+function trembleCurve(ctx, a, b, t, seed, bend) {
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
+  const off = bend + Math.sin(t * 1.9 + seed) * 4 + Math.sin(t * 5.3 + seed * 2) * 1.2;
+  const qx = mx - dy / L * off, qy = my + dx / L * off;
+  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(qx, qy, b.x, b.y);
+  return { qx, qy };
+}
+const qpt = (a, q, b, u) => ({ x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * q.qx + u * u * b.x, y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * q.qy + u * u * b.y });
+function drawAgSky(now) {
+  AGV.raf = requestAnimationFrame(drawAgSky);
+  const cv = $("#agSky"); if (!cv || !cv.clientWidth || !AGV.data) return;
+  const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const ctx = cv.getContext("2d"), t = now / 1000, d = AGV.data;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const bg = ctx.createRadialGradient(W * .5, H * .42, 0, W * .5, H * .42, Math.hypot(W, H) * .7);
+  bg.addColorStop(0, "#0d1014"); bg.addColorStop(1, "#040506"); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  agLayout(W, H, t);
+  const { cx, cy, rx, ry } = AGV.geo;
+  for (let k = 0; k < 15; k++) {                           // gold field lines, trembling like strings
+    const y0 = H * (k + .5) / 15; ctx.beginPath();
+    for (let x = 0; x <= W; x += 18) { const y = y0 + Math.sin(x * .0042 + k * 1.3 + t * .22) * 16 + Math.sin(x * .013 - t * .7 + k * 2.1) * 2.4 + (cy - y0) * .08 * Math.exp(-((x - cx) ** 2) / (rx * rx * 2)); x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.strokeStyle = `rgba(${GOLD},${.045 + .02 * Math.sin(t * .6 + k)})`; ctx.lineWidth = .8; ctx.stroke();
+  }
+  [[1, .2], [.56, .1], [1.42, .07]].forEach(([k, a]) => { ctx.beginPath(); ctx.ellipse(cx, cy, rx * k, ry * k * (k > 1.3 ? 1.37 : 1), 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},${a})`; ctx.lineWidth = .8; ctx.setLineDash(k > 1.3 ? [3, 6] : []); ctx.stroke(); });
+  ctx.setLineDash([]);
+  const st = d.status, rank = d.ranking || {};
+  for (const name of Object.keys(d.agents)) {               // spokes from you
+    const p = AGV.pos[name]; trembleCurve(ctx, AGV.earth, p, t, name.length, 0);
+    ctx.strokeStyle = `rgba(${GOLD},${st[name]?.available ? .16 : .06})`; ctx.lineWidth = .7; ctx.stroke();
+  }
+  for (const [cat, list] of Object.entries(rank)) {         // dispatch strings: category → agents in order
+    const a = AGV.cats[cat]; if (!a) continue;
+    list.slice(0, 4).forEach((r, i) => {
+      const p = AGV.pos[r.agent]; if (!p) return;
+      const hot = AGV.hoverCat === cat || AGV.sel === r.agent || AGV.hover === r.agent;
+      let alpha = r.usable ? [.9, .45, .26, .15][i] : .1; if (hot) alpha = Math.min(1, alpha * 1.8 + .1);
+      trembleCurve(ctx, a, p, t, i * 3.1 + cat.length, (i % 2 ? 1 : -1) * (14 + i * 6));
+      ctx.setLineDash(r.usable ? [] : [2, 5]); ctx.strokeStyle = `rgba(${r.usable ? GOLD : PALE},${alpha})`; ctx.lineWidth = i === 0 && r.usable ? 1.6 : .8; ctx.stroke(); ctx.setLineDash([]);
+    });
+  }
+  for (let i = AGV.pulses.length - 1; i >= 0; i--) {        // a question travelling: you → category → agent (and back)
+    const pu = AGV.pulses[i], u = (now - pu.t0) / pu.dur;
+    if (u >= 1) { AGV.pulses.splice(i, 1); continue; }
+    const pts = pu.path.map((k) => k === "earth" ? AGV.earth : k.startsWith("cat:") ? AGV.cats[k.slice(4)] : AGV.pos[k]).filter(Boolean);
+    if (pts.length < 2) continue;
+    const seg = Math.min(pts.length - 2, Math.floor(u * (pts.length - 1))), lu = u * (pts.length - 1) - seg;
+    const A = pts[seg], B = pts[seg + 1], x = A.x + (B.x - A.x) * lu, y = A.y + (B.y - A.y) * lu;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, 12); g.addColorStop(0, `rgba(255,240,200,.95)`); g.addColorStop(1, "rgba(233,169,75,0)");
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.font = `500 10px ${getComputedStyle(document.body).getPropertyValue("--mono") || "monospace"}`; ctx.textAlign = "center";
+  for (const [cat, a] of Object.entries(AGV.cats)) {        // the four categories
+    const hot = AGV.hoverCat === cat, first = (rank[cat] || []).find((r) => r.usable);
+    ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(Math.PI / 4); ctx.strokeStyle = `rgba(${GOLDHI},${hot ? 1 : .75})`; ctx.lineWidth = 1.2;
+    ctx.strokeRect(-6, -6, 12, 12); if (hot) { ctx.fillStyle = `rgba(${GOLD},.35)`; ctx.fillRect(-6, -6, 12, 12); } ctx.restore();
+    ctx.fillStyle = `rgba(${GOLDHI},.95)`; ctx.font = `13px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.fillText(CAT_ZH[cat] || cat, a.x, a.y - 16);
+    ctx.fillStyle = "rgba(214,222,226,.55)"; ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText(first ? `→ ${first.agent}` : "无可用 agent", a.x, a.y + 22);
+  }
+  const E = AGV.earth;                                       // you, at the centre
+  ctx.beginPath(); ctx.arc(E.x, E.y, 15, 0, Math.PI * 2); ctx.fillStyle = "#06080a"; ctx.fill();
+  ctx.strokeStyle = `rgba(${GOLDHI},.9)`; ctx.lineWidth = 1.2; ctx.stroke();
+  [0, 1, 2].forEach((k) => { ctx.beginPath(); ctx.ellipse(E.x, E.y, 15, 5 + k * 4, 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.28)`; ctx.lineWidth = .6; ctx.stroke(); });
+  ctx.beginPath(); ctx.arc(E.x, E.y, 22 + Math.sin(t * 1.4) * 1.5, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.25)`; ctx.stroke();
+  ctx.fillStyle = `rgba(${GOLDHI},.9)`; ctx.font = `12px ${getComputedStyle(document.body).fontFamily}`; ctx.fillText("你", E.x, E.y + 38);
+  for (const [name, p] of Object.entries(AGV.pos)) {         // the agents
+    const s = st[name] || {}, q = s.quota || {}, live = s.available && s.enabled !== false && q.source !== "login", sel = AGV.sel === name, hov = AGV.hover === name;
+    if (sel || hov) { const g = ctx.createRadialGradient(p.x, p.y, p.r, p.x, p.y, p.r * 3); g.addColorStop(0, `rgba(${GOLD},.28)`); g.addColorStop(1, "rgba(233,169,75,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2); ctx.fill(); }
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fillStyle = "#07090b"; ctx.fill();
+    ctx.strokeStyle = live ? `rgba(${GOLDHI},${sel ? 1 : .85})` : "rgba(214,222,226,.35)"; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.setLineDash(live ? [] : [2, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r * 1.55, p.r * .42, -.25, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},${live ? .4 : .12})`; ctx.lineWidth = .7; ctx.stroke();
+    const rem = q.remaining;                                  // remaining usage: the arc around it
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.12)`; ctx.lineWidth = 2; ctx.stroke();
+    if (rem != null) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(.02, rem)); ctx.strokeStyle = rem < .15 ? "rgba(255,122,58,.9)" : `rgba(${GOLDHI},.9)`; ctx.lineWidth = 2; ctx.stroke(); }
+    ctx.fillStyle = live ? "#f6ead2" : "rgba(214,222,226,.5)"; ctx.font = `600 12.5px ${getComputedStyle(document.body).fontFamily}`;
+    ctx.fillText(name, p.x, p.y + p.r + 22);
+    ctx.fillStyle = "rgba(214,222,226,.5)"; ctx.font = "10px ui-monospace, monospace";
+    ctx.fillText(!s.available ? "未接通" : s.enabled === false ? "已停用" : q.source === "login" ? "需要登录" : rem != null ? `剩余 ${Math.round(rem * 100)}%` : "用量未知", p.x, p.y + p.r + 36);
+  }
+  if (AGV.hover && AGV.pos[AGV.hover]) {                       // tooltip
+    const p = AGV.pos[AGV.hover], a = d.agents[AGV.hover], s = st[AGV.hover] || {};
+    const lines = [a.role || AGV.hover, s.available ? (s.detail || "") : `未接通：${s.detail || ""}`, s.quota?.detail || ""].filter(Boolean).map((x) => short(x, 46));
+    ctx.font = `12px ${getComputedStyle(document.body).fontFamily}`; const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20;
+    const x = Math.min(W - w - 10, p.x + p.r + 14), y = p.y - 20;
+    ctx.fillStyle = "rgba(6,8,10,.9)"; ctx.fillRect(x, y, w, lines.length * 17 + 10); ctx.strokeStyle = `rgba(${GOLD},.5)`; ctx.strokeRect(x, y, w, lines.length * 17 + 10);
+    ctx.textAlign = "left"; lines.forEach((l, i) => { ctx.fillStyle = i ? "rgba(214,222,226,.7)" : "#f6ead2"; ctx.fillText(l, x + 10, y + 19 + i * 17); }); ctx.textAlign = "center";
+  }
+}
+function agHit(e) {
+  const r = $("#agSky").getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  for (const [n, p] of Object.entries(AGV.pos)) if (Math.hypot(p.x - x, p.y - y) < p.r + 12) return { agent: n };
+  for (const [c, p] of Object.entries(AGV.cats)) if (Math.hypot(p.x - x, p.y - y) < 22) return { cat: c };
+  return {};
+}
+
+/* ---- the left panel: dispatch rules */
+function renderAgRoutes() {
+  const d = AGV.data, r = d.routing, st = d.status, el = $("#agRoutes"); if (!el) return;
+  const remOf = (n) => st[n]?.quota?.remaining;
+  el.innerHTML = `<div class="ag-h">调度 <small>dispatch</small></div>
+    <div class="ag-sub">每个类别按顺序优先；再按模式权衡质量、速度、成本和<b>剩余用量</b>。用量不足 ${Math.round((r.min_remaining || 0) * 100)}% 的 agent 会被跳过，失败就换下一个。</div>
+    <div class="ag-modes">${Object.keys(MODE_ZH).map((m) => `<button type="button" class="ag-btn ${r.mode === m ? "on" : ""}" data-agmode="${m}">${MODE_ZH[m]}</button>`).join("")}</div>
+    <label class="ag-tog"><input type="checkbox" id="agLong" ${r.long_tasks ? "checked" : ""} ${r.enabled ? "" : "disabled"}><span>长期任务也按这里调度<small>研究、探索、动机判断、自我改进的诊断与评审 → 路由到的 agent；失败或格式不对就退回 DeepSeek。翻译、分类、分层留在 DeepSeek。</small></span></label>
+    ${Object.entries(r.categories || {}).map(([cat, c]) => `<div class="ag-cat ${AGV.hoverCat === cat ? "hot" : ""}" data-cat="${cat}">
+      <div class="t">${esc(c.label || cat)} <small>${esc(cat)}</small></div>
+      <div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" ? "" : "off"}" data-agsel="${esc(n)}">
+        <button type="button" data-agmv="${cat}|${esc(n)}|-1" title="提前">‹</button>${esc(n)}${st[n]?.quota?.source === "login" ? " <i>需登录</i>" : remOf(n) != null ? ` <i>${Math.round(remOf(n) * 100)}%</i>` : ""}<button type="button" data-agmv="${cat}|${esc(n)}|1" title="延后">›</button><button type="button" data-agrm="${cat}|${esc(n)}" title="移出">×</button></span>`).join("")}</div>
+      <select data-agadd="${cat}"><option value="">＋ 加入…</option>${Object.keys(d.agents).filter((n) => !(c.prefer || []).includes(n)).map((n) => `<option>${esc(n)}</option>`).join("")}</select>
+    </div>`).join("")}
+    <div class="actions"><button type="button" class="ag-btn" data-agsave="routes">保存调度</button></div><div class="ag-out" id="agRoutesOut"></div>`;
+}
+async function agSaveConfig(msgEl, okText) {
+  const d = AGV.data;
+  try { AGV.data = await api("/v1/agents", { method: "PUT", body: { agents: d.agents, workflows: d.workflows, routing: d.routing, run: d.run } });
+    renderAgRoutes(); renderAgDetail(); renderAgPicker(); const el = $(msgEl); if (el) { el.textContent = okText; el.className = "ag-out ok"; } }
+  catch (e) { const el = $(msgEl); if (el) { el.textContent = "保存失败：" + e.message; el.className = "ag-out bad"; } }
+}
+
+/* ---- the right panel: one agent */
+function renderAgDetail() {
+  const el = $("#agDetail"), d = AGV.data; if (!el || !d) return;
+  const n = AGV.sel; el.hidden = !n; if (!n) return;
+  const a = d.agents[n], s = d.status[n] || {}, q = s.quota || {}, t = a.traits || {};
+  const ranks = Object.entries(d.ranking || {}).map(([cat, list]) => { const i = list.findIndex((x) => x.agent === n); return i < 0 ? null : `${CAT_ZH[cat] || cat} 第 ${i + 1}${list[i].usable ? "" : "（跳过）"}`; }).filter(Boolean);
+  const dots = (k) => `<span class="ag-dots">${[1, 2, 3, 4, 5].map((v) => `<button type="button" class="${(t[k] || 3) >= v ? "on" : ""}" data-agtrait="${k}|${v}" aria-label="${k} ${v}"></button>`).join("")}</span>`;
+  el.innerHTML = `<div class="ag-h">${esc(n)} <small>${esc(a.role || "")}</small><button class="x" type="button" data-agclose aria-label="关闭">✕</button></div>
+    <dl class="ag-kv"><dt>连接方式</dt><dd>${esc(a.link || a.adapter)}</dd><dt>接口</dt><dd class="mono">${esc(a.adapter)}${a.command ? `<br><span class="muted small">${esc(a.command)}</span>` : ""}${a.model ? ` · ${esc(a.model)}` : ""}</dd>
+      <dt>状态</dt><dd>${s.available ? "● 已接通 · " : "○ 未接通 · "}${esc(s.detail || "")}</dd>
+      <dt>剩余用量</dt><dd>${q.remaining != null ? `<div class="ag-qbar"><i style="width:${Math.round(q.remaining * 100)}%"></i></div>` : ""}${esc(q.detail || "未知")}${q.resets_at ? ` · ${esc(new Date(q.resets_at).toLocaleString())} 重置` : ""}</dd>
+      <dt>能力</dt><dd>${esc((a.capabilities || []).join(" · "))}</dd><dt>调度位置</dt><dd>${esc(ranks.join(" · ") || "不在任何类别里")}</dd></dl>
+    <div class="ag-traits"><span>质量</span>${dots("quality")}<span>速度</span>${dots("speed")}<span>成本</span>${dots("cost")}</div>
+    <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
+    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? "令牌已设置" : `需要令牌：${a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
+      <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button></div>`).join("")}
+    <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button><button type="button" class="ag-btn" data-agpick="${esc(n)}">在下方问它</button></div>
+    <div class="ag-out" id="agDetailOut"></div>`;
+}
+
+/* ---- the chat */
+function renderAgPicker() {
+  const d = AGV.data, el = $("#agPicker"); if (!el || !d) return;
+  el.innerHTML = [`<button type="button" class="ag-btn ${AGV.pick === "auto" ? "on" : ""}" data-agpick="auto" title="按类别、偏好和剩余用量自动挑">自动</button>`]
+    .concat(Object.keys(d.agents).map((n) => { const s = d.status[n] || {}; return `<button type="button" class="ag-btn ${AGV.pick === n ? "on" : ""} ${s.available && s.enabled !== false ? "" : "dead"}" data-agpick="${esc(n)}" title="${esc((d.agents[n].role || "") + (s.available ? "" : " · 未接通：" + (s.detail || "")))}">${esc(n)}</button>`; })).join("");
+}
+const agMd = (t) => esc(t).replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/`([^`\n]+)`/g, "<code>$1</code>");
+function renderAgLog() {
+  const el = $("#agLog"); if (!el) return;
+  el.innerHTML = AGV.chat.slice(-30).map((m) => m.role === "user" ? `<div class="ag-msg me">${esc(m.text)}</div>`
+    : `<div class="ag-msg it ${m.ok === false ? "err" : ""}"><span class="m">${m.pending ? "…" : esc(m.agent || "—")} · ${esc(CAT_ZH[m.category] || m.category || "")}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.why ? ` · ${esc(m.why)}` : ""}</span>${m.pending ? "思考中…" : m.text ? agMd(m.text) : esc(m.error || "")}${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
+  el.scrollTop = el.scrollHeight;
+}
+async function agSend(text) {
+  if (!text || AGV.busy) return;
+  AGV.busy = true; $("#agSend").disabled = true; $("#agChat").classList.add("busy");
+  const history = AGV.chat.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
+  AGV.chat.push({ role: "user", text }); const pend = { role: "agent", pending: true }; AGV.chat.push(pend); renderAgLog();
+  let target = AGV.pick, cat = null;
+  try { const r = await api(`/v1/agents/route?text=${encodeURIComponent(text.slice(0, 600))}`); cat = r.category; if (target === "auto") target = r.ranking.find((x) => x.usable)?.agent; } catch {}
+  if (target) AGV.pulses.push({ path: cat && AGV.pick === "auto" ? ["earth", "cat:" + cat, target] : ["earth", target], t0: performance.now(), dur: 1400 });
+  try {
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: AGV.pick, history } });
+    Object.assign(pend, r, { pending: false });
+    if (r.agent) AGV.pulses.push({ path: [r.agent, "earth"], t0: performance.now(), dur: 1200 });
+  } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
+  AGV.busy = false; $("#agSend").disabled = false; setTimeout(() => $("#agChat").classList.remove("busy"), 6000);
+  store.set("pga_agchat", JSON.stringify(AGV.chat.filter((m) => !m.pending).slice(-30)));
+  renderAgLog(); loadAgentView();
+}
+
+function bindAgentView() {
+  window.addEventListener("pga:wormhole", () => wormholeTo("agents"));
+  $("#agBack").onclick = () => wormholeTo("front");
+  $("#agToAtlas").onclick = async () => { await wormholeTo("front"); flipTo("back"); };
+  $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
+  const sky = $("#agSky");
+  sky.addEventListener("mousemove", (e) => { const h = agHit(e); AGV.hover = h.agent || null; AGV.hoverCat = h.cat || (AGV.hoverCat && !h.agent ? AGV.hoverCat : null); sky.style.cursor = h.agent || h.cat ? "pointer" : "default"; });
+  sky.addEventListener("mouseleave", () => { AGV.hover = null; });
+  sky.addEventListener("click", (e) => {
+    const h = agHit(e);
+    if (h.agent) { AGV.sel = h.agent; renderAgDetail(); }
+    else if (h.cat) { AGV.hoverCat = AGV.hoverCat === h.cat ? null : h.cat; renderAgRoutes(); $("#agRoutes").classList.add("show"); }
+    else { AGV.sel = null; AGV.hoverCat = null; renderAgDetail(); renderAgRoutes(); }
+  });
+  const face = $("#faceAgents");
+  face.addEventListener("click", async (e) => {
+    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave]");
+    if (!t || !AGV.data) return;
+    const d = AGV.data, r = d.routing;
+    if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
+    if (t.dataset.agmv) { const [cat, n, dir] = t.dataset.agmv.split("|"), L = r.categories[cat].prefer, i = L.indexOf(n), j = i + +dir;
+      if (j >= 0 && j < L.length) { [L[i], L[j]] = [L[j], L[i]]; renderAgRoutes(); } return; }
+    if (t.dataset.agrm) { const [cat, n] = t.dataset.agrm.split("|"); r.categories[cat].prefer = r.categories[cat].prefer.filter((x) => x !== n); renderAgRoutes(); return; }
+    if (t.dataset.agsave === "routes") { r.long_tasks = $("#agLong")?.checked ?? r.long_tasks; return agSaveConfig("#agRoutesOut", "调度已保存，下一个任务开始生效"); }
+    if (t.dataset.agsave === "agent") { const a = d.agents[AGV.sel]; a.enabled = !!face.querySelector("[data-agon]")?.checked; return agSaveConfig("#agDetailOut", "已保存"); }
+    if (t.dataset.agtrait) { const [k, v] = t.dataset.agtrait.split("|"); const a = d.agents[AGV.sel]; a.traits = { ...(a.traits || {}), [k]: +v }; renderAgDetail(); return; }
+    if (t.dataset.agclose !== undefined) { AGV.sel = null; renderAgDetail(); return; }
+    if (t.dataset.agsel && !e.target.closest("button")) { AGV.sel = t.dataset.agsel; renderAgDetail(); return; }
+    if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
+    if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
+      try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
+    if (t.dataset.agtest) { const o = $("#agDetailOut"); t.disabled = true; if (o) { o.textContent = `正在测试 ${t.dataset.agtest}…`; o.className = "ag-out"; }
+      try { const x = await api("/v1/agents/test", { body: { agent: t.dataset.agtest } }); if (o) { o.textContent = x.ok ? `正常 · ${x.duration_s}s · 「${x.reply}」` : `失败：${x.error || x.detail}`; o.className = "ag-out " + (x.ok ? "ok" : "bad"); } }
+      catch (err) { if (o) { o.textContent = err.message; o.className = "ag-out bad"; } } finally { t.disabled = false; } }
+  });
+  face.addEventListener("change", (e) => { const s = e.target.closest("[data-agadd]"); if (!s || !s.value) return; AGV.data.routing.categories[s.dataset.agadd].prefer.push(s.value); renderAgRoutes(); });
+  $("#agAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#agInput").value.trim(); if (!v) return; $("#agInput").value = ""; agSend(v); });
+  $("#agInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agAsk").requestSubmit(); } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#faceAgents").classList.contains("idle-hidden") && !document.querySelector("dialog[open]")) { if (AGV.sel) { AGV.sel = null; renderAgDetail(); } } });
+}
+
 const AG = { data: null, poll: 0 };
 const PATTERN_ZH = { single: "单个", council: "议会", convoy: "车队" };
 async function loadAgents() {
@@ -3301,6 +3714,11 @@ canvas.addEventListener("contextmenu", (e) => {                          // righ
 controls.addEventListener("start", () => { idleUntil = performance.now() + 9000; });
 let focusedId = null;                                                    // the body the last click flew to
 function select(n, mode = "click") {
+  if (mode === "click" && n.d.kind === "user") {                          // Earth (you): through the wormhole to the agents
+    n.flash = 1; ripple(n.pos, 2.4);
+    window.dispatchEvent(new CustomEvent("pga:wormhole"));
+    return;
+  }
   // first click zooms in; a click on the body already zoomed to (or a double-click) shows / folds the bars
   if (mode === "click") mode = focusedId === n.id ? "bars" : "focus";
   if (mode !== "edit") focusedId = n.id;

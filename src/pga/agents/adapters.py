@@ -135,6 +135,30 @@ class ClaudeLocal(CLIAdapter):
                            data={"turns": d.get("num_turns")})
 
 
+class CodebuddyLocal(ClaudeLocal):
+    """WorkBuddy's bundled CodeBuddy CLI: same print-mode contract as Claude Code. Office work writes its files
+    (documents, tables, slides as Markdown/CSV/HTML) into the task's own workspace; no shell."""
+    type, binary = "codebuddy_local", "codebuddy"
+    strip_env = ()
+    secrets = ("CODEBUDDY_API_KEY",)
+
+    def command(self, task: AgentTask, exe: str) -> list[str]:
+        cmd = [exe, "-p", "--output-format", "json", "--max-turns", str(task.max_turns), "--no-session-persistence",
+               "--strict-mcp-config"]
+        if task.permissions == WORKSPACE_WRITE:
+            cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
+        else:
+            cmd += ["--permission-mode", "default", "--tools", "Read,Glob,Grep,WebSearch,WebFetch"]
+        if self.config.get("model"):
+            cmd += ["--model", str(self.config["model"])]
+        return cmd
+
+    def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
+        if not stdout.strip() and "Authentication required" in stderr:
+            return AgentResult(ok=False, status="FAILED", error="WorkBuddy CLI 未登录：设置 CODEBUDDY_API_KEY，或在终端运行一次 codebuddy 并 /login")
+        return super().parse(stdout, stderr, task)
+
+
 class CodexLocal(CLIAdapter):
     type, binary = "codex_local", "codex"
 
@@ -146,6 +170,8 @@ class CodexLocal(CLIAdapter):
             cmd += ["-C", task.workspace]
         if self.config.get("model"):
             cmd += ["-m", str(self.config["model"])]
+        if self.config.get("reasoning"):                       # model_reasoning_effort: minimal | low | medium | high
+            cmd += ["-c", f'model_reasoning_effort="{self.config["reasoning"]}"']
         return cmd + ["-"]
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
@@ -291,8 +317,9 @@ class LLM(Adapter):
         tier = int(self.config.get("tier", 2))
         r = self.rt.router.complete(tier, system=task.system or "You are one agent in a team working for the user. Be concrete.",
                                     messages=[{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}],
-                                    max_tokens=int(self.config.get("max_tokens", 2500)), usage=None)
+                                    max_tokens=int(self.config.get("max_tokens", 2500)), usage=None, delegate=False)
         return AgentResult(ok=bool(r.text.strip()), text=r.text, model=r.model, usage=r)
 
 
-ADAPTERS: dict[str, type[Adapter]] = {c.type: c for c in (ClaudeLocal, CodexLocal, HermesLocal, GeminiLocal, OpencodeLocal, Process, Http, LLM)}
+ADAPTERS: dict[str, type[Adapter]] = {c.type: c for c in (ClaudeLocal, CodexLocal, HermesLocal, GeminiLocal, OpencodeLocal,
+                                                           CodebuddyLocal, Process, Http, LLM)}

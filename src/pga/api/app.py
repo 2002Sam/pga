@@ -1269,12 +1269,18 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     # ---------------------------------------------------------------- the agent pool (agents.yaml)
 
-    def _pool_view(rt: Runtime) -> dict:
+    def _pool_view(rt: Runtime, rank: bool = True) -> dict:
         from pga.agents import pool as ap
+        from pga.agents.routing import AgentRouter
         p = ap.AgentPool(rt)
-        return {"agents": p.cfg["agents"], "workflows": p.cfg["workflows"], "run": p.cfg["run"], "status": p.status(),
-                "configured": ap.CONFIG.exists(), "file": str(ap.CONFIG), "spent_today": round(p.spent_today(), 4),
-                "adapters": sorted(ap.ADAPTERS), "patterns": list(ap.PATTERNS)}
+        router = AgentRouter(rt, p)
+        status = p.status()
+        for n in status:
+            status[n]["quota"] = router.quota(n).as_dict()
+        return {"agents": p.cfg["agents"], "workflows": p.cfg["workflows"], "routing": p.cfg["routing"], "run": p.cfg["run"],
+                "status": status, "configured": ap.CONFIG.exists(), "file": str(ap.CONFIG), "spent_today": round(p.spent_today(), 4),
+                "adapters": sorted(ap.ADAPTERS), "patterns": list(ap.PATTERNS), "modes": list(ap.MODES),
+                "ranking": {c: router.rank(c) for c in (p.cfg["routing"].get("categories") or {})} if rank else {}}
 
     @app.get("/v1/agents")
     def agents_get(rt: Runtime = Depends(get_rt)):
@@ -1317,6 +1323,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not ok:
             return {"ok": False, "available": False, "detail": detail}
         r = p.adapters[name].run(AgentTask(prompt="Reply with the single word OK.", timeout_s=float(body.get("timeout_s") or 120), max_turns=2))
+        from pga.db.models import AgentRun
+        rt.session.add(AgentRun(workflow="test", pattern="single", step="run", agent=name, adapter=r.adapter, status=r.status,
+                                prompt="Reply with the single word OK.", output=r.text[:500], error=r.error, cost_usd=r.cost_usd,
+                                duration_s=r.duration_s, finished_at=utcnow()))      # a passing test clears a "needs login" mark
+        from pga.agents import quota as aq
+        aq.clear()
         return {"ok": r.ok, "available": True, "detail": detail, "reply": r.text[:200], "error": r.error, "duration_s": r.duration_s,
                 "cost_usd": r.cost_usd}
 
@@ -1337,6 +1349,28 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                                                        "system": str(body.get("system") or "")[:4000]},
                                   created_by=Origin.USER, priority=40)
         return {"job_id": str(job.id), "status": job.status.value}
+
+    @app.get("/v1/agents/route")
+    def agents_route(text: str = "", category: str | None = None, rt: Runtime = Depends(get_rt)):
+        """Which agent a request would go to, and why (no agent is run)."""
+        from pga.agents.routing import AgentRouter, classify
+        cat, why = (category, "指定的类别") if category else classify(text)
+        return {"category": cat, "why": why, "ranking": AgentRouter(rt).rank(cat)}
+
+    @app.post("/v1/users/{user_id}/agents/ask")
+    def agents_ask(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """The agent chat: ask one agent (or `auto`: routed by category, preference and remaining usage)."""
+        from pga.agents.routing import AgentRouter
+        u = user_or_404(rt, user_id)
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise HTTPException(422, "text is needed")
+        try:
+            with rt.billing(user_ctx(u)):
+                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"),
+                                           history=body.get("history") if isinstance(body.get("history"), list) else None)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.get("/v1/users/{user_id}/agents/runs")
     def agents_runs(user_id: uuid.UUID, limit: int = Query(20, le=100), rt: Runtime = Depends(get_rt)):

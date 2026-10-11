@@ -77,6 +77,10 @@ class Runtime:
         self.sources = SourceService(session, self.policy, self.tension, self.fetcher)
         self.hub = HubService(self)
         self.layers = LayerService(self)              # gist / brief / full of every aim, body and agent
+        if provider is None or getattr(provider, "name", "") != "fake":
+            # long-term work → Claude / ChatGPT / WorkBuddy… by agents.yaml routing (falls back to the provider)
+            from pga.agents.routing import make_delegate
+            self.router.delegate = make_delegate(self)
 
     def _usage(self) -> UsageContext:
         return self._billing
