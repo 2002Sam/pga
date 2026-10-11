@@ -565,9 +565,20 @@ form.add { background: transparent; }
 dialog.settings { background: #070707 !important; border: 1px solid var(--line-3); box-shadow: none; }
 dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 /* ---------------------------------------------------------------- the agent constellation (调度星图) */
-.face.agents { background: #05070a; color: var(--text); }
-#agSky { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
-#wormhole { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 400; pointer-events: none; }
+#agOverlay { position: absolute; inset: 0; z-index: 6; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .6s ease .5s, visibility 0s linear 1.1s; }
+#app.agentmode #agOverlay { opacity: 1; visibility: visible; transition: opacity .7s ease .9s, visibility 0s; }
+#agOverlay > * { pointer-events: auto; }
+#agOverlay > #agBubbles { pointer-events: none; }
+#app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
+.nlabel.pool small { color: rgba(243,211,138,.75); } .nlabel.pool.off { opacity: .55 !important; }
+.ag-bubble { position: absolute; left: 0; top: 0; width: 280px; max-height: 190px; overflow: hidden; display: flex; flex-direction: column; padding: 8px 11px 9px;
+  background: rgba(6,8,10,.86); border: 1px solid rgba(233,169,75,.5); border-left: 2px solid #e9a94b; color: #efe7d6; font-size: 12px; line-height: 1.6;
+  transition: opacity .6s; pointer-events: none; box-shadow: 0 0 24px rgba(233,169,75,.08); }
+.ag-bubble .m { font: var(--cap); font-size: 9.5px; letter-spacing: .12em; color: #e9a94b; margin-bottom: 4px; display: flex; gap: 8px; }
+.ag-bubble .m b { color: #fff3d6; font-weight: 500; } .ag-bubble .m i { font-style: normal; margin-left: auto; color: rgba(214,222,226,.6); }
+.ag-bubble .t { white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; display: flex; flex-direction: column-reverse; mask-image: linear-gradient(transparent, #000 22%); -webkit-mask-image: linear-gradient(transparent, #000 22%); }
+.ag-bubble.done { border-left-color: rgba(214,222,226,.4); } .ag-bubble.fail { border-left-color: var(--acc-2); }
+.ag-bubble .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #e9a94b; animation: blink 1.1s infinite; margin-top: 3px; }
 .ag-top { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 14px 18px; pointer-events: none; flex-wrap: wrap; }
 .ag-top > * { pointer-events: auto; }
 .ag-title { font: var(--cap); font-size: 11px; letter-spacing: .34em; color: #e9a94b; text-transform: uppercase; white-space: nowrap; }
@@ -581,8 +592,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
   scrollbar-width: thin; scrollbar-color: rgba(233,169,75,.3) transparent; font-size: 12.5px; }
 .ag-panel::before, .ag-panel::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid #e9a94b; pointer-events: none; }
 .ag-panel::before { left: -4px; top: -4px; border-width: 1px 0 0 1px; } .ag-panel::after { right: -4px; bottom: -4px; border-width: 0 1px 1px 0; }
-.ag-left { left: 16px; top: 62px; width: 282px; bottom: 236px; }
-.ag-right { right: 16px; top: 62px; width: 336px; bottom: 236px; }
+.ag-left { left: 16px; top: 58px; width: 282px; bottom: 300px; }
+.ag-right { right: 16px; top: 58px; width: 336px; bottom: 16px; }
 .ag-h { display: flex; align-items: baseline; gap: 8px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: #e9a94b; text-transform: uppercase; margin-bottom: 8px; }
 .ag-h small { color: var(--muted); letter-spacing: .08em; text-transform: none; }
 .ag-h .x { margin-left: auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; }
@@ -614,15 +625,15 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-dots button.on { background: rgba(233,169,75,.75); }
 .ag-out { margin-top: 8px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-wrap; }
 .ag-out.ok { color: #f3d38a; } .ag-out.bad { color: var(--acc-2); }
-.ag-chat { left: 50%; transform: translateX(-50%); bottom: 14px; width: min(780px, calc(100% - 32px)); max-height: 222px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: hidden; }
-.ag-chat:focus-within, .ag-chat.busy { max-height: min(56vh, 520px); z-index: 6; }
-.ag-chat:focus-within .ag-log, .ag-chat.busy .ag-log { max-height: calc(min(56vh, 520px) - 120px); }
+.ag-chat { left: 16px; bottom: 14px; width: min(440px, calc(100% - 32px)); max-height: 270px; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; overflow: hidden; }
+.ag-chat:focus-within, .ag-chat.busy { max-height: min(60vh, 560px); z-index: 6; }
+.ag-chat:focus-within .ag-log, .ag-chat.busy .ag-log { max-height: calc(min(60vh, 560px) - 150px); }
 .ag-msg code { font-family: var(--mono); font-size: 12px; background: rgba(233,169,75,.1); padding: 0 3px; }
 .ag-msg b { color: #ffe3a6; font-weight: 600; }
 .ag-picker { display: flex; flex-wrap: wrap; gap: 4px; }
 .ag-picker .ag-btn { padding: 4px 9px; letter-spacing: .06em; font-size: 10.5px; text-transform: none; }
 .ag-picker .ag-btn.dead { opacity: .38; }
-.ag-log { overflow: auto; max-height: 106px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; }
+.ag-log { overflow: auto; max-height: 140px; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; }
 .ag-log:empty { display: none; }
 .ag-msg { font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ag-msg.me { align-self: flex-end; max-width: 80%; padding: 6px 10px; border: 1px solid rgba(220,232,238,.18); color: #e9e4da; }
@@ -836,10 +847,28 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
     <div id="labels"></div>
     <div class="hud tl">
       <div class="legend"><span><i style="background:#000 !important"></i>黑洞 · 抱负</span><span><i style="background:#eef1f2 !important"></i>白色星球 · 数据库</span><span><i style="transform:rotate(45deg)"></i>晶体 · 技能</span><span><i></i>暗色行星 · agent</span><span><i class="f"></i>卫星 · 判断 / 证据</span><span><i></i>地球 · 你</span></div>
-      <div class="hint">单击地球：穿过虫洞到 agent 调度星图 · 单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
+      <div class="hint">单击地球：翻到另一面的 agent 调度星图（再点地球翻回） · 单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
     </div>
     <div class="state-pill" id="statePill">STANDBY</div>
     <div id="feed" aria-live="polite"></div>
+    <div id="agOverlay" aria-label="Agent 调度">
+      <div class="ag-top">
+        <span class="ag-title">Agent Constellation<b>调度星图</b></span>
+        <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
+        <span class="grow"></span>
+        <span class="ag-spend" id="agSpend"></span>
+        <button class="ag-btn" id="agToAtlas" title="你和各个 AI 的历史对话星图">对话星图</button>
+        <button class="ag-btn" id="agBack" title="翻回你的星空（也可以再点地球）">⟲ 星空</button>
+      </div>
+      <aside class="ag-panel ag-left" id="agRoutes"></aside>
+      <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
+      <div id="agBubbles" aria-live="polite"></div>
+      <section class="ag-panel ag-chat" id="agChat">
+        <div class="ag-picker" id="agPicker"></div>
+        <div class="ag-log" id="agLog"></div>
+        <form class="ag-ask" id="agAsk"><textarea id="agInput" rows="1" placeholder="问一个问题 · 选「自动」会按类别、偏好和剩余用量挑 agent（Enter 发送，Shift+Enter 换行）"></textarea><button class="ag-btn" type="submit" id="agSend">发送</button></form>
+      </section>
+    </div>
     <button class="edge l" id="foldL" title="收起 / 展开左栏 ( [ )" aria-label="收起左栏">‹</button>
     <button class="edge r" id="foldR" title="收起 / 展开右栏 ( ] )" aria-label="收起右栏">›</button>
     <div id="tip3d"></div>
@@ -912,25 +941,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 </section>
 </div>
 </div>
-<div class="face agents idle-hidden" id="faceAgents" aria-label="Agent 调度星图">
-  <canvas id="agSky" aria-label="agent 星系：每颗星是一个 agent，金线是调度偏好"></canvas>
-  <div class="ag-top">
-    <span class="ag-title">Agent Constellation<b>调度星图</b></span>
-    <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
-    <span class="grow"></span>
-    <span class="ag-spend" id="agSpend"></span>
-    <button class="ag-btn" id="agToAtlas" title="你和各个 AI 的历史对话星图">对话星图</button>
-    <button class="ag-btn" id="agBack" title="穿回星空">← 星空</button>
-  </div>
-  <aside class="ag-panel ag-left" id="agRoutes"></aside>
-  <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
-  <section class="ag-panel ag-chat" id="agChat">
-    <div class="ag-picker" id="agPicker"></div>
-    <div class="ag-log" id="agLog"></div>
-    <form class="ag-ask" id="agAsk"><textarea id="agInput" rows="1" placeholder="问一个问题 · 选「自动」会按类别、偏好和剩余用量挑 agent（Enter 发送，Shift+Enter 换行）"></textarea><button class="ag-btn" type="submit" id="agSend">发送</button></form>
-  </section>
-</div>
-<div class="glare" id="glare"></div></div><canvas id="wormhole" hidden aria-hidden="true"></canvas>
+<div class="glare" id="glare"></div></div>
 
 <dialog class="settings" id="settings">
   <form method="dialog">
@@ -1210,6 +1221,7 @@ function bindUI() {
     if (quiet) { closePop(); return; }
     if (mode === "edit") { if (node) openRoom(node); return; }
     // "focus" (first click) only zooms in; "bars" (second click or double-click) shows every bar, or folds them back
+    if (mode === "bars" && AGM.on) return;
     if (mode === "bars") {
       const hidden = S.fold.l && S.fold.r && S.fold.t;
       setFold(hidden ? { l: false, r: false, t: false } : { l: true, r: true, t: true });
@@ -1279,206 +1291,95 @@ const dur = (s) => { s = Math.round(s || 0); return s < 90 ? `${s} 秒` : s < 54
    Earth → page turn → wormhole → a gold star map of every agent: strings from each category (代码 / 严肃 / 办公 / 日常)
    to the agents it prefers, an arc of remaining usage around each, the dispatch rules on the left, one agent's
    connection and settings on the right, and a chat that can name an agent or let routing choose. */
-const AGV = { data: null, sel: null, hover: null, hoverCat: null, chat: store.json("pga_agchat", []), pick: "auto", pulses: [], raf: 0, busy: false, pos: {}, cats: {}, earth: null };
-const GOLD = "233,169,75", GOLDHI = "255,222,150", PALE = "214,222,226";
+const AGV = { data: null, sel: null, hoverCat: null, chat: store.json("pga_agchat", []), pick: "auto", busy: false };
 const CAT_ZH = { code: "代码", serious: "严肃问题", office: "办公", quick: "日常快速" };
 const MODE_ZH = { performance: "性能优先", balanced: "均衡", economy: "省钱", speed: "速度优先" };
-const CAT_ANGLE = { code: -2.45, serious: -0.69, office: 0.69, quick: 2.45 };
-const smooth = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
 async function loadAgentView() {
   try { AGV.data = await api("/v1/agents"); } catch (e) { toast("读取 agent 失败：" + e.message); return; }
   if (AGV.sel && !AGV.data.agents[AGV.sel]) AGV.sel = null;
   $("#agSpend").textContent = `今天外部 agent 花费 $${(AGV.data.spent_today || 0).toFixed(2)} / $${(+AGV.data.run.daily_usd_cap || 0).toFixed(0)}`;
   renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
+  window.PGA_SET_AGENTS?.(agentGraph(AGV.data));
 }
 
-/* ---- the wormhole: Earth turns like a page, a gold tunnel opens, the constellation turns in */
-async function wormholeTo(target) {
-  if (S.flipping) return;
-  const front = $("#faceFront"), ag = $("#faceAgents"), back = $("#faceBack");
-  const from = [front, ag, back].find((f) => !f.classList.contains("idle-hidden")), to = target === "agents" ? ag : front;
-  if (!from || from === to) return;
-  S.flipping = true; pushState({ flipping: true });
-  const m = $("#main").getBoundingClientRect(), b = from === front ? window.PGA_BODY?.("you") : null;
-  const origin = b && b.visible ? { x: m.left + b.x, y: m.top + b.y } : { x: innerWidth / 2, y: innerHeight * .45 };
-  if (target === "agents") await Promise.race([loadAgentView(), new Promise((r) => setTimeout(r, 900))]);
-  const cv = $("#wormhole"), dpr = Math.min(2, devicePixelRatio || 1);
-  cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; cv.hidden = false;
-  const T = 2200, t0 = performance.now();
-  from.style.transformOrigin = `${origin.x}px ${origin.y}px`;
-  const out = from.animate([{ transform: "perspective(1400px) rotateY(0deg) scale(1)", opacity: 1, filter: "brightness(1)" },
-                            { transform: "perspective(1400px) rotateY(86deg) scale(.78)", opacity: .15, filter: "brightness(2.2) sepia(.6)" }],
-                           { duration: T * .44, easing: "cubic-bezier(.6,0,.8,.25)", fill: "forwards" });
-  let swapped = false;
-  const swap = () => {
-    if (swapped) return; swapped = true;
-    out.cancel(); from.style.transformOrigin = ""; from.classList.add("idle-hidden"); to.classList.remove("idle-hidden");
-    if (target === "agents") startAgentSky(); else stopAgentSky();
-    to.animate([{ transform: "perspective(1400px) rotateY(-86deg) scale(.78)", opacity: .1, filter: "brightness(2)" },
-                { transform: "perspective(1400px) rotateY(0deg) scale(1)", opacity: 1, filter: "brightness(1)" }],
-               { duration: T * .46, easing: "cubic-bezier(.15,.75,.3,1)" });
-  };
-  await new Promise((done) => {
-    const step = (now) => {
-      const t = Math.min(1, (now - t0) / T);
-      drawWormhole(cv, dpr, t, origin);
-      if (t > .5) swap();
-      if (t < 1) requestAnimationFrame(step); else done();
-    };
-    requestAnimationFrame(step);
-    setTimeout(done, T + 1200);                            // a hidden tab does not animate: still arrive
+/* ---- the agents side of the sky: the same 3D scene turned over around Earth */
+const AGM = { on: false, busy: false, fold: null, live: [], seen: new Set(), poll: 0, raf: 0 };
+function agentGraph(d) {
+  const nodes = [{ id: "you", kind: "user", label: "你" }], links = [];
+  for (const [n, a] of Object.entries(d.agents)) {
+    const s = d.status[n] || {}, q = s.quota || {};
+    const live = s.available && s.enabled !== false && q.source !== "login" && !q.exhausted;
+    const tag = !s.available ? "未接通" : s.enabled === false ? "已停用" : q.source === "login" ? "需要登录" : q.remaining != null ? `剩余 ${Math.round(q.remaining * 100)}%` : "用量未知";
+    nodes.push({ id: "pa:" + n, kind: "agent", pool: true, agent: n, label: n, tag, tension: q.remaining ?? .6, wake: 2,
+                 status: live ? "ACTIVE" : "SLEEPING", paused: !live });
+    links.push({ source: "you", target: "pa:" + n, kind: "spoke" });
+  }
+  for (const [cat, list] of Object.entries(d.ranking || {})) {
+    const usable = list.filter((x) => x.usable);
+    nodes.push({ id: "pc:" + cat, kind: "skill", pool: true, cat, label: CAT_ZH[cat] || cat, first: usable[0]?.agent });
+    links.push({ source: "you", target: "pc:" + cat, kind: "spoke" });
+    usable.slice(0, 3).forEach((x, i) => links.push({ source: "pc:" + cat, target: "pa:" + x.agent, kind: "route" + (i + 1) }));
+  }
+  return { nodes, links, events: [], runs: [], free_slots: 0 };
+}
+async function enterAgentMode() {
+  if (AGM.on || AGM.busy) return; AGM.busy = true;
+  await loadAgentView();
+  if (!AGV.data || !window.PGA_FLIP_TO?.("agents")) { AGM.busy = false; return; }
+  AGM.on = true; AGM.fold = Object.assign({}, S.fold); closePop();
+  setFold({ l: true, r: true, t: true }); $("#app").classList.add("agentmode");
+  pollLive(); clearInterval(AGM.poll); AGM.poll = setInterval(pollLive, 1200);
+  if (!AGM.raf) AGM.raf = requestAnimationFrame(placeBubbles);
+  setTimeout(() => { AGM.busy = false; }, 1900);
+}
+function exitAgentMode() {
+  if (!AGM.on || AGM.busy) return; AGM.busy = true;
+  if (!window.PGA_FLIP_TO?.("galaxy")) { AGM.busy = false; return; }
+  AGM.on = false; clearInterval(AGM.poll); window.PGA_RUNNING?.([]);
+  $("#app").classList.remove("agentmode"); $("#agBubbles").innerHTML = "";
+  setTimeout(() => { setFold(AGM.fold || { l: true, r: true, t: true }); AGM.busy = false; window.dispatchEvent(new Event("resize")); }, 1900);
+}
+async function pollLive() {
+  if (!AGM.on) return;
+  let list = []; try { list = await api("/v1/agents/live"); } catch { return; }
+  AGM.live = list;
+  window.PGA_RUNNING?.(list.filter((r) => r.running).map((r) => "pa:" + r.agent));
+  for (const r of list) if (!AGM.seen.has(r.id)) {                         // a new piece of work: show its gold path
+    AGM.seen.add(r.id);
+    if (r.running) window.PGA_ROUTE?.(r.category && (AGV.data?.routing?.categories || {})[r.category] ? ["you", "pc:" + r.category, "pa:" + r.agent] : ["you", "pa:" + r.agent]);
+  }
+  renderBubbles();
+}
+function renderBubbles() {
+  const box = $("#agBubbles"); if (!box) return;
+  const latest = {};                                                      // one bubble per agent: its latest run
+  for (const r of AGM.live) latest[r.agent] = r;
+  const keep = new Set();
+  for (const r of Object.values(latest)) {
+    keep.add(r.agent);
+    let el = box.querySelector(`[data-agent="${CSS.escape(r.agent)}"]`);
+    if (!el) { el = document.createElement("div"); el.className = "ag-bubble"; el.dataset.agent = r.agent; el.innerHTML = `<div class="m"></div><div class="t"><div></div></div>`; box.appendChild(el); }
+    const what = r.workflow === "long-term" ? `长期任务 · ${r.task_kind}` : r.workflow === "chat" ? "对话" : r.workflow || r.step || "";
+    el.querySelector(".m").innerHTML = `${r.running ? `<span class="dot"></span>` : r.ok ? "✓" : "✕"}<b>${esc(r.agent)}</b>${esc(CAT_ZH[r.category] || r.category || "")} · ${esc(what)}<i>${r.elapsed_s}s</i>`;
+    el.querySelector(".t > div").textContent = (r.text || (r.running ? "思考中…" : r.error || "")).trim().slice(-900);
+    el.classList.toggle("done", !r.running && r.ok !== false); el.classList.toggle("fail", !r.running && r.ok === false);
+    el.style.opacity = r.running ? 1 : Math.max(0, 1 - (r.elapsed_s ? 0 : 0) - (Date.now() / 1000 - (r.finished || Date.now() / 1000)) / 30);
+  }
+  box.querySelectorAll(".ag-bubble").forEach((el) => { if (!keep.has(el.dataset.agent)) el.remove(); });
+}
+function placeBubbles() {                                                 // keep each bubble beside its planet
+  AGM.raf = AGM.on ? requestAnimationFrame(placeBubbles) : 0;
+  const box = $("#agBubbles"); if (!box) return;
+  const m = $("#main"), W = m.clientWidth, H = m.clientHeight, used = [];
+  box.querySelectorAll(".ag-bubble").forEach((el) => {
+    const b = window.PGA_BODY?.("pa:" + el.dataset.agent); if (!b || !b.visible) { el.style.visibility = "hidden"; return; }
+    const w = el.offsetWidth, h = el.offsetHeight, rightEdge = AGV.sel ? W - 360 : W - 16, right = b.x + b.r + 24 + w < rightEdge;
+    let x = right ? b.x + b.r + 24 : b.x - b.r - 24 - w, y = b.y - h / 2;
+    for (const u of used) if (Math.abs(u.x - x) < w && Math.abs(u.y - y) < h) y = u.y + h + 8;   // do not stack on another bubble
+    x = Math.max(8, Math.min(rightEdge - w, x)); y = Math.max(52, Math.min(H - h - 16, y));
+    used.push({ x, y }); el.style.visibility = "visible"; el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
   });
-  swap(); cv.hidden = true;
-  S.flipping = false; pushState({ flipping: false, flipped: target !== "front" });
-  if (target === "front") { window.dispatchEvent(new Event("resize")); MON.dirty = true; }
-}
-function drawWormhole(cv, dpr, t, origin) {
-  const ctx = cv.getContext("2d"), W = innerWidth, H = innerHeight;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const env = Math.sin(Math.PI * t), dark = smooth(.12, .42, t) * (1 - smooth(.6, .96, t));
-  const c = { x: origin.x + (W / 2 - origin.x) * smooth(0, .45, t), y: origin.y + (H * .45 - origin.y) * smooth(0, .45, t) };
-  if (dark > 0) { ctx.fillStyle = `rgba(3,4,6,${.94 * dark})`; ctx.fillRect(0, 0, W, H); }
-  if (t < .3) {                                            // the iris: a gold ring bursting out of Earth
-    const k = t / .3;
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(origin.x, origin.y, 8 + Math.pow(k, 1.4) * (120 + i * 70), 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${GOLDHI},${(1 - k) * (.9 - i * .25)})`; ctx.lineWidth = 2.2 - i * .6; ctx.stroke(); }
-  }
-  const R = Math.hypot(W, H) * .75, phase = t * t * 3.4, N = 36;
-  for (let i = 0; i < N; i++) {                            // rings of the tunnel rushing past
-    const z = (i / N + phase) % 1, r = 5 + Math.pow(z, 3.1) * R, rot = z * 1.7 + t * 2.6;
-    const a = env * Math.pow(1 - z, .55) * Math.min(1, z * 3.5);
-    if (a < .01) continue;
-    ctx.save(); ctx.translate(c.x + Math.sin(rot * .9) * z * 34, c.y + Math.cos(rot * .7) * z * 22); ctx.rotate(rot * .22);
-    ctx.beginPath(); ctx.ellipse(0, 0, r, r * (.74 + .14 * Math.sin(rot + i)), 0, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${i % 5 === 0 ? GOLDHI : GOLD},${a * .85})`; ctx.lineWidth = .5 + z * 2.6; ctx.stroke(); ctx.restore();
-  }
-  for (let k = 0; k < 170; k++) {                          // light streaking toward you
-    const h1 = (Math.sin(k * 12.9898) * 43758.5453) % 1, h2 = (Math.sin(k * 78.233 + 1.7) * 24634.6345) % 1;
-    const ang = Math.abs(h1) * Math.PI * 2 + t * .4, z = (Math.abs(h2) + phase * 1.4) % 1;
-    const r0 = Math.pow(z, 2.3) * R * .9, r1 = r0 * (1.05 + z * (.2 + env * .5)), a = env * z * (1 - z) * 2.6;
-    if (a < .02) continue;
-    ctx.beginPath(); ctx.moveTo(c.x + Math.cos(ang) * r0, c.y + Math.sin(ang) * r0 * .8); ctx.lineTo(c.x + Math.cos(ang) * r1, c.y + Math.sin(ang) * r1 * .8);
-    ctx.strokeStyle = `rgba(${k % 7 ? GOLD : PALE},${a})`; ctx.lineWidth = .6 + z * 1.4; ctx.stroke();
-  }
-  const g = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, 30 + env * 200);
-  g.addColorStop(0, `rgba(255,244,214,${.85 * env})`); g.addColorStop(.25, `rgba(${GOLD},${.45 * env})`); g.addColorStop(1, "rgba(233,169,75,0)");
-  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(c.x, c.y, 30 + env * 200, 0, Math.PI * 2); ctx.fill();
-}
-
-/* ---- the constellation */
-function startAgentSky() { if (!AGV.raf) AGV.raf = requestAnimationFrame(drawAgSky); }
-function stopAgentSky() { cancelAnimationFrame(AGV.raf); AGV.raf = 0; }
-function agLayout(W, H, t) {
-  const d = AGV.data; if (!d) return;
-  const names = Object.keys(d.agents), n = names.length;
-  const left = W > 1100 ? 300 : 0, right = AGV.sel && W > 760 ? 352 : 0, bottom = Math.min(H * .46, 240);
-  const cx = left + (W - left - right) / 2, cy = 70 + (H - 70 - bottom) * .5;
-  const rx = Math.max(140, Math.min((W - left - right) * .3, 420)), ry = Math.max(70, Math.min(rx * .42, (H - 70 - bottom) * .26));
-  AGV.earth = { x: cx, y: cy };
-  names.forEach((name, i) => {
-    const a = -Math.PI / 2 + (i / n) * Math.PI * 2 + t * .018;
-    const q = d.agents[name].traits?.quality || 3;
-    AGV.pos[name] = { x: cx + Math.cos(a) * rx, y: cy + Math.sin(a) * ry, r: 9 + q * 1.8, a };
-  });
-  for (const [cat, ang] of Object.entries(CAT_ANGLE)) AGV.cats[cat] = { x: cx + Math.cos(ang) * rx * 1.42, y: cy + Math.sin(ang) * ry * 1.95 };
-  AGV.geo = { cx, cy, rx, ry };
-}
-function trembleCurve(ctx, a, b, t, seed, bend) {
-  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1;
-  const off = bend + Math.sin(t * 1.9 + seed) * 4 + Math.sin(t * 5.3 + seed * 2) * 1.2;
-  const qx = mx - dy / L * off, qy = my + dx / L * off;
-  ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(qx, qy, b.x, b.y);
-  return { qx, qy };
-}
-const qpt = (a, q, b, u) => ({ x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * q.qx + u * u * b.x, y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * q.qy + u * u * b.y });
-function drawAgSky(now) {
-  AGV.raf = requestAnimationFrame(drawAgSky);
-  const cv = $("#agSky"); if (!cv || !cv.clientWidth || !AGV.data) return;
-  const dpr = Math.min(2, devicePixelRatio || 1), W = cv.clientWidth, H = cv.clientHeight;
-  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
-  const ctx = cv.getContext("2d"), t = now / 1000, d = AGV.data;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const bg = ctx.createRadialGradient(W * .5, H * .42, 0, W * .5, H * .42, Math.hypot(W, H) * .7);
-  bg.addColorStop(0, "#0d1014"); bg.addColorStop(1, "#040506"); ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  agLayout(W, H, t);
-  const { cx, cy, rx, ry } = AGV.geo;
-  for (let k = 0; k < 15; k++) {                           // gold field lines, trembling like strings
-    const y0 = H * (k + .5) / 15; ctx.beginPath();
-    for (let x = 0; x <= W; x += 18) { const y = y0 + Math.sin(x * .0042 + k * 1.3 + t * .22) * 16 + Math.sin(x * .013 - t * .7 + k * 2.1) * 2.4 + (cy - y0) * .08 * Math.exp(-((x - cx) ** 2) / (rx * rx * 2)); x ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
-    ctx.strokeStyle = `rgba(${GOLD},${.045 + .02 * Math.sin(t * .6 + k)})`; ctx.lineWidth = .8; ctx.stroke();
-  }
-  [[1, .2], [.56, .1], [1.42, .07]].forEach(([k, a]) => { ctx.beginPath(); ctx.ellipse(cx, cy, rx * k, ry * k * (k > 1.3 ? 1.37 : 1), 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},${a})`; ctx.lineWidth = .8; ctx.setLineDash(k > 1.3 ? [3, 6] : []); ctx.stroke(); });
-  ctx.setLineDash([]);
-  const st = d.status, rank = d.ranking || {};
-  for (const name of Object.keys(d.agents)) {               // spokes from you
-    const p = AGV.pos[name]; trembleCurve(ctx, AGV.earth, p, t, name.length, 0);
-    ctx.strokeStyle = `rgba(${GOLD},${st[name]?.available ? .16 : .06})`; ctx.lineWidth = .7; ctx.stroke();
-  }
-  for (const [cat, list] of Object.entries(rank)) {         // dispatch strings: category → agents in order
-    const a = AGV.cats[cat]; if (!a) continue;
-    list.slice(0, 4).forEach((r, i) => {
-      const p = AGV.pos[r.agent]; if (!p) return;
-      const hot = AGV.hoverCat === cat || AGV.sel === r.agent || AGV.hover === r.agent;
-      let alpha = r.usable ? [.9, .45, .26, .15][i] : .1; if (hot) alpha = Math.min(1, alpha * 1.8 + .1);
-      trembleCurve(ctx, a, p, t, i * 3.1 + cat.length, (i % 2 ? 1 : -1) * (14 + i * 6));
-      ctx.setLineDash(r.usable ? [] : [2, 5]); ctx.strokeStyle = `rgba(${r.usable ? GOLD : PALE},${alpha})`; ctx.lineWidth = i === 0 && r.usable ? 1.6 : .8; ctx.stroke(); ctx.setLineDash([]);
-    });
-  }
-  for (let i = AGV.pulses.length - 1; i >= 0; i--) {        // a question travelling: you → category → agent (and back)
-    const pu = AGV.pulses[i], u = (now - pu.t0) / pu.dur;
-    if (u >= 1) { AGV.pulses.splice(i, 1); continue; }
-    const pts = pu.path.map((k) => k === "earth" ? AGV.earth : k.startsWith("cat:") ? AGV.cats[k.slice(4)] : AGV.pos[k]).filter(Boolean);
-    if (pts.length < 2) continue;
-    const seg = Math.min(pts.length - 2, Math.floor(u * (pts.length - 1))), lu = u * (pts.length - 1) - seg;
-    const A = pts[seg], B = pts[seg + 1], x = A.x + (B.x - A.x) * lu, y = A.y + (B.y - A.y) * lu;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, 12); g.addColorStop(0, `rgba(255,240,200,.95)`); g.addColorStop(1, "rgba(233,169,75,0)");
-    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2); ctx.fill();
-  }
-  ctx.font = `500 10px ${getComputedStyle(document.body).getPropertyValue("--mono") || "monospace"}`; ctx.textAlign = "center";
-  for (const [cat, a] of Object.entries(AGV.cats)) {        // the four categories
-    const hot = AGV.hoverCat === cat, first = (rank[cat] || []).find((r) => r.usable);
-    ctx.save(); ctx.translate(a.x, a.y); ctx.rotate(Math.PI / 4); ctx.strokeStyle = `rgba(${GOLDHI},${hot ? 1 : .75})`; ctx.lineWidth = 1.2;
-    ctx.strokeRect(-6, -6, 12, 12); if (hot) { ctx.fillStyle = `rgba(${GOLD},.35)`; ctx.fillRect(-6, -6, 12, 12); } ctx.restore();
-    ctx.fillStyle = `rgba(${GOLDHI},.95)`; ctx.font = `13px ${getComputedStyle(document.body).fontFamily}`;
-    ctx.fillText(CAT_ZH[cat] || cat, a.x, a.y - 16);
-    ctx.fillStyle = "rgba(214,222,226,.55)"; ctx.font = "10px ui-monospace, monospace";
-    ctx.fillText(first ? `→ ${first.agent}` : "无可用 agent", a.x, a.y + 22);
-  }
-  const E = AGV.earth;                                       // you, at the centre
-  ctx.beginPath(); ctx.arc(E.x, E.y, 15, 0, Math.PI * 2); ctx.fillStyle = "#06080a"; ctx.fill();
-  ctx.strokeStyle = `rgba(${GOLDHI},.9)`; ctx.lineWidth = 1.2; ctx.stroke();
-  [0, 1, 2].forEach((k) => { ctx.beginPath(); ctx.ellipse(E.x, E.y, 15, 5 + k * 4, 0, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.28)`; ctx.lineWidth = .6; ctx.stroke(); });
-  ctx.beginPath(); ctx.arc(E.x, E.y, 22 + Math.sin(t * 1.4) * 1.5, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.25)`; ctx.stroke();
-  ctx.fillStyle = `rgba(${GOLDHI},.9)`; ctx.font = `12px ${getComputedStyle(document.body).fontFamily}`; ctx.fillText("你", E.x, E.y + 38);
-  for (const [name, p] of Object.entries(AGV.pos)) {         // the agents
-    const s = st[name] || {}, q = s.quota || {}, live = s.available && s.enabled !== false && q.source !== "login", sel = AGV.sel === name, hov = AGV.hover === name;
-    if (sel || hov) { const g = ctx.createRadialGradient(p.x, p.y, p.r, p.x, p.y, p.r * 3); g.addColorStop(0, `rgba(${GOLD},.28)`); g.addColorStop(1, "rgba(233,169,75,0)"); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2); ctx.fill(); }
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fillStyle = "#07090b"; ctx.fill();
-    ctx.strokeStyle = live ? `rgba(${GOLDHI},${sel ? 1 : .85})` : "rgba(214,222,226,.35)"; ctx.lineWidth = sel ? 1.8 : 1.1; ctx.setLineDash(live ? [] : [2, 3]); ctx.stroke(); ctx.setLineDash([]);
-    ctx.beginPath(); ctx.ellipse(p.x, p.y, p.r * 1.55, p.r * .42, -.25, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},${live ? .4 : .12})`; ctx.lineWidth = .7; ctx.stroke();
-    const rem = q.remaining;                                  // remaining usage: the arc around it
-    ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, Math.PI * 2); ctx.strokeStyle = `rgba(${GOLD},.12)`; ctx.lineWidth = 2; ctx.stroke();
-    if (rem != null) { ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(.02, rem)); ctx.strokeStyle = rem < .15 ? "rgba(255,122,58,.9)" : `rgba(${GOLDHI},.9)`; ctx.lineWidth = 2; ctx.stroke(); }
-    ctx.fillStyle = live ? "#f6ead2" : "rgba(214,222,226,.5)"; ctx.font = `600 12.5px ${getComputedStyle(document.body).fontFamily}`;
-    ctx.fillText(name, p.x, p.y + p.r + 22);
-    ctx.fillStyle = "rgba(214,222,226,.5)"; ctx.font = "10px ui-monospace, monospace";
-    ctx.fillText(!s.available ? "未接通" : s.enabled === false ? "已停用" : q.source === "login" ? "需要登录" : rem != null ? `剩余 ${Math.round(rem * 100)}%` : "用量未知", p.x, p.y + p.r + 36);
-  }
-  if (AGV.hover && AGV.pos[AGV.hover]) {                       // tooltip
-    const p = AGV.pos[AGV.hover], a = d.agents[AGV.hover], s = st[AGV.hover] || {};
-    const lines = [a.role || AGV.hover, s.available ? (s.detail || "") : `未接通：${s.detail || ""}`, s.quota?.detail || ""].filter(Boolean).map((x) => short(x, 46));
-    ctx.font = `12px ${getComputedStyle(document.body).fontFamily}`; const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 20;
-    const x = Math.min(W - w - 10, p.x + p.r + 14), y = p.y - 20;
-    ctx.fillStyle = "rgba(6,8,10,.9)"; ctx.fillRect(x, y, w, lines.length * 17 + 10); ctx.strokeStyle = `rgba(${GOLD},.5)`; ctx.strokeRect(x, y, w, lines.length * 17 + 10);
-    ctx.textAlign = "left"; lines.forEach((l, i) => { ctx.fillStyle = i ? "rgba(214,222,226,.7)" : "#f6ead2"; ctx.fillText(l, x + 10, y + 19 + i * 17); }); ctx.textAlign = "center";
-  }
-}
-function agHit(e) {
-  const r = $("#agSky").getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
-  for (const [n, p] of Object.entries(AGV.pos)) if (Math.hypot(p.x - x, p.y - y) < p.r + 12) return { agent: n };
-  for (const [c, p] of Object.entries(AGV.cats)) if (Math.hypot(p.x - x, p.y - y) < 22) return { cat: c };
-  return {};
 }
 
 /* ---- the left panel: dispatch rules */
@@ -1544,11 +1445,12 @@ async function agSend(text) {
   AGV.chat.push({ role: "user", text }); const pend = { role: "agent", pending: true }; AGV.chat.push(pend); renderAgLog();
   let target = AGV.pick, cat = null;
   try { const r = await api(`/v1/agents/route?text=${encodeURIComponent(text.slice(0, 600))}`); cat = r.category; if (target === "auto") target = r.ranking.find((x) => x.usable)?.agent; } catch {}
-  if (target) AGV.pulses.push({ path: cat && AGV.pick === "auto" ? ["earth", "cat:" + cat, target] : ["earth", target], t0: performance.now(), dur: 1400 });
+  if (target) window.PGA_ROUTE?.(cat && AGV.pick === "auto" ? ["you", "pc:" + cat, "pa:" + target] : ["you", "pa:" + target]);
+  pollLive();
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: AGV.pick, history } });
     Object.assign(pend, r, { pending: false });
-    if (r.agent) AGV.pulses.push({ path: [r.agent, "earth"], t0: performance.now(), dur: 1200 });
+    if (r.agent) window.PGA_ROUTE?.(["pa:" + r.agent, "you"], 2500);
   } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
   AGV.busy = false; $("#agSend").disabled = false; setTimeout(() => $("#agChat").classList.remove("busy"), 6000);
   store.set("pga_agchat", JSON.stringify(AGV.chat.filter((m) => !m.pending).slice(-30)));
@@ -1556,20 +1458,17 @@ async function agSend(text) {
 }
 
 function bindAgentView() {
-  window.addEventListener("pga:wormhole", () => wormholeTo("agents"));
-  $("#agBack").onclick = () => wormholeTo("front");
-  $("#agToAtlas").onclick = async () => { await wormholeTo("front"); flipTo("back"); };
-  $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
-  const sky = $("#agSky");
-  sky.addEventListener("mousemove", (e) => { const h = agHit(e); AGV.hover = h.agent || null; AGV.hoverCat = h.cat || (AGV.hoverCat && !h.agent ? AGV.hoverCat : null); sky.style.cursor = h.agent || h.cat ? "pointer" : "default"; });
-  sky.addEventListener("mouseleave", () => { AGV.hover = null; });
-  sky.addEventListener("click", (e) => {
-    const h = agHit(e);
-    if (h.agent) { AGV.sel = h.agent; renderAgDetail(); }
-    else if (h.cat) { AGV.hoverCat = AGV.hoverCat === h.cat ? null : h.cat; renderAgRoutes(); $("#agRoutes").classList.add("show"); }
-    else { AGV.sel = null; AGV.hoverCat = null; renderAgDetail(); renderAgRoutes(); }
+  window.addEventListener("pga:earth", (e) => (e.detail?.mode === "agents" ? exitAgentMode() : enterAgentMode()));
+  window.addEventListener("pga:poolpick", (e) => {
+    const { agent, cat } = e.detail || {};
+    if (agent) { AGV.sel = agent; renderAgDetail(); }
+    if (cat) { AGV.hoverCat = AGV.hoverCat === cat ? null : cat; renderAgRoutes(); $("#agRoutes").classList.add("show");
+      const first = (AGV.data?.ranking?.[cat] || []).find((x) => x.usable); if (first) window.PGA_ROUTE?.(["you", "pc:" + cat, "pa:" + first.agent], 3500); }
   });
-  const face = $("#faceAgents");
+  $("#agBack").onclick = () => exitAgentMode();
+  $("#agToAtlas").onclick = () => { exitAgentMode(); setTimeout(() => flipTo("back"), 2000); };
+  $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
+  const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
     const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave]");
     if (!t || !AGV.data) return;
@@ -1593,7 +1492,7 @@ function bindAgentView() {
   face.addEventListener("change", (e) => { const s = e.target.closest("[data-agadd]"); if (!s || !s.value) return; AGV.data.routing.categories[s.dataset.agadd].prefer.push(s.value); renderAgRoutes(); });
   $("#agAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#agInput").value.trim(); if (!v) return; $("#agInput").value = ""; agSend(v); });
   $("#agInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agAsk").requestSubmit(); } });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#faceAgents").classList.contains("idle-hidden") && !document.querySelector("dialog[open]")) { if (AGV.sel) { AGV.sel = null; renderAgDetail(); } } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && AGM.on && !document.querySelector("dialog[open]")) { if (AGV.sel) { AGV.sel = null; renderAgDetail(); } } });
 }
 
 const AG = { data: null, poll: 0 };
@@ -3079,6 +2978,9 @@ boot().catch(fail);
 let THREE, OrbitControls;
 const mainEl = document.getElementById("main");
 let SOLO = null;                                                          // the room: only this body is drawn
+// two sides of one sky: "galaxy" (your ambitions) and "agents" (who does the work). Earth is the hinge.
+let MODE = "galaxy", AGENT_GRAPH = null, FLIP = null, EARTH_W = 0, ROUTE = null;
+const RUNNING = new Map();                                                // agent node id → when it last rippled
 const rooming = () => !!SOLO;
 try {
   THREE = await import("three");
@@ -3187,7 +3089,8 @@ function bodyMaterial(d) {                                   // dark bodies draw
 }
 
 /* ------------------------------------------------ scenery: field lines and the rings around each sun */
-const scenery = new THREE.Group(); scene.add(scenery);
+const world = new THREE.Group(); scene.add(world);                // everything except Earth: it turns over around Earth
+const scenery = new THREE.Group(); world.add(scenery);
 function clearGroup(g) { for (const o of [...g.children]) { g.remove(o); o.traverse?.((x) => { if (!SHARED.has(x.geometry)) x.geometry?.dispose?.(); x.material?.dispose?.(); }); } }
 function buildSystemDecor() {
   for (const sys of systems) {
@@ -3290,7 +3193,7 @@ const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value
       vH = aHue; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
   fragmentShader: `varying float vA; varying float vH; void main(){ if (vA < .003) discard;
       vec3 c = vH > 1.5 ? vec3(1., .48, .23) : vH > .5 ? vec3(.91, .66, .3) : vec3(.9, .93, .94); gl_FragColor = vec4(c, vA * (vH > .5 ? .7 : .58)); }` });
-const flecks = new THREE.LineSegments(fleckGeo, fleckMat); flecks.frustumCulled = false; scene.add(flecks);
+const flecks = new THREE.LineSegments(fleckGeo, fleckMat); flecks.frustumCulled = false; world.add(flecks);
 function respawnFlecks(time) {
   if (!flowSamples.length) return;
   const A = fleckGeo.attributes, P = A.position.array, B = A.aBirth.array, L = A.aLife.array, H = A.aHue.array, V = A.aVel.array,
@@ -3361,11 +3264,11 @@ function makeNode(d) {
   }
   n.ringed = ringOf(d);
   if (n.ringed) { n.lock = n.ringed === "solid" ? new THREE.Line(CIRCLE, shiverMat(.75, { amp: .01, color: GOLD })) : new THREE.LineSegments(DASH, shiverMat(.75, { amp: .01, color: GOLD })); n.lock.userData.k = 1.75; group.add(n.lock); }
-  if (["agent", "slot", "ai", "core", "belief"].includes(d.kind)) { n.orbitLine = new THREE.Line(CIRCLE, shiverMat(.14, { amp: .004 })); scene.add(n.orbitLine); }
+  if (["agent", "slot", "ai", "core", "belief"].includes(d.kind)) { n.orbitLine = new THREE.Line(CIRCLE, shiverMat(.14, { amp: .004 })); world.add(n.orbitLine); }
   if (["aim", "user", "agent", "slot", "ai", "core", "database", "skill"].includes(d.kind)) {
     n.label = document.createElement("div"); n.label.className = "nlabel " + (d.kind === "aim" ? "sun" : d.kind); labelsEl.appendChild(n.label);
   }
-  scene.add(group);
+  (d.kind === "user" ? scene : world).add(group);                     // Earth stays put when the world turns over
   nodes.set(d.id, n);
   return n;
 }
@@ -3383,7 +3286,11 @@ function updateNode(n, d) {
     n.arc.material.color.set(d.status === "WAIT_USER" ? EMBER : d.status === "ACTIVE" && !d.paused ? GOLD : inkOf(d));
     if (old.status !== d.status) { n.flash = 1; ripple(n.pos, 2); }
   }
-  if (n.label) {
+  if (n.label && d.pool) {
+    n.label.innerHTML = d.kind === "skill" ? `${escapeHTML(d.label)}<small>→ ${escapeHTML(d.first || "无可用 agent")}</small>`
+      : `${escapeHTML(d.label)}<small>${escapeHTML(d.tag || "")}</small>`;
+    n.label.classList.toggle("pool", true); n.label.classList.toggle("off", !!d.paused);
+  } else if (n.label) {
     const short = (t, k) => t.length > k ? t.slice(0, k - 1) + "…" : t;
     if (d.kind === "aim") n.label.innerHTML = d.placeholder ? `<i>AMBITION 01</i>点击设定长期目标` : `<i>AMBITION ${String((d.position ?? 0) + 1).padStart(2, "0")}</i>${escapeHTML(short(d.gist && d.layers?.source_level > 1 ? d.gist : d.label, 30))}`;
     else if (d.kind === "database" || d.kind === "skill") n.label.innerHTML = `${escapeHTML(short(d.label, 16))}<small>${d.kind === "database" ? "DATABASE" : "SKILL"}${d.private ? " · PRIVATE" : ""}</small>`;
@@ -3396,7 +3303,7 @@ function updateNode(n, d) {
   }
 }
 function removeNode(n) {
-  scene.remove(n.group); if (n.orbitLine) scene.remove(n.orbitLine);
+  n.group.parent?.remove(n.group); if (n.orbitLine) world.remove(n.orbitLine);
   n.label?.remove(); nodes.delete(n.id);
   const i = pickables.indexOf(n.mesh); if (i >= 0) pickables.splice(i, 1);
   n.group.traverse((x) => { if (x.geometry && !SHARED.has(x.geometry)) x.geometry.dispose(); x.material?.dispose?.(); });
@@ -3408,8 +3315,20 @@ function setOrbit(n, parent, r, incl = 0, k = 1) {
   const o = n.orbit; o.parent = parent; o.tr = r; if (!o.r) o.r = r; o.incl = incl; n.fixed = null;
   o.speed = (parent.startsWith("aim:") ? 0.5 : 0.8) * Math.pow(Math.max(r, .4), -1.5) * k * (hash(n.id, 9) > .5 ? 1 : .85);
 }
+const CAT_POS = { code: [-2.78, 8.2], serious: [-2.02, 8.6], office: [-1.12, 8.6], quick: [-.36, 8.2] };   // the far arc: clear of the chat
+function layoutAgents(all) {                                   // the other side: Earth, the agents around it, the four kinds of work
+  const you = nodes.get("you"); if (you) you.fixed = new THREE.Vector3(0, 0, 0);
+  const ags = all.filter((n) => n.d.pool && n.d.kind === "agent");
+  ags.forEach((n, i) => { setOrbit(n, "you", 3.6 + (i % 2) * 1.05, (hash(n.id, 4) - .5) * .14, .3); if (!n.placed) { n.orbit.ang = i / Math.max(1, ags.length) * TAU; n.placed = true; } });
+  const cats = all.filter((n) => n.d.pool && n.d.kind === "skill");
+  cats.forEach((n, i) => { const [a, r] = CAT_POS[n.d.cat] || [i / cats.length * TAU, 8.4]; n.fixed = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * .78); });
+  systems = cats.map((n) => ({ id: n.id, R: 1.5, planets: 0, rings: [] }));
+  boundC.set(0, 0, 0); boundR = 9.6;
+  clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines();
+}
 function layoutOrbits() {
   const all = [...nodes.values()], by = (k) => all.filter((n) => n.d.kind === k);
+  if (MODE === "agents") return layoutAgents(all);
   const isMoonAgent = (n) => n.d.parent && nodes.has(n.d.parent);
   const you = nodes.get("you"); if (you) you.fixed = new THREE.Vector3(0, 0, 0);
   const core = nodes.get("core"); if (core) setOrbit(core, "you", .95, .15, 1.4);
@@ -3486,13 +3405,13 @@ const linkMat = new THREE.ShaderMaterial({
       float a = (.1 * vW + f * .22 + vH * .45) * mix(1., mix(.25, 1., step(.5, vH)), uHover);
       gl_FragColor = vec4(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), max(vH * .55, vG * .9)), a * (1. + vG * 1.6)); }` });
 let linkGeo = new THREE.BufferGeometry(), linkMesh = new THREE.LineSegments(linkGeo, linkMat);
-linkMesh.frustumCulled = false; scene.add(linkMesh);
-const LINK_W = { bridge: 2.2, aim: 1.6, agent: 1.4, talk: 1.3, ai: 1, candidate: 1, belief: .8, supports: .8, contradicts: 1.4, signal: .5, feed: .7, slot: .4 };
+linkMesh.frustumCulled = false; world.add(linkMesh);
+const LINK_W = { route1: 2.6, route2: 1.1, route3: .55, spoke: .5, bridge: 2.2, aim: 1.6, agent: 1.4, talk: 1.3, ai: 1, candidate: 1, belief: .8, supports: .8, contradicts: 1.4, signal: .5, feed: .7, slot: .4 };
 function rebuildLinks() {
   const n = links.length, v = n * SEG * 2;
   linkGeo.dispose(); linkGeo = new THREE.BufferGeometry();
   const t = new Float32Array(v), seed = new Float32Array(v), w = new Float32Array(v), gold = new Float32Array(v);
-  links.forEach((l, i) => { for (let s = 0; s < SEG; s++) for (let e = 0; e < 2; e++) { const k = (i * SEG + s) * 2 + e; t[k] = (s + e) / SEG; seed[k] = l.seed; w[k] = LINK_W[l.kind] ?? 1; gold[k] = l.kind === "bridge" ? 1 : 0; } });
+  links.forEach((l, i) => { for (let s = 0; s < SEG; s++) for (let e = 0; e < 2; e++) { const k = (i * SEG + s) * 2 + e; t[k] = (s + e) / SEG; seed[k] = l.seed; w[k] = LINK_W[l.kind] ?? 1; gold[k] = l.kind === "bridge" || l.kind.startsWith("route") ? 1 : 0; } });
   linkGeo.setAttribute("aGold", new THREE.BufferAttribute(gold, 1));
   linkGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(v * 3), 3).setUsage(THREE.DynamicDrawUsage));
   linkGeo.setAttribute("aT", new THREE.BufferAttribute(t, 1)); linkGeo.setAttribute("aSeed", new THREE.BufferAttribute(seed, 1));
@@ -3517,10 +3436,10 @@ function stringPoint(a, b, t, l, time, out) {        // a point on a vibrating s
 let firstSync = true; const seenEvents = new Set(), seenRuns = new Map();
 let layoutKey = "";
 function syncGraph() {
-  const g = ST().graph; if (!g) return;
+  const g = MODE === "agents" ? AGENT_GRAPH : ST().graph; if (!g) return;
   const set = ST().settings;
   const wanted = g.nodes.filter((d) => set.showEvidence || d.kind !== "evidence");
-  for (let i = 0; i < (g.free_slots || 0); i++) wanted.push({ id: `slot:${i}`, kind: "slot", label: "+ 新 agent" });
+  if (MODE === "galaxy") for (let i = 0; i < (g.free_slots || 0); i++) wanted.push({ id: `slot:${i}`, kind: "slot", label: "+ 新 agent" });
   const ids = new Set(wanted.map((d) => d.id));
   for (const n of [...nodes.values()]) if (!ids.has(n.id)) removeNode(n);
   const order = { user: 0, core: 1, aim: 2, agent: 3, slot: 4, database: 5, skill: 6, ai: 7, source: 8, belief: 9, evidence: 10 };
@@ -3562,7 +3481,7 @@ function syncGraph() {
 window.addEventListener("pga:state", syncGraph);
 
 /* ------------------------------------------------ light travelling along strings, ripples in the plane */
-const fxGroup = new THREE.Group(); scene.add(fxGroup);
+const fxGroup = new THREE.Group(); world.add(fxGroup);
 const pulses = [], ripples = [];
 function pulse(aId, bId, { size = .06, dur = 1.2, delay = 0 } = {}) {
   if (!nodes.has(aId) || !nodes.has(bId) || pulses.length > 80) return;
@@ -3572,9 +3491,9 @@ function pulse(aId, bId, { size = .06, dur = 1.2, delay = 0 } = {}) {
   pulses.push({ a: aId, b: bId, t: -delay, dur: dur * (1 + Math.min(2, nodes.get(aId).pos.distanceTo(nodes.get(bId).pos) / 12)), balls, mat, link: l, rev: l && l.a === bId });
   if (l) l.boost = Math.max(l.boost, .6);
 }
-function ripple(pos, size = 3) {
-  const m = new THREE.Line(CIRCLE, shiverMat(.55, { amp: .02 }));
-  m.position.copy(pos); fxGroup.add(m); ripples.push({ m, t: 0, size });
+function ripple(pos, size = 3, color = null) {
+  const m = new THREE.Line(CIRCLE, shiverMat(color ? 1 : .55, color ? { amp: .02, color } : { amp: .02 }));
+  m.position.copy(pos); fxGroup.add(m); ripples.push({ m, t: 0, size, peak: color ? 1 : .5 });
 }
 
 /* ------------------------------------------------ sizing */
@@ -3609,6 +3528,7 @@ window.PGA_BODY = (id) => {
 const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 let hovered = null, down = null, idleUntil = 0;
 function pick(e, exclude = null) {
+  if (FLIP) return null;                                                   // nothing to click while the world turns over
   const r = canvas.getBoundingClientRect(); ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
   const hit = ray.intersectObjects(pickables, false).find((h) => h.object.userData.node !== exclude);
@@ -3629,9 +3549,9 @@ const DRAGGABLE = new Set(["agent", "database", "skill", "aim"]), DROPPABLE = ne
 let drag = null;
 const tether = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
   new THREE.LineDashedMaterial({ color: GOLD, dashSize: .18, gapSize: .12, transparent: true, opacity: .8, depthWrite: false }));
-tether.visible = false; tether.frustumCulled = false; scene.add(tether);
-const dropRing = new THREE.Line(CIRCLE_XY, shiverMat(.9, { amp: .03, xy: true, color: GOLD })); dropRing.visible = false; scene.add(dropRing);
-const pullTip = new THREE.Line(CIRCLE_XY, shiverMat(.9, { amp: .03, xy: true, color: GOLD })); pullTip.visible = false; scene.add(pullTip);
+tether.visible = false; tether.frustumCulled = false; world.add(tether);
+const dropRing = new THREE.Line(CIRCLE_XY, shiverMat(.9, { amp: .03, xy: true, color: GOLD })); dropRing.visible = false; world.add(dropRing);
+const pullTip = new THREE.Line(CIRCLE_XY, shiverMat(.9, { amp: .03, xy: true, color: GOLD })); pullTip.visible = false; world.add(pullTip);
 const dropOK = (t) => t && t !== drag?.n && DROPPABLE.has(t.d.kind) && !t.d.placeholder;
 function dropTarget(e) {                                  // the nearest linkable body under the pointer (moons don't count)
   const r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, v = new THREE.Vector3();
@@ -3651,7 +3571,7 @@ canvas.addEventListener("pointerdown", (e) => {
   if (rooming()) return;                                                   // in the room the canvas only turns the body
   if (e.button !== 0) return;
   const n = pick(e);
-  if (n && DRAGGABLE.has(n.d.kind) && !n.d.placeholder) { drag = { n, x: e.clientX, y: e.clientY, active: false, pos: n.pos.clone(), target: null }; controls.enabled = false; }
+  if (n && MODE === "galaxy" && DRAGGABLE.has(n.d.kind) && !n.d.placeholder) { drag = { n, x: e.clientX, y: e.clientY, active: false, pos: n.pos.clone(), target: null }; controls.enabled = false; }
 }, { capture: true });
 canvas.addEventListener("pointermove", (e) => {
   if (drag) {
@@ -3714,9 +3634,14 @@ canvas.addEventListener("contextmenu", (e) => {                          // righ
 controls.addEventListener("start", () => { idleUntil = performance.now() + 9000; });
 let focusedId = null;                                                    // the body the last click flew to
 function select(n, mode = "click") {
-  if (mode === "click" && n.d.kind === "user") {                          // Earth (you): through the wormhole to the agents
+  if (mode === "click" && n.d.kind === "user") {                          // Earth (you): turn the world over to the agents and back
     n.flash = 1; ripple(n.pos, 2.4);
-    window.dispatchEvent(new CustomEvent("pga:wormhole"));
+    window.dispatchEvent(new CustomEvent("pga:earth", { detail: { mode: MODE } }));
+    return;
+  }
+  if (n.d.pool) {                                                          // the agents side: show that agent / that kind of work
+    n.flash = 1; ripple(n.pos, 1.2, GOLD);
+    window.dispatchEvent(new CustomEvent("pga:poolpick", { detail: { id: n.id, agent: n.d.agent, cat: n.d.cat } }));
     return;
   }
   // first click zooms in; a click on the body already zoomed to (or a double-click) shows / folds the bars
@@ -3751,6 +3676,35 @@ function showTip(n, e) {
 /* ------------------------------------------------ reactions to the page */
 let focusId = null, flyT = 1, lastSelected;
 window.PGA_FOCUS = () => focusId;                                         // which body the camera is on (null = the whole view)
+const ORIGIN = new THREE.Vector3(), EARTH_FILL_W = new THREE.Color("#e9e6df"), EARTH_RIM_W = new THREE.Color("#ffffff");
+window.PGA_MODE = () => (FLIP ? FLIP.to : MODE);
+window.PGA_SET_AGENTS = (g) => { AGENT_GRAPH = g; if (MODE === "agents" && !FLIP) syncGraph(); };
+window.PGA_FLIP_TO = (to) => {                                            // turn the world over: galaxy ⇄ agents
+  if (FLIP || to === MODE || (to === "agents" && !AGENT_GRAPH)) return false;
+  focusId = null; focusedId = null; flyT = 1;
+  camera.updateMatrixWorld();
+  const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize(), c = camera.position.clone().normalize();
+  let best = { deg: 55, sgn: 1 };
+  search: for (let deg = 1; deg <= 89; deg++) for (const sgn of [1, -1]) {   // the angle at which the disc is seen edge-on
+    if (new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, sgn * deg * Math.PI / 180).dot(c) <= 0) { best = { deg, sgn }; break search; }
+  }
+  const edge = best.sgn * best.deg * Math.PI / 180;
+  FLIP = { to, t0: performance.now(), dur: 1800, axis, edge, back: edge - best.sgn * Math.PI, swapped: false };
+  return true;
+};
+window.PGA_ROUTE = (path, ms = 5000) => {                                 // a gold path: you → kind of work → agent
+  const ids = path.filter((id) => nodes.has(id)); if (ids.length < 2) return;
+  ROUTE = { pairs: new Set(), until: performance.now() + ms };
+  for (let i = 0; i + 1 < ids.length; i++) {
+    ROUTE.pairs.add(ids[i] + ">" + ids[i + 1]); ROUTE.pairs.add(ids[i + 1] + ">" + ids[i]);
+    pulse(ids[i], ids[i + 1], { size: .1, dur: .8, delay: i * .7 });
+  }
+  const last = nodes.get(ids[ids.length - 1]); if (last) { last.flash = 1; ripple(last.pos, 2, GOLD); }
+};
+window.PGA_RUNNING = (ids) => {                                           // agents working right now
+  for (const id of [...RUNNING.keys()]) if (!ids.includes(id)) RUNNING.delete(id);
+  for (const id of ids) if (!RUNNING.has(id)) RUNNING.set(id, 0);
+};
 window.PGA_SOLO = (id) => {
   SOLO = id || null;
   for (const n of nodes.values()) { n.group.visible = !SOLO || n.id === SOLO; if (n.orbitLine) n.orbitLine.visible = !SOLO; }
@@ -3789,10 +3743,30 @@ function frame(now) {
 
   placeAll(dt, motion);
   if (motion) respawnFlecks(uTime.value);
+  let flipU = 0;
+  if (FLIP) {                                                              // the world turns over around Earth like a page
+    flipU = Math.min(1, (now - FLIP.t0) / FLIP.dur);
+    if (flipU >= .5 && !FLIP.swapped) { FLIP.swapped = true; MODE = FLIP.to; layoutKey = ""; syncGraph(); flyT = 1; }
+    const phi = flipU < .5 ? FLIP.edge * Math.pow(flipU / .5, 1.7) : FLIP.back * Math.pow(1 - (flipU - .5) / .5, 2.3);
+    world.quaternion.setFromAxisAngle(FLIP.axis, phi);
+    if (flipU >= 1) { world.quaternion.identity(); FLIP = null; window.dispatchEvent(new CustomEvent("pga:flipped", { detail: { mode: MODE } })); }
+  }
+  const youN = nodes.get("you");                                           // Earth turns white on the agents side
+  if (youN?.mesh.material.uniforms?.uFill) {
+    const goal = Math.max(MODE === "agents" ? 1 : 0, FLIP ? Math.sin(Math.PI * flipU) : 0);
+    EARTH_W += (goal - EARTH_W) * Math.min(1, dt * 3.2);
+    const u = youN.mesh.material.uniforms; youN.fill0 ||= u.uFill.value.clone(); youN.rim0 ||= u.uC.value.clone();
+    u.uFill.value.copy(youN.fill0).lerp(EARTH_FILL_W, EARTH_W); u.uC.value.copy(youN.rim0).lerp(EARTH_RIM_W, EARTH_W);
+  }
+  for (const [id, last] of RUNNING) {                                     // an agent at work sends out gold ripples
+    const n = nodes.get(id); if (!n || now - last < 850) continue;
+    ripple(n.pos, 1.7 + n.r * 2.4, GOLD); ripple(n.pos, .9 + n.r * 1.4, GOLD); n.flash = Math.max(n.flash, .6); RUNNING.set(id, now);
+  }
+  if (ROUTE && now > ROUTE.until) ROUTE = null;
 
   if (st.selected !== lastSelected) { lastSelected = st.selected; if (st.selected && nodes.has(st.selected)) focusId = st.selected; else if (focusId && nodes.get(focusId)?.d.kind === "agent") focusId = null; flyT = 1; }
-  const fnode = focusId ? nodes.get(focusId) : null;
-  const target = fnode ? fnode.pos : boundC;
+  const fnode = focusId && !FLIP ? nodes.get(focusId) : null;
+  const target = FLIP ? ORIGIN : fnode ? fnode.pos : boundC;
   controls.target.lerp(target, .07);
   if (flyT > 0) {
     flyT = Math.max(0, flyT - dt * .7);
@@ -3842,9 +3816,10 @@ function frame(now) {
     if (n.label) {
       v3.copy(n.pos).project(camera);
       const vis = v3.z < 1 && Math.abs(v3.x) < 1.15 && Math.abs(v3.y) < 1.15;
-      const minor = n.d.kind === "database" || n.d.kind === "skill";
-      const show = vis && (minor ? (hovered === n || drag?.target === n || drag?.n === n || camera.position.distanceTo(n.pos) < 13) : (labelsAlways || hovered === n || st.selected === n.id || n.d.kind === "aim" || n.d.kind === "user"));
+      const minor = !n.d.pool && (n.d.kind === "database" || n.d.kind === "skill");
+      const show = !FLIP && vis && (minor ? (hovered === n || drag?.target === n || drag?.n === n || camera.position.distanceTo(n.pos) < 13) : (labelsAlways || n.d.pool || hovered === n || st.selected === n.id || n.d.kind === "aim" || n.d.kind === "user"));
       n.label.style.opacity = show ? (n.d.kind === "slot" ? .55 : 1) : 0;
+      n.label.style.transition = FLIP ? "none" : "";
       if (vis) {
         const x = (v3.x + 1) / 2 * r.width, y = (1 - v3.y) / 2 * r.height, off = n.r * 1.5 * pxPer(n.pos);
         n.label.style.transform = n.d.kind === "aim" ? `translate(-50%, -100%) translate(${x.toFixed(1)}px, ${(y - off * 1.25 - 10).toFixed(1)}px)`
@@ -3871,6 +3846,7 @@ function frame(now) {
         stringPoint(a.pos, b.pos, s / SEG, l, uTime.value, _q); arr[k] = _q.x; arr[k + 1] = _q.y; arr[k + 2] = _q.z;
         stringPoint(a.pos, b.pos, (s + 1) / SEG, l, uTime.value, _q); arr[k + 3] = _q.x; arr[k + 4] = _q.y; arr[k + 5] = _q.z;
       }
+      if (ROUTE && ROUTE.pairs.has(l.a + ">" + l.b)) l.boost = Math.max(l.boost, .95);   // the dispatch path glows gold
       if (l.boost > .01) { l.boost *= Math.pow(.35, dt); if (!hovered) { hi.array.fill(l.boost > .3 ? 1 : 0, i * SEG * 2, (i + 1) * SEG * 2); hiDirty = true; } }
     });
     pos.needsUpdate = true; if (hiDirty) hi.needsUpdate = true;
@@ -3892,7 +3868,7 @@ function frame(now) {
   for (let i = ripples.length - 1; i >= 0; i--) {
     const rp = ripples[i]; rp.t += dt / 1.5;
     if (rp.t >= 1) { fxGroup.remove(rp.m); rp.m.material.dispose(); ripples.splice(i, 1); continue; }
-    rp.m.scale.setScalar(.2 + rp.size * (1 - Math.pow(1 - rp.t, 3))); setOp(rp.m.material, .5 * (1 - rp.t));
+    rp.m.scale.setScalar(.2 + rp.size * (1 - Math.pow(1 - rp.t, 3))); setOp(rp.m.material, rp.peak * (1 - rp.t));
   }
   renderer.render(scene, camera);
 }

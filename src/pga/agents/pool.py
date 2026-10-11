@@ -73,6 +73,7 @@ DEFAULT: dict[str, Any] = {
                      "link": "DeepSeek API（设置 → 模型与 API 里的通道和密钥），PGA 直接调用"},
         "chatgpt": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "严肃问题 · ChatGPT（gpt-astra）",
                     "capabilities": ["serious", "research", "review", "write", "code", "general"], "reasoning": "medium",
+                    "disable": ["memories", "shell_tool"],         # answers only: no local memory files, no shell commands
                     "timeout_s": 600, "max_turns": 20, "traits": {"quality": 5, "speed": 2, "cost": 3},
                     "quota": {"source": "codex_sessions"},
                     "link": "ChatGPT 应用自带的 Codex CLI（codex exec，只读沙箱），用你登录的 ChatGPT 账号；默认模型 = ~/.codex/config.toml（gpt-astra）"},
@@ -90,6 +91,7 @@ DEFAULT: dict[str, Any] = {
                    "quota": {"source": "codex_sessions"},
                    "link": "Hermes Agent CLI（hermes chat -Q），用 ~/.hermes 里的模型（openai-codex · gpt-astra，与 ChatGPT 共用额度）"},
         "codex": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "工程师 · Codex", "capabilities": ["code", "review", "general"],
+                  "disable": ["memories"],
                   "timeout_s": 900, "max_turns": 40, "traits": {"quality": 4, "speed": 2, "cost": 3}, "quota": {"source": "codex_sessions"},
                   "link": "同 ChatGPT 的 Codex CLI，但用于写代码（工作目录可写）"},
         "gemini": {"adapter": "gemini_local", "role": "Gemini CLI", "capabilities": ["research", "review", "general"],
@@ -316,10 +318,18 @@ class AgentPool:
                          max_turns=int(a.get("max_turns", 30)), want_json=want_json, meta=dict(meta or {}))
 
     def _call(self, name: str, task: AgentTask, step: str, attempt: int = 1) -> Step:
+        from pga.agents import live
         a = self.cfg["agents"][name]
         started = utcnow()
-        with _slot(name, int(a.get("max_concurrent", 1))):
-            res = self.adapters[name].run(task)
+        lid = live.start(name, category=task.meta.get("category") or task.kind, workflow=task.meta.get("workflow", ""), step=step,
+                         prompt=task.prompt, task_kind=task.meta.get("task_kind", ""))
+        task.meta["live_id"] = lid
+        try:
+            with _slot(name, int(a.get("max_concurrent", 1))):
+                res = self.adapters[name].run(task)
+        finally:
+            r = locals().get("res")
+            live.finish(lid, bool(r and r.ok), text=r.text if r else None, error=r.error if r else "interrupted")
         return Step(step=step, task=task, result=res, attempt=attempt, started=started, finished=utcnow())
 
     def _workspace(self, run_id: uuid.UUID, workflow: str, sub: str | None = None) -> str:

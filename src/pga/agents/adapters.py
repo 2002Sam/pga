@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import shlex
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -74,6 +77,10 @@ class CLIAdapter(Adapter):
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
         return AgentResult(ok=True, text=stdout.strip())
 
+    def progress(self, line: str, task: AgentTask) -> str | None:
+        """What a line of output means to someone watching (shown live beside the planet). Plain text by default."""
+        return line
+
     def _run(self, task: AgentTask) -> AgentResult:
         exe = self.exe()
         if not exe:
@@ -85,16 +92,55 @@ class CLIAdapter(Adapter):
             if get_key(name):
                 env[name] = get_key(name)
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
+        from pga.agents import live
+        lid = task.meta.get("live_id")
+        # stream: read stdout line by line so the constellation can show the agent's words as they come
+        p = subprocess.Popen(self.command(task, exe), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, env=env, cwd=cwd, bufsize=1)
+        lines: queue.Queue = queue.Queue()
+        err: list[str] = []
+
+        def feed() -> None:
+            try:
+                p.stdin.write(self.stdin(task))
+                p.stdin.close()
+            except (BrokenPipeError, OSError):
+                pass
+        threading.Thread(target=feed, daemon=True).start()
+        threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True).start()
+        threading.Thread(target=lambda: ([lines.put(x) for x in p.stdout], lines.put(None)), daemon=True).start()
+        out: list[str] = []
+        deadline = time.monotonic() + task.timeout_s
+        while True:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                p.kill()
+                live.append(lid, f"\n（{task.timeout_s:.0f} 秒内没有完成）")
+                return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
+            try:
+                line = lines.get(timeout=min(left, 1.0))
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            out.append(line)
+            try:
+                shown = self.progress(line, task)
+            except Exception:  # noqa: BLE001 - a display hiccup must not fail the run
+                shown = None
+            if shown:
+                live.append(lid, shown if shown.endswith("\n") else shown + "\n")
         try:
-            p = subprocess.run(self.command(task, exe), input=self.stdin(task), capture_output=True, text=True,
-                               timeout=task.timeout_s, env=env, cwd=cwd)
+            p.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
-        res = self.parse(p.stdout or "", p.stderr or "", task)
+            p.kill()
+        time.sleep(0.05)
+        stdout, stderr = "".join(out), "".join(err)
+        res = self.parse(stdout, stderr, task)
         if p.returncode != 0 and res.ok and not res.text:
             res.ok, res.status = False, "FAILED"
         if p.returncode != 0 and not res.ok and not res.error:
-            res.error = ((p.stderr or "") + (p.stdout or ""))[-800:].strip() or f"exit code {p.returncode}"
+            res.error = (stderr + stdout)[-800:].strip() or f"exit code {p.returncode}"
         return res
 
     def stdin(self, task: AgentTask) -> str:
@@ -108,8 +154,8 @@ class ClaudeLocal(CLIAdapter):
     secrets = ("CLAUDE_CODE_OAUTH_TOKEN",)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "-p", "--output-format", "json", "--max-turns", str(task.max_turns), "--no-session-persistence",
-               "--strict-mcp-config"]
+        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns),
+               "--no-session-persistence", "--strict-mcp-config"]
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep",
                     "--disallowedTools", "Bash,WebFetch,WebSearch,NotebookEdit"]
@@ -123,11 +169,28 @@ class ClaudeLocal(CLIAdapter):
     def stdin(self, task: AgentTask) -> str:
         return _prompt(task)
 
+    def progress(self, line: str, task: AgentTask) -> str | None:
+        return _stream_json_progress(line)
+
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
-        try:
-            d = json.loads(stdout or "{}")
-        except json.JSONDecodeError:
-            return AgentResult(ok=bool(stdout.strip()), text=stdout.strip()[-20000:], error=None if stdout.strip() else stderr[-500:])
+        d, said = None, []
+        for line in stdout.splitlines():                       # stream-json: the last "result" event is the answer
+            try:
+                ev = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "result":
+                d = ev
+            elif isinstance(ev, dict) and ev.get("type") == "assistant":
+                said += [b.get("text", "") for b in (ev.get("message") or {}).get("content") or [] if isinstance(b, dict) and b.get("type") == "text"]
+        if d is None:
+            try:
+                d = json.loads(stdout or "{}")                   # a single JSON object (older CLIs)
+            except json.JSONDecodeError:
+                d = None
+        if not isinstance(d, dict) or not d:
+            text = "\n".join(x for x in said if x).strip() or stdout.strip()[-20000:]
+            return AgentResult(ok=bool(text), text=text, error=None if text else stderr[-500:])
         text = str(d.get("result") or "")
         ok = not d.get("is_error") and d.get("subtype", "success") == "success"
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=d.get("total_cost_usd"),
@@ -143,8 +206,8 @@ class CodebuddyLocal(ClaudeLocal):
     secrets = ("CODEBUDDY_API_KEY",)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "-p", "--output-format", "json", "--max-turns", str(task.max_turns), "--no-session-persistence",
-               "--strict-mcp-config"]
+        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns),
+               "--no-session-persistence", "--strict-mcp-config"]
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
         else:
@@ -172,7 +235,29 @@ class CodexLocal(CLIAdapter):
             cmd += ["-m", str(self.config["model"])]
         if self.config.get("reasoning"):                       # model_reasoning_effort: minimal | low | medium | high
             cmd += ["-c", f'model_reasoning_effort="{self.config["reasoning"]}"']
+        for feature in self.config.get("disable") or []:       # e.g. memories (no reading ~/.codex/memories), shell_tool
+            cmd += ["--disable", str(feature)]
         return cmd + ["-"]
+
+    def progress(self, line: str, task: AgentTask) -> str | None:
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        item = ev.get("item") if isinstance(ev, dict) else None
+        if ev.get("type") == "item.completed" and isinstance(item, dict):
+            kind = item.get("type") or item.get("item_type")
+            if kind in ("agent_message", "assistant_message"):
+                return str(item.get("text") or "")
+            if kind == "reasoning":
+                return "（思考）" + str(item.get("text") or item.get("summary") or "")[:400]
+            if kind in ("command_execution", "local_shell_call"):
+                return "$ " + str(item.get("command") or "")[:200]
+            if kind == "web_search":
+                return "（搜索）" + str(item.get("query") or "")[:200]
+        if ev.get("type") in ("error", "turn.failed"):
+            return "错误：" + str(ev.get("message") or ev.get("error") or "")[:300]
+        return None
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
         text = ""
@@ -196,6 +281,27 @@ class CodexLocal(CLIAdapter):
                            data={"usage": usage} if usage else {})
 
 
+def _stream_json_progress(line: str) -> str | None:
+    """Claude Code / CodeBuddy stream-json: the assistant's words, and a short note for each tool it uses."""
+    try:
+        ev = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(ev, dict) or ev.get("type") != "assistant":
+        return None
+    out = []
+    for b in (ev.get("message") or {}).get("content") or []:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "text" and b.get("text"):
+            out.append(b["text"])
+        elif b.get("type") == "tool_use":
+            arg = b.get("input") or {}
+            hint = arg.get("file_path") or arg.get("pattern") or arg.get("query") or arg.get("url") or ""
+            out.append(f"→ {b.get('name')} {str(hint)[:120]}".rstrip())
+    return "\n".join(out) or None
+
+
 class HermesLocal(CLIAdapter):
     type, binary = "hermes_local", "hermes"
 
@@ -208,6 +314,9 @@ class HermesLocal(CLIAdapter):
         if self.config.get("provider"):
             cmd += ["--provider", str(self.config["provider"])]
         return cmd
+
+    def progress(self, line: str, task: AgentTask) -> str | None:
+        return None if line.lower().startswith(("session_id", "session:", "resume with")) else line
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
         lines = [l for l in stdout.splitlines() if not l.lower().startswith(("session_id", "session:", "resume with"))]
@@ -318,6 +427,8 @@ class LLM(Adapter):
         r = self.rt.router.complete(tier, system=task.system or "You are one agent in a team working for the user. Be concrete.",
                                     messages=[{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}],
                                     max_tokens=int(self.config.get("max_tokens", 2500)), usage=None, delegate=False)
+        from pga.agents import live
+        live.append(task.meta.get("live_id"), r.text)
         return AgentResult(ok=bool(r.text.strip()), text=r.text, model=r.model, usage=r)
 
 

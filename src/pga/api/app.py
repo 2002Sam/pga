@@ -1350,6 +1350,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                   created_by=Origin.USER, priority=40)
         return {"job_id": str(job.id), "status": job.status.value}
 
+    @app.get("/v1/agents/live")
+    def agents_live():
+        """Agents working right now (and just finished): what each has said so far — the constellation polls this."""
+        from pga.agents import live
+        return live.snapshot()
+
     @app.get("/v1/agents/route")
     def agents_route(text: str = "", category: str | None = None, rt: Runtime = Depends(get_rt)):
         """Which agent a request would go to, and why (no agent is run)."""

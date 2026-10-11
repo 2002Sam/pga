@@ -132,3 +132,34 @@ def test_api_config_status_background_run_and_history(session_factory, policy, p
         now = c.post(f"/v1/users/{uid}/agents/run", json={"workflow": "general", "prompt": "hi", "wait": True}).json()
         assert now["ok"] and now["text"].startswith("alpha says")
         assert c.post(f"/v1/users/{uid}/agents/run", json={"workflow": "nope", "prompt": "x"}).status_code == 422
+
+
+def test_the_live_board_shows_output_while_an_agent_works(rt, user, provider, tmp_path):
+    """Lines appear on the live board as the agent prints them, before it finishes."""
+    import threading
+    import time
+
+    from pga.agents import live
+    slow = tmp_path / "slow.py"
+    slow.write_text("import sys, time\nsys.stdin.read()\nprint('first thought', flush=True)\ntime.sleep(1.2)\nprint('final answer', flush=True)\n")
+    cfg = {"agents": {"slow": {"adapter": "process", "command": [sys.executable, str(slow)]}},
+           "workflows": {"general": {"pattern": "single", "agents": ["slow"]}},
+           "run": {"retries": 0, "workspace_root": str(tmp_path / "ws")}}
+    p = AgentPool(rt, cfg)
+    seen = {}
+
+    def watch():
+        for _ in range(40):
+            mine = [r for r in live.snapshot() if r["agent"] == "slow" and r["running"]]
+            if mine and "first thought" in mine[0]["text"]:
+                seen["mid"] = mine[0]["text"]
+                return
+            time.sleep(0.05)
+    t = threading.Thread(target=watch)
+    t.start()
+    res = p.run("general", "go", user=user)
+    t.join()
+    assert res.ok and "final answer" in res.text
+    assert "first thought" in seen["mid"] and "final answer" not in seen["mid"]          # streamed, not at the end
+    done = [r for r in live.snapshot() if r["agent"] == "slow"][-1]
+    assert not done["running"] and done["ok"] and "final answer" in done["text"]

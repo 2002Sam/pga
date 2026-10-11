@@ -143,7 +143,7 @@ class AgentRouter:
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
             ws = self.pool._workspace(run_id, "ask", name)
             step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM, kind=cat, workspace=ws, permissions=perms,
-                                                         timeout_s=None, want_json=False), "run")
+                                                         timeout_s=None, want_json=False, meta={"category": cat, "workflow": "chat"}), "run")
             steps.append(step)
             if step.result.ok:
                 result_text, used = step.result.text, name
@@ -182,7 +182,8 @@ class AgentRouter:
                 break
             tried += 1
             step = self.pool._call(name, self.pool._task(name, prompt, system="", kind=cat, workspace=self.pool._workspace(run_id, f"task-{kind}", name),
-                                                         permissions=READ_ONLY, timeout_s=None, want_json=want_json), "run")
+                                                         permissions=READ_ONLY, timeout_s=None, want_json=want_json,
+                                                         meta={"category": cat, "task_kind": kind, "workflow": "long-term"}), "run")
             steps.append(step)
             ok = step.result.ok and step.result.text.strip()
             if ok and want_json:
