@@ -67,7 +67,7 @@ class BudgetLedger:
                    now: datetime | None = None) -> UsageRecord:
         return self.record(tier=result.tier, model=result.model, provider=result.provider,
                            input_tokens=result.input_tokens, output_tokens=result.output_tokens,
-                           ctx=ctx, responsibility_id=responsibility_id, now=now)
+                           ctx=ctx, responsibility_id=responsibility_id, now=now or ctx.now)
 
     def record(self, *, tier: int, model: str | None, provider: str, input_tokens: int, output_tokens: int,
                ctx: UsageContext, responsibility_id: uuid.UUID | None = None,
@@ -141,7 +141,8 @@ class BudgetLedger:
     # ---------------------------------------------------------------- premium quota
 
     def quota_policy(self, tier: int, provider: str | None = None) -> QuotaPolicy | None:
-        q = self.policy.quota_for_tier(tier)
+        provider = provider or self.provider
+        q = self.policy.quota_for_tier(tier, provider)
         if q is None or (provider and q.provider != provider and provider != "fake"):
             return None
         return q

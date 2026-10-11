@@ -45,14 +45,37 @@ quotas:
     after_target:
       allow: [deterministic_tools, cache, cheap_models, monitoring, retrieval]
       pause: [deep_research, expensive_multi_agent, nonurgent_video_render]
+  # Claude Pro/Max subscription via the `claude` CLI: Sonnet and Opus both draw on the plan's
+  # 5-hour limit. Anthropic does not publish the limit in tokens — capacity is a starting
+  # guess; lower it if you hit "usage limit reached" before the agent thinks the window is full.
+  - key: claude-subscription
+    provider: claude_cli
+    applies_to_tiers: [2, 3]
+    window_mode: fixed
+    window_seconds: 18000
+    capacity_units: 1500000
+    proactive_target_ratio: 0.70
+    reserve_ratio: 0.30
+    after_target:
+      allow: [deterministic_tools, cache, cheap_models, monitoring, retrieval]
+      pause: [deep_research, expensive_multi_agent, nonurgent_video_render]
 
 # §7 — model tiers. Model ids are configuration, swap freely.
 llm:
-  provider: anthropic               # "anthropic" or "fake" (offline/dev/tests)
+  provider: anthropic               # "anthropic", "deepseek", "claude_cli" (your Claude subscription) or "fake"
   tiers:
     1: claude-haiku-5-5
     2: claude-sonnet-5-5
     3: claude-opus-5-5
+  provider_tiers:                   # used instead of `tiers` when that provider is active
+    deepseek:
+      1: deepseek-chat
+      2: deepseek-chat
+      3: deepseek-reasoner
+    claude_cli:                     # aliases the CLI resolves to the current models
+      1: haiku
+      2: sonnet
+      3: opus
   # cost units per token, used for budget accounting (output tokens weigh more)
   unit_costs:
     0: {input: 0.0, output: 0.0}
@@ -104,6 +127,17 @@ allocator:
     deterministic:         {tier: 0, category: monitoring,              quota_class: deterministic_tools}
     exploration:           {tier: 2, category: free_exploration,        min_tier: 1}
     self_improvement:      {tier: 2, category: self_improvement,        min_tier: 1}
+    hub_summary:           {tier: 2, category: user_reserve,            reactive: true, min_tier: 1}
+    hub_background:        {tier: 1, category: self_improvement,        min_tier: 1}
+    aim_expand:            {tier: 2, category: user_reserve,            reactive: true, min_tier: 1}
+    layers_build:          {tier: 2, category: user_reserve,            reactive: true, min_tier: 1}
+    motivation_forward:    {tier: 1, category: active_responsibilities, min_tier: 1}
+    r0_forward:            {tier: 1, category: self_improvement,        min_tier: 1}
+    evolution_diagnose:    {tier: 2, category: self_improvement,        min_tier: 1}
+    evolution_propose:     {tier: 1, category: self_improvement,        min_tier: 1}
+    evolution_propose_strong: {tier: 3, category: self_improvement,     min_tier: 2}
+    evolution_review:      {tier: 2, category: self_improvement,        min_tier: 1}
+    evolution_implement:   {tier: 0, category: self_improvement,        quota_class: deterministic_tools}
 
 # §5 — responsibility tension.
 tension:
@@ -186,3 +220,31 @@ translation:
     - Langfuse
     - OpenTelemetry
     - GitHub
+
+# §9 — durable background work (Phase 2).
+workflow:
+  heartbeat_minutes: 15             # each user's tension tick, source polls and research planning
+  worker_poll_seconds: 5
+  lease_seconds: 900                # a crashed worker's job is picked up again after this
+  retry_backoff_seconds: [60, 300, 1800]
+  max_spawn_depth: 2                # jobs may enqueue follow-ups at most this deep (§18, §21)
+  max_jobs_per_heartbeat: 10
+  research_cooldown_hours: 6        # an ACTIVE responsibility is researched at most this often
+  max_evidence_per_research: 12
+  exploration_every_hours: 12       # bounded free exploration (§6), budget-checked every time
+  exploration_queries: 2
+  exploration_results_per_query: 5
+  candidate_budget_units: 60000     # exploration budget for an agent-opened CANDIDATE child
+  candidate_ttl_hours: 168
+  source_failure_disable_after: 10
+  hub_sync_hours: 6                 # Agent Hub: re-read local agents (Claude Code, Hermes) this often
+
+# §16 — when the agent may interrupt you.
+notify:
+  max_per_day: 3                    # non-urgent interruptions per day
+  hard_max_per_day: 8               # nothing gets past this, urgent or not
+  urgent_reasons: [DEADLINE, DECISION_REQUIRED]
+  min_hours_between_per_responsibility: 6
+  dedupe_hours: 24
+  quiet_hours: {start: 23, end: 8}  # your local time; held until morning
+  default_channels: [in_app]        # add ntfy / webhook via user preferences.notify

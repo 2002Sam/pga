@@ -17,9 +17,9 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from .types import (
-    AllocationOutcome, ArtifactStatus, ArtifactType, BeliefStatus, BeliefType, DecidedBy,
-    FactType, JSONType, MessageRole, Origin, ResponsibilityStatus, RunStatus, SkillScope,
-    SkillStatus, TensionChangeKind, TranslationStatus, Tz, enum_col, utcnow,
+    AllocationOutcome, ArtifactStatus, ArtifactType, BeliefStatus, BeliefType, CommKind, DecidedBy,
+    FactType, JobStatus, JSONType, MessageRole, NotificationStatus, Origin, ResponsibilityStatus, RunStatus,
+    SkillScope, SkillStatus, SourceKind, TensionChangeKind, TranslationStatus, Tz, enum_col, utcnow,
 )
 
 
@@ -93,11 +93,119 @@ class SituationFact(Base):
 # ------------------------------------------------------------------ responsibilities
 
 
+class Aim(Base):
+    """A long-range aim — a motivation. Each one is a solar system in the UI; responsibilities serve one aim."""
+    __tablename__ = "aims"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)          # as the user wrote it
+    text_en: Mapped[str] = mapped_column(Text, nullable=False)       # canonical English for the model
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_aims_user_position", "user_id", "position"),)
+
+
+class Body(Base):
+    """A body on an ambition's map that is not an agent: a database (a store of knowledge) or a skill.
+    `private` bodies are shown to the user but never sent to a model."""
+    __tablename__ = "bodies"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    aim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("aims.id", ondelete="SET NULL"))
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)                 # database | skill
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    title_en: Mapped[str] = mapped_column(Text, nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    description_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    origin: Mapped[Origin] = mapped_column(enum_col(Origin, "origin"), nullable=False)   # USER, or AGENT when auto-created
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_bodies_user_aim", "user_id", "aim_id"),)
+
+
+class Layer(Base):
+    """One level of an item's information pyramid (1 gist · 2 brief · 3 full). `ref` is a graph ref: `aim:<id>`,
+    `k:<body id>` or a responsibility id. `mode`: source (the user's own text), condensed, expanded (the assistant's
+    elaboration of a short text), or rule (cut without a model). `source_hash` tells when the item changed."""
+    __tablename__ = "layers"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    ref: Mapped[str] = mapped_column(String(80), nullable=False)
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    text_en: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)                      # in the user's language
+    mode: Mapped[str] = mapped_column(String(16), nullable=False)
+    words: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    source_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, nullable=False)
+
+    __table_args__ = (UniqueConstraint("user_id", "ref", "level", name="uq_layer_ref_level"), Index("ix_layers_ref", "ref"))
+
+
+class Snapshot(Base):
+    """What PGA was doing at a moment: written every few minutes, when it stops, and when it comes back (after
+    recovering). `data` lists running/queued jobs, open runs, R0, open evolution rounds and the code version.
+    Also mirrored as JSON files under ~/Documents/PGA/snapshots/."""
+    __tablename__ = "snapshots"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)          # start | periodic | shutdown | recovered
+    worker_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+
+    __table_args__ = (Index("ix_snapshots_at", "at"),)
+
+
+class AgentRun(Base):
+    """One run of an external agent (Claude Code, Codex, Hermes, a process, an HTTP agent, or PGA's own model)
+    through the agent pool. Council and convoy runs have children (answers, reviews, subtasks, the synthesis)."""
+    __tablename__ = "agent_runs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_runs.id", ondelete="CASCADE"))
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    workflow: Mapped[str] = mapped_column(String(40), nullable=False)
+    pattern: Mapped[str] = mapped_column(String(16), nullable=False)       # single | council | convoy
+    step: Mapped[str] = mapped_column(String(24), nullable=False)          # run | answer | review | synthesis | plan | work | merge
+    agent: Mapped[str] = mapped_column(String(64), nullable=False)
+    adapter: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)        # SUCCEEDED | FAILED | TIMEOUT | SKIPPED | INTERRUPTED
+    prompt: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    output: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    workspace: Mapped[str | None] = mapped_column(Text)
+    cost_usd: Mapped[float | None] = mapped_column(Float)
+    duration_s: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    started_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (Index("ix_agent_runs_user_time", "user_id", "started_at"), Index("ix_agent_runs_parent", "parent_id"))
+
+
+class Bridge(Base):
+    """A link the user drew between two bodies (often in different orbits): one's knowledge may help the other.
+    Ends are graph refs: a responsibility id, `k:<body id>` or `aim:<aim id>`."""
+    __tablename__ = "bridges"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    a_ref: Mapped[str] = mapped_column(String(80), nullable=False)
+    b_ref: Mapped[str] = mapped_column(String(80), nullable=False)
+    note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (UniqueConstraint("user_id", "a_ref", "b_ref", name="uq_bridge_pair"), Index("ix_bridges_user", "user_id"))
+
+
 class Responsibility(Base):
     __tablename__ = "responsibilities"
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id"))
+    aim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("aims.id", ondelete="SET NULL"))  # ext: which motivation it serves
     title_en: Mapped[str] = mapped_column(Text, nullable=False)
     description_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
     raw_title: Mapped[str | None] = mapped_column(Text)  # ext: as the user typed it
@@ -141,6 +249,23 @@ class Belief(Base):
     status: Mapped[BeliefStatus] = mapped_column(enum_col(BeliefStatus, "belief_status"), default=BeliefStatus.ACTIVE, nullable=False)
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, onupdate=utcnow, nullable=False)
+    # ext ------------------------------------------------------------------
+    key: Mapped[str | None] = mapped_column(String(200))  # stable slug so a run can revise "the same" belief
+    origin_run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)  # upstream evidence changed
+    reviewed_at: Mapped[datetime | None] = mapped_column(Tz())  # conclusion freshness (§13)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("beliefs.id"))
+
+    __table_args__ = (Index("ix_beliefs_resp_status", "responsibility_id", "status"),)
+
+
+class BeliefEvidence(Base):
+    """Evidence → belief edge of the dependency graph (spec §13)."""
+    __tablename__ = "belief_evidence"
+    belief_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("beliefs.id", ondelete="CASCADE"), primary_key=True)
+    evidence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evidence.id", ondelete="CASCADE"), primary_key=True)
+    stance: Mapped[str] = mapped_column(String(16), default="SUPPORTS", nullable=False)  # SUPPORTS | CONTRADICTS
+    created_at: Mapped[datetime] = _created()
 
 
 class EventCluster(Base):
@@ -178,6 +303,9 @@ class Evidence(Base):
     trust_score: Mapped[float | None] = mapped_column(Float)
     event_cluster_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("event_clusters.id", ondelete="SET NULL"))
     origin: Mapped[Origin] = mapped_column(enum_col(Origin, "origin"), default=Origin.EXTERNAL, nullable=False)  # ext
+    source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sources.id", ondelete="SET NULL"))  # ext
+    retracted_at: Mapped[datetime | None] = mapped_column(Tz())  # ext: source withdrawn / found wrong
+    revised_at: Mapped[datetime | None] = mapped_column(Tz())    # ext: content changed upstream (§13)
 
 
 class ResponsibilityCluster(Base):
@@ -420,3 +548,274 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_audit_entity", "entity_type", "entity_id", "created_at"),)
+
+
+# ------------------------------------------------------------------ Phase 2: durable workflow, sources, notifications
+
+
+class Job(Base):
+    """One durable unit of background work (spec §9). Postgres-backed so it survives restarts:
+    workers claim due jobs with SELECT … FOR UPDATE SKIP LOCKED and hold a lease while running."""
+    __tablename__ = "jobs"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    responsibility_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id", ondelete="CASCADE"))
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    status: Mapped[JobStatus] = mapped_column(enum_col(JobStatus, "job_status"), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False)  # lower runs first
+    run_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_until: Mapped[datetime | None] = mapped_column(Tz())
+    wait_for: Mapped[str | None] = mapped_column(String(200))  # "user" | "event:<key>"
+    wait_until: Mapped[datetime | None] = mapped_column(Tz())  # give up waiting after this
+    dedupe_key: Mapped[str | None] = mapped_column(String(200))
+    workflow_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id", ondelete="SET NULL"))
+    depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # spawn depth; bounded (§21)
+    created_by: Mapped[Origin] = mapped_column(enum_col(Origin, "origin"), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, onupdate=utcnow, nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (
+        Index("ix_jobs_due", "status", "run_at", "priority"),
+        # at most one live job per dedupe key: recurring schedules can't pile up
+        Index("uq_jobs_live_dedupe", "dedupe_key", unique=True,
+              postgresql_where="dedupe_key IS NOT NULL AND status IN ('QUEUED', 'RUNNING', 'WAITING')"),
+        Index("ix_jobs_user_kind", "user_id", "kind"),
+    )
+
+
+class Source(Base):
+    """A user-approved place to watch (feed, arXiv query, web page). Only the user adds sources."""
+    __tablename__ = "sources"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    responsibility_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id", ondelete="CASCADE"))
+    kind: Mapped[SourceKind] = mapped_column(enum_col(SourceKind, "source_kind"), nullable=False)
+    uri: Mapped[str | None] = mapped_column(Text)
+    query: Mapped[str | None] = mapped_column(Text)
+    title: Mapped[str | None] = mapped_column(Text)
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    trust_score: Mapped[float] = mapped_column(Float, default=0.6, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_by: Mapped[Origin] = mapped_column(enum_col(Origin, "origin"), nullable=False)
+    last_polled_at: Mapped[datetime | None] = mapped_column(Tz())
+    last_status: Mapped[str | None] = mapped_column(Text)
+    etag: Mapped[str | None] = mapped_column(Text)
+    last_modified: Mapped[str | None] = mapped_column(Text)
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    seen_keys: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)  # bounded
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class Notification(Base):
+    """Everything the agent considered saying, including what it chose not to (spec §16)."""
+    __tablename__ = "notifications"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    responsibility_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id", ondelete="CASCADE"))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    artifact_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("artifacts.id", ondelete="SET NULL"))
+    kind: Mapped[CommKind] = mapped_column(enum_col(CommKind, "comm_kind"), nullable=False)
+    reasons: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    title_en: Mapped[str] = mapped_column(Text, nullable=False)
+    body_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    display_title: Mapped[str | None] = mapped_column(Text)
+    display_body: Mapped[str | None] = mapped_column(Text)
+    display_language: Mapped[str | None] = mapped_column(String(16))
+    options: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)  # for QUESTION
+    status: Mapped[NotificationStatus] = mapped_column(enum_col(NotificationStatus, "notification_status"), nullable=False)
+    suppressed_reason: Mapped[str | None] = mapped_column(Text)
+    channels: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    dedupe_key: Mapped[str | None] = mapped_column(String(200))
+    answer_text: Mapped[str | None] = mapped_column(Text)
+    answer_en: Mapped[str | None] = mapped_column(Text)
+    deliver_after: Mapped[datetime | None] = mapped_column(Tz())
+    created_at: Mapped[datetime] = _created()
+    delivered_at: Mapped[datetime | None] = mapped_column(Tz())
+    read_at: Mapped[datetime | None] = mapped_column(Tz())
+    answered_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (Index("ix_notifications_user_status", "user_id", "status", "created_at"),)
+
+
+# ---------------------------------------------------------------- Agent Hub: the other AI agents the user uses
+
+
+class LinkedAgent(Base):
+    """An AI agent/assistant the user uses or used (ChatGPT, Claude, DeepSeek, Claude Code, Hermes …)."""
+    __tablename__ = "linked_agents"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    vendor: Mapped[str] = mapped_column(String(40), nullable=False)          # chatgpt | claude | deepseek | … | other
+    connector: Mapped[str] = mapped_column(String(40), default="import", nullable=False)  # import | claude_code | hermes | manual
+    usage: Mapped[str] = mapped_column(String(16), default="current", nullable=False)     # current | past
+    config: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    conversation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_activity_at: Mapped[datetime | None] = mapped_column(Tz())
+    last_activity_at: Mapped[datetime | None] = mapped_column(Tz())
+    last_synced_at: Mapped[datetime | None] = mapped_column(Tz())
+    summary: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)   # model JSON (English)
+    summary_display: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)  # rendered for the UI
+    summary_at: Mapped[datetime | None] = mapped_column(Tz())
+    summary_stale: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_linked_agents_user", "user_id"),)
+
+
+class AgentConversation(Base):
+    __tablename__ = "agent_conversations"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    linked_agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("linked_agents.id", ondelete="CASCADE"), nullable=False)
+    external_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    title: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(Tz())
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+    message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    excerpt: Mapped[str] = mapped_column(Text, default="", nullable=False)   # secrets redacted, size-capped
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (UniqueConstraint("linked_agent_id", "external_id", name="uq_agent_conversation"),
+                      Index("ix_agent_conversations_agent_updated", "linked_agent_id", "updated_at"))
+
+
+class HubDigest(Base):
+    """A cross-agent synthesis of everything the user does with their AI agents."""
+    __tablename__ = "hub_digests"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    content: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)          # English
+    content_display: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)  # user's language
+    agent_ids: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_hub_digests_user_created", "user_id", "created_at"),)
+
+
+# ---------------------------------------------------------------- Motivation Forward and the Evolution Loop (R0)
+
+
+class MotivationDecision(Base):
+    """One Motivation Forward: tension said "reconsider", this records whether acting was worth it and how (§4)."""
+    __tablename__ = "motivation_decisions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    responsibility_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id", ondelete="CASCADE"))
+    subject: Mapped[str] = mapped_column(String(16), default="responsibility", nullable=False)   # responsibility | R0
+    tension: Mapped[float] = mapped_column(Float, nullable=False)
+    decision: Mapped[str] = mapped_column(String(40), nullable=False)
+    answers: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)  # the nine questions
+    budget: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    stop_condition: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)   # model unavailable → rule-based
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_motivation_user_time", "user_id", "created_at"),)
+
+
+class R0State(Base):
+    """R0 — continuously improve the agent. One per user: it observes that user's agent through telemetry."""
+    __tablename__ = "r0_state"
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    tension: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    telemetry: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)    # latest snapshot
+    baselines: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)    # slow moving averages
+    ledger: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)            # why tension moved (bounded)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(Tz(), default=utcnow, nullable=False)
+
+
+class EvolutionRound(Base):
+    """One bounded Evolution Round: diagnose → propose → review → control → implement → verify (§6–§13)."""
+    __tablename__ = "evolution_rounds"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    decision_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("motivation_decisions.id", ondelete="SET NULL"))
+    phase: Mapped[str] = mapped_column(String(24), nullable=False)    # diagnose|propose|review|control|implement|verify|done|stopped
+    trigger: Mapped[str] = mapped_column(String(16), default="r0", nullable=False)   # r0 | user
+    problem: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    objective: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    budget: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    log: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    stop_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created()
+    ended_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (Index("ix_evolution_rounds_user_time", "user_id", "created_at"),)
+
+
+class ImprovementProposal(Base):
+    """The persistent Improvement Backlog (§9): proposals survive rounds and are re-scored, not re-invented."""
+    __tablename__ = "improvement_proposals"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code: Mapped[str] = mapped_column(String(8), nullable=False)       # P01, P02 …
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    problem: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    change: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    proposer: Mapped[str] = mapped_column(String(32), default="", nullable=False)
+    expected_gain: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    expected_cost: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    risk: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    evaluation_plan: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    rollback_condition: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    files: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)     # files it expects to touch
+    evidence: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    scores: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)   # combined review scores
+    value: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="NEW", nullable=False)   # NEW|DEFERRED|ACCEPTED|REJECTED|IMPLEMENTED|PROMOTED|ROLLED_BACK|FAILED
+    last_round_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evolution_rounds.id", ondelete="SET NULL"))
+    last_reviewed_at: Mapped[datetime | None] = mapped_column(Tz())
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_improvement_proposals_user_status", "user_id", "status"),)
+
+
+class ProposalReview(Base):
+    """One specialised reviewer's structured scores for one proposal (§10)."""
+    __tablename__ = "proposal_reviews"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    proposal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("improvement_proposals.id", ondelete="CASCADE"), nullable=False)
+    round_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evolution_rounds.id", ondelete="CASCADE"), nullable=False)
+    reviewer: Mapped[str] = mapped_column(String(32), nullable=False)
+    scores: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    objections: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    critical: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+
+class AgentVersion(Base):
+    """The agent's lineage (§14): every candidate is kept; nothing is destructively replaced."""
+    __tablename__ = "agent_versions"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    label: Mapped[str] = mapped_column(String(32), nullable=False)          # v0, v1a, v1b …
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("agent_versions.id", ondelete="SET NULL"))
+    proposal_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("improvement_proposals.id", ondelete="SET NULL"))
+    round_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("evolution_rounds.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False)   # ACTIVE|CANDIDATE|FAILED|REJECTED|CANARY|ROLLED_BACK|SUPERSEDED
+    branch: Mapped[str | None] = mapped_column(String(200))
+    worktree: Mapped[str | None] = mapped_column(Text)
+    patch: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    files: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    verification: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    baseline: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)   # telemetry at promotion
+    canary_until: Mapped[datetime | None] = mapped_column(Tz())
+    note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = _created()
+    promoted_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (Index("ix_agent_versions_user_time", "user_id", "created_at"),)

@@ -7,3 +7,8 @@ __pycache__/
 .env
 build/
 dist/
+
+# local machine config (no secrets, but machine-specific) and run artefacts
+models.yaml
+agents.yaml
+.evolution/

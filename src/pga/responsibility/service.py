@@ -260,7 +260,7 @@ class ResponsibilityService:
 
     def update(self, r: Responsibility, *, actor: Origin, **fields: Any) -> Responsibility:
         """Edit goal-defining fields. Goals belong to the user (invariants 1, 11)."""
-        goal_fields = {"title_en", "description_en", "raw_title", "keywords", "priority_bias"}
+        goal_fields = {"title_en", "description_en", "raw_title", "keywords", "priority_bias", "aim_id"}
         tuning_fields = {"wake_threshold", "sleep_threshold", "compute_budget", "tension_policy", "next_review_at"}
         unknown = set(fields) - goal_fields - tuning_fields
         if unknown:

@@ -30,10 +30,53 @@ class PreferencesPatch(BaseModel):
     preferences: dict[str, Any]
 
 
+class EvolutionPatch(BaseModel):
+    paused: bool
+
+
+class BodyIn(BaseModel):
+    kind: Literal["database", "skill"]
+    title: str = Field(min_length=1, max_length=300)
+    description: str = Field("", max_length=8000)
+    aim_id: uuid.UUID | None = None
+    private: bool = False
+
+
+class BodyPatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    description: str | None = Field(None, max_length=2000)
+    private: bool | None = None
+    aim_id: uuid.UUID | Literal[""] | None = None
+
+
+class BridgeIn(BaseModel):
+    a: str = Field(min_length=1, max_length=80)   # graph refs: an agent id, "k:<body id>" or "aim:<aim id>"
+    b: str = Field(min_length=1, max_length=80)
+    note: str = Field("", max_length=500)
+
+
+class LayersBuildIn(BaseModel):
+    ref: str = Field(min_length=3, max_length=80)
+    force: bool = False
+
+
+class AimCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)        # long aims are condensed, short ones expanded (pga.layers)
+
+
+class AimIn(BaseModel):
+    text: str = Field("", max_length=20000)  # the long-range aim at the centre of everything; "" clears it
+
+
+class VaultExportIn(BaseModel):
+    path: str | None = None  # default: PGA_VAULT_DIR, or the user's `vault_dir` preference
+
+
 class ChatIn(BaseModel):
     user_id: uuid.UUID
     text: str = Field(min_length=1, max_length=50_000)
     conversation_id: uuid.UUID | None = None
+    responsibility_id: uuid.UUID | None = Field(None, description="Talk to this responsibility's agent")
 
 
 class MessageOut(BaseModel):
@@ -74,6 +117,7 @@ class ResponsibilityIn(BaseModel):
     sleep_threshold: float | None = Field(None, ge=0, le=1)
     compute_budget: dict[str, Any] = {}
     initial_status: Literal["ACTIVE", "MONITORING"] = "MONITORING"
+    aim_id: uuid.UUID | None = None  # which long-range aim it serves (default: the first one)
 
 
 class ResponsibilityPatch(BaseModel):
@@ -85,11 +129,13 @@ class ResponsibilityPatch(BaseModel):
     sleep_threshold: float | None = Field(None, ge=0, le=1)
     compute_budget: dict[str, Any] | None = None
     next_review_at: datetime | None = None
+    aim_id: uuid.UUID | Literal[""] | None = None  # "" detaches it from any aim
 
 
 class ResponsibilityOut(BaseModel):
     id: uuid.UUID
     parent_id: uuid.UUID | None
+    aim_id: uuid.UUID | None = None
     title_en: str
     title_display: str | None = None
     raw_title: str | None
@@ -180,3 +226,43 @@ class PermissionsPatch(BaseModel):
 
 class UserResponseIn(BaseModel):
     response: str = Field(min_length=1)
+
+
+# ---------------------------------------------------------------- Phase 2
+
+
+class SourceIn(BaseModel):
+    kind: Literal["FEED", "ARXIV", "WEB_PAGE"]
+    uri: str | None = None
+    query: str | None = None
+    title: str | None = None
+    responsibility_id: uuid.UUID | None = None
+    interval_minutes: int = Field(60, ge=15, le=7 * 24 * 60)
+    trust_score: float = Field(0.6, ge=0, le=1)
+
+
+class SourcePatch(BaseModel):
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(None, ge=15, le=7 * 24 * 60)
+    title: str | None = None
+
+
+class AnswerIn(BaseModel):
+    text: str = Field(min_length=1, max_length=10_000)
+
+
+# ---------------------------------------------------------------- Agent Hub
+
+
+class HubAgentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    vendor: str = Field("other", max_length=40)
+    connector: Literal["import", "manual", "claude_code", "hermes"] = "import"
+    usage: Literal["current", "past"] = "current"
+    notes: str = Field("", max_length=2000)
+
+
+class HubAgentPatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=200)
+    usage: Literal["current", "past"] | None = None
+    notes: str | None = Field(None, max_length=2000)

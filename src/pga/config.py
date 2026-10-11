@@ -23,10 +23,19 @@ DEFAULT_POLICY_FILE = Path(__file__).resolve().parent / "policy.yaml"  # shipped
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PGA_", env_file=".env", extra="ignore")
 
+    owner_user_id: str | None = None  # the installation's owner (R0, recovery notices); else the account marked owner
+
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/pga"
     policy_file: str | None = None
     llm_provider: str | None = None  # overrides policy.llm.provider
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    anthropic_base_url: str | None = Field(default=None, validation_alias="ANTHROPIC_BASE_URL")  # relay/proxy
+    deepseek_api_key: str | None = Field(default=None, validation_alias="DEEPSEEK_API_KEY")
+    deepseek_base_url: str = Field(default="https://api.deepseek.com", validation_alias="DEEPSEEK_BASE_URL")
+    brave_api_key: str | None = Field(default=None, validation_alias="BRAVE_API_KEY")  # optional web search
+    vault_dir: str = "~/PGA Vault"  # PGA_VAULT_DIR: where "export to Obsidian" writes the notes
+    obsidian_vault: str | None = None  # PGA_OBSIDIAN_VAULT: your own vault, shown read-only next to PGA's notes
+    api_token: str | None = None  # PGA_API_TOKEN: when set, the HTTP API requires `Authorization: Bearer <token>`
     log_level: str = "INFO"
 
 
@@ -98,6 +107,12 @@ class LLMPolicy(BaseModel):
     provider: str = "anthropic"
     tiers: dict[int, str]
     unit_costs: dict[int, UnitCost]
+    # per-provider model ids; the active provider's entry replaces `tiers`
+    provider_tiers: dict[str, dict[int, str]] = {}
+
+    def for_provider(self, provider: str) -> "LLMPolicy":
+        tiers = self.provider_tiers.get(provider)
+        return self.model_copy(update={"provider": provider, "tiers": dict(tiers) if tiers else dict(self.tiers)})
 
     def cost_units(self, tier: int, input_tokens: int, output_tokens: int) -> float:
         c = self.unit_costs.get(tier, UnitCost(input=1.0, output=1.0))
@@ -181,6 +196,89 @@ class TranslationPolicy(BaseModel):
     do_not_translate: list[str] = []
 
 
+class WorkflowPolicy(BaseModel):
+    heartbeat_minutes: float = 15          # how often each user's tension/sources/plans are looked at
+    worker_poll_seconds: float = 5
+    lease_seconds: int = 900               # a crashed worker's job is picked up again after this
+    retry_backoff_seconds: list[int] = [60, 300, 1800]
+    max_spawn_depth: int = 2               # jobs may enqueue follow-ups at most this deep (§18, §21)
+    max_jobs_per_heartbeat: int = 10
+    research_cooldown_hours: float = 6     # an ACTIVE responsibility is researched at most this often
+    max_evidence_per_research: int = 12
+    exploration_every_hours: float = 12
+    exploration_queries: int = 2
+    exploration_results_per_query: int = 5
+    candidate_budget_units: float = 60_000
+    candidate_ttl_hours: float = 168
+    source_failure_disable_after: int = 10
+    hub_sync_hours: float = 6              # Agent Hub: re-read local agents (Claude Code, Hermes) this often
+    snapshot_every_minutes: float = 5      # a snapshot of what PGA is doing, so a stop (even a crash) can be resumed
+    snapshots_kept: int = 500              # in the database; JSON files under ~/Documents/PGA/snapshots keep the last 100
+
+
+class MotivationPolicy(BaseModel):
+    """Motivation Forward: when tension wakes a responsibility, decide whether more work is worth it (§4)."""
+    enabled: bool = True
+    tier: int = 1                           # a cheap model is enough to decide; the work itself is allocated later
+
+
+class LayersPolicy(BaseModel):
+    """Information pyramid (pga.layers): every item at three levels of detail; processes take the level they need."""
+    enabled: bool = True                    # build gist / brief / full with the model (off → rule cuts only)
+    background: bool = True                 # the heartbeat builds missing or stale pyramids
+    gist_max_words: int = 25                # L1: one sentence
+    brief_max_words: int = 120              # L2: the key points
+    full_min_words: int = 220               # L3 when expanded from a short text
+    full_max_words: int = 600
+    builds_per_heartbeat: int = 4
+    retry_hours: float = 6.0                # rule-cut pyramids (model unavailable) are retried this often
+    # how much detail each process reads: 1 gist · 2 brief · 3 full
+    needs: dict[str, int] = {
+        "chat.aims": 2, "chat.focus_aim": 3, "chat.agents": 1, "chat.linked": 2, "chat.same_aim": 1,
+        "motivation.aims": 1, "motivation.focus_aim": 2,
+        "research.aim": 2, "expand.aim": 3, "map.label": 1,
+    }
+    # word budgets per context block; items step down a level (least important first) to fit
+    budgets: dict[str, int] = {"chat.aims": 700, "chat.linked": 500, "chat.agents": 400, "motivation.aims": 300}
+
+
+class EvolutionPolicy(BaseModel):
+    """R0 and the bounded Evolution Round (§5–§14, §21). Every bound here is a hard limit."""
+    enabled: bool = True
+    r0_wake: float = 0.35                   # R0 tension that triggers its Motivation Forward — low: for a perpetual
+                                            # agent, running and improving all the time is the normal state
+    r0_sleep: float = 0.15
+    r0_decay_per_day: float = 0.25          # problem signals fade unless they persist
+    r0_idle_drift_per_day: float = 0.05     # …while time since the last round slowly raises R0 on its own (0 = off)
+    r0_scope: str = "system"                # system: one R0 for the installation (owner account, everyone's telemetry) | user
+    telemetry_window_days: float = 7
+    min_hours_between_rounds: float = 24
+    max_proposers: int = 3
+    max_new_proposals: int = 5
+    max_reviewers: int = 4
+    max_implementations: int = 2
+    max_promotions: int = 1
+    accept_score: float = 0.55              # controller threshold on the combined review score
+    canary_hours: float = 24
+    coding_agent: str = "pool"              # pool (agents.yaml "implement": Claude Code, else Codex) | claude_cli | none
+    coding_timeout_s: float = 600         # must leave room for two test suites inside one job lease
+    coding_max_turns: int = 40
+    max_patch_lines: int = 600
+    protected_paths: list[str] = [          # changes here are never accepted from an evolution round (§20)
+        "src/pga/permissions.py", "src/pga/aims.py", "src/pga/evolution/", "migrations/", ".env",
+        "src/pga/policy.yaml", "src/pga/config.py", "tests/conftest.py"]
+
+
+class NotifyPolicy(BaseModel):
+    max_per_day: int = 3                    # non-urgent interruptions per user per day
+    hard_max_per_day: int = 8               # nothing gets past this, urgent or not
+    urgent_reasons: list[str] = ["DEADLINE", "DECISION_REQUIRED"]
+    min_hours_between_per_responsibility: float = 6
+    dedupe_hours: float = 24
+    quiet_hours: dict[str, int] = {"start": 23, "end": 8}  # user's local time; held until morning
+    default_channels: list[str] = ["in_app"]
+
+
 class Policy(BaseModel):
     locale: LocalePolicy = LocalePolicy()
     limits: LimitsPolicy = LimitsPolicy()
@@ -191,12 +289,15 @@ class Policy(BaseModel):
     tension: TensionPolicy = TensionPolicy()
     permissions: dict[str, Literal["auto", "approval", "deny"]]
     translation: TranslationPolicy = TranslationPolicy()
+    workflow: WorkflowPolicy = WorkflowPolicy()
+    notify: NotifyPolicy = NotifyPolicy()
+    motivation: MotivationPolicy = MotivationPolicy()
+    evolution: EvolutionPolicy = EvolutionPolicy()
+    layers: LayersPolicy = LayersPolicy()
 
-    def quota_for_tier(self, tier: int) -> QuotaPolicy | None:
-        for q in self.quotas:
-            if tier in q.applies_to_tiers:
-                return q
-        return None
+    def quota_for_tier(self, tier: int, provider: str | None = None) -> QuotaPolicy | None:
+        matches = [q for q in self.quotas if tier in q.applies_to_tiers]
+        return next((q for q in matches if q.provider == provider), matches[0] if matches else None)
 
 
 # ---------------------------------------------------------------- loading
@@ -233,5 +334,5 @@ def get_policy() -> Policy:
     s = get_settings()
     policy = load_policy(s.policy_file)
     if s.llm_provider:
-        policy.llm.provider = s.llm_provider
+        policy.llm = policy.llm.for_provider(s.llm_provider)
     return policy

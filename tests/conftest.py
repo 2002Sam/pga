@@ -46,6 +46,9 @@ TEST_POLICY_OVERRIDES = {
                          "pause": ["deep_research", "expensive_multi_agent", "nonurgent_video_render"]},
     }],
     "llm": {"provider": "fake"},
+    # the older loop tests exercise research directly; Motivation Forward and R0 have their own tests
+    "motivation": {"enabled": False},
+    "evolution": {"enabled": False}, "layers": {"background": False},
 }
 
 # A tiny phrase table standing in for a real translator.
@@ -78,6 +81,20 @@ class TwoWayDictionary(DictionaryBackend):
     def translate_marked(self, marked, source_lang, target_lang, *, glossary, feedback=None):
         self.phrases = EN_ZH if target_lang.lower().startswith("zh") else ZH_EN
         return super().translate_marked(marked, source_lang, target_lang, glossary=glossary, feedback=feedback)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_model_config(tmp_path, monkeypatch):
+    """Tests never read or write the real models.yaml / .env (Settings → 模型与 API)."""
+    from pga.llm import catalog
+    monkeypatch.setattr(catalog, "CONFIG", tmp_path / "models.yaml")
+    monkeypatch.setattr(catalog, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(catalog, "HERMES", tmp_path / "hermes")
+    catalog.clear_cache()
+    from pga import snapshot
+    from pga.agents import pool
+    monkeypatch.setattr(pool, "CONFIG", tmp_path / "agents.yaml")          # …nor the real agents.yaml or snapshot folder
+    monkeypatch.setattr(snapshot, "SNAP_DIR", tmp_path / "snapshots")
 
 
 @pytest.fixture(scope="session")

@@ -88,3 +88,96 @@ def test_glossary_correction_endpoint(client):
     r = client.post(f"/v1/users/{uid}/glossary/corrections",
                     json={"source_lang": "en", "target_lang": "zh", "source_term": "artifact", "corrected": "产出物"})
     assert r.status_code == 201 and r.json()["target_term"] == "产出物"
+
+
+def test_web_app_is_served_at_root(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "PGA 助理" in r.text
+
+
+def test_pressure_series_follows_the_tension_ledger(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    rid = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "world model research"}).json()["id"]
+    client.post(f"/v1/responsibilities/{rid}/tension", json={"delta": 0.4, "reason": "test"})
+    out = client.get(f"/v1/users/{uid}/pressure", params={"hours": 1, "buckets": 12}).json()
+    assert len(out["points"]) == 12 and out["points"][-1]["p"] == out["now"]["p"] > 0
+    assert set(out["now"]) >= {"p", "avg", "awake", "waiting", "wake_threshold", "units_last_2m"}
+
+
+def test_graph_links_core_agents_and_free_slots(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    rid = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "world model research"}).json()["id"]
+    client.post(f"/v1/responsibilities/{rid}/tension", json={"delta": 0.3, "reason": "test"})
+    g = client.get(f"/v1/users/{uid}/graph").json()
+    kinds = {n["id"]: n["kind"] for n in g["nodes"]}
+    assert kinds["core"] == "core" and kinds["you"] == "user" and kinds[rid] == "agent" and kinds["aim:new"] == "aim"
+    assert {"source": "aim:new", "target": rid, "kind": "agent"} in g["links"]
+    assert g["free_slots"] == 2 and g["events"][0]["agent"] == rid
+
+
+def test_pressure_has_candles_and_worker_status(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    rid = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "t"}).json()["id"]
+    client.post(f"/v1/responsibilities/{rid}/tension", json={"delta": 0.4, "reason": "up"})
+    client.post(f"/v1/responsibilities/{rid}/tension", json={"delta": -0.1, "reason": "down"})
+    out = client.get(f"/v1/users/{uid}/pressure", params={"hours": 1, "buckets": 10}).json()
+    last = out["points"][-1]
+    assert last["h"] >= last["c"] >= last["l"] and last["h"] == 0.4 and last["c"] == 0.3
+    assert out["now"]["worker"]["alive"] is False and out["now"]["last_event_at"]
+
+
+def test_chat_can_address_one_agent(client, provider):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    rid = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "world model research"}).json()["id"]
+    r = client.post("/v1/chat", json={"user_id": uid, "text": "status?", "responsibility_id": rid})
+    assert r.status_code == 200
+    assert "<focus>" in provider.calls[-1].system and "world model research" in provider.calls[-1].system
+
+
+def test_pressure_buckets_are_aligned_between_polls(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    a = client.get(f"/v1/users/{uid}/pressure", params={"hours": 1, "buckets": 60}).json()
+    b = client.get(f"/v1/users/{uid}/pressure", params={"hours": 1, "buckets": 60}).json()
+    assert a["step_seconds"] == 60 and a["points"][0]["t0"] == b["points"][0]["t0"]
+    assert all(p["t0"].endswith(":00+00:00") for p in a["points"])            # on whole minutes
+    assert a["points"][-1]["t"] > a["end"]                                    # the last candle is still forming
+
+
+def test_aims_are_solar_systems_and_reach_the_chat(client, provider):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    a1 = client.post(f"/v1/users/{uid}/aims", json={"text": "build an agent that never stops"}).json()
+    a2 = client.post(f"/v1/users/{uid}/aims", json={"text": "stay healthy"}).json()
+    assert [a["position"] for a in client.get(f"/v1/users/{uid}/aims").json()] == [0, 1]
+    r1 = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "world models"}).json()
+    r2 = client.post(f"/v1/users/{uid}/responsibilities", json={"title": "sleep", "aim_id": a2["id"]}).json()
+    assert r1["aim_id"] == a1["id"] and r2["aim_id"] == a2["id"]   # default: the first aim
+    g = client.get(f"/v1/users/{uid}/graph").json()
+    suns = {n["id"]: n for n in g["nodes"] if n["kind"] == "aim"}
+    assert set(suns) == {f"aim:{a1['id']}", f"aim:{a2['id']}"} and suns[f"aim:{a2['id']}"]["label"] == "stay healthy"
+    assert {"source": f"aim:{a2['id']}", "target": r2["id"], "kind": "agent"} in g["links"]
+    assert {"source": "you", "target": f"aim:{a1['id']}", "kind": "aim"} in g["links"]
+
+    moved = client.patch(f"/v1/responsibilities/{r2['id']}", json={"aim_id": a1["id"]}).json()
+    assert moved["aim_id"] == a1["id"]
+    client.post("/v1/chat", json={"user_id": uid, "text": "hi"})
+    system = provider.calls[-1].system
+    assert "<long_range_aims>" in system and "never stops" in system and "stay healthy" in system
+
+    assert client.delete(f"/v1/aims/{a1['id']}").status_code == 204
+    assert client.get(f"/v1/responsibilities/{r1['id']}").json()["aim_id"] is None
+
+
+def test_single_aim_endpoint_still_works(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    assert client.put(f"/v1/users/{uid}/aim", json={"text": "one aim"}).json()["aim"] == "one aim"
+    assert [a["text"] for a in client.get(f"/v1/users/{uid}/aims").json()] == ["one aim"]
+    assert client.put(f"/v1/users/{uid}/aim", json={"text": ""}).json()["aim"] is None
+    assert client.get(f"/v1/users/{uid}/aims").json() == []
+
+
+def test_linked_ai_agents_orbit_the_aim(client):
+    uid = client.post("/v1/users", json={}).json()["id"]
+    a = client.post(f"/v1/users/{uid}/hub/agents", json={"name": "ChatGPT", "vendor": "chatgpt"}).json()
+    g = client.get(f"/v1/users/{uid}/graph").json()
+    assert any(n["id"] == f"ai:{a['id']}" and n["kind"] == "ai" for n in g["nodes"])
+    assert {"source": f"ai:{a['id']}", "target": "you", "kind": "ai"} in g["links"]

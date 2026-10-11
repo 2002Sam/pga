@@ -1,4 +1,4 @@
 from .router import (  # noqa: F401
-    AnthropicProvider, FakeProvider, LLMError, LLMProvider, LLMResult, LLMRouter, UsageContext,
+    AnthropicProvider, ClaudeCLIProvider, FakeProvider, LLMError, LLMProvider, LLMResult, LLMRouter, OpenAICompatibleProvider, UsageContext,
     build_provider,
 )

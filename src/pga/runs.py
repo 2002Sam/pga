@@ -38,8 +38,9 @@ class RunNotAllowed(RuntimeError):
 
 
 class RunGuard:
-    def __init__(self, session: Session, run: Run, limits: dict[str, Any]):
+    def __init__(self, session: Session, run: Run, limits: dict[str, Any], now: datetime | None = None):
         self.session = session
+        self.now = now
         self.run = run
         self.limits = limits
         self._t0 = time.monotonic()
@@ -51,7 +52,8 @@ class RunGuard:
 
     def usage_context(self) -> UsageContext:
         return UsageContext(category=self.run.category, proactive=self.run.proactive, user_id=self.run.user_id,
-                            run_id=self.run.id, exploration_scope=self.run.exploration_scope)
+                            run_id=self.run.id, exploration_scope=self.run.exploration_scope,
+                            now=self.now)
 
     def units_used(self) -> float:
         return float(self.session.scalar(select(func.coalesce(func.sum(UsageRecord.units), 0.0)).where(
@@ -126,10 +128,10 @@ class RunService:
         return run
 
     @contextmanager
-    def track(self, decision: AllocationDecision) -> Iterator[RunGuard]:
+    def track(self, decision: AllocationDecision, now: datetime | None = None) -> Iterator[RunGuard]:
         """`with runs.track(decision) as guard:` — starts, guards and always closes the run record."""
-        run = self.start(decision)
-        guard = RunGuard(self.session, run, decision.limits)
+        run = self.start(decision, now)
+        guard = RunGuard(self.session, run, decision.limits, now)
         try:
             yield guard
         except RunBudgetExceeded as exc:

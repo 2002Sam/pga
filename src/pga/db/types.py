@@ -166,3 +166,51 @@ class PermissionLevel(StrEnum):
     EXTERNAL_ACTION = "EXTERNAL_ACTION"
     SPEND = "SPEND"
     PUBLISH = "PUBLISH"
+
+
+# ------------------------------------------------------------------ Phase 2: perpetual loop
+
+
+class JobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    WAITING = "WAITING"            # parked on an external event or the user (wait_for_event / wait_for_user)
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"              # out of attempts; `retry` re-queues it
+    CANCELLED = "CANCELLED"
+
+
+ACTIVE_JOB_STATUSES = frozenset({JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.WAITING})
+
+
+class SourceKind(StrEnum):
+    FEED = "FEED"                  # RSS / Atom
+    ARXIV = "ARXIV"                # arXiv search query (Atom API)
+    WEB_PAGE = "WEB_PAGE"          # watch one page for changes
+
+
+class CommKind(StrEnum):
+    """What the agent decided to say (spec §16), from quietest to loudest."""
+    SILENT = "SILENT"
+    NOTIFICATION = "NOTIFICATION"
+    BRIEF = "BRIEF"
+    QUESTION = "QUESTION"
+    MEETING = "MEETING"
+
+
+class NotifyReason(StrEnum):
+    """The only reasons the agent may interrupt the user (spec §16)."""
+    CONCLUSION_CHANGED = "CONCLUSION_CHANGED"
+    DEADLINE = "DEADLINE"
+    DECISION_REQUIRED = "DECISION_REQUIRED"
+    ARTIFACT_READY = "ARTIFACT_READY"
+    UNCERTAINTY = "UNCERTAINTY"
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "PENDING"            # held (quiet hours / rate limit) until it can be delivered
+    DELIVERED = "DELIVERED"
+    READ = "READ"
+    ANSWERED = "ANSWERED"
+    DISMISSED = "DISMISSED"
+    SUPPRESSED = "SUPPRESSED"      # decided not to interrupt; kept for the "why so quiet?" view
