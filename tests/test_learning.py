@@ -150,6 +150,7 @@ def test_research_steps_become_episodes_and_candidates_get_evaluated(rt2, user, 
     rt2.learn_from(r, out)
     episode(rt2, user, LESSON_2)                                # the same lesson from another step
     eps = session.query(SkillEpisode).filter_by(user_id=user.id).all()
-    assert len(eps) == 2 and eps[0].run_id == out.run_id and eps[0].success == 1.0
+    mine = [e for e in eps if e.run_id == out.run_id]                   # rows come back in no particular order
+    assert len(eps) == 2 and len(mine) == 1 and mine[0].success == 1.0
     report = heartbeat(rt2, user, T0 + timedelta(hours=7))
     assert any(q["kind"] == "skill.evaluate" for q in report["queued"])
