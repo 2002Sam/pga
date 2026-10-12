@@ -107,19 +107,24 @@ class EvolutionService:
         return None
 
     def start(self, user: User, *, trigger: str, decision: MotivationDecision | None = None, now: datetime | None = None,
-              force: bool = False) -> EvolutionRound:
+              force: bool = False, slate: list[ImprovementProposal] | None = None, problem: dict | None = None) -> EvolutionRound:
+        """`slate`: proposals that were already found and reviewed elsewhere (the perpetual task's agents read the code
+        and its critic reviewed them) — the round starts at the deterministic controller instead of diagnosing again."""
         now = now or utcnow()
         why = self.can_start(user.id, now)
         if why and not (force and "already running" not in why):
             raise EvolutionError(why)
         self.ensure_v0(user.id, now)
-        rnd = EvolutionRound(user_id=user.id, decision_id=decision.id if decision else None, phase="diagnose", trigger=trigger,
-                             problem={"hint": (decision.answers or {}).get("problem")} if decision else {},
-                             objective=(decision.answers or {}).get("objective") or {} if decision else {},
+        rnd = EvolutionRound(user_id=user.id, decision_id=decision.id if decision else None, phase="control" if slate else "diagnose",
+                             trigger=trigger, problem=problem or ({"hint": (decision.answers or {}).get("problem")} if decision else {}),
+                             objective=((decision.answers or {}).get("objective") or {} if decision else {})
+                             | ({"slate": [str(p.id) for p in slate]} if slate else {}),
                              budget=decision.budget if decision else {}, log=[], created_at=now)
         self.s.add(rnd)
         self.s.flush()
-        self._log(rnd, "start", f"round started by {trigger}", now)
+        for p in slate or []:
+            p.last_round_id = rnd.id
+        self._log(rnd, "start", f"round started by {trigger}" + (f" with {len(slate)} reviewed proposal(s)" if slate else ""), now)
         self.rt.workflow.enqueue("evolution.step", user_id=user.id, dedupe_key=f"evo:{rnd.id}", payload={"round_id": str(rnd.id)},
                                  priority=120, now=now)
         return rnd
@@ -322,6 +327,31 @@ class EvolutionService:
         return self.s.scalar(select(AgentVersion).where(AgentVersion.user_id == user_id, AgentVersion.status.in_(["ACTIVE", "CANARY"]))
                              .order_by(AgentVersion.created_at.desc()).limit(1))
 
+    def line(self, user_id: uuid.UUID) -> list[AgentVersion]:
+        """The evolution line: verified candidates you have not promoted yet, each built on the one before (oldest
+        first). New work stacks on its tip, so evolution goes on while you are away; promoting a version applies it
+        together with everything below it."""
+        cands = list(self.s.scalars(select(AgentVersion).where(AgentVersion.user_id == user_id, AgentVersion.status == "CANDIDATE")
+                                    .order_by(AgentVersion.created_at)))
+        by_id = {v.id: v for v in cands}
+        best: list[AgentVersion] = []
+        for v in reversed(cands):                      # newest first: the longest intact chain wins
+            if not (v.verification or {}).get("ok"):
+                continue
+            chain, cur, ok = [], v, True
+            while cur is not None:
+                chain.append(cur)
+                parent = self.s.get(AgentVersion, cur.parent_id) if cur.parent_id else None
+                if parent is None or parent.status in ("ACTIVE", "CANARY", "SUPERSEDED"):
+                    break
+                if parent.id not in by_id or not (parent.verification or {}).get("ok"):
+                    ok = False
+                    break
+                cur = parent
+            if ok and len(chain) > len(best):
+                best = chain
+        return list(reversed(best))
+
     def _label(self, user_id: uuid.UUID, parent: AgentVersion) -> str:
         base = parent.label.rstrip("abcdefghijklmnopqrstuvwxyz")
         n = int(base[1:] or 0) + 1
@@ -350,13 +380,14 @@ class EvolutionService:
         if not todo:
             return self._finish_implement(rnd, user, now)
         p = todo[0]
-        parent = self.active_version(user.id) or self.ensure_v0(user.id, now)
+        stack = self.line(user.id)
+        parent = stack[-1] if stack else (self.active_version(user.id) or self.ensure_v0(user.id, now))
         label = self._label(user.id, parent)
         v = AgentVersion(user_id=user.id, label=label, parent_id=parent.id, proposal_id=p.id, round_id=rnd.id, status="CANDIDATE", created_at=now)
         self.s.add(v)
         self.s.flush()
         try:
-            cand = self.coding.prepare(f"{label}-{str(rnd.id)[:8]}")
+            cand = self.coding.prepare(f"{label}-{str(rnd.id)[:8]}", stack=[(x.label, x.patch) for x in stack])
             v.branch, v.worktree = cand.branch, cand.worktree
             base = (rnd.objective or {}).get("baseline_tests")
             if base is None:                                   # "Current vs Candidate": test the untouched snapshot once per round
@@ -416,7 +447,26 @@ class EvolutionService:
             AgentVersion.round_id == v.round_id, AgentVersion.promoted_at.is_not(None))) or 0
         if promoted_this_round >= self.ep.max_promotions:
             raise EvolutionError(f"at most {self.ep.max_promotions} promotion(s) per round")
-        self.coding.apply(v.patch)
+        below, cur = [], v
+        while cur.parent_id:                               # on the evolution line: everything below it comes along
+            cur = self.s.get(AgentVersion, cur.parent_id)
+            if cur is None or cur.status != "CANDIDATE":
+                break
+            below.insert(0, cur)
+        applied = []
+        try:
+            for x in below + [v]:
+                self.coding.apply(x.patch)
+                applied.append(x)
+        except CodingError as exc:
+            for x in reversed(applied):
+                self.coding.apply(x.patch, reverse=True)
+            raise EvolutionError(f"could not apply {x.label}: {exc}") from exc
+        for x in below:
+            x.status, x.promoted_at, x.note = "SUPERSEDED", now, f"promoted together with {v.label}"
+            px = self.s.get(ImprovementProposal, x.proposal_id) if x.proposal_id else None
+            if px:
+                px.status = "PROMOTED"
         st = r0_state(self.rt, v.user_id)
         prev = self.active_version(v.user_id)
         if prev and prev.id != v.id:
@@ -470,6 +520,16 @@ class EvolutionService:
         if p:
             p.status = "REJECTED"
         self.coding.discard(v.worktree)
+        above = [v.id]
+        while above:                                       # what was built on it on the evolution line goes too
+            kids = list(self.s.scalars(select(AgentVersion).where(AgentVersion.parent_id.in_(above), AgentVersion.status == "CANDIDATE")))
+            for k in kids:
+                k.status, k.note = "REJECTED", f"built on {v.label}, which you rejected"
+                pk = self.s.get(ImprovementProposal, k.proposal_id) if k.proposal_id else None
+                if pk:
+                    pk.status = "DEFERRED"             # the idea may still be good; it comes back on a new base
+                self.coding.discard(k.worktree)
+            above = [k.id for k in kids]
         self.s.flush()
         return v
 

@@ -554,6 +554,25 @@ form.add { background: transparent; }
 .pop .team .fx .ch { display: flex; gap: 6px; align-items: baseline; font-size: 12px; margin: 2px 0; } .pop .team .fx .ch i { color: var(--muted); font-style: normal; }
 .pop .team .fx .ch.ask { color: #f3d38a; }
 .pop .team .tchat { padding: 6px 0 10px 14px; border-bottom: 1px solid var(--line); }
+.pop .perp .pp-now { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin: 6px 0; font-size: 12.5px; }
+.pop .perp .pp-now .st { font: var(--cap); font-size: 9.5px; letter-spacing: .14em; padding: 1px 6px; border: 1px solid var(--line-2); color: var(--muted); }
+.pop .perp .pp-now .st.running { color: #9fe0b5; border-color: rgba(159,224,181,.5); } .pop .perp .pp-now .st.paused, .pop .perp .pp-now .st.stopped { color: #f08a7a; border-color: rgba(240,138,122,.5); }
+.pop .perp .pp-now .ph { color: #f3d38a; } .pop .perp .pp-now .nt { color: var(--muted); flex-basis: 100%; font-size: 12px; }
+.pop .perp .pp-p { display: grid; grid-template-columns: 74px 1fr 38px; gap: 3px 8px; align-items: center; font-size: 11.5px; margin: 8px 0; }
+.pop .perp .pp-p .bar { height: 5px; background: var(--line); position: relative; } .pop .perp .pp-p .bar i { position: absolute; inset: 0 auto 0 0; background: rgba(233,169,75,.75); }
+.pop .perp .pp-p .bar.top i { background: #f3d38a; } .pop .perp .pp-p .lb { color: var(--muted); } .pop .perp .pp-p .v { text-align: right; font-family: var(--mono); color: var(--text); }
+.pop .perp .pp-p .big { grid-column: 1 / -1; display: flex; gap: 10px; align-items: baseline; } .pop .perp .pp-p .big b { font-size: 22px; font-weight: 400; color: #f3d38a; font-family: var(--mono); }
+.pop .perp .pp-d { font-size: 12px; color: var(--muted); } .pop .perp .pp-d b { color: var(--text); font-weight: 400; } .pop .perp .pp-d .ok { color: #9fe0b5; } .pop .perp .pp-d .over { color: #f08a7a; }
+.pop .perp .pp-q { margin: 6px 0; padding: 4px 0 4px 10px; border-left: 2px solid var(--line-2); font-size: 12.5px; }
+.pop .perp .pp-q.for_you { border-left-color: #f3d38a; } .pop .perp .pp-q .m { font: var(--cap); font-size: 9.5px; letter-spacing: .1em; color: rgba(233,169,75,.8); }
+.pop .perp .why { color: var(--muted); font-size: 11.5px; } .pop .perp .pp-q textarea { width: 100%; margin-top: 4px; font-size: 12px; }
+.pop .perp .pp-q .row { display: flex; gap: 8px; margin-top: 4px; } .pop .perp button.sm { border: 1px solid var(--line-2); background: transparent; color: var(--text); font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.pop .perp button.sm.go { border-color: rgba(233,169,75,.5); color: #f3d38a; }
+.pop .perp .pp-v { display: flex; gap: 8px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 12px; flex-wrap: wrap; }
+.pop .perp .pp-v b { color: #f3d38a; font-weight: 500; font-family: var(--mono); } .pop .perp .pp-v i { color: var(--muted); font-style: normal; flex-basis: 100%; font-size: 11px; }
+.pop .perp .pp-v .sp { flex: 1; } .pop .perp .pp-l { font-size: 11.5px; color: var(--muted); font-family: var(--mono); } .pop .perp .pp-l div { padding: 2px 0; }
+.pop .perp .pp-l .bad { color: #f08a7a; } .pop .perp .pp-set { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--muted); margin: 6px 0; }
+.pop .perp .pp-set label { display: inline-flex; gap: 4px; align-items: center; } .pop .perp .pp-set select, .pop .perp .pp-set input { width: auto; font-size: 11px; padding: 1px 4px; }
 .pop .team .tchat .tlog { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; margin-bottom: 6px; font-size: 12.5px; }
 .pop .team .tchat .me { color: var(--muted); white-space: pre-wrap; } .pop .team .tchat .it { white-space: pre-wrap; } .pop .team .tchat .it.bad { color: #f08a7a; }
 .pop .team .trow { display: flex; gap: 6px; } .pop .team .trow textarea { flex: 1; min-height: 0; font-size: 12.5px; }
@@ -2702,6 +2721,7 @@ function popHTML(d) {
       (dbs.length ? sec("数据库", dbs.length) + `<ul class="lst">${dbs.map((n) => li(n, n.private ? "私密" : n.origin === "AGENT" ? "自动" : "")).join("")}</ul>` : "") +
       (sks.length ? sec("技能", sks.length) + `<ul class="lst">${sks.map((n) => li(n, n.origin === "AGENT" ? "自动" : "")).join("")}</ul>` : "") +
       sec("连接") + bridgesHTML(d.id) +
+      `<div class="team perp" id="popPerp" data-aim="${esc(aimId)}">${PERP.html[aimId] || ""}</div>` +
       `<div class="team" id="popTeam" data-aim="${esc(aimId)}">${TEAM.html[aimId] || '<div class="sub">正在读取团队…</div>'}</div>` +
       acts([b("edit", "✎ 编辑", 'class="go"'), b("expand", "✦ 生成相关星体"), b("add-db", "＋ 数据库"), b("add-skill", "＋ 技能"), b("aim-new", "＋ 新抱负")]);
   }
@@ -2855,7 +2875,7 @@ function renderPop(place) {
   if (!editing() && store.json(draftKey(), null)) el.querySelector(".acts")?.insertAdjacentHTML("beforebegin",
     `<div class="draft"><span>有一份未保存的草稿</span><button data-pop="edit">继续编辑</button><button data-pop="draft-drop">放弃</button></div>`);
   if (LAYERED.has(fresh.kind) && !fresh.placeholder && fresh.id !== "aim:new" && !POP.layers[fresh.id]) loadLayers(fresh.id);
-  if (fresh.kind === "aim" && fresh.aim_id && el.querySelector("#popTeam")) loadTeam(fresh.aim_id);
+  if (fresh.kind === "aim" && fresh.aim_id && el.querySelector("#popTeam")) { loadTeam(fresh.aim_id); loadPerp(fresh.aim_id); }
   if (place || !POP.at) placePop();
   el.querySelector("#popAim")?.focus();
   if (!POP.raf) POP.raf = requestAnimationFrame(trackPop);
@@ -2901,6 +2921,92 @@ function closePop() {
     POP.room = false; popEl().classList.remove("room"); $("#app").classList.remove("rooming");
     setFold(POP.foldBefore || { l: true, r: true, t: true }); window.PGA_SOLO?.(null);
   }
+}
+/* ---- a perpetual task (永续任务): the aim's team works on it without stopping, paced by pressure */
+const PERP = { data: {}, html: {}, poll: 0, open: {} };
+const CH_ZH = { think: "提出问题", investigate: "回答问题", evolve: "进化代码", reflect: "回顾" };
+const QK_ZH = { code: "代码", product: "产品", research: "研究", user: "问你" };
+async function loadPerp(aimId) {
+  try { PERP.data[aimId] = await api(`/v1/aims/${aimId}/perpetual`); } catch (e) { PERP.html[aimId] = ""; return; }
+  if (!PROJ.list) { try { PROJ.list = await api(`/v1/users/${S.uid}/projects`); } catch { PROJ.list = []; } }
+  PERP.html[aimId] = perpHTML(aimId); paintPerp(aimId);
+  clearTimeout(PERP.poll);
+  if (PERP.data[aimId]?.task?.status === "running") PERP.poll = setTimeout(() => { if (POP.node?.aim_id === aimId) loadPerp(aimId); }, 5000);
+}
+function paintPerp(aimId) {
+  const box = document.querySelector(`#popPerp[data-aim="${CSS.escape(aimId)}"]`); if (!box) return;
+  const keep = {}; box.querySelectorAll("textarea[data-q]").forEach((x) => { if (x.value) keep[x.dataset.q] = x.value; });
+  const focus = document.activeElement?.dataset?.q;
+  box.innerHTML = PERP.html[aimId] || "";
+  for (const [q, v] of Object.entries(keep)) { const x = box.querySelector(`textarea[data-q="${q}"]`); if (x) x.value = v; }
+  if (focus) box.querySelector(`textarea[data-q="${focus}"]`)?.focus();
+}
+const hm = (s) => { s = Math.round(s || 0); return s >= 3600 ? `${Math.floor(s / 3600)} 小时 ${Math.round((s % 3600) / 60)} 分` : s >= 60 ? `${Math.round(s / 60)} 分` : `${s} 秒`; };
+function perpHTML(aimId) {
+  const d = PERP.data[aimId]; if (!d) return "";
+  const sec = (x, n) => `<div class="sec">${x}${n != null ? ` <b>${n}</b>` : ""}</div>`;
+  const t = d.task;
+  if (!t) {
+    const plist = PROJ.list || [];
+    return sec("永续任务") + `<div class="sub">让这个抱负的团队不停地工作：协调者不断提出问题，研究员和审阅者读项目回答，好的发现变成改进提案，审核通过后在隔离副本里实现、跑完整测试、放上进化线——你点「推广」才会改动正在运行的代码。按张力决定下一步做什么；休息总时长不超过工作时间的 10%；只有 agent 额度用完（或只剩给你保留的部分）时才停下，等额度重置。</div>
+      <div class="team-acts"><label>项目 <select id="perpProj"><option value="">无（只围绕抱负思考）</option>${plist.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></label>
+      <button type="button" class="go" data-perp="start">▶ 设为永续任务</button></div>`;
+  }
+  const parts = t.parts || {}, chans = ["think", "investigate", "evolve", "reflect"];
+  const top = chans.reduce((a, b) => ((parts[b] || 0) > (parts[a] || 0) ? b : a), "think");
+  const qs = d.questions || [], forYou = qs.filter((q) => q.status === "for_you"), open = qs.filter((q) => q.status === "open").sort((a, b) => (b.data.priority || 0) - (a.data.priority || 0));
+  const answered = qs.filter((q) => q.status === "answered").length;
+  const total = (t.work_s || 0) + (t.rest_s || 0), ratio = total ? t.rest_s / total : 0, lim = t.settings.max_rest_ratio;
+  const fin = (d.findings || []).slice(0, PERP.open[aimId + ":f"] ? 30 : 6);
+  const KIND = { answer: "回答", insight: "想法", evolve: "进化", reflect: "回顾" };
+  return sec("永续任务", t.cycles) +
+    `<div class="pp-now"><span class="st ${t.status}">${{ running: "运行中", paused: "已暂停", stopped: "已停止" }[t.status] || t.status}</span>
+       <span class="ph">${esc(t.phase_zh)}</span><span>${t.phase_since ? esc(ago(t.phase_since)) : ""}</span>
+       ${t.project ? `<span>项目「${esc(t.project.name)}」${t.evolves ? " · 可进化" : " · 只读"}</span>` : ""}
+       <span style="margin-left:auto">${t.status === "running" ? `<button type="button" class="sm" data-perp="pause">暂停</button>` : `<button type="button" class="sm go" data-perp="resume">继续</button>`}
+       ${t.status !== "stopped" ? `<button type="button" class="sm" data-perp="stop">停止</button>` : ""}</span>
+       ${t.phase_note ? `<span class="nt">${esc(t.phase_note)}</span>` : ""}</div>
+     <div class="pp-p"><div class="big"><b>${(t.pressure || 0).toFixed(2)}</b><span class="lb">张力 · 最强的一路决定下一步做什么${parts.stagnation ? ` · 停滞 +${parts.stagnation.toFixed(2)}` : ""}${parts.blocked ? ` · <i>${esc(parts.blocked)}</i>` : ""}</span></div>
+       ${chans.map((c) => `<span class="lb">${CH_ZH[c]}</span><span class="bar ${c === top ? "top" : ""}"><i style="width:${Math.round(100 * Math.min(1, parts[c] || 0))}%"></i></span><span class="v">${(parts[c] || 0).toFixed(2)}</span>`).join("")}</div>
+     <div class="pp-d">工作 <b>${hm(t.work_s)}</b> · 休息 <b>${hm(t.rest_s)}</b> <span class="${ratio <= lim + 1e-6 ? "ok" : "over"}">(${(ratio * 100).toFixed(1)}%，上限 ${Math.round(lim * 100)}%)</span> · 等额度 <b>${hm(t.pause_s)}</b> · 已答 <b>${answered}</b> 个问题</div>` +
+    (forYou.length ? sec("等你回答", forYou.length) + forYou.map((q) => `<div class="pp-q for_you"><span class="m">${esc(q.data.code || "")} · ${esc(q.agent || "")}</span><div>${esc(q.text)}</div>${q.data.why ? `<div class="why">${esc(q.data.why)}</div>` : ""}
+        <textarea rows="2" data-q="${q.id}" placeholder="你的回答会成为这个抱负的修正，所有成员都会读到"></textarea>
+        <div class="row"><button type="button" class="sm go" data-perp="answer" data-id="${q.id}">回答</button><button type="button" class="sm" data-perp="drop" data-id="${q.id}">不回答</button></div></div>`).join("") : "") +
+    (t.evolves || (t.line || []).length ? sec("进化线", (t.line || []).length) + `<div class="sub">每个候选都已在隔离副本里通过完整测试，后一个叠在前一个上面。推广某一个会把它和它下面的一起应用到正在运行的代码（之后需要重启 PGA）；拒绝会连同叠在它上面的一起丢弃。</div>` +
+      ((t.line || []).map((v) => `<div class="pp-v"><b>${esc(v.label)}</b><span>${esc(v.code || "")} ${esc(v.title)}</span><span class="sp"></span>
+        <button type="button" class="sm go" data-perp="promote" data-id="${v.id}" data-label="${esc(v.label)}">推广到这里</button><button type="button" class="sm" data-perp="reject" data-id="${v.id}" data-label="${esc(v.label)}">拒绝</button>
+        <i>${v.tests != null ? `${v.tests} 个测试通过 · ` : ""}${(v.files || []).map(esc).join("、")}</i></div>`).join("") || `<div class="sub">还没有候选。</div>`) +
+      (t.round ? `<div class="pp-l">${t.round.phase === "done" || t.round.phase === "stopped" ? "上一轮" : "正在进行的一轮"}：${esc(t.round.phase)} · ${(t.round.log || []).slice(-2).map((x) => esc(x.text)).join(" · ")}</div>` : "") : "") +
+    sec("待回答的问题", open.length) + (open.slice(0, PERP.open[aimId + ":q"] ? 30 : 6).map((q) => `<div class="pp-q"><span class="m">${esc(q.data.code || "")} · ${QK_ZH[q.data.kind] || ""} · 重要 ${(q.data.priority ?? .5).toFixed(1)} · ${esc(q.agent || "")}</span><div>${esc(q.text)}</div>${q.data.why ? `<div class="why">${esc(q.data.why)}</div>` : ""}</div>`).join("") || `<div class="sub">暂时没有：协调者会接着提。</div>`) +
+    (open.length > 6 ? `<button type="button" class="sm" data-perp="more" data-k="q">${PERP.open[aimId + ":q"] ? "收起" : `全部 ${open.length} 个`}</button>` : "") +
+    sec("最近的发现", (d.findings || []).length) + `<div class="team-b">${fin.map((n) => `<div class="tn ${n.kind === "reflect" ? "summary" : n.kind === "evolve" ? "review" : ""}"><span class="m">${KIND[n.kind] || n.kind}${n.data.code ? " · " + esc(n.data.code) : ""}${n.agent ? " · " + esc(n.agent) : ""}${n.data.proposal ? " · 提案 " + esc(n.data.proposal) : ""} <i>${esc(ago(n.at))}</i></span>
+      ${n.data.question ? `<div class="why">${esc(n.data.question)}</div>` : ""}<div class="tx ${n.kind === "answer" ? "fold" : ""}">${agMd(n.text)}</div></div>`).join("") || `<div class="sub">还没有。</div>`}</div>` +
+    ((d.findings || []).length > 6 ? `<button type="button" class="sm" data-perp="more" data-k="f">${PERP.open[aimId + ":f"] ? "收起" : "更多"}</button>` : "") +
+    sec("最近的循环") + `<div class="pp-l">${(t.ledger || []).slice(0, 10).map((e) => `<div class="${e.ok === false ? "bad" : ""}">${esc(new Date(e.at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }))} ${esc(CH_ZH[e.action] || PHASE_ZH_UI[e.action] || e.action)}${e.agent ? " · " + esc(e.agent) : ""} · ${hm(e.seconds)} · 张力 ${(e.pressure || 0).toFixed(2)} — ${esc(e.result || "")}</div>`).join("")}</div>` +
+    `<div class="pp-set"><label>给你保留额度 <select data-perp="reserve">${[0, .05, .1, .2, .3].map((x) => `<option value="${x}" ${Math.abs(x - t.settings.reserve) < 1e-6 ? "selected" : ""}>${Math.round(x * 100)}%</option>`).join("")}</select></label>
+       <label>休息上限 <select data-perp="max_rest_ratio">${[0, .02, .05, .1].map((x) => `<option value="${x}" ${Math.abs(x - t.settings.max_rest_ratio) < 1e-6 ? "selected" : ""}>${Math.round(x * 100)}%</option>`).join("")}</select></label>
+       ${t.project ? `<label><input type="checkbox" data-perp="evolve" ${t.settings.evolve ? "checked" : ""}> 允许提出并实现代码改进（经进化线，你推广）</label>` : ""}</div>`;
+}
+const PHASE_ZH_UI = { rest: "休息", quota: "等额度", error: "出错" };
+async function perpAct(t) {
+  const box = t.closest("#popPerp"), aimId = box?.dataset.aim; if (!aimId) return;
+  const act = t.dataset.perp, id = t.dataset.id;
+  if (act === "start") { t.disabled = true; const pid = box.querySelector("#perpProj")?.value || null;
+    PERP.data[aimId] = await api(`/v1/aims/${aimId}/perpetual`, { body: { project_id: pid } }); toast("永续任务开始了：协调者先提问题"); return loadPerp(aimId); }
+  if (act === "pause" || act === "resume" || act === "stop") {
+    if (act === "stop" && !confirm("停止这个永续任务？（可以随时再继续）")) return;
+    PERP.data[aimId] = await api(`/v1/aims/${aimId}/perpetual`, { method: "PATCH", body: { status: act === "resume" ? "running" : act === "pause" ? "paused" : "stopped" } }); return loadPerp(aimId); }
+  if (act === "answer" || act === "drop") {
+    const text = act === "answer" ? box.querySelector(`textarea[data-q="${id}"]`)?.value.trim() : "";
+    if (act === "answer" && !text) return;
+    PERP.data[aimId] = await api(`/v1/aims/${aimId}/perpetual/answer`, { body: { note_id: id, text, drop: act === "drop" } });
+    if (act === "answer") toast("收到：你的回答已写进这个抱负，所有成员都会读到"); return loadPerp(aimId); }
+  if (act === "promote") {
+    if (!confirm(`推广 ${t.dataset.label}：把它和它下面的候选一起应用到正在运行的 PGA 代码，之后需要重启 PGA。确定吗？`)) return;
+    await api(`/v1/evolution/versions/${id}/promote`, { method: "POST" }); toast(`${t.dataset.label} 已推广：重启 PGA 后生效（进入 24 小时观察期）`); return loadPerp(aimId); }
+  if (act === "reject") { if (!confirm(`拒绝 ${t.dataset.label}？叠在它上面的候选也会一起丢弃。`)) return;
+    await api(`/v1/evolution/versions/${id}/reject`, { method: "POST" }); return loadPerp(aimId); }
+  if (act === "more") { PERP.open[aimId + ":" + t.dataset.k] = !PERP.open[aimId + ":" + t.dataset.k]; PERP.html[aimId] = perpHTML(aimId); paintPerp(aimId); }
 }
 /* ---- an aim's team: agents from different sources working together, your corrections, talking to one member */
 const TEAM = { data: {}, html: {}, poll: 0, open: null, chat: store.json("pga_teamchat", {}) || {}, conv: store.json("pga_teamconv", {}) || {}, busy: false };
@@ -2989,6 +3095,14 @@ async function teamAsk(aimId, role, box) {
 function bindPop() {
   const el = popEl();
   el.addEventListener("change", async (e) => {
+    const ps = e.target.closest("select[data-perp], input[data-perp]");
+    if (ps) {
+      const aimId = ps.closest("#popPerp")?.dataset.aim; if (!aimId) return;
+      const v = ps.type === "checkbox" ? ps.checked : +ps.value;
+      try { PERP.data[aimId] = await api(`/v1/aims/${aimId}/perpetual`, { method: "PATCH", body: { settings: { [ps.dataset.perp]: v } } }); PERP.html[aimId] = perpHTML(aimId); paintPerp(aimId); }
+      catch (err) { toast(err.message); }
+      return;
+    }
     const t = e.target.closest("[data-team]"); if (!t) return;
     const aimId = t.closest("#popTeam")?.dataset.aim; if (!aimId) return;
     try {
@@ -3003,6 +3117,8 @@ function bindPop() {
     const fold = e.target.closest(".team .tx.fold"); if (fold) { fold.classList.toggle("open"); return; }
     const tt = e.target.closest("[data-team]");
     if (tt && tt.tagName === "BUTTON") { try { await teamAct(tt); } catch (err) { toast(err.message); } return; }
+    const pp = e.target.closest("button[data-perp]");
+    if (pp) { try { await perpAct(pp); } catch (err) { toast(err.message); } return; }
     const t = e.target.closest("[data-pop]"); if (!t) return;
     const act = t.dataset.pop, d = POP.node;
     try {

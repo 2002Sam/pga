@@ -108,6 +108,30 @@ class Aim(Base):
     __table_args__ = (Index("ix_aims_user_position", "user_id", "position"),)
 
 
+class PerpetualTask(Base):
+    """A perpetual task (永续任务): an aim its team works on without stopping, paced by pressure (perpetual.py)."""
+    __tablename__ = "perpetual_tasks"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    aim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aims.id", ondelete="CASCADE"), nullable=False, unique=True)
+    project_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("projects.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(16), default="running", nullable=False)     # running | paused | stopped
+    phase: Mapped[str] = mapped_column(String(16), default="starting", nullable=False)     # think | investigate | evolve | reflect | rest | quota | error
+    phase_note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    phase_since: Mapped[datetime | None] = mapped_column(Tz())
+    next_at: Mapped[datetime | None] = mapped_column(Tz())
+    pressure: Mapped[float] = mapped_column(Float, default=0.5, nullable=False)
+    parts: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)       # pressure by channel
+    ledger: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)           # each cycle: what, why, how long
+    work_s: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    rest_s: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    pause_s: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)                 # waiting for quota to reset
+    cycles: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    settings: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+
+
 class Project(Base):
     """A folder you let agents work in — chosen per conversation, independent of which agent you use."""
     __tablename__ = "projects"

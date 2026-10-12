@@ -103,7 +103,9 @@ class CodingAgent:
 
     # -------------------------------------------------------------- worktree
 
-    def prepare(self, label: str) -> Candidate:
+    def prepare(self, label: str, stack: list[tuple[str, str]] | None = None) -> Candidate:
+        """A worktree with the running working copy — plus, on the evolution line, the verified candidates you have
+        not promoted yet (`stack`: [(label, patch)…], oldest first), so the next change builds on them."""
         if not (self.repo / ".git").exists():
             raise CodingError(f"{self.repo} is not a git repository")
         self.root.mkdir(parents=True, exist_ok=True)
@@ -116,6 +118,15 @@ class CodingAgent:
         _copy_tree(self.repo, wt)                                  # the snapshot is what is running now
         _git(wt, "add", "-A")
         _git(wt, "commit", "-q", "--allow-empty", "-m", f"evolution {label}: snapshot of the working copy")
+        for below, patch in stack or []:
+            if not patch.strip():
+                continue
+            try:
+                _git(wt, "apply", "--whitespace=nowarn", "-", input=patch)
+            except CodingError as exc:
+                raise CodingError(f"the line no longer applies on the working copy at {below}: {exc}") from exc
+            _git(wt, "add", "-A")
+            _git(wt, "commit", "-q", "--allow-empty", "-m", f"evolution line: {below}")
         _git(wt, "tag", "-f", f"evo-base-{label}")
         return Candidate(worktree=str(wt), branch=branch)
 

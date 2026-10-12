@@ -413,14 +413,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def version_action(vid: uuid.UUID, op: str, rt: Runtime = Depends(get_rt)):
         """promote / reject / rollback — every change to the live code goes through the user here."""
         svc, v = EvolutionService(rt), version_or_404(rt, vid)
-        if op == "promote":
-            svc.promote(v)
-        elif op == "reject":
-            svc.reject(v)
-        elif op == "rollback":
-            svc.rollback(v)
-        else:
-            raise HTTPException(404, f"unknown operation {op!r}")
+        try:
+            if op == "promote":
+                svc.promote(v)
+            elif op == "reject":
+                svc.reject(v)
+            elif op == "rollback":
+                svc.rollback(v)
+            else:
+                raise HTTPException(404, f"unknown operation {op!r}")
+        except EvolutionError as exc:
+            raise HTTPException(409, str(exc)) from exc
         return version_out(v)
 
     @app.get("/v1/responsibilities/{rid}/motivation")
@@ -1759,6 +1762,104 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except (TeamError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         return team_view(rt, aim)
+
+    # ---------------------------------------------------------------- perpetual tasks (永续任务)
+
+    def perpetual_view(rt: Runtime, aim) -> dict:
+        from pga.db.models import AimNote, PerpetualTask
+        from pga.perpetual import Perpetual
+        t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
+        if t is None:
+            return {"task": None}
+        eng = Perpetual(rt)
+        notes = list(rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind.in_(
+            ["question", "answer", "insight", "evolve", "reflect"])).order_by(AimNote.created_at.desc()).limit(120)))
+        note = lambda n: {"id": str(n.id), "kind": n.kind, "status": n.status, "text": n.text, "role": n.role, "agent": n.agent,  # noqa: E731
+                          "data": n.data or {}, "at": n.created_at.isoformat()}
+        return {"task": eng.out(t), "questions": [note(n) for n in notes if n.kind == "question"],
+                "findings": [note(n) for n in notes if n.kind != "question"][:40]}
+
+    @app.get("/v1/users/{user_id}/perpetual")
+    def perpetual_list(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import PerpetualTask
+        from pga.perpetual import Perpetual
+        user_or_404(rt, user_id)
+        eng = Perpetual(rt)
+        return [eng.out(t) for t in rt.session.scalars(select(PerpetualTask).where(PerpetualTask.user_id == user_id)
+                                                        .order_by(PerpetualTask.created_at))]
+
+    @app.get("/v1/aims/{aim_id}/perpetual")
+    def perpetual_get(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """The aim as a perpetual task: what it is doing now, its pressure, rest and quota, its questions and findings."""
+        return perpetual_view(rt, aim_or_404(rt, aim_id))
+
+    @app.post("/v1/aims/{aim_id}/perpetual", status_code=201)
+    def perpetual_start(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Make the aim a perpetual task (or restart it): its team works on it without stopping, paced by pressure."""
+        from pga.perpetual import Perpetual
+        from pga.projects import ProjectError, Projects
+        aim = aim_or_404(rt, aim_id)
+        u = user_or_404(rt, aim.user_id)
+        if (u.preferences or {}).get("demo"):
+            raise HTTPException(403, "a demo account cannot run perpetual tasks")
+        proj = None
+        if body.get("project_id"):
+            try:
+                proj = Projects(rt.session).get(u.id, uuid.UUID(str(body["project_id"])))
+            except (ProjectError, ValueError) as exc:
+                raise HTTPException(404, str(exc)) from exc
+        Perpetual(rt).create(u, aim, proj, settings=body.get("settings") or {})
+        return perpetual_view(rt, aim)
+
+    @app.patch("/v1/aims/{aim_id}/perpetual")
+    def perpetual_patch(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Pause, resume or stop it; change its settings (rest share, quota reserve, whether it may evolve code)."""
+        from pga.db.models import PerpetualTask
+        from pga.perpetual import DEFAULTS, Perpetual
+        aim = aim_or_404(rt, aim_id)
+        t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
+        if t is None:
+            raise HTTPException(404, "this aim is not a perpetual task")
+        eng = Perpetual(rt)
+        if body.get("status"):
+            try:
+                eng.set_status(t, str(body["status"]))
+            except ValueError as exc:
+                raise HTTPException(422, "status is running, paused or stopped") from exc
+        if isinstance(body.get("settings"), dict):
+            new = {k: v for k, v in body["settings"].items() if k in DEFAULTS}
+            if "max_rest_ratio" in new:
+                new["max_rest_ratio"] = max(0.0, min(0.1, float(new["max_rest_ratio"])))     # never more than 10%
+            if "reserve" in new:
+                new["reserve"] = max(0.0, min(0.9, float(new["reserve"])))
+            t.settings = {**(t.settings or {}), **new}
+        rt.session.flush()
+        return perpetual_view(rt, aim)
+
+    @app.post("/v1/aims/{aim_id}/perpetual/answer")
+    def perpetual_answer(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Answer a question it asked you; the answer becomes your guidance on the aim."""
+        from pga.db.models import AimNote, PerpetualTask
+        from pga.perpetual import Perpetual
+        aim = aim_or_404(rt, aim_id)
+        u = user_or_404(rt, aim.user_id)
+        t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
+        try:
+            n = rt.session.get(AimNote, uuid.UUID(str(body.get("note_id"))))
+        except ValueError:
+            n = None
+        if t is None or n is None or n.aim_id != aim.id or n.kind != "question":
+            raise HTTPException(404, "question not found")
+        text = str(body.get("text") or "").strip()[:4000]
+        if not text:
+            if body.get("drop"):
+                n.status = "dropped"
+                rt.session.flush()
+                return perpetual_view(rt, aim)
+            raise HTTPException(422, "an answer needs some words")
+        Perpetual(rt).answer(t, n, text, canonical(rt, u, text)[0])
+        relayer(rt, u, f"aim:{aim.id}")
+        return perpetual_view(rt, aim)
 
     _ = FactType  # re-exported for OpenAPI enum docs
     return app

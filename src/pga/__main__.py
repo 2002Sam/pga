@@ -1,7 +1,8 @@
 """`python -m pga [api|worker|all]` — run the API server, the background worker, or both.
 
     api     HTTP API + web app (default)
-    worker  the perpetual loop: heartbeats, source polls, research, exploration, notifications
+    worker  the perpetual loop: heartbeats, source polls, research, exploration, notifications — and the perpetual
+            tasks' own thread (pga/perpetual.py)
     all     both in one process (handy on a laptop)
 """
 
@@ -22,6 +23,18 @@ def _make_worker():
     from pga.workflow.worker import Worker
 
     return Worker(get_sessionmaker(), lambda s: Runtime(s))
+
+
+def _perpetual(stop: threading.Event) -> threading.Thread:
+    """Perpetual tasks run in their own thread, so a long cycle never holds up the worker's jobs (see pga/perpetual.py)."""
+    from pga.db.session import get_sessionmaker
+    from pga.perpetual import PerpetualRunner
+    from pga.runtime import Runtime
+
+    t = threading.Thread(target=PerpetualRunner(get_sessionmaker(), lambda s: Runtime(s)).run_forever, args=(stop,),
+                         daemon=True, name="pga-perpetual")
+    t.start()
+    return t
 
 
 def _stop_on_signals(stop: threading.Event) -> None:
@@ -55,6 +68,7 @@ def main() -> None:
     if mode == "worker":
         stop = threading.Event()
         _stop_on_signals(stop)
+        _perpetual(stop)
         _make_worker().run_forever(stop)
     elif mode == "all":
         stop = threading.Event()
@@ -64,6 +78,7 @@ def main() -> None:
         worker = _make_worker()
         t = threading.Thread(target=worker.run_forever, args=(stop,), daemon=True, name="pga-worker")
         t.start()
+        _perpetual(stop)
         keeper = _links()
         try:
             _api()                      # returns when uvicorn is stopped (SIGTERM / SIGINT)
