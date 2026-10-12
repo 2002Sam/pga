@@ -76,20 +76,25 @@ DEFAULT: dict[str, Any] = {
                     "disable": ["memories", "shell_tool"],         # answers only: no local memory files, no shell commands
                     "timeout_s": 600, "max_turns": 20, "traits": {"quality": 5, "speed": 2, "cost": 3},
                     "quota": {"source": "codex_sessions"},
-                    "link": "ChatGPT 应用自带的 Codex CLI（codex exec，只读沙箱），用你登录的 ChatGPT 账号；默认模型 = ~/.codex/config.toml（gpt-astra）"},
+                    "link": "ChatGPT 应用自带的 Codex：常驻 app-server（JSON-RPC），每段对话一个可恢复的线程，额度实时读取；只读沙箱，用你登录的 ChatGPT 账号；默认模型 = ~/.codex/config.toml（gpt-astra）。app-server 起不来时退回 codex exec"},
         "claude": {"adapter": "claude_local", "role": "代码 · Claude Code（订阅）",
                    "capabilities": ["code", "serious", "review", "research", "write", "plan", "general"], "timeout_s": 900,
                    "max_turns": 40, "traits": {"quality": 5, "speed": 3, "cost": 3},
                    "quota": {"source": "observed", "window_hours": 5, "window_runs": 40},
-                   "link": "Claude Code CLI（claude -p），Claude 订阅；后台服务需要 `claude setup-token` 生成的令牌"},
+                   # questions go straight to the Anthropic API when ANTHROPIC_API_KEY works (billed per token);
+                   # writing code always uses Claude Code
+                   "api": {"type": "anthropic", "key_env": "ANTHROPIC_API_KEY", "model": "claude-sonnet-5-5",
+                           "usd_per_mtok_in": 3, "usd_per_mtok_out": 15},
+                   "link": "提问：ANTHROPIC_API_KEY 有效时直接调 Anthropic API；否则 Claude Code 常驻会话（stream-json，每段对话一个，闲置 20 分钟后关闭、下次按会话 id 恢复）。写代码总是用 Claude Code（claude -p）。Claude Code 需要 `claude setup-token` 生成的令牌"},
         "workbuddy": {"adapter": "codebuddy_local", "command": WORKBUDDY_CLI, "role": "办公 · WorkBuddy",
                       "capabilities": ["office", "write", "general"], "timeout_s": 600, "max_turns": 30,
                       "traits": {"quality": 4, "speed": 3, "cost": 2}, "quota": {"source": "observed", "window_hours": 24, "window_runs": 60},
-                      "link": "WorkBuddy 应用自带的 CodeBuddy CLI（codebuddy -p），文件只写进它自己的工作目录；需要 CODEBUDDY_API_KEY 或在终端运行一次 codebuddy 登录"},
+                      "link": "WorkBuddy 应用自带的 CodeBuddy CLI：常驻会话（stream-json，每段对话一个，可恢复），文件只写进这段对话自己的工作目录；需要 CODEBUDDY_API_KEY 或在终端运行一次 codebuddy 并 /login"},
         "hermes": {"adapter": "hermes_local", "role": "研究助理 · Hermes Agent", "capabilities": ["research", "serious", "write", "quick", "general"],
                    "timeout_s": 600, "max_turns": 30, "traits": {"quality": 4, "speed": 3, "cost": 3},
                    "quota": {"source": "codex_sessions"},
-                   "link": "Hermes Agent CLI（hermes chat -Q），用 ~/.hermes 里的模型（openai-codex · gpt-astra，与 ChatGPT 共用额度）"},
+                   "api_url": "http://127.0.0.1:8642", "api_key_env": "HERMES_API_SERVER_KEY",
+                   "link": "Hermes 本地 API（/v1/runs，带会话 id；需要在 ~/.hermes/.env 打开 API_SERVER_ENABLED，并把 API_SERVER_KEY 存进这里）；没开时用命令行 hermes chat -Q。模型用 ~/.hermes 里的（openai-codex · gpt-astra，与 ChatGPT 共用额度）"},
         "codex": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "工程师 · Codex", "capabilities": ["code", "review", "general"],
                   "disable": ["memories"],
                   "timeout_s": 900, "max_turns": 40, "traits": {"quality": 4, "speed": 2, "cost": 3}, "quota": {"source": "codex_sessions"},
@@ -133,6 +138,7 @@ DEFAULT: dict[str, Any] = {
         },
     },
     "run": {"max_parallel": 3, "retries": 1, "max_backoff_s": 20, "daily_usd_cap": 10.0, "default_timeout_s": 300,
+            "heartbeat_minutes": 30,                # how often every link is checked (links.py)
             "workspace_root": str(ROOT.parent / "workspaces")},
 }
 
@@ -304,6 +310,10 @@ class AgentPool:
         ok, detail = ad.available()
         if not ok:
             return False, detail
+        from pga.agents import links
+        st = links.state(name)
+        if st and st.get("state") in links.DOWN:
+            return False, f"{links.LABEL[st['state']]}：{st.get('detail') or ''}".rstrip("：")
         if ad.type != "llm" and spent >= float(self.runcfg.get("daily_usd_cap") or 1e9):
             return False, f"daily cost cap reached (${spent:.2f})"
         return True, ""
@@ -331,6 +341,14 @@ class AgentPool:
             r = locals().get("res")
             live.finish(lid, bool(r and r.ok), text=r.text if r else None, error=r.error if r else "interrupted")
         return Step(step=step, task=task, result=res, attempt=attempt, started=started, finished=utcnow())
+
+    def conversation_workspace(self, agent: str, conversation: str) -> str:
+        """A conversation keeps one folder, so a running session and the files it writes stay together."""
+        import hashlib
+        root = Path(os.path.expanduser(str(self.runcfg.get("workspace_root"))))
+        d = root / "conversations" / f"{agent}-{hashlib.sha256(conversation.encode()).hexdigest()[:12]}"
+        d.mkdir(parents=True, exist_ok=True)
+        return str(d)
 
     def _workspace(self, run_id: uuid.UUID, workflow: str, sub: str | None = None) -> str:
         root = Path(os.path.expanduser(str(self.runcfg.get("workspace_root"))))

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1275,9 +1276,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         p = ap.AgentPool(rt)
         router = AgentRouter(rt, p)
         status = p.status()
+        from pga.agents import links
+        lv = links.view() if links.active() else {}
         for n in status:
             status[n]["quota"] = router.quota(n).as_dict()
-        return {"agents": p.cfg["agents"], "workflows": p.cfg["workflows"], "routing": p.cfg["routing"], "run": p.cfg["run"],
+            status[n]["link"] = lv.get(n)
+        return {"links_active": links.active(), "agents": p.cfg["agents"], "workflows": p.cfg["workflows"], "routing": p.cfg["routing"], "run": p.cfg["run"],
                 "status": status, "configured": ap.CONFIG.exists(), "file": str(ap.CONFIG), "spent_today": round(p.spent_today(), 4),
                 "adapters": sorted(ap.ADAPTERS), "patterns": list(ap.PATTERNS), "modes": list(ap.MODES),
                 "ranking": {c: router.rank(c) for c in (p.cfg["routing"].get("categories") or {})} if rank else {}}
@@ -1310,6 +1314,23 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.get("/v1/agents/links")
+    def agents_links():
+        """How each agent is connected right now (API / app-server / session / CLI) and whether it is reachable."""
+        from pga.agents import links
+        return {"active": links.active(), "links": links.view(), "heartbeat_minutes": links.HEARTBEAT_MIN}
+
+    @app.post("/v1/agents/links/check")
+    def agents_links_check(body: dict | None = None):
+        """Check one agent's link now (or all of them): the same probe the heartbeat runs."""
+        from pga.agents import links
+        if not links.KEEPER:
+            raise HTTPException(409, "the link keeper is not running (start PGA with `python -m pga all`)")
+        name = str((body or {}).get("agent") or "")
+        k = links.KEEPER[0]
+        done = {name: k.check(name)} if name else k.check_all()
+        return {"checked": list(done), "links": links.view()}
+
     @app.post("/v1/agents/test")
     def agents_test(body: dict, rt: Runtime = Depends(get_rt)):
         """Paperclip's "test environment": is it installed, and does it answer a one-word prompt?"""
@@ -1327,10 +1348,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         rt.session.add(AgentRun(workflow="test", pattern="single", step="run", agent=name, adapter=r.adapter, status=r.status,
                                 prompt="Reply with the single word OK.", output=r.text[:500], error=r.error, cost_usd=r.cost_usd,
                                 duration_s=r.duration_s, finished_at=utcnow()))      # a passing test clears a "needs login" mark
+        from pga.agents import links
         from pga.agents import quota as aq
         aq.clear()
+        if links.KEEPER:                                   # the link state follows what the test just found
+            threading.Thread(target=links.KEEPER[0].check, args=(name,), daemon=True).start()
         return {"ok": r.ok, "available": True, "detail": detail, "reply": r.text[:200], "error": r.error, "duration_s": r.duration_s,
-                "cost_usd": r.cost_usd}
+                "cost_usd": r.cost_usd, "via": (r.data or {}).get("via", "cli")}
 
     @app.post("/v1/users/{user_id}/agents/run", status_code=202)
     def agents_run(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -1375,7 +1399,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"),
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
-                                           category=str(body["category"]) if body.get("category") else None)
+                                           category=str(body["category"]) if body.get("category") else None,
+                                           conversation=str(body["conversation"]) if body.get("conversation") else None)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 

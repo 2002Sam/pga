@@ -610,6 +610,13 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-btn.on { background: rgba(233,169,75,.22); color: #fff3d6; border-color: #e9a94b; }
 .ag-btn:disabled { opacity: .45; cursor: default; }
 .ag-spend { font: var(--cap); font-size: 10px; letter-spacing: .1em; color: rgba(243,211,138,.7); }
+.ag-link { font-weight: 500; }
+.ag-link.online { color: rgba(243,211,138,.95); }
+.ag-link.expiring { color: #f0b860; }
+.ag-link.login, .ag-link.offline { color: #f08a7a; }
+.ag-link.absent, .ag-link.disabled, .ag-link.unknown { color: rgba(255,255,255,.45); }
+.ag-btn.mini { padding: 1px 7px; font-size: 10px; margin-left: 6px; vertical-align: 1px; }
+#agLinksBtn.down { border-color: rgba(240,138,122,.6); color: #f08a7a; }
 .ag-panel { position: absolute; z-index: 3; background: rgba(6,8,10,.84); border: 1px solid rgba(233,169,75,.26); padding: 14px 16px; overflow: auto;
   scrollbar-width: thin; scrollbar-color: rgba(233,169,75,.3) transparent; font-size: 12.5px; }
 .ag-panel::before, .ag-panel::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid #e9a94b; pointer-events: none; }
@@ -878,6 +885,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
         <span class="ag-title">Agent Constellation<b>调度星图</b></span>
         <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
         <span class="grow"></span>
+        <button class="ag-btn" id="agLinksBtn" title="每 30 分钟自动检查一次；点一下立即检查所有连接">连接</button>
         <span class="ag-spend" id="agSpend"></span>
         <button class="ag-btn" id="agResetPos" title="把拖动过的星体放回默认位置">复位</button>
         <button class="ag-btn" id="agToAtlas" title="你和各个 AI 的历史对话星图">对话星图</button>
@@ -1325,11 +1333,36 @@ const dur = (s) => { s = Math.round(s || 0); return s < 90 ? `${s} 秒` : s < 54
 const AGV = { data: null, sel: null, hoverCat: null, chat: store.json("pga_agchat", []), pick: "auto", busy: false };
 const CAT_ZH = { code: "代码", serious: "严肃问题", office: "办公", quick: "日常快速" };
 const MODE_ZH = { performance: "性能优先", balanced: "均衡", economy: "省钱", speed: "速度优先" };
+const LINK_ZH = { online: "在线", expiring: "登录将过期", login: "需要登录", offline: "已断开", absent: "未安装", disabled: "已停用", unknown: "未检查" };
+const VIA_SHORT = { api: "API", "app-server": "常驻", session: "会话", cli: "命令行" };
+const linkDown = (s) => ["login", "offline", "absent", "disabled"].includes(s?.link?.state);
+function agTag(s) {                                     // the short line under an agent's planet and on its card
+  const q = s.quota || {}, L = s.link;
+  if (L && !["online", "unknown"].includes(L.state)) return LINK_ZH[L.state] || L.state;
+  if (!s.available) return "未接通";
+  if (s.enabled === false) return "已停用";
+  if (q.source === "login") return "需要登录";
+  const rem = q.remaining != null ? `剩余 ${Math.round(q.remaining * 100)}%` : "用量未知";
+  return L ? `${VIA_SHORT[L.via] || L.via} · ${rem}` : rem;
+}
+function linkLine(s) {                                  // how PGA reaches this agent right now
+  const L = s.link;
+  if (!L) return `${s.available ? "● 已接通 · " : "○ 未接通 · "}${esc(s.detail || "")}`;
+  const dot = { online: "●", expiring: "◐", login: "○", offline: "○" }[L.state] || "·";
+  const at = L.checked_at ? new Date(L.checked_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  return `<span class="ag-link ${esc(L.state)}">${dot} ${esc(L.label || L.state)} · ${esc(L.via_label || L.via || "")}</span>`
+    + (L.warm ? ` <span class="muted small">进程常驻${L.sessions ? ` · ${L.sessions} 段对话` : ""}</span>` : "")
+    + `<br><span class="muted small">${esc(L.detail || "")}${at ? ` · ${at} 检查` : ""}${L.expires_at ? ` · ${new Date(L.expires_at).toLocaleDateString()} 到期` : ""}</span>`;
+}
 
 async function loadAgentView() {
   try { AGV.data = await api("/v1/agents"); } catch (e) { toast("读取 agent 失败：" + e.message); return; }
   if (AGV.sel && !AGV.data.agents[AGV.sel]) AGV.sel = null;
   $("#agSpend").textContent = `今天外部 agent 花费 $${(AGV.data.spent_today || 0).toFixed(2)} / $${(+AGV.data.run.daily_usd_cap || 0).toFixed(0)}`;
+  { const ls = Object.values(AGV.data.status).map((s) => s.link).filter((L) => L && L.state !== "absent" && L.state !== "disabled");
+    const up = ls.filter((L) => L.state === "online" || L.state === "expiring").length, b = $("#agLinksBtn");
+    b.hidden = !AGV.data.links_active; b.textContent = `连接 ${up}/${ls.length}`; b.classList.toggle("down", up < ls.length);
+    b.title = ls.length ? Object.entries(AGV.data.status).filter(([, s]) => s.link).map(([n, s]) => `${n}：${LINK_ZH[s.link.state] || s.link.state} · ${s.link.via_label || ""}`).join("\n") + "\n\n每 30 分钟自动检查；点一下立即检查" : ""; }
   renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
   window.PGA_SET_AGENTS?.(agentGraph(AGV.data));
   if (CARD.kind) { const r = $("#agCard .route"); if (r) r.innerHTML = cardRoute(); if (CARD.kind === "cat") renderCardBack(); }
@@ -1360,8 +1393,8 @@ function agentGraph(d) {
   const nodes = [{ id: "you", kind: "user", label: "你" }], links = [];
   for (const [n, a] of Object.entries(d.agents)) {
     const s = d.status[n] || {}, q = s.quota || {};
-    const live = s.available && s.enabled !== false && q.source !== "login" && !q.exhausted;
-    const tag = !s.available ? "未接通" : s.enabled === false ? "已停用" : q.source === "login" ? "需要登录" : q.remaining != null ? `剩余 ${Math.round(q.remaining * 100)}%` : "用量未知";
+    const live = s.available && s.enabled !== false && q.source !== "login" && !q.exhausted && !linkDown(s);
+    const tag = agTag(s);
     nodes.push({ id: "pa:" + n, kind: "agent", pool: true, agent: n, label: n, tag, tension: q.remaining ?? .6, wake: 2,
                  status: live ? "ACTIVE" : "SLEEPING", paused: !live });
     links.push({ source: "you", target: "pa:" + n, kind: "spoke" });
@@ -1446,8 +1479,12 @@ function placeBubbles() {                                                 // kee
 }
 
 /* ---- a card that turns over beside a planet or a kind of work: talk to it on the front, its settings on the back */
-const CARD = { kind: null, key: null, busy: false, log: store.json("pga_cards", {}) || {} };
+const CARD = { kind: null, key: null, busy: false, log: store.json("pga_cards", {}) || {}, conv: store.json("pga_card_conv", {}) || {} };
 const cardK = () => CARD.kind + ":" + CARD.key;
+function convOf(k, fresh = false) {                     // the agents keep one thread / session per card conversation
+  if (fresh || !CARD.conv[k]) { CARD.conv[k] = k + ":" + Math.random().toString(36).slice(2, 10); try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {} }
+  return CARD.conv[k];
+}
 function openCard(kind, key) {
   const el = $("#agCard");
   if (!el.hidden && CARD.kind === kind && CARD.key === key) return;
@@ -1488,14 +1525,14 @@ function cardRoute() {
     const usable = list.filter((x) => x.usable).map((x) => x.agent), skipped = list.filter((x) => !x.usable).map((x) => x.agent);
     return `问题会交给 <b>${esc(usable[0] || "（没有可用的 agent）")}</b>${usable.length > 1 ? `，不行就换 ${usable.slice(1, 3).map(esc).join(" → ")}` : ""}${skipped.length ? ` · 跳过：${skipped.map(esc).join("、")}` : ""}`;
   }
-  const s = d.status[CARD.key] || {}, q = s.quota || {};
-  return `${esc(d.agents[CARD.key]?.role || "")} · ${!s.available ? "未接通" : q.source === "login" ? "需要登录" : q.remaining != null ? `剩余 ${Math.round(q.remaining * 100)}%` : "用量未知"}`;
+  const s = d.status[CARD.key] || {};
+  return `${esc(d.agents[CARD.key]?.role || "")} · ${esc(agTag(s))}`;
 }
 function renderCard() {
   if (!CARD.kind || !AGV.data) return;
   const title = CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key;
   $("#agCardFront").innerHTML = `<div class="ch"><span class="t">${esc(title)}</span><small>${CARD.kind === "cat" ? "直接提问 · 按调度" : "直接对话"}</small>
-      <button type="button" data-card="flip" title="设置（翻到背面）">⚙</button><button type="button" data-card="close" title="关闭">✕</button></div>
+      <button type="button" data-card="new" title="新对话：清空这里，agent 从头开始（新的线程 / 会话）">↺</button><button type="button" data-card="flip" title="设置（翻到背面）">⚙</button><button type="button" data-card="close" title="关闭">✕</button></div>
     <div class="route">${cardRoute()}</div>
     <div class="ag-log card-log" id="agCardLog" data-empty="${CARD.kind === "cat" ? `在「${esc(title)}」里提问：会按这一类的调度顺序交给 agent，回答会一边生成一边流出来。` : `直接问 ${esc(title)}。回答会一边生成一边流出来，它的行星会随之跳动。`}"></div>
     <form class="ag-ask" id="agCardAsk"><textarea id="agCardInput" rows="2" placeholder="${CARD.kind === "cat" ? "问一个" + esc(title) + "问题…" : "问 " + esc(title) + "…"}（Enter 发送，Shift+Enter 换行）"></textarea><button class="ag-btn" type="submit">发送</button></form>`;
@@ -1508,7 +1545,7 @@ function renderCardBack() {
   if (CARD.kind === "agent") { el.innerHTML = head + `<div id="agCardDetail"></div>`; renderAgDetail(); return; }
   const d = AGV.data, c = d.routing.categories[CARD.key] || { prefer: [] }, st = d.status;
   el.innerHTML = head + `<div class="ag-sub">「${esc(c.label || CARD.key)}」的问题按这个顺序交给 agent；再按模式（${MODE_ZH[d.routing.mode]}）和剩余用量调整。</div>
-    <div class="ag-cat hot" data-cat="${CARD.key}"><div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" ? "" : "off"}" data-agsel="${esc(n)}">
+    <div class="ag-cat hot" data-cat="${CARD.key}"><div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" && !linkDown(st[n]) ? "" : "off"}" data-agsel="${esc(n)}">
       <button type="button" data-agmv="${CARD.key}|${esc(n)}|-1" title="提前">‹</button>${esc(n)}<button type="button" data-agmv="${CARD.key}|${esc(n)}|1" title="延后">›</button><button type="button" data-agrm="${CARD.key}|${esc(n)}" title="移出">×</button></span>`).join("")}</div>
       <select data-agadd="${CARD.key}"><option value="">＋ 加入…</option>${Object.keys(d.agents).filter((n) => !(c.prefer || []).includes(n)).map((n) => `<option>${esc(n)}</option>`).join("")}</select></div>
     <div class="actions"><button type="button" class="ag-btn" data-agsave="routes">保存这个顺序</button></div><div class="ag-out" id="agRoutesOut"></div>`;
@@ -1534,7 +1571,7 @@ async function cardSend(text) {
   if (target) window.PGA_ROUTE?.(kind === "cat" ? ["you", "pc:" + key, "pa:" + target] : ["you", "pa:" + target]);
   pollLive();
   try {
-    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history } });
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k) } });
     const el = document.querySelector("#agCard .ag-msg.flowing .body");          // let the rest of the answer flow out before it settles
     if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
     Object.assign(pend, r, { pending: false });
@@ -1553,7 +1590,7 @@ function renderAgRoutes() {
     <label class="ag-tog"><input type="checkbox" id="agLong" ${r.long_tasks ? "checked" : ""} ${r.enabled ? "" : "disabled"}><span>长期任务也按这里调度<small>研究、探索、动机判断、自我改进的诊断与评审 → 路由到的 agent；失败或格式不对就退回 DeepSeek。翻译、分类、分层留在 DeepSeek。</small></span></label>
     ${Object.entries(r.categories || {}).map(([cat, c]) => `<div class="ag-cat ${AGV.hoverCat === cat ? "hot" : ""}" data-cat="${cat}">
       <div class="t">${esc(c.label || cat)} <small>${esc(cat)}</small></div>
-      <div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" ? "" : "off"}" data-agsel="${esc(n)}">
+      <div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" && !linkDown(st[n]) ? "" : "off"}" data-agsel="${esc(n)}">
         <button type="button" data-agmv="${cat}|${esc(n)}|-1" title="提前">‹</button>${esc(n)}${st[n]?.quota?.source === "login" ? " <i>需登录</i>" : remOf(n) != null ? ` <i>${Math.round(remOf(n) * 100)}%</i>` : ""}<button type="button" data-agmv="${cat}|${esc(n)}|1" title="延后">›</button><button type="button" data-agrm="${cat}|${esc(n)}" title="移出">×</button></span>`).join("")}</div>
       <select data-agadd="${cat}"><option value="">＋ 加入…</option>${Object.keys(d.agents).filter((n) => !(c.prefer || []).includes(n)).map((n) => `<option>${esc(n)}</option>`).join("")}</select>
     </div>`).join("")}
@@ -1575,12 +1612,12 @@ function renderAgDetail() {
   const dots = (k) => `<span class="ag-dots">${[1, 2, 3, 4, 5].map((v) => `<button type="button" class="${(t[k] || 3) >= v ? "on" : ""}" data-agtrait="${k}|${v}" aria-label="${k} ${v}"></button>`).join("")}</span>`;
   el.innerHTML = (CARD.kind === "agent" ? "" : `<div class="ag-h">${esc(n)} <small>${esc(a.role || "")}</small><button class="x" type="button" data-agclose aria-label="关闭">✕</button></div>`) + `
     <dl class="ag-kv"><dt>连接方式</dt><dd>${esc(a.link || a.adapter)}</dd><dt>接口</dt><dd class="mono">${esc(a.adapter)}${a.command ? `<br><span class="muted small">${esc(a.command)}</span>` : ""}${a.model ? ` · ${esc(a.model)}` : ""}</dd>
-      <dt>状态</dt><dd>${s.available ? "● 已接通 · " : "○ 未接通 · "}${esc(s.detail || "")}</dd>
+      <dt>现在</dt><dd>${linkLine(s)}${s.link ? `<button type="button" class="ag-btn mini" data-aglink="${esc(n)}" title="现在就检查这条连接（不花额度的检查优先）">立即检查</button>` : ""}</dd>
       <dt>剩余用量</dt><dd>${q.remaining != null ? `<div class="ag-qbar"><i style="width:${Math.round(q.remaining * 100)}%"></i></div>` : ""}${esc(q.detail || "未知")}${q.resets_at ? ` · ${esc(new Date(q.resets_at).toLocaleString())} 重置` : ""}</dd>
       <dt>能力</dt><dd>${esc((a.capabilities || []).join(" · "))}</dd><dt>调度位置</dt><dd>${esc(ranks.join(" · ") || "不在任何类别里")}</dd></dl>
     <div class="ag-traits"><span>质量</span>${dots("quality")}<span>速度</span>${dots("speed")}<span>成本</span>${dots("cost")}</div>
     <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
-    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? "令牌已设置" : `需要令牌：${a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
+    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? "令牌已设置" : `需要令牌：${a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : a.adapter === "hermes_local" ? "直接走 Hermes 本地 API：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
       <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button></div>`).join("")}
     <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button></div>
     <div class="ag-out" id="agDetailOut"></div>`;
@@ -1632,11 +1669,15 @@ function bindAgentView() {
   });
   window.addEventListener("pga:popclose", () => { if (AGM.on && !CARD.busy) closeCard(); });
   $("#agResetPos").onclick = () => { window.PGA_RESET_LAYOUT?.(); toast("星体已放回默认位置"); };
+  $("#agLinksBtn").onclick = async (e) => { const b = e.currentTarget; if (b.disabled) return; b.disabled = true; b.textContent = "检查中…";
+    try { await api("/v1/agents/links/check", { body: {} }); } catch (err) { toast("检查失败：" + err.message); }
+    b.disabled = false; await loadAgentView(); toast("所有连接已检查"); };
   const card = $("#agCard");
   card.addEventListener("click", (e) => {
     const b = e.target.closest("[data-card]"); if (!b) return;
     if (b.dataset.card === "close") closeCard();
     if (b.dataset.card === "flip") card.querySelector(".ag-card-in").classList.toggle("flipped");
+    if (b.dataset.card === "new" && !CARD.busy) { const k = cardK(); CARD.log[k] = []; convOf(k, true); saveCards(); renderCardLog(); toast("新对话：agent 会从头开始"); }
   });
   card.addEventListener("submit", (e) => { if (e.target.id !== "agCardAsk") return; e.preventDefault(); const v = $("#agCardInput").value.trim(); if (!v) return; $("#agCardInput").value = ""; cardSend(v); });
   card.addEventListener("keydown", (e) => { if (e.target.id === "agCardInput" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agCardAsk").requestSubmit(); } });
@@ -1645,7 +1686,7 @@ function bindAgentView() {
   $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
   const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave]");
+    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink]");
     if (!t || !AGV.data) return;
     const d = AGV.data, r = d.routing;
     if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
@@ -1660,6 +1701,10 @@ function bindAgentView() {
     if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
     if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
       try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
+    if (t.dataset.aglink) { const n = t.dataset.aglink, o = $("#agDetailOut"); t.disabled = true; if (o) { o.textContent = `正在检查 ${n} 的连接…`; o.className = "ag-out"; }
+      try { const x = await api("/v1/agents/links/check", { body: { agent: n } }); const L = x.links[n] || {}; await loadAgentView();
+        const o2 = $("#agDetailOut"); if (o2) { o2.textContent = `${L.label || L.state} · ${L.detail || ""}`; o2.className = "ag-out " + (["online", "expiring"].includes(L.state) ? "ok" : "bad"); } }
+      catch (err) { if (o) { o.textContent = err.message; o.className = "ag-out bad"; } } finally { t.disabled = false; } return; }
     if (t.dataset.agtest) { const o = $("#agDetailOut"); t.disabled = true; if (o) { o.textContent = `正在测试 ${t.dataset.agtest}…`; o.className = "ag-out"; }
       try { const x = await api("/v1/agents/test", { body: { agent: t.dataset.agtest } }); if (o) { o.textContent = x.ok ? `正常 · ${x.duration_s}s · 「${x.reply}」` : `失败：${x.error || x.detail}`; o.className = "ag-out " + (x.ok ? "ok" : "bad"); } }
       catch (err) { if (o) { o.textContent = err.message; o.className = "ag-out bad"; } } finally { t.disabled = false; } }

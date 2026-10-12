@@ -155,11 +155,13 @@ def observed(session: "Session", agent: str, window_hours: float = 5, window_run
     return Quota(rem, f"{window_hours:g} 小时内用了 {n} / {window_runs} 次", "observed")
 
 
-def needs_login(session: "Session", agent: str, now: datetime | None = None) -> Quota | None:
-    """The agent's latest run (within 6 h) failed for want of a login or token: skip it until a run succeeds."""
+def needs_login(session: "Session", agent: str, now: datetime | None = None, cleared: datetime | None = None) -> Quota | None:
+    """The agent's latest run (within 6 h) failed for want of a login or token: skip it until a run succeeds — or
+    until a link check (`cleared`) found it signed in again."""
     now = now or utcnow()
+    since = max(now - timedelta(hours=6), cleared) if cleared else now - timedelta(hours=6)
     latest = session.scalar(select(AgentRun).where(AgentRun.agent == agent, AgentRun.adapter != "pool",
-                                                   AgentRun.started_at >= now - timedelta(hours=6))
+                                                   AgentRun.started_at >= since)
                             .order_by(AgentRun.started_at.desc()).limit(1))
     if latest and latest.status == "FAILED" and AUTH_ERROR.search(latest.error or ""):
         return Quota(0.0, "需要登录或令牌：" + (latest.error or "")[:60], "login",
@@ -168,8 +170,9 @@ def needs_login(session: "Session", agent: str, now: datetime | None = None) -> 
 
 
 def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str) -> Quota:
+    from pga.agents import links
     if adapter_type != "llm":
-        blocked = needs_login(session, name)
+        blocked = needs_login(session, name, cleared=links.ok_at(name))
         if blocked:
             return blocked
     q = cfg.get("quota") or {}
@@ -177,6 +180,9 @@ def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str) -> Qu
     if src == "deepseek_balance":
         return deepseek_balance(float(q.get("full", 50)))
     if src == "codex_sessions":
+        live = links.live_quota(name) or links.shared_quota("codex_live")      # read from the app server, if fresh
+        if live:
+            return Quota(live.get("remaining"), live.get("detail", ""), "codex_live", live.get("resets_at"), bool(live.get("exhausted")))
         return codex_sessions()
     if src == "observed":
         return observed(session, name, float(q.get("window_hours", 5)), int(q.get("window_runs", 40)))

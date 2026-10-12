@@ -96,7 +96,8 @@ def test_the_chat_can_name_an_agent_or_route_automatically(rt, user, provider, c
     named = r.ask(user, "帮我起草一封会议邮件", agent="fast")
     assert named["agent"] == "fast" and named["text"] == "fast answered" and named["why"] == "你指定了 fast"
     quick = r.ask(user, "你好", history=[{"role": "user", "text": "hi"}, {"role": "assistant", "text": "hello"}])
-    assert quick["agent"] == "fast" and "Earlier in this chat" in provider.calls[-1].messages[-1]["content"]
+    assert quick["agent"] == "fast"                    # PGA's own model gets the chat as real turns, not pasted text
+    assert [(m["role"], m["content"]) for m in provider.calls[-1].messages] == [("user", "hi"), ("assistant", "hello"), ("user", "你好")]
 
 
 def test_long_term_work_goes_to_the_routed_agent_and_falls_back(rt, user, provider, cfg):

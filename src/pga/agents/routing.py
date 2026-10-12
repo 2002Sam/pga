@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -123,7 +124,9 @@ class AgentRouter:
     # -------------------------------------------------------------- the agent chat
 
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
-            now: datetime | None = None, category: str | None = None) -> dict:
+            now: datetime | None = None, category: str | None = None, conversation: str | None = None) -> dict:
+        """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
+        the new message; one that does not gets the recent history written into the prompt."""
         if category and category not in (self.cfg.get("categories") or {}):
             raise ValueError(f"unknown category {category!r}")
         cat, cwhy = (category, "你在这一类里提问") if category else classify(text)
@@ -135,21 +138,26 @@ class AgentRouter:
             ranked = self.rank(cat, now)
             order = [x["agent"] for x in ranked if x["usable"]][:3]
             why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}"
-        convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n"
-                        for h in (history or [])[-6:])
+        hist = [h for h in (history or [])[-6:] if isinstance(h, dict)]
+        convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
+        conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text)
         run_id, t0, steps = uuid.uuid4(), utcnow(), []
         result_text, used, files = "", None, []
         for name in order:
             ad = self.pool.adapters[name]
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
-            ws = self.pool._workspace(run_id, "ask", name)
+            ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
+            before = time.time()
+            meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
+                    "new_text": text, **({"conversation": conv} if conv else {})}
             step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM, kind=cat, workspace=ws, permissions=perms,
-                                                         timeout_s=None, want_json=False, meta={"category": cat, "workflow": "chat"}), "run")
+                                                         timeout_s=None, want_json=False, meta=meta), "run")
             steps.append(step)
             if step.result.ok:
                 result_text, used = step.result.text, name
-                files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".")][:20]
+                files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".")
+                         and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
                 break
         res = PoolResult(bool(used), result_text, "ask", "single",
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order}, steps,

@@ -11,6 +11,10 @@ safety switches (never their "dangerously bypass" modes):
     process        any command: the prompt arrives on stdin, the answer is stdout
     http           any webhook: POST {"task": …} → {"text": …, "data": …}
     llm            PGA's own configured model (Settings → 模型与 API), at a tier
+
+Where an agent offers something more direct, `links.py` uses it first and these commands are the fallback: Codex runs
+in its app server, a conversation with Claude Code / CodeBuddy stays in one running session, Hermes is reached
+through its local API server, and Claude through the Anthropic API when a working key is set.
 """
 
 from __future__ import annotations
@@ -81,16 +85,24 @@ class CLIAdapter(Adapter):
         """What a line of output means to someone watching (shown live beside the planet). Plain text by default."""
         return line
 
-    def _run(self, task: AgentTask) -> AgentResult:
-        exe = self.exe()
-        if not exe:
-            raise AgentError(f"{self.binary} is not installed")
+    def env(self) -> dict[str, str]:
         env = {k: v for k, v in os.environ.items() if k not in self.strip_env}
         env.update({k: str(v) for k, v in (self.config.get("env") or {}).items()})
         from pga.llm.catalog import get_key
         for name in self.secret_names():
             if get_key(name):
                 env[name] = get_key(name)
+        return env
+
+    def linked(self) -> bool:
+        """Use the richer link (app server, session, API) unless the agent is set to `connect: cli`."""
+        return str(self.config.get("connect", "auto")) != "cli"
+
+    def _run(self, task: AgentTask) -> AgentResult:
+        exe = self.exe()
+        if not exe:
+            raise AgentError(f"{self.binary} is not installed")
+        env = self.env()
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         from pga.agents import live
         lid = task.meta.get("live_id")
@@ -169,6 +181,26 @@ class ClaudeLocal(CLIAdapter):
     def stdin(self, task: AgentTask) -> str:
         return _prompt(task)
 
+    def session_command(self, task: AgentTask, exe: str, resume: str | None) -> list[str]:
+        """The same command kept running: one user message per stdin line, a `result` event after each."""
+        cmd = [c for c in self.command(task, exe) if c != "--no-session-persistence"] + ["--input-format", "stream-json"]
+        return cmd + (["--resume", resume] if resume else [])
+
+    def _run(self, task: AgentTask) -> AgentResult:
+        from pga.agents import links
+        if self.linked() and task.permissions != WORKSPACE_WRITE and self.config.get("api") and links.api_ok(self.name):
+            try:
+                return links.api_chat(self, task)
+            except links.LinkDown as exc:
+                from pga.agents import live
+                live.append(task.meta.get("live_id"), f"（API 不可用：{exc}，改用命令行）\n")
+        if self.linked() and task.meta.get("conversation"):
+            try:
+                return links.StreamSession.ask(self, task)
+            except links.LinkDown:
+                pass
+        return super()._run(task)
+
     def progress(self, line: str, task: AgentTask) -> str | None:
         return _stream_json_progress(line)
 
@@ -231,6 +263,27 @@ class CodebuddyLocal(ClaudeLocal):
 
 class CodexLocal(CLIAdapter):
     type, binary = "codex_local", "codex"
+
+    def server_command(self) -> list[str]:
+        cmd = [self.exe() or self.binary, "app-server"]
+        for feature in self.config.get("disable") or []:
+            cmd += ["--disable", str(feature)]
+        return cmd
+
+    def _run(self, task: AgentTask) -> AgentResult:
+        from pga.agents import links
+        if self.linked():
+            try:
+                srv = links.CodexServer.get(self)
+            except links.LinkDown:
+                srv = None                                     # cannot start the app server: one-off `codex exec`
+            if srv is not None:
+                try:
+                    return srv.turn(self, task)
+                except links.LinkDown as exc:                  # the thread or turn never started: same work, one-off
+                    from pga.agents import live
+                    live.append(task.meta.get("live_id"), f"（app-server：{exc}，改用 codex exec）\n")
+        return super()._run(task)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         task.meta["_codex_out"] = out = os.path.join(task.workspace or tempfile.gettempdir(), f".codex-last-{os.getpid()}-{id(task)}.txt")
@@ -311,6 +364,18 @@ def _stream_json_progress(line: str) -> str | None:
 
 class HermesLocal(CLIAdapter):
     type, binary = "hermes_local", "hermes"
+    secrets = ("HERMES_API_SERVER_KEY",)        # the key of Hermes' local API server (its API_SERVER_KEY)
+
+    def _run(self, task: AgentTask) -> AgentResult:
+        from pga.agents import links
+        if self.linked() and task.permissions != WORKSPACE_WRITE:
+            api = links.HermesApi.of(self.config)
+            if api.usable():
+                try:
+                    return api.run(self, task)
+                except links.LinkDown:
+                    pass
+        return super()._run(task)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "chat", "--query-file", "-", "-Q", "--max-turns", str(task.max_turns), "--run-budget", str(int(task.timeout_s))]
@@ -436,7 +501,12 @@ class LLM(Adapter):
         who = (f"You are the model {model}" + (f" served by {prov}" if prov else "") + f", PGA's own model (agent \"{self.name}\"). "
                "If asked which model you are, say exactly that; you are not Claude, GPT or any other model.")
         system = (task.system or "You are one agent in a team working for the user. Be concrete.") + "\n\n" + who
-        messages = [{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}]
+        hist = [{"role": "user" if h.get("role") == "user" else "assistant", "content": str(h.get("text") or "")}
+                for h in (task.meta.get("history") or []) if str(h.get("text") or "").strip()] if task.meta.get("new_text") else []
+        while hist and hist[0]["role"] != "user":
+            hist.pop(0)
+        ask = task.meta.get("new_text") if hist else task.prompt
+        messages = hist + [{"role": "user", "content": ask + ("\n\nReply with JSON only." if task.want_json else "")}]
         lid, provider = task.meta.get("live_id"), self.rt.router.provider
         if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written
             r = provider.stream(model=self.rt.router.model_for(tier), system=system, messages=messages,

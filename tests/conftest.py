@@ -23,6 +23,10 @@ from pga.permissions import create_default_policy
 from pga.runtime import Runtime
 from pga.translation import DictionaryBackend, GlossaryService
 
+# link state (agents/links.py) never touches the real ~/Documents/PGA/state/links.json from a test
+os.environ["PGA_LINKS_FILE"] = os.path.join(__import__("tempfile").gettempdir(), f"pga-links-test-{os.getpid()}.json")
+
+
 def _dotenv(name: str) -> str | None:
     env = Path(__file__).resolve().parents[1] / ".env"
     if env.exists():

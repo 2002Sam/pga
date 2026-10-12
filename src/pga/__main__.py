@@ -31,6 +31,15 @@ def _stop_on_signals(stop: threading.Event) -> None:
         signal.signal(sig, handle)
 
 
+def _links():
+    """Keep every agent link checked (heartbeat) and its long-lived processes tidy — see pga/agents/links.py."""
+    from pga.agents import links
+    from pga.db.session import get_sessionmaker
+    from pga.runtime import Runtime
+
+    return links.start_keeper(get_sessionmaker(), lambda s: Runtime(s))
+
+
 def _api() -> None:
     uvicorn.run("pga.api.app:app", host=os.environ.get("PGA_HOST", "127.0.0.1"),
                 port=int(os.environ.get("PGA_PORT", "8000")), reload=bool(os.environ.get("PGA_RELOAD")))
@@ -54,14 +63,20 @@ def main() -> None:
         worker = _make_worker()
         t = threading.Thread(target=worker.run_forever, args=(stop,), daemon=True, name="pga-worker")
         t.start()
+        keeper = _links()
         try:
             _api()                      # returns when uvicorn is stopped (SIGTERM / SIGINT)
         finally:
             stop.set()
             t.join(timeout=20)          # let the job in hand finish if it can…
             worker.shutdown("the server was stopped" + ("" if not t.is_alive() else " during a long job"))   # …then snapshot
+            keeper.stop()               # close the app servers and sessions PGA started
     elif mode == "api":
-        _api()
+        keeper = _links()
+        try:
+            _api()
+        finally:
+            keeper.stop()
     else:
         sys.exit(f"unknown mode {mode!r}; use api, worker or all")
 
