@@ -3750,7 +3750,7 @@ window.PGA_FLIP_TO = (to) => {                                            // tur
   const ring = new THREE.Line(CIRCLE, shiverMat(1, { amp: .03, color: GOLD })), ring2 = new THREE.Line(CIRCLE, shiverMat(.4, { amp: .02 }));
   ring.position.y = ring2.position.y = .02; ring.visible = ring2.visible = false; world.add(ring, ring2);
   const you = nodes.get("you"); if (you) you.flash = 1;
-  FLIP = { to, t0: performance.now(), flipDur: 1300, spreadDur: 1700, axis, edge, back: edge - best.sgn * Math.PI, swapped: false, spreading: false,
+  FLIP = { to, t0: performance.now(), flipDur: 750, spreadDur: 1700, axis, edge, back: edge - best.sgn * Math.PI, swapped: false, spreading: false,
            Rmax: newR + 2.5, r: 0, dying, dead, ring, ring2 };
   return true;
 };
