@@ -58,6 +58,25 @@ def conversations(session: "Session", user_id: uuid.UUID, card: str, limit: int 
     return out[:limit]
 
 
+def everything(session: "Session", user_id: uuid.UUID, limit: int = 200) -> list[dict]:
+    """PGA's own conversations with its agents, for the shared timeline (newest first)."""
+    groups: dict[str, list[AgentRun]] = {}
+    for r in _asks(session, user_id):
+        groups.setdefault(_conv(r), []).append(r)
+    out = []
+    for conv, runs in groups.items():
+        runs.sort(key=lambda x: x.started_at)
+        first, last = runs[0], runs[-1]
+        d = last.data or {}
+        agents = sorted({(x.data or {}).get("agent") for x in runs if (x.data or {}).get("agent")})
+        out.append({"id": conv, "agent": "PGA · " + ("、".join(agents) or "—"), "agent_id": None, "vendor": "pga", "connector": "pga",
+                    "model": d.get("model"), "project": None, "title": " ".join(first.prompt.split())[:90], "messages": 2 * len(runs),
+                    "excerpt": "\n".join(f"YOU: {' '.join(x.prompt.split())[:200]}\nAI: {' '.join((x.output or x.error or '').split())[:300]}" for x in runs[-3:]),
+                    "started_at": first.started_at.isoformat(), "at": (last.finished_at or last.started_at).isoformat()})
+    out.sort(key=lambda c: c["at"], reverse=True)
+    return out[:limit]
+
+
 def messages(session: "Session", user_id: uuid.UUID, conversation: str) -> list[dict]:
     """The conversation as the talk shows it: your words, then each answer (or why there was none)."""
     if conversation.startswith("run:"):

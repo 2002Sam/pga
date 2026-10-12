@@ -276,6 +276,20 @@ dialog.settings::backdrop { background: rgba(8, 6, 4, .62); }
 .hub ::placeholder { color: #8f857a; }
 .hub select option { background: #e6e0d4; }
 .hub .muted { color: var(--hmuted); } .hub .dim { color: #8f857a; }
+.tl-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.tl-chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--hline, rgba(220,232,238,.2)); background: transparent; color: inherit; font-size: 12px; padding: 3px 9px 3px 4px; cursor: pointer; border-radius: 12px; }
+.tl-chip i { font-style: normal; opacity: .55; } .tl-chip.on { border-color: currentColor; } .tl-chip .mono-badge { transform: scale(.8); }
+.timeline { max-height: 62vh; overflow-y: auto; scrollbar-width: thin; margin-bottom: 18px; }
+.tl-day { position: sticky; top: 0; z-index: 1; padding: 8px 0 4px; font-size: 12px; letter-spacing: .08em; opacity: .7; background: inherit; backdrop-filter: blur(6px); }
+.tl-item { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--hline, rgba(220,232,238,.12)); cursor: pointer; }
+.tl-item:hover .tl-title { text-decoration: underline; text-underline-offset: 3px; }
+.tl-time { font-family: var(--mono); font-size: 11.5px; opacity: .6; padding-top: 2px; }
+.tl-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; }
+.tl-who .mono-badge { transform: scale(.78); transform-origin: left center; margin-right: -4px; }
+.tl-who b { font-weight: 600; } .tl-model { font-family: var(--mono); font-size: 10.5px; padding: 0 5px; border: 1px solid var(--hline, rgba(220,232,238,.25)); opacity: .85; }
+.tl-proj { opacity: .6; } .tl-proj::before { content: "· "; } .tl-n { margin-left: auto; opacity: .5; }
+.tl-title { font-size: 13.5px; line-height: 1.45; margin-top: 2px; overflow-wrap: anywhere; }
+.tl-ex { white-space: pre-wrap; font: 12px/1.6 var(--mono); margin: 6px 0 2px; padding: 8px 10px; opacity: .85; border-left: 2px solid var(--hline, rgba(220,232,238,.25)); max-height: 260px; overflow: auto; cursor: text; }
 .hub-top { display: flex; align-items: center; gap: 14px; padding: 14px 26px; border-bottom: 1px solid var(--hline); background: rgba(236, 230, 218, .45); }
 .hub-title { display: flex; align-items: baseline; gap: 14px; }
 .hub-title h1 { margin: 0; font: italic 400 36px/1 var(--serif); letter-spacing: .5px; color: #2b2520; }
@@ -1134,7 +1148,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
     <div class="hub-title"><h1>Agent Atlas<b>星图</b></h1><span class="hide-sm">你用过和正在用的所有 AI，汇成一张图</span></div>
     <span class="grow"></span>
     <span class="muted small" id="hubStatus"></span>
-    <button id="hubSyncAll" title="读取本机 Claude Code / Hermes 的新对话，更新摘要">同步本机 agent</button>
+    <button id="hubSyncAll" title="读取本机 Claude Code、ChatGPT/Codex、Hermes、WorkBuddy 的新对话（之后每隔几小时自动读一次），更新摘要">同步本机 agent</button>
     <button class="gold" id="hubDigestBtn" title="把所有 agent 的摘要合成一张全景图">生成综合摘要</button>
     <button class="flipbtn" id="toMain" title="翻回控制台">Control Room <b>控制台</b></button>
   </div>
@@ -1149,6 +1163,9 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       <div id="plates"></div>
     </div>
     <div class="hub-right">
+      <div class="h-sec"><h2>过去的对话</h2><em>timeline</em><span class="grow"></span><span class="muted small" id="tlMeta"></span></div>
+      <div class="tl-filter" id="tlFilter"></div>
+      <div class="timeline" id="timeline"><div class="muted small">读取中…</div></div>
       <div class="h-sec"><h2>综合摘要</h2><em>the whole picture</em><span class="grow"></span><span class="muted small" id="digestTime"></span></div>
       <div id="digest"></div>
       <div class="notify-box" id="notifyBox"></div>
@@ -3570,6 +3587,8 @@ const VENDORS = {
   cursor: { name: "Cursor", c: "#a1a1aa", m: "Cu", how: "在 Cursor 聊天面板里导出为 Markdown 后拖进来。" },
   claude_code: { name: "Claude Code", c: "#e0895f", m: "CC", local: true },
   hermes: { name: "Hermes Agent", c: "#e8c27a", m: "H", local: true },
+  workbuddy: { name: "WorkBuddy", c: "#2f6bff", m: "W", local: true },
+  pga: { name: "PGA", c: "#b8892e", m: "P", local: true, label: true },
   other: { name: "其他", c: "#7d7268", m: "AI", how: "任何对话记录都可以：OpenAI 风格的 JSON（messages）、Markdown 或纯文本。" },
 };
 const H = { data: null, pick: "chatgpt", busy: {}, open: {}, convs: {}, file: null };
@@ -3579,6 +3598,9 @@ const day = (iso) => iso ? new Date(iso).toLocaleDateString("zh-CN", { year: "nu
 const busy = (on) => on ? `<span class="hub-busy"><i></i><i></i><i></i></span>` : "";
 
 function bindHub() {
+  $("#tlFilter").addEventListener("click", (e) => { const b = e.target.closest("[data-tl]"); if (!b) return; TL.pick = b.dataset.tl; renderTimeline(); });
+  $("#timeline").addEventListener("click", (e) => { const it = e.target.closest("[data-tlid]"); if (!it || e.target.closest(".tl-ex")) return;
+    const id = it.dataset.tlid; TL.open.has(id) ? TL.open.delete(id) : TL.open.add(id); renderTimeline(); });
   $("#hubSyncAll").onclick = async (e) => {
     const b = e.target; b.disabled = true; $("#hubStatus").innerHTML = `${busy(true)} 正在读取本机 agent…`;
     try { const r = await api(`/v1/users/${S.uid}/hub/sync`, { method: "POST" });
@@ -3595,7 +3617,37 @@ function bindHub() {
 }
 async function loadHub() {
   try { H.data = await api(`/v1/users/${S.uid}/hub`); } catch (e) { return fail(e); }
-  renderFound(); renderVendors(); renderAddBox(); renderPlates(); renderDigest(); renderNotifyBox(); renderAtlas();
+  renderFound(); renderVendors(); renderAddBox(); renderPlates(); renderDigest(); renderNotifyBox(); renderAtlas(); loadTimeline();
+}
+/* every past conversation, from every agent and from PGA itself, newest first — labelled with the agent and model */
+const TL = { data: null, pick: "", open: new Set() };
+async function loadTimeline() {
+  try { TL.data = await api(`/v1/users/${S.uid}/hub/timeline?limit=400`); } catch (e) { $("#timeline").innerHTML = `<div class="muted small">读取失败：${esc(e.message)}</div>`; return; }
+  renderTimeline();
+}
+function renderTimeline() {
+  const d = TL.data; if (!d) return;
+  const srcKey = (it) => it.connector === "pga" ? "pga" : it.agent_id;
+  const items = d.items.filter((it) => !TL.pick || srcKey(it) === TL.pick);
+  const counts = {}; for (const it of d.items) counts[srcKey(it)] = (counts[srcKey(it)] || 0) + 1;
+  const chips = [["", "全部", d.items.length, null]].concat(d.sources.filter((s) => counts[s.id]).map((s) => [s.id, s.name, counts[s.id], s.vendor]))
+    .concat(counts.pga ? [["pga", "PGA 里的对话", counts.pga, "pga"]] : []);
+  $("#tlFilter").innerHTML = chips.map(([k, name, n, v]) => `<button type="button" class="tl-chip ${TL.pick === k ? "on" : ""}" data-tl="${esc(k)}">${v ? badge(v) : ""}${esc(name)} <i>${n}</i></button>`).join("");
+  const synced = d.sources.map((s) => s.synced).filter(Boolean).sort().pop();
+  $("#tlMeta").textContent = `${d.items.length} 段 · 每 ${d.sync_hours} 小时自动导入${synced ? " · 上次 " + new Date(synced).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}`;
+  if (!items.length) { $("#timeline").innerHTML = `<div class="muted small">还没有导入的对话。点右上角「同步本机 agent」，或在左边连接一个 agent 导入它的导出文件。</div>`; return; }
+  let html = "", lastDay = "";
+  for (const it of items) {
+    const t = new Date(it.at), dkey = t.toDateString();
+    if (dkey !== lastDay) { lastDay = dkey; html += `<div class="tl-day">${t.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" })}${t.getFullYear() !== new Date().getFullYear() ? " · " + t.getFullYear() : ""}</div>`; }
+    const open = TL.open.has(it.id);
+    html += `<div class="tl-item ${open ? "open" : ""}" data-tlid="${esc(it.id)}">
+      <span class="tl-time">${t.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+      <div class="tl-main"><div class="tl-who">${badge(it.vendor)}<b>${esc(it.agent)}</b>${it.model ? `<span class="tl-model">${esc(it.model)}</span>` : ""}${it.project ? `<span class="tl-proj">${esc(it.project)}</span>` : ""}<span class="tl-n">${it.messages} 条</span></div>
+        <div class="tl-title">${esc((it.title || "（无标题）").replace(/^\[[^\]]*\]\s*/, ""))}</div>
+        ${open ? `<pre class="tl-ex">${esc(it.excerpt || "")}</pre>` : ""}</div></div>`;
+  }
+  $("#timeline").innerHTML = html;
 }
 
 function renderAtlas() {
@@ -3652,7 +3704,7 @@ function renderFound() {
 }
 function renderVendors() {
   const linkedLocal = new Set(H.data.agents.filter((a) => VENDORS[a.vendor]?.local).map((a) => a.vendor));
-  $("#vendorPick").innerHTML = Object.entries(VENDORS).filter(([k, v]) => !v.local || !linkedLocal.has(k))
+  $("#vendorPick").innerHTML = Object.entries(VENDORS).filter(([k, v]) => !v.label && (!v.local || !linkedLocal.has(k)))
     .map(([k, v]) => `<span class="vendor ${H.pick === k ? "on" : ""}" data-v="${k}">${badge(k)}${esc(v.name)}</span>`).join("");
   $("#vendorPick").querySelectorAll(".vendor").forEach((x) => x.onclick = () => { H.pick = x.dataset.v; H.file = null; renderVendors(); renderAddBox(); });
 }

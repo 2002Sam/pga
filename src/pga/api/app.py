@@ -1136,8 +1136,25 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def hub_sync_all(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         """What the background job does: sync local agents, re-summarize changes, refresh the digest, notify."""
         u = user_or_404(rt, user_id)
+        linked = rt.hub.link_local(u)                       # you pressed it: everything on this machine is brought in
         with rt.billing(user_ctx(u)):
-            return rt.hub.background_sync(u)
+            return {**rt.hub.background_sync(u), "linked": linked}
+
+    @app.get("/v1/users/{user_id}/hub/timeline")
+    def hub_timeline(user_id: uuid.UUID, limit: int = Query(300, le=1000), agent: str | None = None, pga: bool = True,
+                     rt: Runtime = Depends(get_rt)):
+        """Past conversations from every agent (and PGA's own chats), newest first, each labelled with its agent and model."""
+        from pga.agents import history
+        user_or_404(rt, user_id)
+        rows = rt.hub.timeline(user_id, limit=limit, agent=agent if agent and agent != "pga" else None) if agent != "pga" else []
+        if pga and (not agent or agent == "pga"):
+            rows += history.everything(rt.session, user_id, limit)
+        rows.sort(key=lambda r: r["at"] or "", reverse=True)
+        sources: dict[str, dict] = {}
+        for a in rt.hub.list(user_id):
+            sources[str(a.id)] = {"id": str(a.id), "name": a.name, "vendor": a.vendor, "connector": a.connector,
+                                  "count": a.conversation_count, "synced": a.last_synced_at.isoformat() if a.last_synced_at else None}
+        return {"items": rows[:limit], "sources": list(sources.values()), "sync_hours": rt.policy.workflow.hub_sync_hours}
 
     @app.post("/v1/users/{user_id}/notify/test")
     def notify_test(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):

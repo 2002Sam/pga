@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from pga.db.models import Job, LinkedAgent, User
+from pga.hub.service import LOCAL
 from pga.workflow.scheduler import register_planner
 from pga.workflow.worker import _user, handler
 
@@ -19,10 +20,13 @@ if TYPE_CHECKING:
 def plan_hub_sync(rt: "Runtime", user: User, now: datetime) -> list[dict]:
     every = timedelta(hours=rt.policy.workflow.hub_sync_hours)
     oldest = rt.session.scalar(select(LinkedAgent.last_synced_at).where(
-        LinkedAgent.user_id == user.id, LinkedAgent.connector.in_(["claude_code", "hermes"]))
+        LinkedAgent.user_id == user.id, LinkedAgent.connector.in_(sorted(LOCAL)))
         .order_by(LinkedAgent.last_synced_at.asc().nulls_first()).limit(1))
     has_local = rt.session.scalar(select(LinkedAgent.id).where(
-        LinkedAgent.user_id == user.id, LinkedAgent.connector.in_(["claude_code", "hermes"])).limit(1))
+        LinkedAgent.user_id == user.id, LinkedAgent.connector.in_(sorted(LOCAL))).limit(1))
+    from pga.owner import owner_id
+    if has_local is None and owner_id(rt.session) == user.id:       # the owner: link and import what is on this machine
+        return [{"kind": "hub.sync", "key": f"hub:{user.id}", "priority": 160}]
     if has_local is None or (oldest is not None and now - oldest < every):
         return []
     return [{"kind": "hub.sync", "key": f"hub:{user.id}", "priority": 160}]

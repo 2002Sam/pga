@@ -18,12 +18,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from pga.agent.common import UNTRUSTED_NOTE, ModelOutputError, parse_json
 from pga.allocator import Estimates, Justification, RunRequest
 from pga.db.models import AgentConversation, HubDigest, LinkedAgent, User
 from pga.db.types import CommKind, NotifyReason, utcnow
-from pga.hub.connectors import Conv, ImportError_, excerpt, iter_corpus, parse_upload, read_local
+from pga.hub.connectors import Conv, ImportError_, detect_local, excerpt, iter_corpus, parse_upload, read_local
 from pga.notify.service import Proposal
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("pga.hub")
 
-LOCAL = {"claude_code", "hermes"}
+LOCAL = {"claude_code", "hermes", "codex", "workbuddy", "codebuddy"}
 
 AGENT_SYSTEM = f"""You summarize how one person uses one AI agent/assistant, from excerpts of their conversations
 with it. Be concrete: name real projects, topics and recurring requests; do not invent anything that is not in the
@@ -109,12 +110,13 @@ class HubService:
                 self.session.add(row)
                 existing[c.external_id] = row
                 new += 1
-            elif row.message_count == c.message_count and row.excerpt == ex:
+            elif row.message_count == c.message_count and row.excerpt == ex and row.model == c.model and row.title == title:
                 continue
             else:
                 changed += 1
             row.title, row.started_at, row.updated_at = title, c.started_at, c.updated_at or c.started_at
             row.message_count, row.excerpt = c.message_count, ex
+            row.model, row.project = (c.model or None) and c.model[:80], (c.project or None) and c.project[:200]
         self.session.flush()
         stats = self.session.execute(select(func.count(), func.coalesce(func.sum(AgentConversation.message_count), 0),
                                             func.min(AgentConversation.started_at), func.max(AgentConversation.updated_at))
@@ -235,10 +237,47 @@ class HubService:
                 f"Open threads: {'; '.join((c.get('open_threads') or [])[:6]) or '-'}")
 
     # ---------------------------------------------------------------- the background loop + notifications
+    def link_local(self, user: User) -> list[str]:
+        """Link every agent found on this machine that is not linked yet — never for a demo account."""
+        if (user.preferences or {}).get("demo"):
+            return []
+        have = {a.connector for a in self.list(user.id)}
+        made = []
+        for c in detect_local():
+            if c["connector"] in have:
+                continue
+            try:
+                with self.session.begin_nested():             # another sync may be linking it at this very moment
+                    self.create(user.id, name=c["name"], vendor=c["vendor"], connector=c["connector"], usage="current")
+                made.append(c["name"])
+            except (HubError, IntegrityError):
+                continue
+        return made
+
+    def timeline(self, user_id: uuid.UUID, *, limit: int = 300, agent: str | None = None, before: datetime | None = None) -> list[dict]:
+        """Every past conversation, from every agent, newest first — and which agent (and model) handled it."""
+        q = (select(AgentConversation, LinkedAgent).join(LinkedAgent, AgentConversation.linked_agent_id == LinkedAgent.id)
+             .where(LinkedAgent.user_id == user_id))
+        if agent:
+            q = q.where(LinkedAgent.id == uuid.UUID(agent)) if len(agent) == 36 else q.where(LinkedAgent.connector == agent)
+        when = func.coalesce(AgentConversation.updated_at, AgentConversation.started_at, AgentConversation.created_at)
+        if before:
+            q = q.where(when < before)
+        out = []
+        for c, a in self.session.execute(q.order_by(when.desc()).limit(limit)):
+            out.append({"id": str(c.id), "agent": a.name, "agent_id": str(a.id), "vendor": a.vendor, "connector": a.connector,
+                        "model": c.model, "project": c.project, "title": c.title, "messages": c.message_count, "excerpt": c.excerpt,
+                        "started_at": c.started_at.isoformat() if c.started_at else None,
+                        "at": (c.updated_at or c.started_at or c.created_at).isoformat()})
+        return out
+
     def background_sync(self, user: User, now: datetime | None = None) -> dict:
         """Sync local agents; re-summarize what changed; refresh the digest; tell the user once."""
         now = now or utcnow()
         report: dict[str, Any] = {"synced": {}, "summarized": [], "errors": {}}
+        from pga.owner import owner_id
+        if owner_id(self.session) == user.id:            # the owner's machine: every local agent is imported on its own
+            report["linked"] = self.link_local(user)
         changed: list[tuple[LinkedAgent, int]] = []
         for a in self.list(user.id):
             if a.connector not in LOCAL:

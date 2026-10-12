@@ -4,8 +4,10 @@ Two kinds of source:
 
 * export files the user uploads — ChatGPT (`conversations.json` / the export .zip), Claude.ai,
   DeepSeek, any OpenAI-style message list, or plain Markdown/text transcripts;
-* agents that keep their history on this machine — Claude Code (`~/.claude/projects/**.jsonl`)
-  and Hermes Agent (`~/.hermes/state.db`), read-only.
+* agents that keep their history on this machine, read-only — Claude Code (`~/.claude/projects/**.jsonl`),
+  Hermes Agent (`~/.hermes/state.db`), ChatGPT/Codex (`~/.codex/sessions/**.jsonl`), the WorkBuddy app
+  (`~/.workbuddy/workbuddy.db` + its `projects/**.jsonl`) and the CodeBuddy CLI (`~/.codebuddy/projects`).
+  Sessions PGA itself started (in its workspaces or a temp folder) are left out — they are already PGA's own.
 
 Everything is reduced to `Conv` records with a short, secret-redacted excerpt. Full transcripts
 are never stored and never sent to a model.
@@ -35,6 +37,7 @@ class Conv:
     updated_at: datetime | None = None
     turns: list[tuple[str, str]] = field(default_factory=list)   # (user|assistant, text)
     project: str | None = None
+    model: str | None = None                                     # the model that answered most (when the store says)
 
     @property
     def message_count(self) -> int:
@@ -275,36 +278,134 @@ def parse_upload(filename: str, raw: bytes) -> tuple[list[Conv], str | None]:
 
 CLAUDE_CODE_DIR = Path.home() / ".claude" / "projects"
 HERMES_DB = Path.home() / ".hermes" / "state.db"
+CODEBUDDY_DIR = Path.home() / ".codebuddy" / "projects"
+WORKBUDDY_DB = Path.home() / ".workbuddy" / "workbuddy.db"
+CODEX_DIRS = (Path.home() / ".codex" / "sessions", Path.home() / ".codex" / "archived_sessions")
+
+
+PGA_HOME = Path.home() / "Documents" / "PGA"
+
+
+def pga_started(cwd: str | None) -> bool:
+    """A session PGA started itself (its workspaces, a temp folder): already in PGA's own history."""
+    c = str(cwd or "")
+    return bool(c) and ("/Documents/PGA/workspaces" in c or str(PGA_HOME / "workspaces") in c
+                        or c.startswith(("/private/tmp", "/tmp", "/var/folders", "/private/var/folders")) or "pga-agent-" in c)
+
+
+_REMINDER = re.compile(r"<system-reminder[^>]*>[\s\S]*?</system-reminder>")
+
+
+def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
+    """One Claude-Code-format transcript (Claude Code, CodeBuddy, WorkBuddy): user/assistant turns, title, model."""
+    turns, title, started, updated, project, cwd = [], None, None, None, None, None
+    models: dict[str, int] = {}
+    try:
+        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    for ln in lines:
+        try:
+            e = json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        if e.get("type") == "summary" and e.get("summary"):
+            title = title or str(e["summary"])
+            continue
+        if e.get("type") == "message" and e.get("role") in ("user", "assistant"):          # CodeBuddy / WorkBuddy 2.x
+            role, msg = e["role"], {"content": e.get("content"), "model": (e.get("providerData") or {}).get("model")}
+        elif e.get("type") in ("user", "assistant") and not e.get("isMeta"):                # Claude Code
+            role, msg = e["type"], e.get("message") or {}
+        else:
+            cwd = cwd or e.get("cwd")
+            continue
+        ts = _ts(e.get("timestamp"))
+        started, updated = started or ts, ts or updated
+        cwd = cwd or e.get("cwd")
+        project = project or (Path(e["cwd"]).name if e.get("cwd") else None)
+        if role == "assistant" and isinstance(msg, dict) and msg.get("model") and not str(msg["model"]).startswith("<"):
+            models[str(msg["model"])] = models.get(str(msg["model"]), 0) + 1
+        text = clean(_REMINDER.sub("", _text(msg.get("content") if isinstance(msg, dict) else msg)))
+        if text:
+            turns.append((role, text))
+    if not turns or (skip_pga and pga_started(cwd)):
+        return None
+    first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
+    return Conv(f.stem, (title or " ".join(first_user.split())[:90]), started, updated, turns,
+                project or f.parent.name.strip("-").split("-")[-1], max(models, key=models.get) if models else None)
 
 
 def claude_code_sessions(root: Path = CLAUDE_CODE_DIR) -> list[Conv]:
+    return [c for c in (_cc_file(f) for f in sorted(root.glob("*/*.jsonl"))) if c]
+
+
+def codebuddy_sessions(root: Path = CODEBUDDY_DIR) -> list[Conv]:
+    return [c for c in (_cc_file(f) for f in sorted(root.glob("*/*.jsonl"))) if c]
+
+
+def workbuddy_sessions(db: Path = WORKBUDDY_DB) -> list[Conv]:
+    """The WorkBuddy app: its session list (title, model) and each session's transcript."""
+    files = {f.stem: f for f in (db.parent / "projects").glob("*/*.jsonl")}
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+    try:
+        rows = con.execute("select id, coalesce(custom_title, title, ''), model, created_at, coalesce(last_activity_at, updated_at), cwd "
+                           "from sessions where coalesce(deleted_at, -1) <= 0 order by created_at").fetchall()
+    finally:
+        con.close()
     out = []
-    for f in sorted(root.glob("*/*.jsonl")):
-        turns, title, started, updated, project = [], None, None, None, None
+    for sid, title, model, created, last, cwd in rows:
+        f = files.get(str(sid))
+        c = _cc_file(f, skip_pga=False) if f else None
+        if c is None:
+            continue
+        c.external_id, c.title = str(sid), title or c.title
+        c.started_at, c.updated_at = _ts(created) or c.started_at, _ts(last) or c.updated_at
+        c.model = c.model or model                     # the transcript's model; the app's mode name only as a fallback
+        c.project = Path(cwd).name if cwd else c.project
+        out.append(c)
+    return out
+
+
+_CODEX_PREAMBLE = ("# AGENTS.md instructions", "<environment_context>", "<user_instructions>", "<app-context>", "<permissions",
+                   "<turn_aborted>", "<user_shell_command>")
+
+
+def codex_sessions(roots: tuple[Path, ...] = CODEX_DIRS) -> list[Conv]:
+    """ChatGPT / Codex threads (the desktop app and the CLI); the instruction preamble is not a message."""
+    out = []
+    for f in sorted(p for r in roots for p in r.glob("**/*.jsonl")):
+        turns, started, updated, cwd, origin, sid = [], None, None, None, "", f.stem
+        models: dict[str, int] = {}
         try:
-            lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+            fh = f.open(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        for ln in lines:
-            try:
-                e = json.loads(ln)
-            except json.JSONDecodeError:
-                continue
-            if e.get("type") == "summary" and e.get("summary"):
-                title = title or str(e["summary"])
-                continue
-            if e.get("type") not in ("user", "assistant") or e.get("isMeta"):
-                continue
-            ts = _ts(e.get("timestamp"))
-            started, updated = started or ts, ts or updated
-            project = project or (Path(e["cwd"]).name if e.get("cwd") else None)
-            text = clean(_text((e.get("message") or {}).get("content")))
-            if text:
-                turns.append((e["type"], text))
-        if turns:
-            first_user = next((t for r, t in turns if r == "user"), "")
-            out.append(Conv(f.stem, (title or " ".join(first_user.split())[:90]), started, updated, turns,
-                            project or f.parent.name.strip("-").split("-")[-1]))
+        with fh:
+            for ln in fh:
+                try:
+                    e = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                p = e.get("payload") or {}
+                ts = _ts(e.get("timestamp"))
+                if e.get("type") == "session_meta":
+                    sid, cwd, origin = str(p.get("id") or sid), p.get("cwd"), str(p.get("originator") or "")
+                    started = started or _ts(p.get("timestamp")) or ts
+                elif e.get("type") == "turn_context" and p.get("model"):
+                    models[str(p["model"])] = models.get(str(p["model"]), 0) + 1
+                elif e.get("type") == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "assistant"):
+                    text = clean(_text(p.get("content")))
+                    if not text or (p["role"] == "user" and text.lstrip().startswith(_CODEX_PREAMBLE)):
+                        continue
+                    turns.append((p["role"], text))
+                    updated = ts or updated
+        if not turns or pga_started(cwd) or origin.lower() == "pga":
+            continue
+        first_user = next((t for r, t in turns if r == "user"), "")
+        out.append(Conv(sid, " ".join(first_user.split())[:90], started, updated or started, turns,
+                        Path(cwd).name if cwd else None, max(models, key=models.get) if models else None))
     return out
 
 
@@ -315,18 +416,19 @@ def hermes_sessions(db: Path = HERMES_DB) -> list[Conv]:
         title_expr = "coalesce(title, display_name, '')" if "title" in cols else "coalesce(display_name, '')"
         last_expr = "coalesce(last_activity_at, ended_at, started_at)" if "last_activity_at" in cols else "coalesce(ended_at, started_at)"
         where = "where coalesce(hidden, 0) = 0" if "hidden" in cols else ""
-        sessions = con.execute(f"select id, {title_expr}, started_at, {last_expr}, coalesce(cwd, '') from sessions {where} "
+        model_expr = "coalesce(model, '')" if "model" in cols else "''"
+        sessions = con.execute(f"select id, {title_expr}, started_at, {last_expr}, coalesce(cwd, ''), {model_expr} from sessions {where} "
                                f"order by started_at").fetchall()
         out = []
-        for sid, title, started, last, cwd in sessions:
+        for sid, title, started, last, cwd, model in sessions:
             rows = con.execute("select role, content from messages where session_id = ? and role in ('user','assistant') "
                                "and content is not null and coalesce(active, 1) = 1 order by timestamp", (sid,)).fetchall()
             turns = [(r, c) for r, c in rows if c and c.strip()]
-            if not turns:
+            if not turns or pga_started(cwd):
                 continue
             first_user = next((t for r, t in turns if r == "user"), "")
             out.append(Conv(str(sid), title or " ".join(first_user.split())[:90], _ts(started), _ts(last), turns,
-                            Path(cwd).name if cwd else None))
+                            Path(cwd).name if cwd else None, model or None))
         return out
     finally:
         con.close()
@@ -335,6 +437,9 @@ def hermes_sessions(db: Path = HERMES_DB) -> list[Conv]:
 LOCAL_CONNECTORS = {
     "claude_code": {"vendor": "claude_code", "name": "Claude Code", "path": CLAUDE_CODE_DIR, "read": claude_code_sessions},
     "hermes": {"vendor": "hermes", "name": "Hermes Agent", "path": HERMES_DB, "read": hermes_sessions},
+    "codex": {"vendor": "chatgpt", "name": "ChatGPT · Codex", "path": CODEX_DIRS[0], "read": codex_sessions},
+    "workbuddy": {"vendor": "workbuddy", "name": "WorkBuddy", "path": WORKBUDDY_DB, "read": workbuddy_sessions},
+    "codebuddy": {"vendor": "workbuddy", "name": "CodeBuddy CLI", "path": CODEBUDDY_DIR, "read": codebuddy_sessions},
 }
 
 
@@ -346,8 +451,16 @@ def detect_local() -> list[dict]:
         if not p.exists():
             continue
         try:
-            if key == "claude_code":
+            if key in ("claude_code", "codebuddy"):
                 count = sum(1 for _ in p.glob("*/*.jsonl"))
+            elif key == "codex":
+                count = sum(1 for r in CODEX_DIRS for _ in r.glob("**/*.jsonl"))
+            elif key == "workbuddy":
+                con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
+                try:
+                    count = con.execute("select count(*) from sessions where coalesce(deleted_at, -1) <= 0").fetchone()[0]
+                finally:
+                    con.close()
             else:
                 con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=5)
                 try:

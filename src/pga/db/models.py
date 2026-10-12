@@ -732,7 +732,10 @@ class LinkedAgent(Base):
     summary_stale: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = _created()
 
-    __table_args__ = (Index("ix_linked_agents_user", "user_id"),)
+    __table_args__ = (Index("ix_linked_agents_user", "user_id"),
+                      # one link per account for each agent read from this machine (a sync racing a sync cannot add a second)
+                      Index("uq_linked_agents_local", "user_id", "connector", unique=True,
+                            postgresql_where=text("connector in ('claude_code', 'hermes', 'codex', 'workbuddy', 'codebuddy')")))
 
 
 class AgentConversation(Base):
@@ -745,6 +748,8 @@ class AgentConversation(Base):
     updated_at: Mapped[datetime | None] = mapped_column(Tz())
     message_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     excerpt: Mapped[str] = mapped_column(Text, default="", nullable=False)   # secrets redacted, size-capped
+    model: Mapped[str | None] = mapped_column(String(80))                    # which model answered (when the store says)
+    project: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (UniqueConstraint("linked_agent_id", "external_id", name="uq_agent_conversation"),

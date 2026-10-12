@@ -150,3 +150,58 @@ def test_macos_channel_builds_an_osascript_call(user):
     n = Notification(title_en="Hi", display_title="你好 \"PGA\"", display_body="第二行")
     macos_channel(run=lambda cmd, **kw: calls.append(cmd))(user, n)
     assert calls[0][0] == "osascript" and 'subtitle "你好 \\"PGA\\""' in calls[0][2] and "第二行" in calls[0][2]
+
+
+def test_codex_and_workbuddy_histories_are_read_with_their_models_and_pga_runs_left_out(tmp_path):
+    from pga.hub.connectors import codex_sessions, workbuddy_sessions
+    day = tmp_path / "codex" / "2026" / "10" / "12"
+    day.mkdir(parents=True)
+
+    def codex(name, cwd, origin="Codex Desktop"):
+        rows = [{"timestamp": "2026-10-12T01:00:00Z", "type": "session_meta", "payload": {"id": name, "cwd": cwd, "originator": origin}},
+                {"timestamp": "2026-10-12T01:00:01Z", "type": "turn_context", "payload": {"model": "gpt-6-astra"}},
+                {"timestamp": "2026-10-12T01:00:02Z", "type": "response_item", "payload": {"type": "message", "role": "user",
+                 "content": [{"type": "input_text", "text": "# AGENTS.md instructions\nbe nice"}]}},
+                {"timestamp": "2026-10-12T01:00:03Z", "type": "response_item", "payload": {"type": "message", "role": "user",
+                 "content": [{"type": "input_text", "text": "帮我投递简历"}]}},
+                {"timestamp": "2026-10-12T01:05:00Z", "type": "response_item", "payload": {"type": "message", "role": "assistant",
+                 "content": [{"type": "output_text", "text": "好的"}]}}]
+        (day / f"rollout-{name}.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows))
+    codex("mine", "/Users/x/Documents/ChatGPT/简历")
+    codex("pga-run", "/Users/x/Documents/PGA/workspaces/20261012/abc-ask/chatgpt")
+    convs = codex_sessions((tmp_path / "codex",))
+    assert [c.external_id for c in convs] == ["mine"]
+    assert convs[0].title == "帮我投递简历" and convs[0].model == "gpt-6-astra" and convs[0].turns[0] == ("user", "帮我投递简历")
+
+    wb = tmp_path / "wb"
+    (wb / "projects" / "Users-x-WorkBuddy-1").mkdir(parents=True)
+    con = sqlite3.connect(wb / "workbuddy.db")
+    con.execute("create table sessions (id text, cwd text, user_id text, title text, custom_title text, model text, created_at int, "
+                "updated_at int, last_activity_at int, deleted_at int)")
+    con.execute("insert into sessions values ('s1', '/Users/x/WorkBuddy/1', 'u', '整理桌面', null, 'space-bunny', 1790000000000, 1790000100000, 1790000100000, -1)")
+    con.execute("insert into sessions values ('s2', '/x', 'u', '删掉的', null, 'm', 1790000000000, 1790000000000, null, 1790000200000)")
+    con.commit()
+    con.close()
+    (wb / "projects" / "Users-x-WorkBuddy-1" / "s1.jsonl").write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in [
+        {"type": "message", "role": "user", "timestamp": 1790000000000, "content": [{"type": "input_text", "text": "<system-reminder>ctx</system-reminder>整理一下桌面"}]},
+        {"type": "message", "role": "assistant", "timestamp": 1790000100000, "providerData": {"model": "kimi-k3-2"},
+         "content": [{"type": "output_text", "text": "已整理"}]}]))
+    convs = workbuddy_sessions(wb / "workbuddy.db")
+    assert len(convs) == 1 and convs[0].title == "整理桌面" and convs[0].model == "kimi-k3-2"
+    assert convs[0].turns == [("user", "整理一下桌面"), ("assistant", "已整理")]
+
+
+def test_the_timeline_puts_every_agent_in_one_list_by_time(rt, user):
+    from pga.hub.connectors import Conv
+    t = lambda h: datetime(2026, 10, 12, h, tzinfo=timezone.utc)  # noqa: E731
+    a = rt.hub.create(user.id, name="ChatGPT · Codex", vendor="chatgpt", connector="codex")
+    b = rt.hub.create(user.id, name="WorkBuddy", vendor="workbuddy", connector="workbuddy")
+    rt.hub.ingest(a, [Conv("c1", "早上的", t(8), t(9), [("user", "hi"), ("assistant", "yo")], model="gpt-6-astra")])
+    rt.hub.ingest(b, [Conv("w1", "中午的", t(11), t(12), [("user", "hi")], model="kimi-k3-2")])
+    rt.hub.ingest(a, [Conv("c2", "晚上的", t(20), t(21), [("user", "hi")], model="gpt-6-luna")])
+    items = rt.hub.timeline(user.id)
+    assert [(i["title"], i["agent"], i["model"]) for i in items] == [("晚上的", "ChatGPT · Codex", "gpt-6-luna"),
+                                                                     ("中午的", "WorkBuddy", "kimi-k3-2"), ("早上的", "ChatGPT · Codex", "gpt-6-astra")]
+    assert [i["title"] for i in rt.hub.timeline(user.id, agent="workbuddy")] == ["中午的"]
+    user.preferences = {"demo": True}
+    assert rt.hub.link_local(user) == []                       # a demo account never gets this machine's agents
