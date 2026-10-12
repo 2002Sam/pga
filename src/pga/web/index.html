@@ -594,6 +594,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #agTalkLine line { stroke: rgba(233,169,75,.5); stroke-width: 1; }
 #agTalkLine circle { fill: #e9a94b; opacity: .8; }
 #app.talking #agRoutes { display: none !important; }
+#app.talking #labels .nlabel:not(.sel) { filter: opacity(.3); transition: filter .6s; }   /* other names step back behind the words */
 .ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
   box-sizing: border-box; padding: 18px 28px 18px 40px; color: #f4ead6; font-size: 15.5px; line-height: 1.8; transition: opacity .6s ease;
   text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
@@ -606,11 +607,10 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk .acts button:hover { color: #fff3d6; }
 .ag-talk .route { font-size: 13px; color: rgba(214,224,229,.58); line-height: 1.55; margin-top: -4px; }
 .ag-talk .route b { color: #f3d38a; font-weight: 500; }
-.ag-talk .tk-log { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
-  mask-image: linear-gradient(transparent 0, #000 64px); -webkit-mask-image: linear-gradient(transparent 0, #000 64px); }
+.ag-talk .tk-log { display: flex; flex-direction: column; gap: 16px; flex: 0 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: none;   /* top down; scrolls once full */
+  padding: 18px 0 4px; mask-image: linear-gradient(transparent 0, #000 18px); -webkit-mask-image: linear-gradient(transparent 0, #000 18px); }
 .ag-talk .tk-log::-webkit-scrollbar { display: none; }
-.ag-talk .tk-log > :first-child { margin-top: auto; }                            /* the newest words sit just above the input */
-.ag-talk .tk-log:empty::before { content: ""; margin-top: auto; }
+.ag-talk .tk-log:empty { display: none; }
 .tk-me { color: rgba(214,224,229,.7); padding-left: 14px; position: relative; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tk-me::before { content: "›"; position: absolute; left: 0; color: rgba(233,169,75,.85); }
 .tk-it .m { display: block; font: var(--cap); font-size: 10.5px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
@@ -628,11 +628,6 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; color: #e9e2d4; font-size: 13.5px; line-height: 1.5;
   transition: opacity .6s ease; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
 .ag-hist[hidden] { display: none; }
-.ag-hist::before, .ag-talk::before { content: ""; position: absolute; z-index: -1; pointer-events: none;   /* a soft shade, not a frame */
-  background: radial-gradient(closest-side, rgba(8,12,15,.62), rgba(8,12,15,.32) 60%, transparent); }
-.ag-hist::before { inset: -60px -70px -60px -40px; }
-.ag-talk::before { inset: 0 -20px -20px 0; border-radius: 0;                   /* the right side: deepens from the planet outwards */
-  background: linear-gradient(to right, transparent, rgba(8,12,15,.5) 90px, rgba(8,12,15,.62) 60%, rgba(8,12,15,.66)); }
 .ag-talk > * { max-width: 880px; }
 .ag-hist .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
 .ag-hist .hh button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .1em; cursor: pointer; text-shadow: inherit; }
