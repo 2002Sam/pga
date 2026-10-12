@@ -853,7 +853,7 @@ class StreamSession:
                     done = ev.get("type") == "result"
                 shown = ad.progress(line, task)
                 if shown:
-                    live.append(lid, shown if shown.endswith("\n") else shown + "\n")
+                    live.append(lid, shown[1:] if shown.startswith("\x00") else shown if shown.endswith("\n") else shown + "\n")
             self.used = time.monotonic()
         if not out:
             raise LinkDown("session ended without an answer: " + "".join(list(self.err)[-3:]).strip()[-300:])

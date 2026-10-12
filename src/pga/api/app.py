@@ -1516,6 +1516,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
                                            images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
                                            files=[x for x in body.get("files") or [] if isinstance(x, dict)][:6],
+                                           translate=bool(body.get("translate")),
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)

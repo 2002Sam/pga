@@ -683,6 +683,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk .tk-pics .doc button { border: 0; background: transparent; color: #f3d38a; cursor: pointer; padding: 0 0 0 4px; }
 .ag-talk .tk-opts .editing { color: #f3d38a; }
 .ag-talk .tk-opts button.stop { color: #f08a7a; }
+.ag-talk .tk-opts .trbtn.on { color: #f3d38a; }
+.tk-me .sent { display: block; margin-top: 3px; font-size: 12px; color: rgba(214,224,229,.42); }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
 .tk-it .files { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -1644,7 +1646,8 @@ async function pollLive() {
     if (!pend || !pend.target) continue;
     const r = [...list].reverse().find((x) => x.agent === pend.target && x.workflow === "chat" && x.started >= pend.since - 2);
     if (r && key === "card") { pend.lid = r.running ? r.id : null; if (pend.stopWanted && r.running) { pend.stopWanted = false; api(`/v1/agents/live/${r.id}/stop`, { method: "POST" }).catch(() => {}); } }
-    if (r && r.text) { pend.stream = r.text; const el = document.querySelector(sel); if (el) flowTo(key, r.text, el, r.agent); }
+    const said = pend.translate && r?.tr ? r.tr : r?.text;
+    if (r && said) { pend.stream = said; const el = document.querySelector(sel); if (el) flowTo(key, said, el, r.agent); }
   }
   window.PGA_RUNNING?.(list.filter((r) => r.running).map((r) => "pa:" + r.agent));
   for (const r of list) if (!AGM.seen.has(r.id)) {                         // a new piece of work: show its gold path
@@ -1785,8 +1788,8 @@ async function openConversation(id) {
   if (id === CARD.conv[k] && (CARD.log[k] || []).length) return;
   try {
     const r = await api(`/v1/users/${S.uid}/agents/conversation?id=${encodeURIComponent(id)}`); if (cardK() !== k) return;
-    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text, images: m.images || 0, docs: m.attachments || [] }
-      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort, stopped: m.stopped });
+    CARD.log[k] = r.messages.flatMap((m, j, all) => m.role === "user" ? [{ role: "user", text: m.text, images: m.images || 0, docs: m.attachments || [], sent: all[j + 1]?.sent || null }]
+      : [{ role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort, stopped: m.stopped, original: m.original }]);
     CARD.conv[k] = id; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
     saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
   } catch (e) { toast("读取这段对话失败：" + e.message); }
@@ -1895,7 +1898,8 @@ function cardRoute() {
   return `${esc(d.agents[CARD.key]?.role || "")} · ${esc(agTag(s))}`;
 }
 /* what you can choose for one agent: model, effort, pictures (GET /v1/agents/{name}/options) */
-const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {}, docs: {} };
+const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {}, docs: {}, tr: store.json("pga_translate", {}) || {} };
+const trOn = () => !!OPTS.tr[CARD.kind === "agent" ? "agent:" + CARD.key : "cat:" + CARD.key];
 const EFF_ZH = { minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极限" };
 async function loadOpts(agent) {
   if (OPTS.by[agent]) return renderOpts();
@@ -1914,8 +1918,11 @@ function renderOpts() {
   const k = cardK(), pics = OPTS.pics[k] || [];
   const lead = (CARD.busy ? `<button type="button" class="stop" data-opt="stop" title="停止生成：保留已经写出的部分">■ 停止</button>` : "")
     + (CARD.editAt != null ? `<span class="editing">正在修改第 ${CARD.editAt + 1} 条 · 发送后从这里重新开始 <button type="button" data-opt="unedit">取消</button></span>` : "");
+  const tr = `<button type="button" class="trbtn ${trOn() ? "on" : ""}" data-opt="tr" title="翻译：你用中文输入，会先翻成英文再发给 agent；它的回答会一边生成一边翻成中文（可随时看英文原文）">译 中⇄英${trOn() ? " · 开" : ""}</button>`;
+  $("#agTalkInput").placeholder = trOn() ? "用中文输入，会翻成英文发出；回答会译成中文（Enter 发送）"
+    : CARD.kind === "cat" ? `问一个${CAT_ZH[CARD.key] || CARD.key}问题…（Enter 发送）` : `问 ${CARD.key}…（Enter 发送，Shift+Enter 换行）`;
   if (CARD.kind !== "agent") {                        // a kind of work: the agent is picked per question
-    box.innerHTML = lead + `<button type="button" data-opt="pic" title="附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）">＋ 附件</button>`;
+    box.innerHTML = lead + tr + `<button type="button" data-opt="pic" title="附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）">＋ 附件</button>`;
   } else {
     const a = CARD.key, { model, effort, m, o } = chosen(a);
     const models = o.models || [];
@@ -1924,7 +1931,7 @@ function renderOpts() {
         ${models.map((x) => `<option value="${esc(x.id)}" ${x.id === model ? "selected" : ""}>${esc(x.label)}${x.images ? "" : " · 不看图"}</option>`).join("")}</select></label>` : "")
       + ((m?.efforts || []).length ? `<label>强度<select data-opt="effort"><option value="">默认${m.default_effort ? " · " + esc(EFF_ZH[m.default_effort] || m.default_effort) : o.default_effort ? " · " + esc(EFF_ZH[o.default_effort] || o.default_effort) : ""}</option>
         ${m.efforts.map((e) => `<option value="${esc(e.id)}" ${e.id === effort ? "selected" : ""}>${esc(e.label)}</option>`).join("")}</select></label>` : "")
-      + `<button type="button" data-opt="pic" title="${o.images === false || (m && m.images === false) ? "附上文档（这个模型不能看图片，只能读文档的文字）" : "附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）"}">＋ 附件</button>`
+      + tr + `<button type="button" data-opt="pic" title="${o.images === false || (m && m.images === false) ? "附上文档（这个模型不能看图片，只能读文档的文字）" : "附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）"}">＋ 附件</button>`
       + (o.via ? `<span class="via">经由 ${esc(o.via)}</span>` : "");
   }
   const docs = OPTS.docs[k] || [], kb = (n) => n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
@@ -2004,11 +2011,11 @@ function renderCardLog() {
   }
   const log = CARD.log[cardK()] || [];
   const off = Math.max(0, log.length - 14), lastA = log.map((m) => m.role).lastIndexOf("agent");
-  box.innerHTML = log.slice(-14).map((m, j) => { const i = off + j; return m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}${(m.docs || []).length ? `<span class="docs">${m.docs.map((d) => "📄 " + esc(d)).join("　")}</span>` : ""}
+  box.innerHTML = log.slice(-14).map((m, j) => { const i = off + j; return m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}${(m.docs || []).length ? `<span class="docs">${m.docs.map((d) => "📄 " + esc(d)).join("　")}</span>` : ""}${m.sent ? `<span class="sent">→ ${esc(m.sent)}</span>` : ""}
       ${CARD.busy ? "" : `<span class="acts2"><button type="button" data-msg="edit" data-i="${i}">✎ 修改后重发</button><button type="button" data-msg="copy" data-i="${i}">复制</button></span>`}</div>`
     : m.pending ? `<div class="tk-it flowing"><span class="m">${esc(m.agent || "…")} · 正在回答</span><span class="body"></span></div>`
-    : `<div class="tk-it ${m.ok === false ? "err" : ""} ${i === lastA ? "last" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.stopped ? " · 已停止" : ""}</span><div class="body">${m.text ? richMd(m.text) : esc(m.error || "")}</div>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}
-      ${CARD.busy ? "" : `<span class="acts2">${m.text ? `<button type="button" data-msg="copy" data-i="${i}">复制</button>` : ""}${i === lastA ? `<button type="button" data-msg="regen">↻ 重新生成</button>` : ""}</span>`}</div>`; }).join("");
+    : `<div class="tk-it ${m.ok === false ? "err" : ""} ${i === lastA ? "last" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.stopped ? " · 已停止" : ""}${m.original ? (m.showOrig ? " · 英文原文" : " · 已译") : ""}</span><div class="body">${m.text ? richMd(m.showOrig && m.original ? m.original : m.text) : esc(m.error || "")}</div>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}
+      ${CARD.busy ? "" : `<span class="acts2">${m.text ? `<button type="button" data-msg="copy" data-i="${i}">复制</button>` : ""}${m.original ? `<button type="button" data-msg="orig" data-i="${i}">${m.showOrig ? "看译文" : "看原文"}</button>` : ""}${i === lastA ? `<button type="button" data-msg="regen">↻ 重新生成</button>` : ""}</span>`}</div>`; }).join("");
   enhanceMd(box);
   box.scrollTop = box.scrollHeight;
 }
@@ -2024,9 +2031,10 @@ async function cardSend(text) {
   }
   const log = (CARD.log[k] ||= []);
   const history = log.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
-  const pics = OPTS.pics[k] || [], docs = OPTS.docs[k] || [], ch = kind === "agent" ? chosen(key) : {};
+  const pics = OPTS.pics[k] || [], docs = OPTS.docs[k] || [], ch = kind === "agent" ? chosen(key) : {}, translate = !!OPTS.tr[k];
   const thumbs = await Promise.all(pics.map((p) => thumb(p.data))); OPTS.pics[k] = []; OPTS.docs[k] = [];
-  log.push({ role: "user", text, thumbs, images: pics.length, docs: docs.map((d) => d.name), _pics: pics, _docs: docs }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
+  const me = { role: "user", text, thumbs, images: pics.length, docs: docs.map((d) => d.name), _pics: pics, _docs: docs };
+  log.push(me); const pend = { role: "agent", pending: true, since: Date.now() / 1000, translate }; log.push(pend);
   FLOW.delete("card"); renderCardLog(); renderOpts();
   let target = kind === "agent" ? key : null;
   if (!target) { try { const r = await api(`/v1/agents/route?category=${encodeURIComponent(key)}`); target = r.ranking.find((x) => x.usable)?.agent; } catch {} }
@@ -2035,7 +2043,8 @@ async function cardSend(text) {
   pollLive();
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k),
-      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })), files: docs.map((d) => ({ name: d.name, data: d.data })) } });
+      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })), files: docs.map((d) => ({ name: d.name, data: d.data })), translate } });
+    if (r.sent) me.sent = r.sent;
     const el = document.querySelector("#agTalk .tk-it.flowing .body");           // let the rest of the answer flow out before it settles
     if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
     Object.assign(pend, r, { pending: false });
@@ -2205,6 +2214,8 @@ function bindAgentView() {
     const b = e.target.closest("[data-opt]"); if (!b || b.tagName !== "BUTTON") return;
     if (b.dataset.opt === "pic") $("#agTalkFile").click();
     if (b.dataset.opt === "unpic") { (OPTS.pics[cardK()] || []).splice(+b.dataset.i, 1); renderOpts(); }
+    if (b.dataset.opt === "tr") { const key = cardK(); OPTS.tr[key] = !OPTS.tr[key]; try { store.set("pga_translate", JSON.stringify(OPTS.tr)); } catch {}
+      renderOpts(); toast(OPTS.tr[key] ? "翻译已开：中文 → 英文发给 agent，回答译回中文" : "翻译已关"); return; }
     if (b.dataset.opt === "undoc") { (OPTS.docs[cardK()] || []).splice(+b.dataset.i, 1); renderOpts(); }
     if (b.dataset.opt === "unedit") { CARD.editAt = null; tin.value = ""; renderOpts(); }
     if (b.dataset.opt === "stop") {                   // stop: the agent is interrupted, what it wrote so far stays
@@ -2219,7 +2230,8 @@ function bindAgentView() {
     const cp = e.target.closest("[data-copy]"); if (cp) { copyText(cp.closest("pre")?.querySelector("code")?.innerText || ""); return; }
     const b = e.target.closest("[data-msg]"); if (!b || CARD.busy || !CARD.kind) return;
     const k = cardK(), log = CARD.log[k] || [], i = +b.dataset.i;
-    if (b.dataset.msg === "copy") copyText(log[i]?.text);
+    if (b.dataset.msg === "copy") copyText(log[i]?.showOrig && log[i]?.original ? log[i].original : log[i]?.text);
+    if (b.dataset.msg === "orig") { log[i].showOrig = !log[i].showOrig; renderCardLog(); }
     if (b.dataset.msg === "edit") {                  // put it back in the box; sending starts a new branch from there
       CARD.editAt = i; tin.value = log[i]?.text || ""; tin.dispatchEvent(new Event("input")); tin.focus();
       reattach(k, log[i]); renderOpts();

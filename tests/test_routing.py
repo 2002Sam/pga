@@ -212,3 +212,15 @@ def test_documents_are_read_here_and_go_with_the_question(rt, user, provider, cf
     out = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "会议是什么时候？", agent="fast", files=[{"name": "notes.txt", "data": note}])
     assert out["ok"] and out["attachments"][0]["name"] == "notes.txt"
     assert "周三下午三点" in provider.calls[-1].messages[-1]["content"]          # the document's text went with the question
+
+
+def test_translate_sends_english_and_brings_back_the_readers_language(rt, user, provider, cfg):
+    agent_call = lambda s: "Reply in English; it is translated back" in s  # noqa: E731
+    provider.handler = lambda s, m: "Here is the summary." if agent_call(s) else m[-1]["content"]
+    out = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "你好", agent="fast", translate=True)
+    asked = [c for c in provider.calls if agent_call(c.system)][-1]
+    assert out["ok"] and out["sent"] == "Hello" and asked.messages[-1]["content"] == "Hello"                # the agent heard English
+    assert out["original"] == "Here is the summary." and out["text"] == "以下是摘要。"                         # you read Chinese
+    from pga.agents import history
+    msgs = history.messages(rt.session, user.id, f"run:{out['run_id']}")
+    assert msgs[0]["text"] == "你好" and msgs[1]["original"] == "Here is the summary." and msgs[1]["sent"] == "Hello"

@@ -95,6 +95,7 @@ def messages(session: "Session", user_id: uuid.UUID, conversation: str) -> list[
                     "attachments": [a.get("name") for a in d.get("attachments") or [] if isinstance(a, dict)]})
         out.append({"role": "agent", "agent": d.get("agent") or (d.get("tried") or ["—"])[-1], "text": r.output or "",
                     "model": d.get("model"), "effort": d.get("effort"), "stopped": bool(d.get("stopped")),
+                    "original": d.get("original"), "sent": d.get("sent"),
                     "ok": r.status == "SUCCEEDED", "error": r.error, "duration_s": r.duration_s, "files": d.get("files") or [],
                     "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat()})
     return out

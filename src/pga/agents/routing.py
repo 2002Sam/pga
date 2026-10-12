@@ -78,6 +78,26 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
     return out
 
 
+def _reader_lang(user: "User | None") -> str:
+    if user is None:
+        return "zh-CN"
+    pref = (user.preferences or {}).get("output_language")
+    return pref if pref and pref != "mirror_input" else (user.locale or "zh-CN")
+
+
+def _live_translator(rt: "Runtime", lang: str):
+    """A plain, fast translation call for the live paragraphs (PGA's own model, tier 1; no database, safe in a thread)."""
+    prov, model = rt.router.provider, rt.router.model_for(1)
+    name = "Simplified Chinese" if lang.lower().startswith("zh") else lang
+    system = (f"Translate the user's text into {name}. Keep Markdown structure, code blocks, inline code, URLs, file paths, "
+              "commands and names unchanged. Output only the translation.")
+
+    def tr(piece: str) -> str:
+        return prov.complete(model=model, system=system, messages=[{"role": "user", "content": piece}],
+                             max_tokens=min(4000, len(piece) * 2 + 200), temperature=None).text
+    return tr
+
+
 def _save_files(files: list[dict] | None, ws: str) -> list[str]:
     """Documents you attached (data URLs, ≤20 MB each) → files in the conversation's folder."""
     import base64
@@ -168,7 +188,7 @@ class AgentRouter:
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
-            images: list[dict] | None = None, files: list[dict] | None = None) -> dict:
+            images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -193,6 +213,13 @@ class AgentRouter:
             order = order[:3]
             why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}" + (" · 带图片" if images else "")
             model = effort = None                        # a model you picked belongs to one agent, not to a whole category
+        lang = _reader_lang(user)
+        asked = text                                       # what you typed (kept for the record and the screen)
+        if translate and user is not None:                 # 翻译: the agent hears English, you read your own language
+            try:
+                text = self.rt.gateway.to_canonical(text, user.id)[0] or text
+            except Exception:  # noqa: BLE001 - untranslated is better than nothing
+                pass
         hist = [h for h in (history or [])[-6:] if isinstance(h, dict)]
         convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
@@ -215,8 +242,11 @@ class AgentRouter:
                 prompt_now = prompt.replace(text, said) if text in prompt else f"{prompt}\n\n{block}"
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
                     "new_text": said, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
+                    **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
-            step = self.pool._call(name, self.pool._task(name, prompt_now, system=ASK_SYSTEM + (f"\n\n{context}" if context else ""), kind=cat, workspace=ws, permissions=perms,
+            system = ASK_SYSTEM + (f"\n\n{context}" if context else "") + (
+                "\n\nThe user's message was translated into English for you. Reply in English; it is translated back." if translate else "")
+            step = self.pool._call(name, self.pool._task(name, prompt_now, system=system, kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
             steps.append(step)
             if step.result.status == "STOPPED":            # you stopped it: no other agent takes over
@@ -227,21 +257,29 @@ class AgentRouter:
                 files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
                          and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
                 break
+        original = None
+        if translate and result_text and user is not None:  # the settled answer, translated whole (the live one was by paragraph)
+            try:
+                original, result_text = result_text, self.rt.gateway.render(result_text, lang, user.id).text or result_text
+            except Exception:  # noqa: BLE001
+                original = None
         res = PoolResult(bool(used), result_text, "ask", "single",
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
                           "model": steps[-1].result.model if used else None, "effort": (steps[-1].result.data or {}).get("effort") or effort if used else None,
                           "images": len(images or []), "attachments": attached,
+                          **({"translated": True, "original": original[:50000], "sent": text[:20000]} if original else {}),
                           "stopped": bool(steps and steps[-1].result.status == "STOPPED"),
                           **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
                          error=None if used else "; ".join(f"{s.result.agent}: {s.result.error}" for s in steps)[:800] or "no agent available")
         res.run_id = run_id
-        self.pool._record(res, text, user, None, None, t0)
+        self.pool._record(res, asked, user, None, None, t0)
         last = steps[-1].result if steps else None
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,
                 "files": files, "tried": [{"agent": s.result.agent, "status": s.result.status, "error": s.result.error} for s in steps],
                 "duration_s": round((utcnow() - t0).total_seconds(), 1), "cost_usd": last.cost_usd if last else None,
                 "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort"),
-                "stopped": res.data.get("stopped"), "attachments": attached}
+                "stopped": res.data.get("stopped"), "attachments": attached,
+                "original": original, "sent": text if translate and text != asked else None}
 
     # -------------------------------------------------------------- long-term work
 

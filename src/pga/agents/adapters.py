@@ -155,7 +155,7 @@ class CLIAdapter(Adapter):
             except Exception:  # noqa: BLE001 - a display hiccup must not fail the run
                 shown = None
             if shown:
-                live.append(lid, shown if shown.endswith("\n") else shown + "\n")
+                live.append(lid, shown[1:] if shown.startswith(RAW) else shown if shown.endswith("\n") else shown + "\n")
         try:
             p.wait(timeout=15)
         except subprocess.TimeoutExpired:
@@ -180,7 +180,7 @@ class ClaudeLocal(CLIAdapter):
     secrets = ("CLAUDE_CODE_OAUTH_TOKEN",)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns),
+        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns),
                "--no-session-persistence", "--strict-mcp-config"]
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep",
@@ -219,7 +219,7 @@ class ClaudeLocal(CLIAdapter):
         return super()._run(task)
 
     def progress(self, line: str, task: AgentTask) -> str | None:
-        return _stream_json_progress(line)
+        return _stream_json_progress(line, task)
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
         d, said, model = None, [], None
@@ -360,19 +360,34 @@ class CodexLocal(CLIAdapter):
                            data={"usage": usage} if usage else {})
 
 
-def _stream_json_progress(line: str) -> str | None:
-    """Claude Code / CodeBuddy stream-json: the assistant's words, and a short note for each tool it uses."""
+RAW = "\x00"                                  # a progress piece to append as it is (a token stream), not as a line
+
+
+def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | None:
+    """Claude Code / CodeBuddy stream-json: the assistant's words (token by token with --include-partial-messages),
+    and a short note for each tool it uses."""
     try:
         ev = json.loads(line)
     except json.JSONDecodeError:
         return None
+    if isinstance(ev, dict) and ev.get("type") == "stream_event":
+        e = ev.get("event") or {}
+        d = e.get("delta") or {}
+        if e.get("type") == "content_block_delta" and d.get("type") == "text_delta" and d.get("text"):
+            if task is not None:
+                task.meta["_streamed"] = True
+            return RAW + d["text"]
+        if e.get("type") == "message_stop" and task is not None and task.meta.get("_streamed"):
+            return RAW + "\n"
+        return None
     if not isinstance(ev, dict) or ev.get("type") != "assistant":
         return None
     out = []
+    streamed = bool(task is not None and task.meta.get("_streamed"))   # the words already came token by token
     for b in (ev.get("message") or {}).get("content") or []:
         if not isinstance(b, dict):
             continue
-        if b.get("type") == "text" and b.get("text"):
+        if b.get("type") == "text" and b.get("text") and not streamed:
             out.append(b["text"])
         elif b.get("type") == "tool_use":
             arg = b.get("input") or {}

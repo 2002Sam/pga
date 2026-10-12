@@ -334,6 +334,8 @@ class AgentPool:
         lid = live.start(name, category=task.meta.get("category") or task.kind, workflow=task.meta.get("workflow", ""), step=step,
                          prompt=task.prompt, task_kind=task.meta.get("task_kind", ""))
         task.meta["live_id"] = lid
+        if callable(task.meta.get("translate")):            # the reader's language, paragraph by paragraph, while it writes
+            live.translate_along(lid, task.meta["translate"])
         try:
             with _slot(name, int(a.get("max_concurrent", 1))):
                 res = self.adapters[name].run(task)

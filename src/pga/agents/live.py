@@ -22,7 +22,7 @@ def start(agent: str, *, category: str = "", workflow: str = "", step: str = "",
     lid = uuid.uuid4().hex[:12]
     with _LOCK:
         _RUNS[lid] = {"id": lid, "agent": agent, "category": category, "workflow": workflow, "step": step, "task_kind": task_kind,
-                      "prompt": prompt[:300], "text": "", "started": time.time(), "finished": None, "ok": None, "error": None}
+                      "prompt": prompt[:300], "text": "", "tr": "", "started": time.time(), "finished": None, "ok": None, "error": None}
         _prune()
     return lid
 
@@ -70,6 +70,35 @@ def text(lid: str | None) -> str:
     with _LOCK:
         r = _RUNS.get(lid or "")
         return r["text"] if r else ""
+
+
+def translate_along(lid: str, translate) -> None:
+    """While an agent writes, translate each finished paragraph (`translate(text) -> text`) into the run's `tr`, so the
+    reader sees their own language almost in step. Stops when the run is finished and its last paragraph is done."""
+    def work() -> None:
+        done = 0
+        while True:
+            with _LOCK:
+                r = _RUNS.get(lid)
+                if r is None:
+                    return
+                txt, finished = r["text"], r["finished"] is not None
+            cut = txt.rfind("\n", done) if not finished else len(txt)
+            if cut > done and (finished or cut - done >= 60 or "\n\n" in txt[done:cut + 1]):
+                piece = txt[done:cut + 1] if not finished else txt[done:]
+                if piece.strip():
+                    try:
+                        out = translate(piece)
+                    except Exception:  # noqa: BLE001 - the original is still there
+                        out = piece
+                    with _LOCK:
+                        if lid in _RUNS:
+                            _RUNS[lid]["tr"] += out if out.endswith("\n") or not piece.endswith("\n") else out + "\n"
+                done = cut + 1 if not finished else len(txt)
+            if finished and done >= len(txt):
+                return
+            time.sleep(0.6)
+    threading.Thread(target=work, daemon=True, name=f"pga-tr-{lid}").start()
 
 
 def snapshot() -> list[dict]:
