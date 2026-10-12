@@ -1395,9 +1395,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         text = str(body.get("text") or "").strip()
         if not text:
             raise HTTPException(422, "text is needed")
+        context = None
+        if body.get("aim_id") and body.get("role"):              # talking to one member of an aim's team
+            from pga.db.models import Aim
+            from pga.teams import TeamError, TeamService
+            aim = rt.session.get(Aim, uuid.UUID(str(body["aim_id"])))
+            if aim is None or aim.user_id != u.id:
+                raise HTTPException(404, "aim not found")
+            try:
+                ts = TeamService(rt)
+                context = ts.ask_context(aim, str(body["role"]))
+                body["agent"] = body.get("agent") if body.get("agent") not in (None, "", "auto") else (ts.member(aim, str(body["role"])) or "auto")
+            except TeamError as exc:
+                raise HTTPException(422, str(exc)) from exc
         try:
             with rt.billing(user_ctx(u)):
-                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"),
+                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)
@@ -1411,7 +1424,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return AgentPool(rt).history(user_id, limit)
 
     @app.get("/v1/users/{user_id}/agents/conversations")
-    def agents_conversations(user_id: uuid.UUID, card: str = Query(..., pattern=r"^(agent|cat):[A-Za-z0-9_-]{1,40}$"),
+    def agents_conversations(user_id: uuid.UUID, card: str = Query(..., pattern=r"^((agent|cat):[A-Za-z0-9_-]{1,40}|team:[0-9a-f-]{36}:[a-z]{2,16})$"),
                              limit: int = Query(40, le=100), rt: Runtime = Depends(get_rt)):
         """Past conversations on one card (an agent, or a kind of work), newest first."""
         from pga.agents import history
@@ -1424,6 +1437,87 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.agents import history
         user_or_404(rt, user_id)
         return {"id": id, "messages": history.messages(rt.session, user_id, id)}
+
+    # ---------------------------------------------------------------- an aim's team and your corrections (teams.py)
+
+    def aim_or_404(rt: Runtime, aim_id: uuid.UUID):
+        from pga.db.models import Aim
+        a = rt.session.get(Aim, aim_id)
+        if a is None:
+            raise HTTPException(404, "aim not found")
+        return a
+
+    def team_view(rt: Runtime, aim) -> dict:
+        from pga.teams import ORDER, ROLES, TeamService
+        ts = TeamService(rt)
+        notes = ts.notes(aim, 80)
+        return {"aim_id": str(aim.id), "auto": bool((aim.team or {}).get("auto")), "roster": ts.roster(aim),
+                "roles": {r: {"label": ROLES[r]["label"], "does": ROLES[r]["en"]} for r in ORDER},
+                "agents": sorted(ts.pool.adapters),
+                "notes": [{"id": str(n.id), "kind": n.kind, "role": n.role, "agent": n.agent, "text": n.text, "status": n.status,
+                           "data": n.data, "round_id": str(n.round_id) if n.round_id else None, "at": n.created_at.isoformat()} for n in notes],
+                "running": [j.kind for j in rt.session.scalars(select(Job).where(
+                    Job.kind.in_(["team.round", "aim.revise"]), Job.user_id == aim.user_id,
+                    Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]))) if (j.payload or {}).get("aim_id") == str(aim.id)]}
+
+    @app.get("/v1/aims/{aim_id}/team")
+    def aim_team(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """The aim's team (who plays which role), its board (corrections, plans, work, reviews, reports)."""
+        return team_view(rt, aim_or_404(rt, aim_id))
+
+    @app.put("/v1/aims/{aim_id}/team")
+    def aim_team_set(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Pin a role to an agent ({"role", "agent"}; agent null = automatic), or let the team meet on its own ({"auto"})."""
+        from pga.teams import TeamError, TeamService
+        aim = aim_or_404(rt, aim_id)
+        if "auto" in body:
+            aim.team = {**(aim.team or {}), "auto": bool(body["auto"])}
+        if body.get("role"):
+            try:
+                TeamService(rt).set_member(aim, str(body["role"]), body.get("agent") or None)
+            except TeamError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        rt.session.flush()
+        return team_view(rt, aim)
+
+    @app.post("/v1/aims/{aim_id}/team/round", status_code=202)
+    def aim_team_round(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Hold a round now: the lead plans, the members work, the reviewer reviews, the lead reports."""
+        aim = aim_or_404(rt, aim_id)
+        job = rt.workflow.enqueue("team.round", user_id=aim.user_id, payload={"aim_id": str(aim.id)}, dedupe_key=f"team:{aim.id}",
+                                  priority=60, created_by=Origin.USER)
+        return job_out(job)
+
+    @app.post("/v1/aims/{aim_id}/corrections", status_code=201)
+    def aim_correct(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Your own idea or correction to the aim: it counts at once; the lead then works out what should change."""
+        from pga.teams import TeamError, TeamService
+        aim = aim_or_404(rt, aim_id)
+        u = user_or_404(rt, aim.user_id)
+        text = str(body.get("text") or "").strip()[:4000]
+        try:
+            note = TeamService(rt).add_correction(aim, text, canonical(rt, u, text)[0] if text else "")
+        except TeamError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        rt.workflow.enqueue("aim.revise", user_id=aim.user_id, payload={"note_id": str(note.id), "aim_id": str(aim.id)}, priority=55,
+                            created_by=Origin.USER)
+        relayer(rt, u, f"aim:{aim.id}")
+        return team_view(rt, aim)
+
+    @app.post("/v1/aims/{aim_id}/corrections/{note_id}/apply")
+    def aim_correct_apply(aim_id: uuid.UUID, note_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Apply one change the lead proposed for a correction (pause, resume, complete, a new responsibility) — as you."""
+        from pga.db.models import AimNote
+        from pga.teams import TeamError, TeamService
+        aim = aim_or_404(rt, aim_id)
+        note = rt.session.get(AimNote, note_id)
+        if note is None or note.aim_id != aim.id:
+            raise HTTPException(404, "correction not found")
+        try:
+            TeamService(rt).apply_proposal(aim, note, int(body.get("index", -1)))
+        except (TeamError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return team_view(rt, aim)
 
     _ = FactType  # re-exported for OpenAPI enum docs
     return app

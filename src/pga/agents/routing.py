@@ -124,7 +124,8 @@ class AgentRouter:
     # -------------------------------------------------------------- the agent chat
 
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
-            now: datetime | None = None, category: str | None = None, conversation: str | None = None) -> dict:
+            now: datetime | None = None, category: str | None = None, conversation: str | None = None,
+            context: str | None = None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt."""
         if category and category not in (self.cfg.get("categories") or {}):
@@ -151,7 +152,7 @@ class AgentRouter:
             before = time.time()
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
                     "new_text": text, **({"conversation": conv} if conv else {})}
-            step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM, kind=cat, workspace=ws, permissions=perms,
+            step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM + (f"\n\n{context}" if context else ""), kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
             steps.append(step)
             if step.result.ok:
@@ -185,7 +186,11 @@ class AgentRouter:
         from pga.agent.common import ModelOutputError, parse_json
         from pga.llm.router import LLMResult
         run_id, t0, steps, tried = uuid.uuid4(), utcnow(), [], 0
-        for name in self.route(cat):
+        order = self.route(cat)
+        member = self._team_member(kind)
+        if member and member in self.pool.adapters and self.pool.usable(member, self.pool.spent_today())[0]:
+            order = [member] + [n for n in order if n != member]       # the aim's own teammate for this kind of work
+        for name in order:
             ad = self.pool.adapters[name]
             if ad.type == "llm":                     # PGA's own model is next in line: let the router call it directly
                 break
@@ -210,6 +215,22 @@ class AgentRouter:
         if steps:
             self._log(run_id, kind, cat, steps, False, "", t0)
         return None
+
+    def _team_member(self, kind: str) -> str | None:
+        from pga.llm.router import CURRENT_RESP
+        from pga.teams import TASK_ROLE, TeamService
+        rid, role = CURRENT_RESP.get(), TASK_ROLE.get(kind)
+        if not rid or not role:
+            return None
+        from pga.db.models import Aim, Responsibility
+        r = self.rt.session.get(Responsibility, rid)
+        aim = self.rt.session.get(Aim, r.aim_id) if r is not None and r.aim_id else None
+        if aim is None:
+            return None
+        try:
+            return TeamService(self.rt).member(aim, role)
+        except Exception:  # noqa: BLE001 - the team is a preference, routing still works without it
+            return None
 
     def _log(self, run_id: uuid.UUID, kind: str, cat: str, steps: list, ok: bool, text: str, t0: datetime) -> None:
         res = PoolResult(ok, text, f"task:{kind}"[:40], "single", {"category": cat, "agent": steps[-1].result.agent if ok else None}, steps,

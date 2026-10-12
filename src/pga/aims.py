@@ -79,6 +79,11 @@ class AimService:
             index = {f"aim:{a.id}": i for i, a in enumerate(rows)}
             picked = layers.select(wanted, layers.lp.budgets.get(f"{purpose}.aims", 700))
             lines = [f"{index[ref] + 1}. " + text.replace("\n", "\n   ") for ref, _lv, text in picked]
+        from pga.teams import corrections_block
+        for i, a in enumerate(rows):                     # the user's later corrections count for every reader
+            extra = corrections_block(self.session, a.id)
+            if extra:
+                lines.append(f"   (aim {i + 1}) {extra}")
         if served is not None:
             lines.append(f"The agent you are speaking as serves aim {served + 1}.")
         return "\n".join(lines)

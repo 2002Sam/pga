@@ -132,8 +132,9 @@ class RunService:
         """`with runs.track(decision) as guard:` — starts, guards and always closes the run record."""
         run = self.start(decision, now)
         guard = RunGuard(self.session, run, decision.limits, now)
-        from pga.llm.router import CURRENT_TASK
+        from pga.llm.router import CURRENT_RESP, CURRENT_TASK
         task = CURRENT_TASK.set(decision.kind)                  # lets the agent router see what kind of work this is
+        resp = CURRENT_RESP.set(decision.responsibility_id)     # …and whose: the aim's team goes first
         try:
             yield guard
         except RunBudgetExceeded as exc:
@@ -152,6 +153,7 @@ class RunService:
             self._close(guard, RunStatus.SUCCEEDED, reason)
         finally:
             CURRENT_TASK.reset(task)
+            CURRENT_RESP.reset(resp)
 
     def _close(self, guard: RunGuard, status: RunStatus, reason: str, error: str | None = None) -> None:
         self.finish(guard.run, status=status, stop_reason=reason, new_evidence=guard.new_evidence,

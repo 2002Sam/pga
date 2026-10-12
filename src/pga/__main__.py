@@ -16,6 +16,7 @@ import uvicorn
 
 def _make_worker():
     import pga.hub.jobs  # noqa: F401  (registers the hub.sync planner and handler)
+    import pga.teams  # noqa: F401  (registers the planner for teams that meet on their own)
     from pga.db.session import get_sessionmaker
     from pga.runtime import Runtime
     from pga.workflow.worker import Worker

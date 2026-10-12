@@ -512,6 +512,33 @@ form.add { background: transparent; }
 .pop .sec::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .pop .sec b { color: var(--text); font-weight: 400; }
 .pop .lst { list-style: none; margin: 4px 0 0; padding: 0; }
+.pop .team .team-r .tm { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+.pop .team .tm .rl { min-width: 46px; color: var(--muted); font-size: 12px; }
+.pop .team .tm b { font-weight: 500; color: #f3d38a; min-width: 70px; }
+.pop .team .tm select { width: auto; max-width: 110px; font-size: 11px; padding: 2px 4px; }
+.pop .team .tm button, .pop .team .ch button, .pop .team .trow button { margin-left: auto; border: 1px solid var(--line-2); background: transparent; color: var(--text); font-size: 11px; padding: 2px 8px; cursor: pointer; }
+.pop .team .tm.on b { color: #fff3d6; }
+.pop .team .warn { color: #f08a7a; font-style: normal; font-size: 11px; }
+.pop .team .team-acts { display: flex; gap: 10px; align-items: center; margin: 8px 0; font-size: 12px; }
+.pop .team .team-acts label { display: flex; gap: 5px; align-items: center; color: var(--muted); } .pop .team .team-acts input { width: auto; }
+.pop .team .team-acts button { border: 1px solid rgba(233,169,75,.5); background: rgba(233,169,75,.08); color: #f3d38a; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.pop .team .team-acts button:disabled { opacity: .55; cursor: default; }
+.pop .team .team-b .tn { margin: 6px 0; padding-left: 10px; border-left: 2px solid var(--line-2); }
+.pop .team .team-b .tn.summary { border-left-color: #e9a94b; } .pop .team .team-b .tn.review { border-left-color: #8fb3c9; } .pop .team .team-b .tn.bad { opacity: .6; }
+.pop .team .tn .m, .pop .team .tchat .m { display: block; font: var(--cap); font-size: 9.5px; letter-spacing: .12em; color: rgba(233,169,75,.8); text-transform: uppercase; }
+.pop .team .tn .m i { text-transform: none; letter-spacing: 0; color: var(--muted); font-style: normal; }
+.pop .team .tn .tx { white-space: pre-wrap; font-size: 12.5px; line-height: 1.6; }
+.pop .team .tn .tx.fold { max-height: 7.5em; overflow: hidden; mask-image: linear-gradient(#000 70%, transparent); -webkit-mask-image: linear-gradient(#000 70%, transparent); cursor: pointer; }
+.pop .team .tn .tx.fold.open { max-height: none; mask-image: none; -webkit-mask-image: none; }
+.pop .team .team-f .fx { margin: 8px 0; padding: 6px 0 6px 10px; border-left: 2px solid #e9a94b; }
+.pop .team .fx .q { white-space: pre-wrap; } .pop .team .fx .st { color: var(--muted); font-size: 12px; margin: 3px 0; }
+.pop .team .fx.pending .st { color: #f3d38a; }
+.pop .team .fx .ch { display: flex; gap: 6px; align-items: baseline; font-size: 12px; margin: 2px 0; } .pop .team .fx .ch i { color: var(--muted); font-style: normal; }
+.pop .team .fx .ch.ask { color: #f3d38a; }
+.pop .team .tchat { padding: 6px 0 10px 14px; border-bottom: 1px solid var(--line); }
+.pop .team .tchat .tlog { display: flex; flex-direction: column; gap: 8px; max-height: 280px; overflow-y: auto; margin-bottom: 6px; font-size: 12.5px; }
+.pop .team .tchat .me { color: var(--muted); white-space: pre-wrap; } .pop .team .tchat .it { white-space: pre-wrap; } .pop .team .tchat .it.bad { color: #f08a7a; }
+.pop .team .trow { display: flex; gap: 6px; } .pop .team .trow textarea { flex: 1; min-height: 0; font-size: 12.5px; }
 .pop .lst li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px dashed var(--line); cursor: pointer; }
 .pop .lst li:hover { color: #fff; }
 .pop .lst li .k { font: var(--cap); font-size: 9px; letter-spacing: .12em; color: var(--muted); white-space: nowrap; }
@@ -2316,6 +2343,7 @@ function popHTML(d) {
       (dbs.length ? sec("数据库", dbs.length) + `<ul class="lst">${dbs.map((n) => li(n, n.private ? "私密" : n.origin === "AGENT" ? "自动" : "")).join("")}</ul>` : "") +
       (sks.length ? sec("技能", sks.length) + `<ul class="lst">${sks.map((n) => li(n, n.origin === "AGENT" ? "自动" : "")).join("")}</ul>` : "") +
       sec("连接") + bridgesHTML(d.id) +
+      `<div class="team" id="popTeam" data-aim="${esc(aimId)}">${TEAM.html[aimId] || '<div class="sub">正在读取团队…</div>'}</div>` +
       acts([b("edit", "✎ 编辑", 'class="go"'), b("expand", "✦ 生成相关星体"), b("add-db", "＋ 数据库"), b("add-skill", "＋ 技能"), b("aim-new", "＋ 新抱负")]);
   }
   if (d.kind === "agent") {
@@ -2468,6 +2496,7 @@ function renderPop(place) {
   if (!editing() && store.json(draftKey(), null)) el.querySelector(".acts")?.insertAdjacentHTML("beforebegin",
     `<div class="draft"><span>有一份未保存的草稿</span><button data-pop="edit">继续编辑</button><button data-pop="draft-drop">放弃</button></div>`);
   if (LAYERED.has(fresh.kind) && !fresh.placeholder && fresh.id !== "aim:new" && !POP.layers[fresh.id]) loadLayers(fresh.id);
+  if (fresh.kind === "aim" && fresh.aim_id && el.querySelector("#popTeam")) loadTeam(fresh.aim_id);
   if (place || !POP.at) placePop();
   el.querySelector("#popAim")?.focus();
   if (!POP.raf) POP.raf = requestAnimationFrame(trackPop);
@@ -2514,9 +2543,107 @@ function closePop() {
     setFold(POP.foldBefore || { l: true, r: true, t: true }); window.PGA_SOLO?.(null);
   }
 }
+/* ---- an aim's team: agents from different sources working together, your corrections, talking to one member */
+const TEAM = { data: {}, html: {}, poll: 0, open: null, chat: store.json("pga_teamchat", {}) || {}, conv: store.json("pga_teamconv", {}) || {}, busy: false };
+const ROLE_ZH = { lead: "协调者", researcher: "研究员", critic: "审阅者", maker: "执行者" };
+const NOTE_ZH = { plan: "计划", work: "工作", review: "审阅", summary: "报告", change: "调整", correction: "修正" };
+async function loadTeam(aimId) {
+  try { TEAM.data[aimId] = await api(`/v1/aims/${aimId}/team`); } catch (e) { TEAM.html[aimId] = `<div class="sub">读取团队失败：${esc(e.message)}</div>`; paintTeam(aimId); return; }
+  TEAM.html[aimId] = teamHTML(aimId); paintTeam(aimId);
+  clearTimeout(TEAM.poll);
+  if ((TEAM.data[aimId].running || []).length) TEAM.poll = setTimeout(() => { if (POP.node?.aim_id === aimId) loadTeam(aimId); }, 4000);
+}
+function paintTeam(aimId) {
+  const box = document.querySelector(`#popTeam[data-aim="${CSS.escape(aimId)}"]`); if (!box) return;
+  const keep = box.querySelector("#teamFix")?.value, keepAsk = box.querySelector("#teamAsk")?.value;
+  box.innerHTML = TEAM.html[aimId] || "";
+  if (keep) box.querySelector("#teamFix").value = keep;
+  if (keepAsk && box.querySelector("#teamAsk")) box.querySelector("#teamAsk").value = keepAsk;
+}
+function teamHTML(aimId) {
+  const t = TEAM.data[aimId]; if (!t) return "";
+  const sec = (x, n) => `<div class="sec">${x}${n != null ? ` <b>${n}</b>` : ""}</div>`;
+  const running = t.running || [];
+  const rounds = {}; for (const n of t.notes) if (n.round_id && n.kind !== "correction") (rounds[n.round_id] ||= []).push(n);
+  const lastRound = Object.values(rounds).filter((ns) => ns.some((n) => n.kind === "plan")).pop() || [];
+  const roster = t.roster.map((m) => {
+    const open = TEAM.open === `${aimId}:${m.role}`;
+    return `<li class="tm ${open ? "on" : ""}"><span class="rl" title="${esc(m.does)}">${esc(m.label)}</span>
+      <select data-team="pin" data-role="${m.role}" title="谁来担任${esc(m.label)}"><option value="">自动 · ${esc(m.chosen_by === "auto" ? m.agent || "无" : "")}</option>
+        ${t.agents.map((a) => `<option value="${esc(a)}" ${m.pinned === a ? "selected" : ""}>${esc(a)}</option>`).join("")}</select>
+      <b>${esc(m.agent || "—")}</b>${m.pinned_unusable ? `<i class="warn" title="${esc(m.pinned_unusable)}">你选的暂时不可用</i>` : ""}
+      <button type="button" data-team="talk" data-role="${m.role}">${open ? "收起" : "对话"}</button></li>${open ? teamChatHTML(aimId, m) : ""}`;
+  }).join("");
+  const board = lastRound.map((n) => `<div class="tn ${n.kind} ${n.status === "failed" ? "bad" : ""}"><span class="m">${NOTE_ZH[n.kind] || n.kind} · ${esc(ROLE_ZH[n.role] || n.role || "")}${n.agent ? " · " + esc(n.agent) : ""}${n.data?.task ? ` · <i>${esc(n.data.task.slice(0, 60))}</i>` : ""}</span>
+      <div class="tx ${n.kind === "work" || n.kind === "review" ? "fold" : ""}">${agMd(n.text)}</div></div>`).join("");
+  const fixes = t.notes.filter((n) => n.kind === "correction").reverse().slice(0, 6).map((n) => {
+    const dd = n.data || {};
+    return `<div class="fx ${n.status}"><div class="q">${esc(n.text)}</div>
+      <div class="st">${n.status === "pending" ? "协调者正在消化这条修正…（它已经写进所有读取这个抱负的地方）" : esc(dd.understanding || dd.error || "")}</div>
+      ${(dd.applied || []).map((a) => `<div class="ch ok">✓ ${esc(a.title)} · ${esc(a.what)}${a.why ? ` <i>${esc(a.why)}</i>` : ""}</div>`).join("")}
+      ${(dd.proposed || []).map((p, i) => `<div class="ch ${p.applied ? "ok" : "ask"}">${p.applied ? "✓" : "?"} ${{ pause: "暂停", resume: "恢复", complete: "完成", new: "新建职责" }[p.action] || p.action} · ${esc(p.title)}${p.why ? ` <i>${esc(p.why)}</i>` : ""}
+        ${p.applied ? "" : `<button type="button" data-team="apply" data-note="${n.id}" data-i="${i}">应用</button>`}</div>`).join("")}</div>`;
+  }).join("");
+  return sec("团队 · 多来源协作", t.roster.filter((m) => m.agent).length) +
+    `<div class="sub">四个角色由不同来源的 agent 担任，互相分工、互相审阅；这个抱负下各职责的研究、判断、审阅和产出也会先交给对应的成员。</div>
+     <ul class="lst team-r">${roster}</ul>
+     <div class="team-acts"><button type="button" class="go" data-team="round" ${running.includes("team.round") ? "disabled" : ""}>${running.includes("team.round") ? "团队正在开会…" : "▶ 开一轮协作"}</button>
+       <label><input type="checkbox" data-team="auto" ${t.auto ? "checked" : ""}> 每天自己开一轮</label></div>` +
+    (board ? sec("最近一轮") + `<div class="team-b">${board}</div>` : "") +
+    sec("我的修正", t.notes.filter((n) => n.kind === "correction").length || null) +
+    `<div class="sub">写下你的想法、建议或纠正：它立刻对所有读取这个抱负的流程生效，协调者会据此调整职责——安全的改动直接做，暂停 / 新建这类需要你点「应用」。原来的抱负文字不会被改写。</div>
+     <textarea id="teamFix" rows="3" maxlength="4000" placeholder="例如：先把我自己的笔记和日程理解透，再去追外部研究"></textarea>
+     <div class="team-acts"><button type="button" class="go" data-team="fix">＋ 加入修正</button></div>
+     <div class="team-f">${fixes}</div>`;
+}
+function teamChatHTML(aimId, m) {
+  const log = TEAM.chat[`${aimId}:${m.role}`] || [];
+  return `<li class="tchat"><div class="tlog">${log.slice(-10).map((x) => x.role === "user" ? `<div class="me">› ${esc(x.text)}</div>`
+      : `<div class="it ${x.ok === false ? "bad" : ""}"><span class="m">${esc(x.agent || "…")}${x.pending ? " · 正在回答" : x.duration_s ? ` · ${x.duration_s}s` : ""}</span>${x.pending ? "" : agMd(x.text || x.error || "")}</div>`).join("")
+      || `<div class="sub">问问${esc(m.label)}（${esc(m.agent || "")}）：它知道这个抱负、你的修正和团队最近的工作。</div>`}</div>
+    <div class="trow"><textarea id="teamAsk" rows="1" placeholder="问${esc(m.label)}…（Enter 发送）"></textarea><button type="button" data-team="ask" data-role="${m.role}">发送</button></div></li>`;
+}
+async function teamAct(t) {
+  const box = t.closest("#popTeam"), aimId = box?.dataset.aim; if (!aimId) return;
+  const act = t.dataset.team, role = t.dataset.role;
+  if (act === "talk") { TEAM.open = TEAM.open === `${aimId}:${role}` ? null : `${aimId}:${role}`; TEAM.html[aimId] = teamHTML(aimId); paintTeam(aimId); box.querySelector("#teamAsk")?.focus(); return; }
+  if (act === "round") { t.disabled = true; await api(`/v1/aims/${aimId}/team/round`, { method: "POST" }); toast("团队开始开会：协调者先定计划，成员分头做，审阅者把关，最后给你报告"); return loadTeam(aimId); }
+  if (act === "fix") { const v = box.querySelector("#teamFix").value.trim(); if (!v) return; box.querySelector("#teamFix").value = "";
+    TEAM.data[aimId] = await api(`/v1/aims/${aimId}/corrections`, { body: { text: v } }); toast("修正已加入，协调者正在据此调整"); return loadTeam(aimId); }
+  if (act === "apply") { TEAM.data[aimId] = await api(`/v1/aims/${aimId}/corrections/${t.dataset.note}/apply`, { body: { index: +t.dataset.i } }); toast("已应用"); loadGraph(); return loadTeam(aimId); }
+  if (act === "ask") return teamAsk(aimId, role, box);
+}
+async function teamAsk(aimId, role, box) {
+  const inp = box.querySelector("#teamAsk"), text = inp.value.trim(); if (!text || TEAM.busy) return;
+  const k = `${aimId}:${role}`, log = (TEAM.chat[k] ||= []);
+  TEAM.conv[k] ||= `team:${aimId}:${role}:${Math.random().toString(36).slice(2, 10)}`;
+  const history = log.filter((x) => !x.pending).slice(-6).map((x) => ({ role: x.role === "user" ? "user" : "assistant", text: x.text || "" }));
+  const pend = { role: "agent", pending: true, agent: TEAM.data[aimId]?.roster.find((m) => m.role === role)?.agent };
+  log.push({ role: "user", text }, pend); inp.value = ""; TEAM.busy = true; TEAM.html[aimId] = teamHTML(aimId); paintTeam(aimId);
+  try { const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, aim_id: aimId, role, history, conversation: TEAM.conv[k] } });
+    Object.assign(pend, r, { pending: false }); }
+  catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
+  TEAM.busy = false; TEAM.chat[k] = log.slice(-20);
+  try { store.set("pga_teamchat", JSON.stringify(TEAM.chat)); store.set("pga_teamconv", JSON.stringify(TEAM.conv)); } catch {}
+  TEAM.html[aimId] = teamHTML(aimId); paintTeam(aimId); box.querySelector("#teamAsk")?.focus();
+}
 function bindPop() {
   const el = popEl();
+  el.addEventListener("change", async (e) => {
+    const t = e.target.closest("[data-team]"); if (!t) return;
+    const aimId = t.closest("#popTeam")?.dataset.aim; if (!aimId) return;
+    try {
+      if (t.dataset.team === "pin") TEAM.data[aimId] = await api(`/v1/aims/${aimId}/team`, { method: "PUT", body: { role: t.dataset.role, agent: t.value || null } });
+      if (t.dataset.team === "auto") TEAM.data[aimId] = await api(`/v1/aims/${aimId}/team`, { method: "PUT", body: { auto: t.checked } });
+      TEAM.html[aimId] = teamHTML(aimId); paintTeam(aimId);
+    } catch (err) { toast(err.message); }
+  });
+  el.addEventListener("keydown", (e) => { if (e.target.id === "teamAsk" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault();
+    e.target.closest(".tchat")?.querySelector('[data-team="ask"]')?.click(); } });
   el.addEventListener("click", async (e) => {
+    const fold = e.target.closest(".team .tx.fold"); if (fold) { fold.classList.toggle("open"); return; }
+    const tt = e.target.closest("[data-team]");
+    if (tt && tt.tagName === "BUTTON") { try { await teamAct(tt); } catch (err) { toast(err.message); } return; }
     const t = e.target.closest("[data-pop]"); if (!t) return;
     const act = t.dataset.pop, d = POP.node;
     try {

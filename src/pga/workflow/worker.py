@@ -213,6 +213,31 @@ def _agents_run(rt: "Runtime", job: Job, now: datetime) -> dict:
     return {"run_id": str(res.run_id), "ok": res.ok, "text": res.text[:4000], "error": res.error}
 
 
+@handler("team.round")
+def _team_round(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """One round of an aim's team: plan → work → review → summary (teams.py)."""
+    from pga.db.models import Aim
+    from pga.teams import TeamService
+
+    aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim_id"))))
+    if aim is None:
+        raise Permanent("aim is gone")
+    return TeamService(rt, commit_steps=True).round(aim, now)
+
+
+@handler("aim.revise")
+def _aim_revise(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """The team's lead turns one of your corrections into changes (teams.py)."""
+    from pga.db.models import Aim, AimNote
+    from pga.teams import TeamService
+
+    note = rt.session.get(AimNote, uuid.UUID(str(job.payload.get("note_id"))))
+    aim = rt.session.get(Aim, note.aim_id) if note is not None else None
+    if note is None or aim is None:
+        raise Permanent("correction is gone")
+    return TeamService(rt).revise(aim, note, now)
+
+
 @handler("layers.build")
 def _layers_build(rt: "Runtime", job: Job, now: datetime) -> dict:
     """Build (or refresh) one item's information pyramid: gist, brief, full."""

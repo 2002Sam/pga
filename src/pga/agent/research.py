@@ -164,8 +164,11 @@ class ResearchAgent:
         parts = [f"<responsibility>\nTitle: {r.title_en}\nDescription: {r.description_en or '-'}\n"
                  f"Keywords: {', '.join(r.keywords or []) or '-'}\nTension: {r.tension:.2f}\n</responsibility>"]
         if r.aim_id and getattr(rt, "layers", None) is not None:      # the ambition, at the detail research needs
+            from pga.teams import corrections_block
+            extra = corrections_block(rt.session, r.aim_id)
             parts.append("<ambition>\nThe long-range aim this responsibility serves:\n"
-                         f"{rt.layers.text(f'aim:{r.aim_id}', rt.layers.need('research.aim'))}\n</ambition>")
+                         f"{rt.layers.text(f'aim:{r.aim_id}', rt.layers.need('research.aim'))}"
+                         + (f"\n{extra}" if extra else "") + "\n</ambition>")
         if situation:
             parts.append("<situation>\n" + "\n".join(f"{k}: " + "; ".join(v) for k, v in situation.items())
                          + "\n</situation>")

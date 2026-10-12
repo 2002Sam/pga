@@ -254,6 +254,7 @@ def default_fake_reply(model: str, system: str, messages: list[dict[str, str]]) 
 
 # the kind of run the current call belongs to (set by RunTracker.track), so a delegate can route it to an agent
 CURRENT_TASK: ContextVar[str | None] = ContextVar("pga_current_task", default=None)
+CURRENT_RESP: ContextVar[object | None] = ContextVar("pga_current_responsibility", default=None)   # its aim's team goes first
 
 
 class LLMRouter:

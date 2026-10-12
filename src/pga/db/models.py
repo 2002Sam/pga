@@ -102,9 +102,29 @@ class Aim(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)          # as the user wrote it
     text_en: Mapped[str] = mapped_column(Text, nullable=False)       # canonical English for the model
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    team: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)   # role → agent you chose (teams.py)
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_aims_user_position", "user_id", "position"),)
+
+
+class AimNote(Base):
+    """The aim's team board: your corrections, and each round's plan, work, review and summary by the agents."""
+    __tablename__ = "aim_notes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    aim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aims.id", ondelete="CASCADE"), nullable=False)
+    round_id: Mapped[uuid.UUID | None] = mapped_column()
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)        # correction | plan | work | review | summary | change
+    role: Mapped[str | None] = mapped_column(String(16))
+    agent: Mapped[str | None] = mapped_column(String(64))
+    text: Mapped[str] = mapped_column(Text, nullable=False)              # as written (yours in your language)
+    text_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="done", nullable=False)   # pending | applied | failed | done
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_aim_notes_aim_time", "aim_id", "created_at"),)
 
 
 class Body(Base):
