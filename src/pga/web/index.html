@@ -628,6 +628,37 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; color: #e9e2d4; font-size: 13.5px; line-height: 1.5;
   transition: opacity .6s ease; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
 .ag-hist[hidden] { display: none; }
+.ag-map { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 4px; transition: opacity .6s ease;
+  text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
+.ag-map[hidden] { display: none; }
+.ag-map .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
+.ag-map .hh span { white-space: nowrap; }
+.ag-map .hh small { font-size: 9.5px; letter-spacing: .06em; text-transform: none; color: rgba(214,224,229,.38); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-map svg { display: block; width: 100%; overflow: visible; cursor: default; }
+.ag-map .ln { stroke: rgba(220,232,238,.13); stroke-width: 1; fill: none; }
+.ag-map .ln.route { stroke: rgba(233,169,75,.3); }
+.ag-map .ln.lit { stroke: rgba(233,169,75,.85); }
+.ag-map .orb { fill: none; stroke: rgba(220,232,238,.1); stroke-width: 1; }
+.ag-map .nd { cursor: pointer; }
+.ag-map .nd .body { fill: #07090b; stroke: rgba(220,232,238,.55); stroke-width: 1; }
+.ag-map .nd.down .body { stroke: rgba(240,138,122,.85); stroke-dasharray: 2 2; }
+.ag-map .nd.off { opacity: .45; }
+.ag-map .nd .rem { fill: none; stroke: #e9a94b; stroke-width: 1.6; stroke-linecap: round; }
+.ag-map .nd .cur { fill: none; stroke: #f3d38a; stroke-width: 1.2; }
+.ag-map .nd .run { fill: none; stroke: #e9a94b; stroke-width: 1; opacity: 0; transform-box: fill-box; transform-origin: center; }
+.ag-map .nd.running .run { animation: mapRipple 1.4s ease-out infinite; }
+@keyframes mapRipple { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(2.6); } }
+.ag-map .nd.you .body { fill: #eef1f2; stroke: none; }
+.ag-map .nd.cat .body { fill: rgba(233,169,75,.18); stroke: rgba(233,169,75,.8); }
+.ag-map .nd text { font: 10px var(--font); fill: rgba(236,228,214,.72); text-anchor: middle; paint-order: stroke; stroke: rgba(3,5,8,.9); stroke-width: 3px; letter-spacing: .04em; }
+.ag-map .nd.is-cur text { fill: #fff3d6; }
+.ag-map .nd.cat text { font-size: 9px; fill: rgba(233,169,75,.6); }
+.ag-map .nd.cat.is-cur text { fill: #f3d38a; }
+.ag-map .nd:hover .body { stroke: #fff3d6; }
+#app.talking.peek #agVeil { opacity: 0; transition-duration: .35s; }
+#app.talking.peek #labels .nlabel:not(.sel) { filter: none; }
+#app.talking.peek #agBubbles { opacity: 1; }
+#app.talking.peek .ag-talk { opacity: .35 !important; }
 .ag-talk > * { max-width: 880px; }
 .ag-hist .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
 .ag-hist .hh button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .1em; cursor: pointer; text-shadow: inherit; }
@@ -957,6 +988,10 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       <div id="agVeil" aria-hidden="true"></div>
       <svg id="agTalkLine" aria-hidden="true"><line></line><circle r="2.5"></circle></svg>
       <div id="agBubbles" aria-live="polite"></div>
+      <div class="ag-map" id="agMap" hidden aria-label="全景缩略图">
+        <div class="hh"><span>全景</span><small>悬停看真实星空 · 点一颗切换</small></div>
+        <svg id="agMapSvg" role="img" aria-label="agent 星图缩略"></svg>
+      </div>
       <nav class="ag-hist" id="agHist" hidden aria-label="历史对话">
         <div class="hh"><span>历史对话</span><button type="button" data-hist="new" title="开始一段新对话">＋ 新对话</button></div>
         <div class="hl" id="agHistList"></div>
@@ -1569,7 +1604,7 @@ function openCard(kind, key) {                       // talk to a planet (or a k
   const veil = $("#agVeil"), bg = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [14, 21, 26];
   veil.style.background = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, .58)`;
   renderCard(); el.hidden = false; el.style.opacity = 0; HIST.card = null; renderHist(); loadHist(); placeTalk();
-  requestAnimationFrame(() => { el.style.opacity = 1; $("#agHist").style.opacity = 1; });
+  requestAnimationFrame(() => { el.style.opacity = 1; $("#agHist").style.opacity = 1; $("#agMap").style.opacity = 1; });
   $("#app").classList.add("talking"); veil.classList.add("on"); window.PGA_CALM?.(true); window.PGA_TALK?.((kind === "cat" ? "pc:" : "pa:") + key);
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
@@ -1579,8 +1614,8 @@ function closeCard() {
   if (!CARD.kind) return;
   window.PGA_TALK?.(null);
   CARD.kind = CARD.key = null; AGV.sel = null; AGV.hoverCat = null;
-  el.style.opacity = 0; setTimeout(() => { if (!CARD.kind) { el.hidden = true; $("#agHist").hidden = true; } }, 360);
-  $("#agHist").style.opacity = 0;
+  el.style.opacity = 0; setTimeout(() => { if (!CARD.kind) { el.hidden = true; $("#agHist").hidden = true; $("#agMap").hidden = true; } }, 360);
+  $("#agHist").style.opacity = 0; $("#agMap").style.opacity = 0; $("#app").classList.remove("peek");
 }
 function openTalkSettings() {                        // ⚙: a card turns over beside the planet with its settings
   const el = $("#agCard"), inner = el.querySelector(".ag-card-in");
@@ -1633,6 +1668,50 @@ function newConversation() {
   if (CARD.busy || !CARD.kind) return;
   const k = cardK(); CARD.log[k] = []; convOf(k, true); saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
 }
+const MAP = { at: 0, key: "" };
+function renderMap() {                               // the whole constellation, flattened, rotated as you see it
+  const svg = $("#agMapSvg"), m = window.PGA_MAP?.(); if (!svg || !m || !AGV.data) return;
+  const W = svg.clientWidth || 260, H = Math.round(W * .58), SQ = .5, c = Math.cos(m.yaw), s = Math.sin(m.yaw);
+  const turned = m.nodes.map((n) => [n, n.x * c - n.z * s, n.x * s + n.z * c]);
+  const rmax = Math.max(1e-6, ...turned.map(([, x, z]) => Math.hypot(x, z)));
+  const P = {}; let ext = 1e-6;                                               // world units per pixel, to fit
+  for (const [n, x0, z0] of turned) {                                        // near Earth spread out a little (r^0.6), then flattened
+    const d = Math.hypot(x0, z0), f = d ? Math.pow(d / rmax, .6) * rmax / d : 0, x = x0 * f, y = z0 * f * SQ;
+    P[n.id] = { x, y, n, f }; ext = Math.max(ext, Math.abs(x) / (W / 2 - 26), Math.abs(y) / (H / 2 - 18));
+  }
+  const k = 1 / ext, X = (p) => +(W / 2 + p.x * k).toFixed(1), Y = (p) => +(H / 2 + p.y * k).toFixed(1);
+  const live = new Set((AGM.live || []).filter((r) => r.running).map((r) => "pa:" + r.agent));
+  const cur = CARD.kind ? (CARD.kind === "cat" ? "pc:" : "pa:") + CARD.key : null;
+  const who = CARD.kind === "cat" ? (CARD.log[cardK()] || []).find((x2) => x2.pending)?.agent : null;
+  const lit = (a, b) => who && ((a === cur && b === "pa:" + who) || (b === cur && a === "pa:" + who));
+  const look = (n) => { if (n.kind !== "agent") return ""; const st = AGV.data.status[n.id.slice(3)] || {}, q = st.quota || {};
+    return [agTag(st), linkDown(st) || q.source === "login", st.enabled === false || st.available === false, q.remaining != null ? Math.round(q.remaining * 50) : -1].join("|"); };
+  const orbitR = [...new Set(m.nodes.filter((n) => n.kind === "agent").map((n) => (Math.pow(Math.hypot(n.x, n.z) / rmax, .6) * rmax).toFixed(1)))];
+  const key = JSON.stringify([W, cur, who, [...live].sort(), orbitR, m.links.length, m.nodes.map((n) => n.id + ":" + look(n))]);
+  if (key !== MAP.key) {                                                     // something changed: draw it anew (otherwise only move)
+    MAP.key = key;
+    const orbits = orbitR.map((r) => `<ellipse class="orb" data-r="${r}"/>`).join("");
+    const lines = m.links.map(([a, b, kind]) => P[a] && P[b] ? `<line class="ln ${kind.startsWith("route") ? "route" : ""} ${lit(a, b) ? "lit" : ""}" data-a="${esc(a)}" data-b="${esc(b)}"/>` : "").join("");
+    const dots = Object.values(P).map(({ n }) => {
+      if (n.kind === "user") return `<g class="nd you" data-at="${esc(n.id)}"><circle class="body" r="4.5"/><text y="15">你</text></g>`;
+      if (n.kind === "skill") { const d = 4.2; return `<g class="nd cat ${n.id === cur ? "is-cur" : ""}" data-at="${esc(n.id)}" data-map="${esc(n.id)}"><title>${esc(n.label)} · 点一下在这一类里提问</title>
+        <polygon class="body" points="0,${-d} ${d},0 0,${d} ${-d},0"/>${n.id === cur ? `<circle class="cur" r="8"/>` : ""}<text y="14">${esc(n.label)}</text></g>`; }
+      const a = n.id.slice(3), st = AGV.data.status[a] || {}, q = st.quota || {}, down = linkDown(st) || q.source === "login";
+      const rem = q.remaining != null ? Math.max(0, Math.min(1, q.remaining)) : null, R = 5.5, ra = R + 2.6;
+      const arc = rem != null && !down && rem > 0 ? (rem >= .999 ? `<circle class="rem" r="${ra}"/>`
+        : (() => { const t = -Math.PI / 2 + rem * Math.PI * 2; return `<path class="rem" d="M 0 ${-ra} A ${ra} ${ra} 0 ${rem > .5 ? 1 : 0} 1 ${(ra * Math.cos(t)).toFixed(2)} ${(ra * Math.sin(t)).toFixed(2)}"/>`; })()) : "";
+      return `<g class="nd ${down ? "down" : ""} ${st.enabled === false || st.available === false ? "off" : ""} ${live.has(n.id) ? "running" : ""} ${n.id === cur ? "is-cur" : ""}" data-at="${esc(n.id)}" data-map="${esc(n.id)}">
+        <title>${esc(a)} · ${esc(agTag(st))}${live.has(n.id) ? " · 正在回答" : ""}</title><circle class="run" r="${R}"/><circle class="body" r="${R}"/>${arc}
+        ${n.id === cur ? `<circle class="cur" r="${R + 6}"/>` : ""}<text y="${R + 12}">${esc(a)}</text></g>`;
+    }).join("");
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px";
+    svg.innerHTML = orbits + lines + dots;
+  }
+  for (const e of svg.querySelectorAll("ellipse.orb")) { const r = +e.dataset.r * k; e.setAttribute("cx", W / 2); e.setAttribute("cy", H / 2); e.setAttribute("rx", r.toFixed(1)); e.setAttribute("ry", (r * SQ).toFixed(1)); }
+  for (const e of svg.querySelectorAll("line.ln")) { const a = P[e.dataset.a], b = P[e.dataset.b]; if (!a || !b) continue;
+    e.setAttribute("x1", X(a)); e.setAttribute("y1", Y(a)); e.setAttribute("x2", X(b)); e.setAttribute("y2", Y(b)); }
+  for (const g of svg.querySelectorAll("g[data-at]")) { const p = P[g.dataset.at]; if (p) g.setAttribute("transform", `translate(${X(p)} ${Y(p)})`); }
+}
 function placeTalk() {                               // the words stay beside their planet; everything but it (and who answers) fades
   const el = $("#agTalk"); if (!el || el.hidden || !CARD.kind) return;
   const m = $("#main"), W = m.clientWidth, H = m.clientHeight;
@@ -1651,12 +1730,18 @@ function placeTalk() {                               // the words stay beside th
     c.setAttribute("cx", x0.toFixed(1)); c.setAttribute("cy", b.y.toFixed(1));
     ln.style.visibility = right && x1 - x0 > 8 ? "visible" : "hidden";
   }
-  const hist = $("#agHist");                                                      // the history list: left of the planet
-  if (hist) {
-    const show = L.histW > 0 && right;
-    if (hist.hidden === show) hist.hidden = !show;
-    if (show) { const hw = L.histW - 44, hh = hist.offsetHeight || 200; hist.style.width = hw + "px";
-      hist.style.transform = `translate(24px, ${Math.max(70, Math.min(H - hh - 24, b.y - hh * .45)).toFixed(0)}px)`; }
+  const hist = $("#agHist"), map = $("#agMap");                                  // left of the planet: the overview map, then history
+  if (map) {
+    const mw = L.histW > 0 && right ? Math.min(340, L.xp - 64) : Math.min(260, W * .45), my = 66;   // as wide as the room left of the planet
+    if (map.hidden) map.hidden = false;
+    map.style.width = mw + "px"; map.style.transform = `translate(24px, ${my}px)`;
+    if (performance.now() - MAP.at > 120) { MAP.at = performance.now(); renderMap(); }
+    if (hist) {
+      const show = L.histW > 0 && right, top = my + map.offsetHeight + 22;
+      if (hist.hidden === show) hist.hidden = !show;
+      if (show) { hist.style.width = (L.histW - 44) + "px"; hist.style.transform = `translate(24px, ${top}px)`;
+        const hl = $("#agHistList"); if (hl) hl.style.maxHeight = Math.max(120, H - top - 60) + "px"; }
+    }
   }
   const veil = $("#agVeil"), holes = [b];
   if (CARD.kind === "cat") {                                                     // a kind of work: the agent answering stays lit too
@@ -1853,6 +1938,15 @@ function bindAgentView() {
     if (e.target.closest('[data-hist="new"]')) newConversation();
   });
   hist.addEventListener("pointerdown", (e) => e.stopPropagation());
+  const map = $("#agMap");
+  map.addEventListener("pointerenter", () => $("#app").classList.add("peek"));
+  map.addEventListener("pointerleave", () => $("#app").classList.remove("peek"));
+  map.addEventListener("pointerdown", (e) => e.stopPropagation());
+  map.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-map]"); if (!g || CARD.busy) return;
+    const id = g.dataset.map; $("#app").classList.remove("peek");
+    openCard(id.startsWith("pc:") ? "cat" : "agent", id.slice(3));
+  });
   $("#agTalkAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = tin.value.trim(); if (!v || CARD.busy) return; tin.value = ""; tin.style.height = ""; cardSend(v); });
   tin.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agTalkAsk").requestSubmit(); } });
   tin.addEventListener("input", () => { tin.style.height = "auto"; tin.style.height = Math.min(150, tin.scrollHeight) + "px"; });
@@ -3381,6 +3475,11 @@ const RUNNING = new Map();                                                // age
 let CALM = 0, CALM_GOAL = 0;                                              // 1 while you talk to a planet: the strings hum, they do not swing
 window.PGA_CALM = (on) => { CALM_GOAL = on ? 1 : 0; };
 let TALK = null, talkShift = 0;                                            // the body you are talking to: the view glides to it
+window.PGA_MAP = () => MODE !== "agents" ? null : {                       // the agents side, flattened, for the overview map
+  yaw: controls.getAzimuthalAngle(), talk: TALK,
+  nodes: [...nodes.values()].filter((n) => n.d.pool || n.id === "you").map((n) => ({ id: n.id, kind: n.d.kind, x: n.pos.x, z: n.pos.z, label: n.d.label })),
+  links: links.filter((l) => l.kind !== "bridge").map((l) => [l.a, l.b, l.kind]),
+};
 window.PGA_TALK = (id) => {
   const was = TALK; TALK = id && nodes.has(id) ? id : null;
   if (TALK) { focusId = TALK; flyT = 1; resetPan(); } else if (was) { focusId = null; flyT = 1; }
