@@ -205,3 +205,36 @@ def test_the_timeline_puts_every_agent_in_one_list_by_time(rt, user):
     assert [i["title"] for i in rt.hub.timeline(user.id, agent="workbuddy")] == ["中午的"]
     user.preferences = {"demo": True}
     assert rt.hub.link_local(user) == []                       # a demo account never gets this machine's agents
+
+
+def test_a_pool_agent_sees_its_own_apps_past_and_can_carry_it_on(session_factory, policy, provider, backend, user, rt, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from pga.agents import links
+    from pga.api.app import create_app
+    from pga.hub import connectors
+    from pga.hub.connectors import Conv
+    from pga.runtime import Runtime
+    monkeypatch.setenv("PGA_LINKS_FILE", str(tmp_path / "links.json"))
+    proj = tmp_path / "claude" / "-Users-x-proj"
+    proj.mkdir(parents=True)
+    (proj / "sess-1.jsonl").write_text("\n".join(json.dumps(e) for e in [
+        {"type": "user", "timestamp": "2026-10-12T01:00:00Z", "cwd": "/Users/x/proj", "message": {"role": "user", "content": "修一下登录 bug，token=abc123secret"}},
+        {"type": "assistant", "timestamp": "2026-10-12T01:01:00Z", "message": {"role": "assistant", "model": "claude-opus-5-5", "content": [{"type": "text", "text": "修好了"}]}}]))
+    monkeypatch.setattr(connectors, "CLAUDE_CODE_DIR", tmp_path / "claude")
+    cc = rt.hub.create(user.id, name="Claude Code", vendor="claude_code", connector="claude_code")
+    rt.hub.ingest(cc, connectors._cc_file(proj / "sess-1.jsonl") and [connectors._cc_file(proj / "sess-1.jsonl", skip_pga=False)])
+    cx = rt.hub.create(user.id, name="ChatGPT · Codex", vendor="chatgpt", connector="codex")
+    rt.hub.ingest(cx, [Conv("thread-42", "简历", datetime(2026, 10, 11, tzinfo=timezone.utc), datetime(2026, 10, 11, 2, tzinfo=timezone.utc),
+                            [("user", "hi")], model="gpt-6-astra")])
+    rt.session.flush()
+    c = TestClient(create_app(session_factory, lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend)))
+    counts = c.get(f"/v1/users/{user.id}/agents/past-counts").json()
+    assert counts["claude"]["count"] == 1 and counts["chatgpt"]["count"] == 1 and "deepseek" not in counts
+    past = c.get(f"/v1/users/{user.id}/agents/claude/past").json()
+    assert [p["title"] for p in past] == ["[proj] 修一下登录 bug，token=abc123secret"[:90]] or past[0]["model"] == "claude-opus-5-5"
+    one = c.get(f"/v1/users/{user.id}/agents/claude/past/{past[0]['id']}").json()
+    assert [t["role"] for t in one["turns"]] == ["user", "assistant"] and "abc123secret" not in one["turns"][0]["text"]   # read in full, redacted
+    cxid = c.get(f"/v1/users/{user.id}/agents/chatgpt/past").json()[0]["id"]
+    r = c.post(f"/v1/users/{user.id}/agents/chatgpt/past/{cxid}/continue").json()
+    assert r["resumes"] == "thread" and links.thread_for("chatgpt", f"{user.id}:{r['conversation']}") == "thread-42"   # Codex resumes that very thread

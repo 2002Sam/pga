@@ -33,6 +33,10 @@ if TYPE_CHECKING:
 log = logging.getLogger("pga.hub")
 
 LOCAL = {"claude_code", "hermes", "codex", "workbuddy", "codebuddy"}
+# which local histories belong to which kind of pool agent (its own app); PGA's own model matches imports by vendor
+AGENT_SOURCES = {"codex_local": ("codex",), "claude_local": ("claude_code",), "hermes_local": ("hermes",),
+                 "codebuddy_local": ("workbuddy", "codebuddy")}
+CONTINUE = {"codex": "thread", "claude_code": "session", "codebuddy": "session", "workbuddy": "session"}   # resumable natively
 
 AGENT_SYSTEM = f"""You summarize how one person uses one AI agent/assistant, from excerpts of their conversations
 with it. Be concrete: name real projects, topics and recurring requests; do not invent anything that is not in the
@@ -254,7 +258,18 @@ class HubService:
                 continue
         return made
 
-    def timeline(self, user_id: uuid.UUID, *, limit: int = 300, agent: str | None = None, before: datetime | None = None) -> list[dict]:
+    def counts(self, user_id: uuid.UUID, now: datetime | None = None) -> dict[str, dict]:
+        """For each pool agent: how many past conversations it had in its own app, how many in the last day."""
+        now = now or utcnow()
+        rows = self.session.execute(select(LinkedAgent.connector, LinkedAgent.vendor, func.count(AgentConversation.id),
+                                           func.count(AgentConversation.id).filter(AgentConversation.updated_at >= now - timedelta(days=1)),
+                                           func.max(AgentConversation.updated_at))
+                                    .join(AgentConversation, AgentConversation.linked_agent_id == LinkedAgent.id)
+                                    .where(LinkedAgent.user_id == user_id).group_by(LinkedAgent.connector, LinkedAgent.vendor)).all()
+        return {f"{c}|{v}": {"count": n, "recent": r, "last": last.isoformat() if last else None} for c, v, n, r, last in rows}
+
+    def timeline(self, user_id: uuid.UUID, *, limit: int = 300, agent: str | None = None, before: datetime | None = None,
+                 connectors: tuple[str, ...] | None = None, vendor: str | None = None) -> list[dict]:
         """Every past conversation, from every agent, newest first — and which agent (and model) handled it."""
         q = (select(AgentConversation, LinkedAgent).join(LinkedAgent, AgentConversation.linked_agent_id == LinkedAgent.id)
              .where(LinkedAgent.user_id == user_id))
@@ -263,6 +278,10 @@ class HubService:
         when = func.coalesce(AgentConversation.updated_at, AgentConversation.started_at, AgentConversation.created_at)
         if before:
             q = q.where(when < before)
+        if connectors is not None or vendor:                  # one pool agent's own app (or a vendor's imports)
+            from sqlalchemy import or_
+            conds = ([LinkedAgent.connector.in_(connectors)] if connectors else []) + ([LinkedAgent.vendor == vendor] if vendor else [])
+            q = q.where(or_(*conds)) if conds else q.where(False)
         out = []
         for c, a in self.session.execute(q.order_by(when.desc()).limit(limit)):
             out.append({"id": str(c.id), "agent": a.name, "agent_id": str(a.id), "vendor": a.vendor, "connector": a.connector,

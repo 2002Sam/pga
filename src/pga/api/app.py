@@ -1528,6 +1528,77 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         user_or_404(rt, user_id)
         return AgentPool(rt).history(user_id, limit)
 
+    def _agent_sources(rt: Runtime, name: str) -> tuple[tuple[str, ...], str | None, str]:
+        """Which past histories belong to this pool agent: its own app's (by adapter), or a vendor's imports."""
+        from pga.agents import pool as ap
+        from pga.hub.service import AGENT_SOURCES
+        p = ap.AgentPool(rt)
+        if name not in p.adapters:
+            raise HTTPException(404, "unknown agent")
+        t = p.adapters[name].type
+        conns = tuple(p.cfg["agents"][name].get("history_from") or AGENT_SOURCES.get(t, ()))
+        vendor = "deepseek" if t == "llm" and "deepseek" in name else None
+        return conns, vendor, t
+
+    @app.get("/v1/users/{user_id}/agents/past-counts")
+    def agents_past_counts(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """How many past conversations each pool agent had in its own app (for the dust around its planet)."""
+        from pga.agents import pool as ap
+        user_or_404(rt, user_id)
+        by = rt.hub.counts(user_id)
+        out = {}
+        for name in ap.AgentPool(rt).adapters:
+            conns, vendor, _t = _agent_sources(rt, name)
+            hits = [v for k, v in by.items() if k.split("|")[0] in conns or (vendor and k.split("|")[1] == vendor)]
+            if hits:
+                out[name] = {"count": sum(h["count"] for h in hits), "recent": sum(h["recent"] for h in hits),
+                             "last": max((h["last"] for h in hits if h["last"]), default=None)}
+        return out
+
+    @app.get("/v1/users/{user_id}/agents/{name}/past")
+    def agents_past(user_id: uuid.UUID, name: str, limit: int = Query(120, le=500), rt: Runtime = Depends(get_rt)):
+        """This agent's conversations in its own app (Codex, Claude Code, Hermes, WorkBuddy…), newest first."""
+        user_or_404(rt, user_id)
+        conns, vendor, _t = _agent_sources(rt, name)
+        return rt.hub.timeline(user_id, limit=limit, connectors=conns, vendor=vendor)
+
+    @app.get("/v1/users/{user_id}/agents/{name}/past/{cid}")
+    def agents_past_one(user_id: uuid.UUID, name: str, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """One past conversation in full, read again from its own app (secrets redacted); excerpt if it is gone."""
+        from pga.db.models import AgentConversation, LinkedAgent
+        from pga.hub.connectors import read_one, redact
+        user_or_404(rt, user_id)
+        c = rt.session.get(AgentConversation, cid)
+        a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
+        if c is None or a is None or a.user_id != user_id:
+            raise HTTPException(404, "conversation not found")
+        full = read_one(a.connector, c.external_id) if a.connector in ("claude_code", "codebuddy", "workbuddy", "codex", "hermes") else None
+        turns = [{"role": r, "text": redact(t)[:20000]} for r, t in (full.turns if full else [])][-200:]
+        return {"id": str(c.id), "agent": a.name, "connector": a.connector, "model": c.model, "title": c.title, "project": c.project,
+                "at": (c.updated_at or c.started_at or c.created_at).isoformat(), "turns": turns, "excerpt": c.excerpt if not turns else "",
+                "resumable": a.connector in ("codex", "claude_code", "codebuddy", "workbuddy")}
+
+    @app.post("/v1/users/{user_id}/agents/{name}/past/{cid}/continue")
+    def agents_past_continue(user_id: uuid.UUID, name: str, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Carry on a past conversation in PGA: Codex resumes the very thread, Claude Code / CodeBuddy the very session;
+        anything else gets the conversation's last turns as history."""
+        import secrets as _secrets
+
+        from pga.agents import links
+        from pga.db.models import AgentConversation, LinkedAgent
+        from pga.hub.service import CONTINUE
+        user_or_404(rt, user_id)
+        conns, _vendor, _t = _agent_sources(rt, name)
+        c = rt.session.get(AgentConversation, cid)
+        a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
+        if c is None or a is None or a.user_id != user_id:
+            raise HTTPException(404, "conversation not found")
+        conversation = f"agent:{name}:past-{_secrets.token_hex(4)}"
+        how = CONTINUE.get(a.connector) if a.connector in conns else None
+        if how:
+            links._put("threads" if how == "thread" else "sessions", f"{name}|{user_id}:{conversation}", c.external_id)
+        return {"conversation": conversation, "resumes": how or "history"}
+
     @app.get("/v1/users/{user_id}/agents/conversations")
     def agents_conversations(user_id: uuid.UUID, card: str = Query(..., pattern=r"^((agent|cat):[A-Za-z0-9_-]{1,40}|team:[0-9a-f-]{36}:[a-z]{2,16})$"),
                              limit: int = Query(40, le=100), rt: Runtime = Depends(get_rt)):

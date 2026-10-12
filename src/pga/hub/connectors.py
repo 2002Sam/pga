@@ -397,13 +397,13 @@ def codex_sessions(roots: tuple[Path, ...] = CODEX_DIRS) -> list[Conv]:
                     models[str(p["model"])] = models.get(str(p["model"]), 0) + 1
                 elif e.get("type") == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "assistant"):
                     text = clean(_text(p.get("content")))
-                    if not text or (p["role"] == "user" and text.lstrip().startswith(_CODEX_PREAMBLE)):
-                        continue
+                    if not text or (p["role"] == "user" and (text.lstrip().startswith(_CODEX_PREAMBLE) or text.lstrip().startswith("<external_"))):
+                        continue                                       # instructions and the app's own internal messages
                     turns.append((p["role"], text))
                     updated = ts or updated
         if not turns or pga_started(cwd) or origin.lower() == "pga":
             continue
-        first_user = next((t for r, t in turns if r == "user"), "")
+        first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
         out.append(Conv(sid, " ".join(first_user.split())[:90], started, updated or started, turns,
                         Path(cwd).name if cwd else None, max(models, key=models.get) if models else None))
     return out
@@ -473,6 +473,25 @@ def detect_local() -> list[dict]:
             found.append({"connector": key, "vendor": c["vendor"], "name": c["name"], "sessions": count,
                           "path": str(p).replace(str(Path.home()), "~")})
     return found
+
+
+def read_one(connector: str, external_id: str) -> Conv | None:
+    """One conversation in full, read again from its own store (PGA keeps only excerpts)."""
+    eid = re.sub(r"[^\w.\-]", "", external_id)[:200]
+    if not eid:
+        return None
+    if connector in ("claude_code", "codebuddy"):
+        root = CLAUDE_CODE_DIR if connector == "claude_code" else CODEBUDDY_DIR
+        f = next(iter(root.glob(f"*/{eid}.jsonl")), None)
+        return _cc_file(f, skip_pga=False) if f else None
+    if connector == "workbuddy":
+        return next((c for c in workbuddy_sessions() if c.external_id == eid), None)
+    if connector == "codex":
+        f = next((p for r in CODEX_DIRS for p in r.glob(f"**/*{eid}*.jsonl")), None)
+        return next(iter(codex_sessions((f.parent,))), None) if f else None
+    if connector == "hermes":
+        return next((c for c in hermes_sessions() if c.external_id == eid), None)
+    return None
 
 
 def read_local(connector: str) -> list[Conv]:

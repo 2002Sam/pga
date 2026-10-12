@@ -754,6 +754,10 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist .he.on::before { content: ""; position: absolute; left: -2px; top: 10px; bottom: 10px; width: 3px; background: #e9a94b; }
 .ag-hist .he.on .ht { color: #fff3d6; }
 .ag-hist .empty { color: rgba(214,224,229,.4); font-size: 12.5px; padding: 6px 14px; }
+.ag-hist .hsep { padding: 14px 14px 4px; font: var(--cap); font-size: 9.5px; letter-spacing: .18em; color: rgba(233,169,75,.7); text-transform: uppercase; }
+.ag-hist .he.past .ht { color: rgba(236,228,214,.62); }
+.tk-past { font-size: 12.5px; color: rgba(214,224,229,.7); padding-bottom: 8px; border-bottom: 1px solid rgba(233,169,75,.2); }
+.tk-past b { color: #f3d38a; font-weight: 500; } .tk-past .ro { margin-left: 8px; font: var(--cap); font-size: 9.5px; letter-spacing: .14em; color: rgba(233,169,75,.6); }
 .ag-card { position: absolute; left: 0; top: 0; width: min(390px, calc(100% - 24px)); height: min(540px, calc(100% - 80px)); z-index: 7; perspective: 1400px; }
 .ag-card[hidden] { display: none; }
 .ag-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3,.7,.2,1); }
@@ -1561,9 +1565,16 @@ async function loadAgentView() {
     b.title = ls.length ? Object.entries(AGV.data.status).filter(([, s]) => s.link).map(([n, s]) => `${n}：${LINK_ZH[s.link.state] || s.link.state} · ${s.link.via_label || ""}`).join("\n") + "\n\n每 30 分钟自动检查；点一下立即检查" : ""; }
   renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
   window.PGA_SET_AGENTS?.(agentGraph(AGV.data));
+  loadPastCounts();
   if (CARD.kind) { const r = $("#agTalkRoute"); if (r) r.innerHTML = cardRoute(); if (CARD.kind === "cat") renderCardBack(); }
 }
 
+async function loadPastCounts() {                       // how much each agent did in its own app → the dust round its planet
+  if (!S.uid) return;
+  try { const c = await api(`/v1/users/${S.uid}/agents/past-counts`); AGV.past = c;
+    setTimeout(() => window.PGA_PAST?.(Object.fromEntries(Object.entries(c).map(([n, v]) => ["pa:" + n, v]))), 600); } catch {}
+}
+setInterval(() => { if (AGM.on && !document.hidden) loadPastCounts(); }, 120000);
 /* ---- the agents side of the sky: the same 3D scene turned over around Earth */
 const AGM = { on: false, busy: false, fold: null, live: [], seen: new Set(), poll: 0, raf: 0 };
 // text flows in: whatever has arrived is revealed a few characters per frame, and the planet beats as it does
@@ -1687,7 +1698,7 @@ function openCard(kind, key) {                       // talk to a planet (or a k
   const el = $("#agTalk");
   closeTalkSettings(true);
   if (!el.hidden && CARD.kind === kind && CARD.key === key) { $("#agTalkInput")?.focus(); return; }
-  CARD.kind = kind; CARD.key = key;
+  CARD.kind = kind; CARD.key = key; if (CARD.past) delete CARD.past[cardK()];   // open on the current conversation
   AGV.sel = kind === "agent" ? key : null; AGV.hoverCat = kind === "cat" ? key : null;
   renderCard(); el.hidden = false; el.style.opacity = 0; HIST.card = null; renderHist(); loadHist(); placeTalk();
   requestAnimationFrame(() => { el.style.opacity = 1; $("#agHist").style.opacity = 1; $("#agMap").style.opacity = 1; });
@@ -1727,6 +1738,10 @@ async function loadHist() {
   const k = cardK();
   try { const list = await api(`/v1/users/${S.uid}/agents/conversations?card=${encodeURIComponent(k)}`); if (cardK() === k) { HIST.card = k; HIST.list = list; renderHist(); } }
   catch { if (cardK() === k) { HIST.card = k; HIST.list = []; renderHist(); } }
+  if (CARD.kind === "agent") {                         // and what this agent did in its own app (imported on a schedule)
+    try { const past = await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(CARD.key)}/past?limit=150`); if (cardK() === k) { HIST.past = past; HIST.pastFor = k; renderHist(); } }
+    catch { HIST.past = []; HIST.pastFor = k; }
+  }
 }
 function renderHist() {
   const box = $("#agHistList"); if (!box || !CARD.kind) return;
@@ -1737,6 +1752,32 @@ function renderHist() {
     + list.map((c) => `<button type="button" class="he ${c.id === cur ? "on" : ""}" data-conv="${esc(c.id)}" title="${esc(c.last || "")}"><span class="ht">${esc(c.title || "（空）")}</span>
       <span class="hm">${when(c.updated_at)} · ${c.turns} 轮${CARD.kind === "cat" && c.agents.length ? " · " + esc(c.agents.join("、")) : ""}${c.ok ? "" : " · 有失败"}</span></button>`).join("")
     || `<div class="empty">还没有和 ${esc(CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key)} 的历史对话</div>`;
+  const past = HIST.pastFor === cardK() ? HIST.past || [] : [], view = CARD.past?.[cardK()];
+  if (past.length) {
+    const src = [...new Set(past.map((c) => c.agent))].join("、");
+    box.insertAdjacentHTML("beforeend", `<div class="hsep">在 ${esc(src)} 里 · ${past.length}</div>`
+      + past.map((c) => `<button type="button" class="he past ${view?.id === c.id ? "on" : ""}" data-past="${esc(c.id)}" title="${esc(c.agent)}${c.model ? " · " + esc(c.model) : ""}">
+        <span class="ht">${esc((c.title || "（无标题）").replace(/^\[[^\]]*\]\s*/, ""))}</span>
+        <span class="hm">${when(c.at)}${c.model ? " · " + esc(c.model) : ""}${c.project ? " · " + esc(c.project) : ""} · ${c.messages} 条</span></button>`).join(""));
+  }
+}
+async function openPast(id) {                         // read a past conversation from the agent's own app, in full, read-only
+  if (CARD.busy || CARD.kind !== "agent") return;
+  const k = cardK();
+  try {
+    const r = await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(CARD.key)}/past/${id}`); if (cardK() !== k) return;
+    (CARD.past ||= {})[k] = r; renderHist(); renderCardLog(); renderOpts();
+  } catch (e) { toast("读取失败：" + e.message); }
+}
+async function continuePast() {                       // carry it on here: the same Codex thread / Claude Code session where possible
+  const k = cardK(), v = CARD.past?.[k]; if (!v) return;
+  try {
+    const r = await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(CARD.key)}/past/${v.id}/continue`, { method: "POST" });
+    CARD.conv[k] = r.conversation; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
+    CARD.log[k] = (v.turns || []).slice(-20).map((t) => t.role === "user" ? { role: "user", text: t.text } : { role: "agent", agent: v.agent, model: v.model, text: t.text });
+    delete CARD.past[k]; saveCards(); renderHist(); renderCardLog(); renderOpts(); $("#agTalkInput")?.focus();
+    toast(r.resumes === "thread" ? "接着聊：会续上原来的那个线程" : r.resumes === "session" ? "接着聊：会续上原来的那个会话" : "接着聊：最近的对话内容会一起带上");
+  } catch (e) { toast("没能接上：" + e.message); }
 }
 async function openConversation(id) {
   if (CARD.busy || !CARD.kind) return;
@@ -1951,6 +1992,16 @@ function renderCardBack() {
 }
 function renderCardLog() {
   const box = $("#agTalkLog"); if (!box) return;
+  const view = CARD.past?.[cardK()];
+  if (view) {
+    const turns = view.turns || [];
+    box.innerHTML = `<div class="tk-past"><b>${esc(view.agent)}</b>${view.model ? ` · ${esc(view.model)}` : ""}${view.project ? ` · ${esc(view.project)}` : ""} · ${new Date(view.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+        <span class="ro">只读 · 来自原应用</span><span class="acts2" style="opacity:1"><button type="button" data-pastact="go">↪ 接着聊${view.resumable ? "（续上原线程）" : ""}</button><button type="button" data-pastact="back">返回</button></span></div>`
+      + (turns.length ? turns.map((t) => t.role === "user" ? `<div class="tk-me">${esc(t.text)}</div>`
+          : `<div class="tk-it"><span class="m">${esc(view.agent)}${view.model ? " · " + esc(view.model) : ""}</span><div class="body">${richMd(t.text)}</div></div>`).join("")
+        : `<div class="tk-it"><span class="m">摘录（原文件已不在本机）</span><div class="body"><span class="pre">${esc(view.excerpt || "")}</span></div></div>`);
+    enhanceMd(box); box.scrollTop = 0; return;
+  }
   const log = CARD.log[cardK()] || [];
   const off = Math.max(0, log.length - 14), lastA = log.map((m) => m.role).lastIndexOf("agent");
   box.innerHTML = log.slice(-14).map((m, j) => { const i = off + j; return m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}${(m.docs || []).length ? `<span class="docs">${m.docs.map((d) => "📄 " + esc(d)).join("　")}</span>` : ""}
@@ -1965,6 +2016,7 @@ const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.ent
   .map((m) => Object.fromEntries(Object.entries(m).filter(([f]) => !f.startsWith("_")))); store.set("pga_cards", JSON.stringify(keep)); } catch {} };   // attachments stay in memory only
 async function cardSend(text) {
   if (!text || CARD.busy || !CARD.kind) return;
+  if (CARD.past?.[cardK()]) return toast("这是原应用里的旧对话：先按「接着聊」，再在这里继续");
   CARD.busy = true;
   const kind = CARD.kind, key = CARD.key, k = cardK();
   if (CARD.editAt != null) {                         // edited and resent: the conversation goes on from there, in a new branch
@@ -2123,7 +2175,8 @@ function bindAgentView() {
   });
   const hist = $("#agHist");
   hist.addEventListener("click", (e) => {
-    const c = e.target.closest("[data-conv]"); if (c) return openConversation(c.dataset.conv);
+    const pp = e.target.closest("[data-past]"); if (pp) return openPast(pp.dataset.past);
+    const c = e.target.closest("[data-conv]"); if (c) { if (CARD.past) delete CARD.past[cardK()]; return openConversation(c.dataset.conv); }
     if (e.target.closest('[data-hist="new"]')) newConversation();
   });
   hist.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -2161,6 +2214,8 @@ function bindAgentView() {
     }
   });
   talk.addEventListener("click", (e) => {
+    const pa = e.target.closest("[data-pastact]");
+    if (pa) { if (pa.dataset.pastact === "go") continuePast(); else { delete CARD.past[cardK()]; renderHist(); renderCardLog(); renderOpts(); } return; }
     const cp = e.target.closest("[data-copy]"); if (cp) { copyText(cp.closest("pre")?.querySelector("code")?.innerText || ""); return; }
     const b = e.target.closest("[data-msg]"); if (!b || CARD.busy || !CARD.kind) return;
     const k = cardK(), log = CARD.log[k] || [], i = +b.dataset.i;
@@ -3856,7 +3911,29 @@ window.PGA_TALK = (id) => {
   if (TALK) { focusId = TALK; flyT = 1; resetPan(); } else if (was) { focusId = null; flyT = 1; }
   focusLinks();
 };
-window.PGA_PEEK = (on) => { PEEK = !!on; };                                // hovering the overview map: everything back for a moment
+window.PGA_PEEK = (on) => { PEEK = !!on; };
+const PAST = {};                                                           // id → {count, recent} last drawn
+window.PGA_PAST = (map) => {                                               // the dust round each agent: its past in its own app
+  for (const [id, v] of Object.entries(map || {})) {
+    const n = nodes.get(id); if (!n || !v) continue;
+    const before = PAST[id]?.count ?? null; PAST[id] = v;
+    const want = Math.min(90, Math.round(9 * Math.log2(1 + v.count)));
+    if (!n.dust || n.dust.userData.k !== want || n.dust.userData.recent !== v.recent) {
+      if (n.dust) { n.group.remove(n.dust); n.dust.geometry.dispose(); n.dust.material.dispose(); }
+      const pos = new Float32Array(want * 3), col = new Float32Array(want * 3), hot = Math.min(want, Math.round(want * Math.min(1, v.recent / Math.max(1, v.count)) + (v.recent ? 2 : 0)));
+      for (let i = 0; i < want; i++) {
+        const a = (i / want) * Math.PI * 2 + hash(id + i) * .35, rr = n.r * (2.3 + hash(id + "r" + i) * 1.1), y = (hash(id + "y" + i) - .5) * n.r * .5;
+        pos.set([Math.cos(a) * rr, y, Math.sin(a) * rr], i * 3);
+        const c = i < hot ? GOLD : new THREE.Color(INK.hi); col.set([c.r, c.g, c.b], i * 3);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      n.dust = new THREE.Points(g, new THREE.PointsMaterial({ size: .07, vertexColors: true, transparent: true, opacity: .75, depthWrite: false, sizeAttenuation: true }));
+      n.dust.userData = { k: want, recent: v.recent, tilt: (hash(id) - .5) * .5 };
+      n.dust.rotation.x = n.dust.userData.tilt; n.group.add(n.dust);
+    }
+    if (before != null && v.count > before) { for (let i = 0; i < Math.min(3, v.count - before); i++) setTimeout(() => ripple(n.pos, 1.4 + n.r * 3, GOLD), i * 380); n.flash = 1; }
+  }
+};                                // hovering the overview map: everything back for a moment
 function dimNode(n, k) {                                                   // a planet stepping back: see-through, its rings faint
   const off = k < .999; if (!off && !n.dimmed) return; n.dimmed = off;
   const u = n.mesh.material.uniforms; if (u?.uOp) { u.uOp.value = off ? .12 + .88 * k : 1; n.mesh.material.depthWrite = !off; }   // the field shows through
@@ -4883,6 +4960,7 @@ function frame(now) {
       n.spin.rotation.y -= dt * (thinking ? 4 : 1);
     }
     if (n.rings) n.rings.scale.setScalar(s);
+    if (n.dust) { n.dust.rotation.y += dt * .12 * motion; n.dust.scale.setScalar(Math.max(.001, wv) * (.62 + .38 * (n.tk ?? 1)) * appear); }
     if (n.orbitLine) {
       const o = n.orbit, p = nodes.get(o.parent);
       n.orbitLine.position.copy(p ? p.pos : _v.set(0, 0, 0)); n.orbitLine.scale.setScalar(Math.max(.01, o.r)); n.orbitLine.rotation.x = -o.incl;
