@@ -1314,6 +1314,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.post("/v1/agents/live/{lid}/stop")
+    def agents_stop(lid: str):
+        """Stop an answer while it is being written: the agent is interrupted, what it said so far is kept."""
+        from pga.agents import live
+        if not live.stop(lid):
+            raise HTTPException(409, "that answer is not running")
+        return {"stopping": lid}
+
     @app.get("/v1/agents/{name}/options")
     def agent_options(name: str, rt: Runtime = Depends(get_rt)):
         """What you can choose when talking to this agent: models (with their efforts), and whether it takes images."""
@@ -1424,6 +1432,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            model=str(body["model"]) if body.get("model") else None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
                                            images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
+                                           files=[x for x in body.get("files") or [] if isinstance(x, dict)][:6],
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)

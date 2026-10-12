@@ -168,3 +168,47 @@ def test_you_can_pick_the_model_and_attach_pictures(rt, user, provider, cfg, tmp
         r.ask(user, "看看这张图", agent="fast", images=[{"name": "a.png", "data": png}])
     saved = _save_images([{"name": "shot one.png", "data": png}, {"name": "x", "data": "not an image"}], str(tmp_path))
     assert len(saved) == 1 and saved[0].endswith(".png") and "uploads" in saved[0]
+
+
+def test_stop_keeps_what_was_said_and_nobody_takes_over(rt, user, provider, cfg, tmp_path):
+    import threading
+    import time as _t
+
+    from pga.agents import live
+    slow = tmp_path / "slow.py"
+    slow.write_text("import sys, time\nsys.stdin.read()\nprint('part one', flush=True)\ntime.sleep(30)\nprint('never', flush=True)\n")
+    cfg["agents"]["slow"] = {"adapter": "process", "command": [sys.executable, str(slow)], "capabilities": ["serious"]}
+    cfg["routing"]["categories"]["serious"]["prefer"] = ["slow", "fast"]
+    r = AgentRouter(rt, AgentPool(rt, cfg))
+    out = {}
+    th = threading.Thread(target=lambda: out.update(r.ask(user, "分析一下这个决策的风险")))
+    t0 = _t.time()
+    th.start()
+    lid = None
+    while _t.time() - t0 < 10 and not lid:
+        lid = next((x["id"] for x in live.snapshot() if x["agent"] == "slow" and x["running"] and "part one" in x["text"]), None)
+        _t.sleep(0.05)
+    assert lid and live.stop(lid)
+    th.join(15)
+    assert out["stopped"] and out["agent"] == "slow" and "part one" in out["text"] and "never" not in out["text"]
+    assert _t.time() - t0 < 12 and [t["agent"] for t in out["tried"]] == ["slow"]        # stopped, not handed to "fast"
+
+
+def test_documents_are_read_here_and_go_with_the_question(rt, user, provider, cfg, tmp_path):
+    import base64
+    import zipfile
+
+    from pga.agents.files import attachments_block, extract
+    x = tmp_path / "t.xlsx"
+    with zipfile.ZipFile(x, "w") as z:
+        z.writestr("xl/sharedStrings.xml", '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><si><t>城市</t></si><si><t>杭州</t></si></sst>')
+        z.writestr("xl/worksheets/sheet1.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+                   '<row><c t="s"><v>0</v></c><c><v>42</v></c></row><row><c t="s"><v>1</v></c></row></sheetData></worksheet>')
+    assert extract(x)[0].splitlines()[1:] == ["城市\t42", "杭州"]
+    block, info = attachments_block([str(x)])
+    assert "杭州" in block and info[0]["how"] == "xlsx"
+    provider.handler = lambda s, m: "read it"
+    note = "data:text/plain;base64," + base64.b64encode("会议在周三下午三点".encode()).decode()
+    out = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "会议是什么时候？", agent="fast", files=[{"name": "notes.txt", "data": note}])
+    assert out["ok"] and out["attachments"][0]["name"] == "notes.txt"
+    assert "周三下午三点" in provider.calls[-1].messages[-1]["content"]          # the document's text went with the question

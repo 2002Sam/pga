@@ -131,8 +131,11 @@ class CLIAdapter(Adapter):
                 p.kill()
                 live.append(lid, f"\n（{task.timeout_s:.0f} 秒内没有完成）")
                 return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
+            if live.stopped(lid):                              # you pressed stop: keep what it said so far
+                p.kill()
+                return AgentResult(ok=bool(live.text(lid).strip()), text=live.text(lid).strip(), status="STOPPED", error=None if live.text(lid).strip() else "你停止了生成", data={"stopped": True})
             try:
-                line = lines.get(timeout=min(left, 1.0))
+                line = lines.get(timeout=min(left, 0.5))
             except queue.Empty:
                 continue
             if line is None:
@@ -487,6 +490,10 @@ class Http(Adapter):
                            data=d.get("data") or {}, error=d.get("error"), cost_usd=d.get("cost_usd"))
 
 
+class _Stopped(Exception):
+    pass
+
+
 class LLM(Adapter):
     """PGA's own model through the router. Usage is handed back to the caller to record (threads must not touch
     the database session)."""
@@ -517,9 +524,15 @@ class LLM(Adapter):
         messages = hist + [{"role": "user", "content": ask + ("\n\nReply with JSON only." if task.want_json else "")}]
         lid, provider = task.meta.get("live_id"), self.rt.router.provider
         if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written
-            r = provider.stream(model=chosen or self.rt.router.model_for(tier), system=system, messages=messages,
-                                max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None,
-                                on_delta=lambda piece: live.append(lid, piece))
+            def piece_in(piece: str) -> None:
+                live.append(lid, piece)
+                if live.stopped(lid):
+                    raise _Stopped
+            try:
+                r = provider.stream(model=chosen or self.rt.router.model_for(tier), system=system, messages=messages,
+                                    max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None, on_delta=piece_in)
+            except _Stopped:
+                return AgentResult(ok=bool(live.text(lid).strip()), text=live.text(lid).strip(), status="STOPPED", error=None if live.text(lid).strip() else "你停止了生成", data={"stopped": True}, model=chosen or self.rt.router.model_for(tier))
             r.tier = tier
         elif chosen:
             r = provider.complete(model=chosen, system=system, messages=messages, max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None)

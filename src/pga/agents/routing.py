@@ -78,6 +78,27 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
     return out
 
 
+def _save_files(files: list[dict] | None, ws: str) -> list[str]:
+    """Documents you attached (data URLs, ≤20 MB each) → files in the conversation's folder."""
+    import base64
+    import re as _re
+    out = []
+    for i, f in enumerate((files or [])[:6]):
+        m = _re.match(r"data:[^;,]*(;[^,]*)?;base64,(.+)", str(f.get("data") or ""), _re.S)
+        if not m:
+            continue
+        raw = base64.b64decode(m.group(2), validate=False)
+        if len(raw) > 20_000_000:
+            continue
+        d = Path(ws) / "uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        name = _re.sub(r"[^\w.\-]", "_", str(f.get("name") or f"file-{i + 1}"))[:80] or f"file-{i + 1}"
+        p = d / f"{int(time.time())}-{i + 1}-{name}"
+        p.write_bytes(raw)
+        out.append(str(p))
+    return out
+
+
 def classify(text: str) -> tuple[str, str]:
     """(category, why) by rules; no model call, so it costs nothing and never waits."""
     hits = {cat: len(rx.findall(text or "")) for cat, rx in RULES}
@@ -147,12 +168,13 @@ class AgentRouter:
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
-            images: list[dict] | None = None) -> dict:
+            images: list[dict] | None = None, files: list[dict] | None = None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
         `model` / `effort` are what you picked for a named agent (its own default otherwise); `images` are pictures
-        you attached ({name, data: data URL}) — only agents that take images are asked."""
+        you attached ({name, data: data URL}) — only agents that take images are asked. `files` are documents (PDF, Word,
+        Excel, PowerPoint, text, code): read here and given to the agent as text (an agent that opens files gets the path too)."""
         from pga.agents.options import options as agent_options
         if category and category not in (self.cfg.get("categories") or {}):
             raise ValueError(f"unknown category {category!r}")
@@ -176,19 +198,30 @@ class AgentRouter:
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text)
         run_id, t0, steps = uuid.uuid4(), utcnow(), []
-        result_text, used, files = "", None, []
+        result_text, used, docs, attached = "", None, files, []
+        files = []
         for name in order:
             ad = self.pool.adapters[name]
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
             ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
             before = time.time()
             pics = _save_images(images, ws)
+            said, prompt_now = text, prompt
+            if docs:                                      # documents: their text goes with the question
+                from pga.agents.files import attachments_block
+                paths = _save_files(docs, ws)
+                block, attached = attachments_block(paths)
+                said = f"{text}\n\n{block}"
+                prompt_now = prompt.replace(text, said) if text in prompt else f"{prompt}\n\n{block}"
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
-                    "new_text": text, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
+                    "new_text": said, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
-            step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM + (f"\n\n{context}" if context else ""), kind=cat, workspace=ws, permissions=perms,
+            step = self.pool._call(name, self.pool._task(name, prompt_now, system=ASK_SYSTEM + (f"\n\n{context}" if context else ""), kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
             steps.append(step)
+            if step.result.status == "STOPPED":            # you stopped it: no other agent takes over
+                result_text, used = step.result.text, name if step.result.ok else None
+                break
             if step.result.ok:
                 result_text, used = step.result.text, name
                 files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
@@ -197,7 +230,8 @@ class AgentRouter:
         res = PoolResult(bool(used), result_text, "ask", "single",
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
                           "model": steps[-1].result.model if used else None, "effort": (steps[-1].result.data or {}).get("effort") or effort if used else None,
-                          "images": len(images or []),
+                          "images": len(images or []), "attachments": attached,
+                          "stopped": bool(steps and steps[-1].result.status == "STOPPED"),
                           **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
                          error=None if used else "; ".join(f"{s.result.agent}: {s.result.error}" for s in steps)[:800] or "no agent available")
         res.run_id = run_id
@@ -206,7 +240,8 @@ class AgentRouter:
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,
                 "files": files, "tried": [{"agent": s.result.agent, "status": s.result.status, "error": s.result.error} for s in steps],
                 "duration_s": round((utcnow() - t0).total_seconds(), 1), "cost_usd": last.cost_usd if last else None,
-                "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort")}
+                "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort"),
+                "stopped": res.data.get("stopped"), "attachments": attached}
 
     # -------------------------------------------------------------- long-term work
 

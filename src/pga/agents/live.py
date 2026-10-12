@@ -41,10 +41,35 @@ def finish(lid: str | None, ok: bool, text: str | None = None, error: str | None
         return
     with _LOCK:
         r = _RUNS.get(lid)
+        _STOP.discard(lid)
         if r is not None:
             r["finished"], r["ok"], r["error"] = time.time(), ok, error
             if text and not r["text"].strip():
                 r["text"] = text[-MAX_TEXT:]
+
+
+_STOP: set[str] = set()
+
+
+def stop(lid: str) -> bool:
+    """You pressed stop: the agent working on this run is told to stop (each adapter checks `stopped`)."""
+    with _LOCK:
+        r = _RUNS.get(lid)
+        if r is None or r["finished"] is not None:
+            return False
+        _STOP.add(lid)
+        return True
+
+
+def stopped(lid: str | None) -> bool:
+    return bool(lid) and lid in _STOP
+
+
+def text(lid: str | None) -> str:
+    """What the agent has said so far (kept when it is stopped)."""
+    with _LOCK:
+        r = _RUNS.get(lid or "")
+        return r["text"] if r else ""
 
 
 def snapshot() -> list[dict]:

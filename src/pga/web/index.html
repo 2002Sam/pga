@@ -8,6 +8,10 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><radialGradient id='g'><stop offset='0' stop-color='%23b9f3ff'/><stop offset='.55' stop-color='%236ee7ff'/><stop offset='1' stop-color='%238b5cf6'/></radialGradient></defs><circle cx='16' cy='16' r='13' fill='url(%23g)'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
 <script type="importmap">
 { "imports": {
   "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
@@ -596,7 +600,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #app.agentmode #agOverlay { opacity: 1; visibility: visible; transition: opacity .7s ease .9s, visibility 0s; }
 #agOverlay > * { pointer-events: auto; }
 #agOverlay > #agBubbles { pointer-events: none; }
-#app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
+#app.agentmode .ticker, #app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
 .nlabel.pool small { color: rgba(243,211,138,.75); } .nlabel.pool.off { opacity: .55 !important; }
 .ag-bubble { position: absolute; left: 0; top: 0; width: 290px; max-height: 150px; overflow: hidden; display: flex; flex-direction: column;
   color: #f4ead6; font-size: 12.5px; line-height: 1.7; transition: opacity 1.2s; pointer-events: none;
@@ -640,6 +644,30 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .tk-it .m { display: block; font: var(--cap); font-size: 10.5px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
 .tk-it .body { white-space: pre-wrap; overflow-wrap: anywhere; color: #f6ecd8; }
 .tk-it .body code { font-family: var(--mono); font-size: 14px; color: #f3d38a; }
+.tk-it .body:has(.md) { white-space: normal; }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.md p { margin: .45em 0; } .md ul, .md ol { margin: .4em 0; padding-left: 1.4em; } .md li { margin: .15em 0; }
+.md h1, .md h2, .md h3, .md h4 { margin: .8em 0 .35em; font-weight: 600; line-height: 1.35; color: #fff3d6; } .md h1 { font-size: 1.25em; } .md h2 { font-size: 1.15em; } .md h3, .md h4 { font-size: 1.02em; }
+.md blockquote { margin: .5em 0; padding-left: 12px; border-left: 2px solid rgba(233,169,75,.5); color: rgba(236,228,214,.75); }
+.md table { border-collapse: collapse; margin: .6em 0; font-size: .92em; display: block; overflow-x: auto; max-width: 100%; }
+.md th, .md td { border: 1px solid rgba(220,232,238,.18); padding: 4px 9px; text-align: left; } .md th { color: #fff3d6; background: rgba(233,169,75,.08); }
+.md hr { border: 0; border-top: 1px solid rgba(220,232,238,.15); margin: .8em 0; }
+.md a { color: #f3d38a; }
+.md :not(pre) > code { font-family: var(--mono); font-size: .92em; color: #f3d38a; background: rgba(233,169,75,.08); padding: 0 4px; }
+.md pre { position: relative; margin: .6em 0; padding: 12px 14px; background: rgba(3,5,8,.72); border: 1px solid rgba(220,232,238,.1); overflow-x: auto; text-shadow: none; }
+.md pre code { font-family: var(--mono); font-size: 12.5px; line-height: 1.55; color: #e6edf3; background: none; padding: 0; white-space: pre; }
+.md pre .cp { position: absolute; top: 6px; right: 6px; border: 1px solid rgba(220,232,238,.2); background: rgba(14,21,26,.9); color: rgba(236,228,214,.7); font-size: 10.5px; padding: 1px 7px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+.md pre:hover .cp { opacity: 1; }
+.tk-it .pre { white-space: pre-wrap; }
+.tk-it .acts2, .tk-me .acts2 { display: flex; gap: 12px; margin-top: 4px; opacity: 0; transition: opacity .15s; }
+.tk-it:hover .acts2, .tk-me:hover .acts2, .tk-it.last .acts2 { opacity: 1; }
+.acts2 button { border: 0; background: transparent; color: rgba(214,224,229,.5); font: inherit; font-size: 11.5px; padding: 0; cursor: pointer; text-shadow: inherit; }
+.acts2 button:hover { color: #fff3d6; }
+.tk-me .docs, .ag-talk .tk-pics .doc { font-size: 12px; color: rgba(214,224,229,.65); }
+.ag-talk .tk-pics .doc { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid rgba(233,169,75,.3); height: fit-content; }
+.ag-talk .tk-pics .doc button { border: 0; background: transparent; color: #f3d38a; cursor: pointer; padding: 0 0 0 4px; }
+.ag-talk .tk-opts .editing { color: #f3d38a; }
+.ag-talk .tk-opts button.stop { color: #f08a7a; }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
 .tk-it .files { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
@@ -1042,7 +1070,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
         <div class="tk-pics" id="agTalkPics"></div>
         <form class="tk-ask" id="agTalkAsk"><textarea id="agTalkInput" rows="1" spellcheck="false" aria-label="输入"></textarea></form>
         <div class="tk-opts" id="agTalkOpts"></div>
-        <input type="file" id="agTalkFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+        <input type="file" id="agTalkFile" accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.rtf,.odt,.xlsx,.pptx,.txt,.md,.csv,.tsv,.json,.yaml,.yml,.xml,.html,.htm,.py,.js,.ts,.java,.go,.rs,.sql,.log,.tex" multiple hidden>
       </div>
       <div class="ag-card" id="agCard" hidden role="dialog" aria-label="对话">
         <div class="ag-card-in">
@@ -1586,6 +1614,7 @@ async function pollLive() {
   for (const [pend, sel, key] of [[AGV.chat.find((m) => m.pending), "#agLog .ag-msg.flowing .body", "chat"], [cardPend, "#agTalk .tk-it.flowing .body", "card"]]) {
     if (!pend || !pend.target) continue;
     const r = [...list].reverse().find((x) => x.agent === pend.target && x.workflow === "chat" && x.started >= pend.since - 2);
+    if (r && key === "card") { pend.lid = r.running ? r.id : null; if (pend.stopWanted && r.running) { pend.stopWanted = false; api(`/v1/agents/live/${r.id}/stop`, { method: "POST" }).catch(() => {}); } }
     if (r && r.text) { pend.stream = r.text; const el = document.querySelector(sel); if (el) flowTo(key, r.text, el, r.agent); }
   }
   window.PGA_RUNNING?.(list.filter((r) => r.running).map((r) => "pa:" + r.agent));
@@ -1697,8 +1726,8 @@ async function openConversation(id) {
   if (id === CARD.conv[k] && (CARD.log[k] || []).length) return;
   try {
     const r = await api(`/v1/users/${S.uid}/agents/conversation?id=${encodeURIComponent(id)}`); if (cardK() !== k) return;
-    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text, images: m.images || 0 }
-      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort });
+    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text, images: m.images || 0, docs: m.attachments || [] }
+      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort, stopped: m.stopped });
     CARD.conv[k] = id; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
     saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
   } catch (e) { toast("读取这段对话失败：" + e.message); }
@@ -1807,7 +1836,7 @@ function cardRoute() {
   return `${esc(d.agents[CARD.key]?.role || "")} · ${esc(agTag(s))}`;
 }
 /* what you can choose for one agent: model, effort, pictures (GET /v1/agents/{name}/options) */
-const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {} };
+const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {}, docs: {} };
 const EFF_ZH = { minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极限" };
 async function loadOpts(agent) {
   if (OPTS.by[agent]) return renderOpts();
@@ -1824,20 +1853,24 @@ function chosen(agent) {                              // what is picked for this
 function renderOpts() {
   const box = $("#agTalkOpts"); if (!box || !CARD.kind) return;
   const k = cardK(), pics = OPTS.pics[k] || [];
-  if (CARD.kind !== "agent") {                        // a kind of work: the agent is picked per question; pictures only
-    box.innerHTML = `<button type="button" data-opt="pic" title="附上图片（也可以直接粘贴或拖进来）；会交给能看图的 agent">＋ 图片</button>`;
+  const lead = (CARD.busy ? `<button type="button" class="stop" data-opt="stop" title="停止生成：保留已经写出的部分">■ 停止</button>` : "")
+    + (CARD.editAt != null ? `<span class="editing">正在修改第 ${CARD.editAt + 1} 条 · 发送后从这里重新开始 <button type="button" data-opt="unedit">取消</button></span>` : "");
+  if (CARD.kind !== "agent") {                        // a kind of work: the agent is picked per question
+    box.innerHTML = lead + `<button type="button" data-opt="pic" title="附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）">＋ 附件</button>`;
   } else {
     const a = CARD.key, { model, effort, m, o } = chosen(a);
     const models = o.models || [];
     const dm = models.find((x) => x.id === o.default_model);
-    box.innerHTML = (models.length ? `<label>模型<select data-opt="model"><option value="">默认${dm ? " · " + esc(dm.label) : o.default_model ? " · " + esc(o.default_model) : ""}</option>
+    box.innerHTML = lead + (models.length ? `<label>模型<select data-opt="model"><option value="">默认${dm ? " · " + esc(dm.label) : o.default_model ? " · " + esc(o.default_model) : ""}</option>
         ${models.map((x) => `<option value="${esc(x.id)}" ${x.id === model ? "selected" : ""}>${esc(x.label)}${x.images ? "" : " · 不看图"}</option>`).join("")}</select></label>` : "")
       + ((m?.efforts || []).length ? `<label>强度<select data-opt="effort"><option value="">默认${m.default_effort ? " · " + esc(EFF_ZH[m.default_effort] || m.default_effort) : o.default_effort ? " · " + esc(EFF_ZH[o.default_effort] || o.default_effort) : ""}</option>
         ${m.efforts.map((e) => `<option value="${esc(e.id)}" ${e.id === effort ? "selected" : ""}>${esc(e.label)}</option>`).join("")}</select></label>` : "")
-      + `<button type="button" data-opt="pic" ${o.images === false || (m && m.images === false) ? 'disabled title="这个模型不能看图片"' : 'title="附上图片（也可以直接粘贴或拖进来）"'}>＋ 图片</button>`
+      + `<button type="button" data-opt="pic" title="${o.images === false || (m && m.images === false) ? "附上文档（这个模型不能看图片，只能读文档的文字）" : "附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）"}">＋ 附件</button>`
       + (o.via ? `<span class="via">经由 ${esc(o.via)}</span>` : "");
   }
-  $("#agTalkPics").innerHTML = pics.map((p, i) => `<div class="pic" style="background-image:url('${p.data}')" title="${esc(p.name)}"><button type="button" data-opt="unpic" data-i="${i}" aria-label="去掉">×</button></div>`).join("");
+  const docs = OPTS.docs[k] || [], kb = (n) => n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
+  $("#agTalkPics").innerHTML = pics.map((p, i) => `<div class="pic" style="background-image:url('${p.data}')" title="${esc(p.name)}"><button type="button" data-opt="unpic" data-i="${i}" aria-label="去掉">×</button></div>`).join("")
+    + docs.map((d, i) => `<span class="doc" title="${esc(d.name)}">📄 ${esc(d.name.length > 28 ? d.name.slice(0, 26) + "…" : d.name)} · ${kb(d.size)}<button type="button" data-opt="undoc" data-i="${i}" aria-label="去掉">×</button></span>`).join("");
 }
 function shrinkImage(file) {                          // big photos are scaled to ≤1800 px so a question stays light
   return new Promise((done) => {
@@ -1853,11 +1886,22 @@ function shrinkImage(file) {                          // big photos are scaled t
     r.onerror = () => done(null); r.readAsDataURL(file);
   });
 }
-async function addPics(files) {
+const DOC_RX = /\.(pdf|docx?|rtf|odt|xlsx|pptx|txt|md|markdown|csv|tsv|json|ya?ml|xml|html?|py|js|ts|tsx|jsx|java|go|rs|rb|sh|sql|log|ini|toml|css|tex|swift|c|h|cpp)$/i;
+async function addPics(files) {                       // images → pictures; documents → read on this machine and sent as text
   if (!CARD.kind) return;
-  const k = cardK(), list = (OPTS.pics[k] ||= []);
-  if (CARD.kind === "agent") { const { o, m } = chosen(CARD.key); if (o.images === false || m?.images === false) return toast("这个模型不能看图片：换一个模型或 agent"); }
-  for (const f of [...files].filter((f) => /^image\//.test(f.type)).slice(0, 6 - list.length)) { const p = await shrinkImage(f); if (p) list.push(p); }
+  const k = cardK(), list = (OPTS.pics[k] ||= []), docs = (OPTS.docs[k] ||= []);
+  const noImages = CARD.kind === "agent" && (() => { const { o, m } = chosen(CARD.key); return o.images === false || m?.images === false; })();
+  for (const f of [...files]) {
+    if (/^image\//.test(f.type)) {
+      if (noImages) { toast("这个模型不能看图片：换一个模型或 agent（文档可以）"); continue; }
+      if (list.length < 6) { const p = await shrinkImage(f); if (p) list.push(p); }
+    } else if (DOC_RX.test(f.name)) {
+      if (f.size > 20e6) { toast(`${f.name} 超过 20 MB`); continue; }
+      if (docs.length >= 6) continue;
+      const data = await new Promise((done) => { const r = new FileReader(); r.onload = () => done(String(r.result)); r.onerror = () => done(null); r.readAsDataURL(f); });
+      if (data) docs.push({ name: f.name, size: f.size, data });
+    } else toast(`${f.name}：这种文件还读不了`);
+  }
   renderOpts();
 }
 function thumb(dataUrl) {                             // a small copy for the conversation log (the log is kept in this browser)
@@ -1890,20 +1934,30 @@ function renderCardBack() {
 function renderCardLog() {
   const box = $("#agTalkLog"); if (!box) return;
   const log = CARD.log[cardK()] || [];
-  box.innerHTML = log.slice(-14).map((m) => m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}</div>`
+  const off = Math.max(0, log.length - 14), lastA = log.map((m) => m.role).lastIndexOf("agent");
+  box.innerHTML = log.slice(-14).map((m, j) => { const i = off + j; return m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}${(m.docs || []).length ? `<span class="docs">${m.docs.map((d) => "📄 " + esc(d)).join("　")}</span>` : ""}
+      ${CARD.busy ? "" : `<span class="acts2"><button type="button" data-msg="edit" data-i="${i}">✎ 修改后重发</button><button type="button" data-msg="copy" data-i="${i}">复制</button></span>`}</div>`
     : m.pending ? `<div class="tk-it flowing"><span class="m">${esc(m.agent || "…")} · 正在回答</span><span class="body"></span></div>`
-    : `<div class="tk-it ${m.ok === false ? "err" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}</span><span class="body">${m.text ? agMd(m.text) : esc(m.error || "")}</span>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
+    : `<div class="tk-it ${m.ok === false ? "err" : ""} ${i === lastA ? "last" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.stopped ? " · 已停止" : ""}</span><div class="body">${m.text ? richMd(m.text) : esc(m.error || "")}</div>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}
+      ${CARD.busy ? "" : `<span class="acts2">${m.text ? `<button type="button" data-msg="copy" data-i="${i}">复制</button>` : ""}${i === lastA ? `<button type="button" data-msg="regen">↻ 重新生成</button>` : ""}</span>`}</div>`; }).join("");
+  enhanceMd(box);
   box.scrollTop = box.scrollHeight;
 }
-const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.entries(CARD.log)) keep[k] = v.filter((m) => !m.pending).slice(-20); store.set("pga_cards", JSON.stringify(keep)); } catch {} };
+const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.entries(CARD.log)) keep[k] = v.filter((m) => !m.pending).slice(-20)
+  .map((m) => Object.fromEntries(Object.entries(m).filter(([f]) => !f.startsWith("_")))); store.set("pga_cards", JSON.stringify(keep)); } catch {} };   // attachments stay in memory only
 async function cardSend(text) {
   if (!text || CARD.busy || !CARD.kind) return;
-  const kind = CARD.kind, key = CARD.key, k = cardK(), log = (CARD.log[k] ||= []);
+  CARD.busy = true;
+  const kind = CARD.kind, key = CARD.key, k = cardK();
+  if (CARD.editAt != null) {                         // edited and resent: the conversation goes on from there, in a new branch
+    CARD.log[k] = (CARD.log[k] || []).slice(0, CARD.editAt); CARD.editAt = null; convOf(k, true);
+  }
+  const log = (CARD.log[k] ||= []);
   const history = log.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
-  const pics = OPTS.pics[k] || [], ch = kind === "agent" ? chosen(key) : {};
-  const thumbs = await Promise.all(pics.map((p) => thumb(p.data))); OPTS.pics[k] = []; renderOpts();
-  log.push({ role: "user", text, thumbs, images: pics.length }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
-  CARD.busy = true; FLOW.delete("card"); renderCardLog();
+  const pics = OPTS.pics[k] || [], docs = OPTS.docs[k] || [], ch = kind === "agent" ? chosen(key) : {};
+  const thumbs = await Promise.all(pics.map((p) => thumb(p.data))); OPTS.pics[k] = []; OPTS.docs[k] = [];
+  log.push({ role: "user", text, thumbs, images: pics.length, docs: docs.map((d) => d.name), _pics: pics, _docs: docs }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
+  FLOW.delete("card"); renderCardLog(); renderOpts();
   let target = kind === "agent" ? key : null;
   if (!target) { try { const r = await api(`/v1/agents/route?category=${encodeURIComponent(key)}`); target = r.ranking.find((x) => x.usable)?.agent; } catch {} }
   pend.target = target; pend.agent = target; if (cardK() === k) renderCardLog();
@@ -1911,13 +1965,13 @@ async function cardSend(text) {
   pollLive();
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k),
-      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })) } });
+      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })), files: docs.map((d) => ({ name: d.name, data: d.data })) } });
     const el = document.querySelector("#agTalk .tk-it.flowing .body");           // let the rest of the answer flow out before it settles
     if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
     Object.assign(pend, r, { pending: false });
     if (r.agent) window.PGA_ROUTE?.(["pa:" + r.agent, "you"], 2500);
   } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
-  CARD.busy = false; saveCards(); if (cardK() === k) { renderCardLog(); loadHist(); } loadAgentView();
+  CARD.busy = false; saveCards(); if (cardK() === k) { renderCardLog(); renderOpts(); loadHist(); } loadAgentView();
 }
 
 /* ---- the left panel: dispatch rules */
@@ -1970,6 +2024,29 @@ function renderAgPicker() {
     .concat(Object.keys(d.agents).map((n) => { const s = d.status[n] || {}; return `<button type="button" class="ag-btn ${AGV.pick === n ? "on" : ""} ${s.available && s.enabled !== false ? "" : "dead"}" data-agpick="${esc(n)}" title="${esc((d.agents[n].role || "") + (s.available ? "" : " · 未接通：" + (s.detail || "")))}">${esc(n)}</button>`; })).join("");
 }
 const agMd = (t) => esc(t).replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/`([^`\n]+)`/g, "<code>$1</code>");
+// full Markdown for answers (marked → DOMPurify, so nothing an agent writes can run); plain text if the libraries did not load
+function richMd(t) {
+  if (window.marked && window.DOMPurify) {
+    try { return `<div class="md">${DOMPurify.sanitize(marked.parse(String(t || ""), { gfm: true, breaks: true }), { FORBID_TAGS: ["style", "form", "input"], FORBID_ATTR: ["style"] })}</div>`; } catch {}
+  }
+  return `<span class="pre">${agMd(t)}</span>`;
+}
+function enhanceMd(root) {                           // code: highlighted, with a copy button; links open outside
+  if (!root) return;
+  root.querySelectorAll(".md pre").forEach((pre) => {
+    if (pre.dataset.done) return; pre.dataset.done = "1";
+    const code = pre.querySelector("code");
+    if (window.hljs && code) { try { const lang = (code.className.match(/language-(\S+)/) || [])[1]; if (!lang || hljs.getLanguage(lang)) hljs.highlightElement(code); } catch {} }
+    pre.insertAdjacentHTML("beforeend", `<button type="button" class="cp" data-copy="code">复制</button>`);
+  });
+  root.querySelectorAll(".md a[href]").forEach((a) => { a.target = "_blank"; a.rel = "noopener noreferrer"; });
+}
+function reattach(k, m) {                            // edit / regenerate: the same pictures and documents go again
+  if (!m) return;
+  if ((m._pics || []).length || (m._docs || []).length) { OPTS.pics[k] = [...(m._pics || [])]; OPTS.docs[k] = [...(m._docs || [])]; }
+  else if (m.images || (m.docs || []).length) toast("页面刷新过，原来附的图片和文档需要重新添加");
+}
+async function copyText(t) { try { await navigator.clipboard.writeText(String(t || "")); toast("已复制"); } catch { toast("复制失败"); } }
 function renderAgLog() {
   const el = $("#agLog"); if (!el) return;
   el.innerHTML = AGV.chat.slice(-30).map((m) => m.role === "user" ? `<div class="ag-msg me">${esc(m.text)}</div>`
@@ -2056,6 +2133,27 @@ function bindAgentView() {
     const b = e.target.closest("[data-opt]"); if (!b || b.tagName !== "BUTTON") return;
     if (b.dataset.opt === "pic") $("#agTalkFile").click();
     if (b.dataset.opt === "unpic") { (OPTS.pics[cardK()] || []).splice(+b.dataset.i, 1); renderOpts(); }
+    if (b.dataset.opt === "undoc") { (OPTS.docs[cardK()] || []).splice(+b.dataset.i, 1); renderOpts(); }
+    if (b.dataset.opt === "unedit") { CARD.editAt = null; tin.value = ""; renderOpts(); }
+    if (b.dataset.opt === "stop") {                   // stop: the agent is interrupted, what it wrote so far stays
+      const pend = (CARD.log[cardK()] || []).find((m) => m.pending); if (!pend) return;
+      b.disabled = true; b.textContent = "正在停止…";
+      if (pend.lid) api(`/v1/agents/live/${pend.lid}/stop`, { method: "POST" }).catch(() => {}); else pend.stopWanted = true;
+    }
+  });
+  talk.addEventListener("click", (e) => {
+    const cp = e.target.closest("[data-copy]"); if (cp) { copyText(cp.closest("pre")?.querySelector("code")?.innerText || ""); return; }
+    const b = e.target.closest("[data-msg]"); if (!b || CARD.busy || !CARD.kind) return;
+    const k = cardK(), log = CARD.log[k] || [], i = +b.dataset.i;
+    if (b.dataset.msg === "copy") copyText(log[i]?.text);
+    if (b.dataset.msg === "edit") {                  // put it back in the box; sending starts a new branch from there
+      CARD.editAt = i; tin.value = log[i]?.text || ""; tin.dispatchEvent(new Event("input")); tin.focus();
+      reattach(k, log[i]); renderOpts();
+    }
+    if (b.dataset.msg === "regen") {                 // the last question again, as a new branch
+      const u = log.map((m) => m.role).lastIndexOf("user"); if (u < 0) return;
+      reattach(k, log[u]); CARD.editAt = u; cardSend(log[u].text);
+    }
   });
   talk.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === "file")) { e.preventDefault(); talk.classList.add("dropping"); } });
   talk.addEventListener("dragleave", () => talk.classList.remove("dropping"));

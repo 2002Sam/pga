@@ -673,8 +673,16 @@ class CodexServer:
                         pass
                     live.append(lid, f"\n（{task.timeout_s:.0f} 秒内没有完成）")
                     return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
+                if live.stopped(lid):                          # you pressed stop: interrupt the turn, keep what it said
+                    try:
+                        self.rpc.request("turn/interrupt", {"threadId": tid, "turnId": turn_id}, 10)
+                    except LinkDown:
+                        pass
+                    said = (live.text(lid) or "".join(deltas)).strip()       # exactly what you saw so far
+                    return AgentResult(ok=bool(said), text=said, status="STOPPED", error=None if said else "你停止了生成",
+                                       session_id=tid, model=str(model or used_model or "") or None, data={"stopped": True, "via": "app-server"})
                 try:
-                    m = q.get(timeout=min(left, 1.0))
+                    m = q.get(timeout=min(left, 0.5))
                 except queue.Empty:
                     continue
                 meth, p = m.get("method"), m.get("params") or {}
@@ -822,8 +830,13 @@ class StreamSession:
                     self.p.kill()
                     live.append(lid, f"\n（{task.timeout_s:.0f} 秒内没有完成）")
                     return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
+                if live.stopped(lid):                          # stop: end this process; the next message resumes the session
+                    self.p.kill()
+                    said = live.text(lid).strip()
+                    return AgentResult(ok=bool(said), text=said, status="STOPPED", error=None if said else "你停止了生成",
+                                       session_id=self.session_id, data={"stopped": True, "via": "session"})
                 try:
-                    line = self.lines.get(timeout=min(left, 1.0))
+                    line = self.lines.get(timeout=min(left, 0.5))
                 except queue.Empty:
                     continue
                 if line is None:
@@ -895,14 +908,18 @@ def api_chat(ad: "Adapter", task: AgentTask) -> AgentResult:
             for piece in s.text_stream:
                 parts.append(piece)
                 live.append(lid, piece)
-            final = s.get_final_message()
+                if live.stopped(lid):
+                    break
+            final = None if live.stopped(lid) else s.get_final_message()
     except anthropic.AuthenticationError as exc:
         raise LinkDown(f"API key 无效：{exc}") from exc
     except anthropic.APIConnectionError as exc:
         raise LinkDown(f"连不上 Anthropic API：{exc}") from exc
+    text = "".join(parts).strip()
+    if final is None:
+        return AgentResult(ok=bool(text), text=text, status="STOPPED", model=model, error=None if text else "你停止了生成", data={"stopped": True, "via": "api"})
     u = final.usage
     cost = (u.input_tokens * float(api.get("usd_per_mtok_in", 3)) + u.output_tokens * float(api.get("usd_per_mtok_out", 15))) / 1e6
-    text = "".join(parts).strip()
     return AgentResult(ok=bool(text), text=text, model=final.model, cost_usd=round(cost, 6), error=None if text else "empty answer",
                        data={"via": "api", "usage": {"input": u.input_tokens, "output": u.output_tokens}})
 
@@ -978,6 +995,10 @@ class HermesApi:
                     except ValueError:
                         continue
                     name = ev.get("event", "")
+                    if live.stopped(lid):
+                        httpx.post(f"{self.base}/v1/runs/{run_id}/stop", headers=self._h(), timeout=5)
+                        out, err = "".join(parts), None
+                        break
                     if name == "message.delta":
                         parts.append(ev.get("delta") or "")
                         live.append(lid, ev.get("delta") or "")
