@@ -684,6 +684,19 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk .tk-opts .editing { color: #f3d38a; }
 .ag-talk .tk-opts button.stop { color: #f08a7a; }
 .ag-talk .tk-opts .trbtn.on { color: #f3d38a; }
+.ag-proj { display: none; } .ag-proj.show { display: block; }
+#app.talking .ag-proj { display: none !important; }
+.ag-proj .pj { padding: 10px 0; border-top: 1px solid rgba(233,169,75,.16); }
+.ag-proj .pj .t { display: flex; align-items: baseline; gap: 8px; font-size: 13px; color: #f3e6c9; }
+.ag-proj .pj .t .full { font: var(--cap); font-size: 9px; letter-spacing: .12em; color: #f08a7a; border: 1px solid rgba(240,138,122,.5); padding: 0 5px; }
+.ag-proj .pj .path { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin: 2px 0 4px; }
+.ag-proj .pj .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
+.ag-proj .pj .row label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; } .ag-proj .pj .row input { width: auto; accent-color: #e9a94b; }
+.ag-proj .pj .row button { border: 0; background: transparent; color: rgba(243,211,138,.85); cursor: pointer; padding: 0; font: inherit; }
+.ag-proj .act { margin: 6px 0 0 2px; font-size: 11.5px; color: rgba(214,224,229,.7); } .ag-proj .act div { padding: 3px 0; border-bottom: 1px dashed rgba(220,232,238,.08); }
+.ag-proj .act b { color: #f3d38a; font-weight: 500; } .ag-proj .act i { font-style: normal; color: var(--muted); }
+.ag-proj .add { display: grid; gap: 6px; margin-top: 10px; } .ag-proj .add input[type=text] { font-size: 12px; }
+.ag-talk .route .projtag { color: #f3d38a; } .ag-talk .route .projtag.full { color: #f08a7a; }
 .tk-me .sent { display: block; margin-top: 3px; font-size: 12px; color: rgba(214,224,229,.42); }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
@@ -1064,6 +1077,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       <div class="ag-top">
         <span class="ag-title">Agent Constellation<b>调度星图</b></span>
         <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
+        <button class="ag-btn" id="agProjBtn" title="项目：agent 可以在里面工作的文件夹；在任何对话里、用任何 agent 都能选">项目</button>
         <span class="grow"></span>
         <button class="ag-btn" id="agLinksBtn" title="每 30 分钟自动检查一次；点一下立即检查所有连接">连接</button>
         <span class="ag-spend" id="agSpend"></span>
@@ -1072,6 +1086,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
         <button class="ag-btn" id="agBack" title="翻回你的星空（也可以再点地球）">⟲ 星空</button>
       </div>
       <aside class="ag-panel ag-left" id="agRoutes"></aside>
+      <aside class="ag-panel ag-left ag-proj" id="agProj"></aside>
       <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
       <svg id="agTalkLine" aria-hidden="true"><line></line><circle r="2.5"></circle></svg>
       <div id="agBubbles" aria-live="polite"></div>
@@ -1567,7 +1582,7 @@ async function loadAgentView() {
     b.title = ls.length ? Object.entries(AGV.data.status).filter(([, s]) => s.link).map(([n, s]) => `${n}：${LINK_ZH[s.link.state] || s.link.state} · ${s.link.via_label || ""}`).join("\n") + "\n\n每 30 分钟自动检查；点一下立即检查" : ""; }
   renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
   window.PGA_SET_AGENTS?.(agentGraph(AGV.data));
-  loadPastCounts();
+  loadPastCounts(); if (!PROJ.list) loadProjects();
   if (CARD.kind) { const r = $("#agTalkRoute"); if (r) r.innerHTML = cardRoute(); if (CARD.kind === "cat") renderCardBack(); }
 }
 
@@ -1789,7 +1804,7 @@ async function openConversation(id) {
   try {
     const r = await api(`/v1/users/${S.uid}/agents/conversation?id=${encodeURIComponent(id)}`); if (cardK() !== k) return;
     CARD.log[k] = r.messages.flatMap((m, j, all) => m.role === "user" ? [{ role: "user", text: m.text, images: m.images || 0, docs: m.attachments || [], sent: all[j + 1]?.sent || null }]
-      : [{ role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort, stopped: m.stopped, original: m.original }]);
+      : [{ role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort, stopped: m.stopped, original: m.original, project: m.project }]);
     CARD.conv[k] = id; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
     saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
   } catch (e) { toast("读取这段对话失败：" + e.message); }
@@ -1897,6 +1912,31 @@ function cardRoute() {
   const s = d.status[CARD.key] || {};
   return `${esc(d.agents[CARD.key]?.role || "")} · ${esc(agTag(s))}`;
 }
+/* ---- projects: folders any agent can work in, picked per conversation */
+const PROJ = { list: null, open: null, act: {}, choice: store.json("pga_card_project", {}) || {}, ok: {} };
+async function loadProjects() { try { PROJ.list = await api(`/v1/users/${S.uid}/projects`); } catch { PROJ.list = []; } renderProjects(); renderOpts(); }
+function renderProjects() {
+  const el = $("#agProj"); if (!el) return;
+  const list = PROJ.list || [];
+  el.innerHTML = `<div class="ag-h">项目 <small>agent 可以进去工作的文件夹 · 和用哪个 agent 无关</small><button class="x" type="button" data-proj="close">✕</button></div>
+    <div class="ag-sub">在任何对话的输入框下面选一个项目，用哪个 agent 都可以，随时换 agent 接着改。默认只能<b>读</b>项目里的文件；打开「完整权限」后（每次在对话里还要确认一次），agent 可以在里面<b>执行命令、修改文件</b>、使用你的 MCP，就像在终端里用它一样。</div>
+    ${list.map((p) => `<div class="pj"><div class="t">${esc(p.name)}${p.full_access ? `<span class="full">完整权限</span>` : ""}</div>
+      <div class="path">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</div>
+      <div class="row"><label><input type="checkbox" data-proj="full" data-id="${p.id}" ${p.full_access ? "checked" : ""}> 允许执行命令、修改文件</label>
+        <button type="button" data-proj="act" data-id="${p.id}">${PROJ.open === p.id ? "收起记录" : "谁做过什么"}</button><button type="button" data-proj="del" data-id="${p.id}">移除</button>
+        ${p.last_used_at ? `<span>上次 ${new Date(p.last_used_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>` : ""}</div>
+      ${PROJ.open === p.id ? `<div class="act">${(PROJ.act[p.id] || []).map((a) => `<div><i>${new Date(a.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</i> <b>${esc(a.agent || "—")}</b>${a.model ? ` · ${esc(a.model)}` : ""}${a.full ? " · 完整" : " · 只读"} — ${esc(a.asked)}${(a.changed || []).length ? `<br><i>改了：${a.changed.map(esc).join("、")}</i>` : ""}</div>`).join("") || "还没有 agent 在这里工作过"}</div>` : ""}
+    </div>`).join("") || `<div class="ag-sub">还没有项目。</div>`}
+    <form class="add" id="projAdd"><input type="text" id="projPath" placeholder="文件夹路径，例如 ~/Documents/my-app" autocomplete="off"><input type="text" id="projName" placeholder="名字（可选）" autocomplete="off">
+      <label class="ag-tog"><input type="checkbox" id="projFull"><span>允许执行命令、修改文件<small>之后也可以随时打开或关闭</small></span></label>
+      <button class="ag-btn" type="submit">＋ 添加项目</button></form>`;
+}
+async function projectAct(t) {
+  const id = t.dataset.id, act = t.dataset.proj;
+  if (act === "close") { $("#agProj").classList.remove("show"); return; }
+  if (act === "act") { PROJ.open = PROJ.open === id ? null : id; if (PROJ.open) { try { PROJ.act[id] = await api(`/v1/users/${S.uid}/projects/${id}/activity`); } catch { PROJ.act[id] = []; } } renderProjects(); return; }
+  if (act === "del") { if (!confirm("移除这个项目？（只是从列表里去掉，文件夹本身不动）")) return; await api(`/v1/users/${S.uid}/projects/${id}`, { method: "DELETE" }); return loadProjects(); }
+}
 /* what you can choose for one agent: model, effort, pictures (GET /v1/agents/{name}/options) */
 const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {}, docs: {}, tr: store.json("pga_translate", {}) || {} };
 const trOn = () => !!OPTS.tr[CARD.kind === "agent" ? "agent:" + CARD.key : "cat:" + CARD.key];
@@ -1918,16 +1958,18 @@ function renderOpts() {
   const k = cardK(), pics = OPTS.pics[k] || [];
   const lead = (CARD.busy ? `<button type="button" class="stop" data-opt="stop" title="停止生成：保留已经写出的部分">■ 停止</button>` : "")
     + (CARD.editAt != null ? `<span class="editing">正在修改第 ${CARD.editAt + 1} 条 · 发送后从这里重新开始 <button type="button" data-opt="unedit">取消</button></span>` : "");
+  const pk = cardK(), pid = PROJ.choice[pk], plist = PROJ.list || [];
+  const proj = `<label title="在哪个项目里工作（和用哪个 agent 无关）">项目<select data-opt="project"><option value="">无</option>${plist.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(p.name)}${p.full_access ? " · 完整" : " · 只读"}</option>`).join("")}<option value="__new">＋ 添加项目…</option></select></label>`;
   const tr = `<button type="button" class="trbtn ${trOn() ? "on" : ""}" data-opt="tr" title="翻译：你用中文输入，会先翻成英文再发给 agent；它的回答会一边生成一边翻成中文（可随时看英文原文）">译 中⇄英${trOn() ? " · 开" : ""}</button>`;
   $("#agTalkInput").placeholder = trOn() ? "用中文输入，会翻成英文发出；回答会译成中文（Enter 发送）"
     : CARD.kind === "cat" ? `问一个${CAT_ZH[CARD.key] || CARD.key}问题…（Enter 发送）` : `问 ${CARD.key}…（Enter 发送，Shift+Enter 换行）`;
   if (CARD.kind !== "agent") {                        // a kind of work: the agent is picked per question
-    box.innerHTML = lead + tr + `<button type="button" data-opt="pic" title="附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）">＋ 附件</button>`;
+    box.innerHTML = lead + proj + tr + `<button type="button" data-opt="pic" title="附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）">＋ 附件</button>`;
   } else {
     const a = CARD.key, { model, effort, m, o } = chosen(a);
     const models = o.models || [];
     const dm = models.find((x) => x.id === o.default_model);
-    box.innerHTML = lead + (models.length ? `<label>模型<select data-opt="model"><option value="">默认${dm ? " · " + esc(dm.label) : o.default_model ? " · " + esc(o.default_model) : ""}</option>
+    box.innerHTML = lead + proj + (models.length ? `<label>模型<select data-opt="model"><option value="">默认${dm ? " · " + esc(dm.label) : o.default_model ? " · " + esc(o.default_model) : ""}</option>
         ${models.map((x) => `<option value="${esc(x.id)}" ${x.id === model ? "selected" : ""}>${esc(x.label)}${x.images ? "" : " · 不看图"}</option>`).join("")}</select></label>` : "")
       + ((m?.efforts || []).length ? `<label>强度<select data-opt="effort"><option value="">默认${m.default_effort ? " · " + esc(EFF_ZH[m.default_effort] || m.default_effort) : o.default_effort ? " · " + esc(EFF_ZH[o.default_effort] || o.default_effort) : ""}</option>
         ${m.efforts.map((e) => `<option value="${esc(e.id)}" ${e.id === effort ? "selected" : ""}>${esc(e.label)}</option>`).join("")}</select></label>` : "")
@@ -1979,7 +2021,8 @@ function renderCard() {
   if (!CARD.kind || !AGV.data) return;
   const title = CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key;
   $("#agTalkWho").textContent = title;
-  $("#agTalkRoute").innerHTML = cardRoute();
+  const cp = (PROJ.list || []).find((p) => p.id === PROJ.choice[cardK()]);
+  $("#agTalkRoute").innerHTML = cardRoute() + (cp ? ` · <span class="projtag ${cp.full_access ? "full" : ""}">在「${esc(cp.name)}」里${cp.full_access ? " · 完整模式" : " · 只读"}</span>` : "");
   $("#agTalkInput").placeholder = CARD.kind === "cat" ? `问一个${title}问题…（Enter 发送）` : `问 ${title}…（Enter 发送，Shift+Enter 换行）`;
   $("#agCardFront").innerHTML = "";
   renderOpts(); if (CARD.kind === "agent") loadOpts(CARD.key);
@@ -2014,7 +2057,7 @@ function renderCardLog() {
   box.innerHTML = log.slice(-14).map((m, j) => { const i = off + j; return m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}${(m.docs || []).length ? `<span class="docs">${m.docs.map((d) => "📄 " + esc(d)).join("　")}</span>` : ""}${m.sent ? `<span class="sent">→ ${esc(m.sent)}</span>` : ""}
       ${CARD.busy ? "" : `<span class="acts2"><button type="button" data-msg="edit" data-i="${i}">✎ 修改后重发</button><button type="button" data-msg="copy" data-i="${i}">复制</button></span>`}</div>`
     : m.pending ? `<div class="tk-it flowing"><span class="m">${esc(m.agent || "…")} · 正在回答</span><span class="body"></span></div>`
-    : `<div class="tk-it ${m.ok === false ? "err" : ""} ${i === lastA ? "last" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.stopped ? " · 已停止" : ""}${m.original ? (m.showOrig ? " · 英文原文" : " · 已译") : ""}</span><div class="body">${m.text ? richMd(m.showOrig && m.original ? m.original : m.text) : esc(m.error || "")}</div>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}
+    : `<div class="tk-it ${m.ok === false ? "err" : ""} ${i === lastA ? "last" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.stopped ? " · 已停止" : ""}${m.original ? (m.showOrig ? " · 英文原文" : " · 已译") : ""}${m.project ? ` · 在「${esc(m.project.name)}」${m.project.full ? "（完整）" : "（只读）"}` : ""}</span><div class="body">${m.text ? richMd(m.showOrig && m.original ? m.original : m.text) : esc(m.error || "")}</div>${(m.files || []).length ? `<span class="files">${m.project ? "改动的文件" : "文件"}：${m.files.map(esc).join("<br>")}</span>` : ""}
       ${CARD.busy ? "" : `<span class="acts2">${m.text ? `<button type="button" data-msg="copy" data-i="${i}">复制</button>` : ""}${m.original ? `<button type="button" data-msg="orig" data-i="${i}">${m.showOrig ? "看译文" : "看原文"}</button>` : ""}${i === lastA ? `<button type="button" data-msg="regen">↻ 重新生成</button>` : ""}</span>`}</div>`; }).join("");
   enhanceMd(box);
   box.scrollTop = box.scrollHeight;
@@ -2043,7 +2086,8 @@ async function cardSend(text) {
   pollLive();
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k),
-      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })), files: docs.map((d) => ({ name: d.name, data: d.data })), translate } });
+      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })), files: docs.map((d) => ({ name: d.name, data: d.data })), translate,
+      project_id: PROJ.choice[k] || null } });
     if (r.sent) me.sent = r.sent;
     const el = document.querySelector("#agTalk .tk-it.flowing .body");           // let the rest of the answer flow out before it settles
     if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
@@ -2205,6 +2249,15 @@ function bindAgentView() {
   talk.addEventListener("change", (e) => {
     const t = e.target; if (!CARD.kind) return;
     if (t.id === "agTalkFile") { addPics(t.files); t.value = ""; return; }
+    if (t.dataset.opt === "project") {
+      const key = cardK(), v = t.value;
+      if (v === "__new") { t.value = PROJ.choice[key] || ""; $("#agProj").classList.add("show"); renderProjects(); closeCard(); setTimeout(() => $("#projPath")?.focus(), 300); return; }
+      const p = (PROJ.list || []).find((x) => x.id === v);
+      if (p && p.full_access && !PROJ.ok[key + p.id] && !confirm(`完整模式：${CARD.kind === "agent" ? CARD.key : "这一类问题交给的 agent"} 可以在「${p.name}」（${p.path}）里执行命令、修改文件，并使用你的 MCP 工具。确定吗？`)) { t.value = PROJ.choice[key] || ""; return; }
+      if (p) PROJ.ok[key + p.id] = true;
+      if (v) PROJ.choice[key] = v; else delete PROJ.choice[key];
+      try { store.set("pga_card_project", JSON.stringify(PROJ.choice)); } catch {} renderCard(); return;
+    }
     if (t.dataset.opt === "model" || t.dataset.opt === "effort") {
       const c = (OPTS.choice[CARD.key] ||= {}); c[t.dataset.opt] = t.value || ""; if (t.dataset.opt === "model") c.effort = "";
       try { store.set("pga_agent_choice", JSON.stringify(OPTS.choice)); } catch {} renderOpts();
@@ -2249,6 +2302,21 @@ function bindAgentView() {
   $("#agBack").onclick = () => exitAgentMode();
   $("#agToAtlas").onclick = () => { exitAgentMode(); setTimeout(() => flipTo("back"), 2000); };
   $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
+  $("#agProjBtn").onclick = () => { const el = $("#agProj"); el.classList.toggle("show"); if (el.classList.contains("show")) loadProjects(); };
+  $("#agProj").addEventListener("click", (e) => { const t = e.target.closest("button[data-proj]"); if (t) projectAct(t).catch((err) => toast(err.message)); });
+  $("#agProj").addEventListener("change", async (e) => {
+    const t = e.target.closest('[data-proj="full"]'); if (!t) return;
+    if (t.checked && !confirm("打开完整权限：在对话里选这个项目时，agent 可以在里面执行命令、修改文件（每次还会再确认一次）。")) { t.checked = false; return; }
+    try { await api(`/v1/users/${S.uid}/projects/${t.dataset.id}`, { method: "PATCH", body: { full_access: t.checked } }); } catch (err) { toast(err.message); }
+    loadProjects();
+  });
+  $("#agProj").addEventListener("submit", async (e) => {
+    if (e.target.id !== "projAdd") return; e.preventDefault();
+    const path = $("#projPath").value.trim(); if (!path) return;
+    try { await api(`/v1/users/${S.uid}/projects`, { body: { path, name: $("#projName").value.trim(), full_access: $("#projFull").checked } }); toast("项目已添加：在对话的输入框下面选它"); await loadProjects(); }
+    catch (err) { toast("没能添加：" + err.message); }
+  });
+  $("#agProj").addEventListener("pointerdown", (e) => e.stopPropagation());
   const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
     const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel]");

@@ -1496,7 +1496,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         text = str(body.get("text") or "").strip()
         if not text:
             raise HTTPException(422, "text is needed")
-        context = None
+        context, project = None, None
+        if body.get("project_id"):                          # your project, whichever agent works in it
+            from pga.projects import ProjectError, Projects
+            try:
+                ps = Projects(rt.session)
+                project = ps.get(u.id, uuid.UUID(str(body["project_id"])))
+                ps.touch(project)
+            except (ProjectError, ValueError) as exc:
+                raise HTTPException(404, str(exc)) from exc
         if body.get("aim_id") and body.get("role"):              # talking to one member of an aim's team
             from pga.db.models import Aim
             from pga.teams import TeamError, TeamService
@@ -1516,7 +1524,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
                                            images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
                                            files=[x for x in body.get("files") or [] if isinstance(x, dict)][:6],
-                                           translate=bool(body.get("translate")),
+                                           translate=bool(body.get("translate")), project=project,
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)
@@ -1540,6 +1548,62 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         conns = tuple(p.cfg["agents"][name].get("history_from") or AGENT_SOURCES.get(t, ()))
         vendor = "deepseek" if t == "llm" and "deepseek" in name else None
         return conns, vendor, t
+
+    def project_out(p) -> dict:
+        return {"id": str(p.id), "name": p.name, "path": p.path, "notes": p.notes, "full_access": p.full_access,
+                "created_at": p.created_at.isoformat(), "last_used_at": p.last_used_at.isoformat() if p.last_used_at else None}
+
+    @app.get("/v1/users/{user_id}/projects")
+    def projects_list(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Your projects: folders agents may work in, chosen per conversation, with any agent."""
+        from pga.projects import Projects
+        user_or_404(rt, user_id)
+        return [project_out(p) for p in Projects(rt.session).list(user_id)]
+
+    @app.post("/v1/users/{user_id}/projects", status_code=201)
+    def projects_create(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.projects import ProjectError, Projects
+        u = user_or_404(rt, user_id)
+        if (u.preferences or {}).get("demo"):
+            raise HTTPException(403, "a demo account cannot open folders on this machine")
+        try:
+            return project_out(Projects(rt.session).create(user_id, path=str(body.get("path") or ""), name=str(body.get("name") or ""),
+                                                           notes=str(body.get("notes") or ""), full_access=bool(body.get("full_access"))))
+        except ProjectError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.patch("/v1/users/{user_id}/projects/{pid}")
+    def projects_update(user_id: uuid.UUID, pid: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.projects import ProjectError, Projects
+        user_or_404(rt, user_id)
+        try:
+            ps = Projects(rt.session)
+            return project_out(ps.update(ps.get(user_id, pid), name=body.get("name"), notes=body.get("notes"),
+                                         full_access=body.get("full_access") if "full_access" in body else None))
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.delete("/v1/users/{user_id}/projects/{pid}", status_code=204)
+    def projects_delete(user_id: uuid.UUID, pid: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Forget a project (the folder itself is untouched)."""
+        from pga.projects import ProjectError, Projects
+        user_or_404(rt, user_id)
+        try:
+            ps = Projects(rt.session)
+            ps.delete(ps.get(user_id, pid))
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/projects/{pid}/activity")
+    def projects_activity(user_id: uuid.UUID, pid: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Which agents worked in this project and what they changed, newest first."""
+        from pga.projects import ProjectError, Projects
+        user_or_404(rt, user_id)
+        try:
+            ps = Projects(rt.session)
+            return ps.activity(ps.get(user_id, pid))
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
 
     @app.get("/v1/users/{user_id}/agents/past-counts")
     def agents_past_counts(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):

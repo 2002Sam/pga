@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from pga.agents.base import WORKSPACE_WRITE, AgentResult, AgentTask
+from pga.agents.base import FULL, WORKSPACE_WRITE, AgentResult, AgentTask
 
 if TYPE_CHECKING:
     from pga.agents.base import Adapter
@@ -560,14 +560,16 @@ class CodexServer:
         self.started_at = 0.0
 
     @classmethod
-    def get(cls, ad: "Adapter") -> "CodexServer":
-        argv = ad.server_command()
+    def get(cls, ad: "Adapter", full: bool = False) -> "CodexServer":
+        """One app server per agent (and a second one, with commands allowed, for projects you opened up)."""
+        argv = ad.server_command(full=full) if full else ad.server_command()
+        key = ad.name + (":full" if full else "")
         with cls._ALL_LOCK:
-            s = cls._ALL.get(ad.name)
+            s = cls._ALL.get(key)
             if s is None or s.argv != argv:
                 if s:
                     s.close()
-                s = cls._ALL[ad.name] = cls(ad.name, argv, ad.env())
+                s = cls._ALL[key] = cls(ad.name, argv, ad.env())
         s.ensure()
         return s
 
@@ -620,7 +622,7 @@ class CodexServer:
         """One turn on a thread: the conversation's own thread (kept, resumable) or a fresh ephemeral one."""
         from pga.agents import live
         lid, conv = task.meta.get("live_id"), task.meta.get("conversation")
-        sandbox = "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"
+        sandbox = "workspace-write" if task.permissions in (WORKSPACE_WRITE, FULL) else "read-only"
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         model = task.meta.get("model") or ad.config.get("model")
         effort = task.meta.get("effort") or ad.config.get("reasoning")
@@ -759,7 +761,8 @@ class StreamSession:
         key = f"{ad.name}|{conv}"
         with cls._ALL_LOCK:
             s = cls._ALL.get(key)
-            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"))):
+            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"))
+                      or (task.workspace and s.cwd != task.workspace)):
                 s.close()
                 s = None
             warm = s is not None

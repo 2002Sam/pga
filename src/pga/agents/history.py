@@ -97,5 +97,5 @@ def messages(session: "Session", user_id: uuid.UUID, conversation: str) -> list[
                     "model": d.get("model"), "effort": d.get("effort"), "stopped": bool(d.get("stopped")),
                     "original": d.get("original"), "sent": d.get("sent"),
                     "ok": r.status == "SUCCEEDED", "error": r.error, "duration_s": r.duration_s, "files": d.get("files") or [],
-                    "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat()})
+                    "project": d.get("project"), "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat()})
     return out

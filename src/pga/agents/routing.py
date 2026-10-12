@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pga.agents import quota as quotas
-from pga.agents.base import READ_ONLY, WORKSPACE_WRITE
+from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE
 from pga.agents.pool import MODES, AgentPool, PoolResult, load
 from pga.db.types import utcnow
 
@@ -76,6 +76,18 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
         p.write_bytes(raw)
         out.append(str(p))
     return out
+
+
+def _project_note(project, adapter_type: str) -> str:
+    if adapter_type == "llm":
+        return (f"\n\nThe user is asking about their project \"{project.name}\" ({project.path}). You cannot open its files; "
+                "answer from what they tell you and say what you would need to see.")
+    full = bool(project.full_access)
+    return (f"\n\nYou are working in the user's project \"{project.name}\" at {project.path} (your working directory). "
+            + ("You may run commands and edit files there. Work carefully, keep changes focused, and say exactly what you changed "
+               "and how you checked it." if full else
+               "You may read its files but not change them; if a change is needed, describe it precisely.")
+            + (f"\nThe user's notes about this project: {project.notes}" if project.notes else ""))
 
 
 def _reader_lang(user: "User | None") -> str:
@@ -188,7 +200,8 @@ class AgentRouter:
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
-            images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False) -> dict:
+            images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
+            project=None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -208,6 +221,8 @@ class AgentRouter:
         else:
             ranked = self.rank(cat, now)
             order = [x["agent"] for x in ranked if x["usable"]]
+            if project is not None:                       # a project: only agents that can open its files
+                order = [n for n in order if self.pool.adapters[n].type != "llm"]
             if images:                                    # pictures: only agents that can see them
                 order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]
             order = order[:3]
@@ -231,6 +246,8 @@ class AgentRouter:
             ad = self.pool.adapters[name]
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
             ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
+            if project is not None:                       # the work happens in your project, whichever agent does it
+                ws, perms = project.path, (FULL if project.full_access else READ_ONLY)
             before = time.time()
             pics = _save_images(images, ws)
             said, prompt_now = text, prompt
@@ -243,8 +260,9 @@ class AgentRouter:
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
                     "new_text": said, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
+                    **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
-            system = ASK_SYSTEM + (f"\n\n{context}" if context else "") + (
+            system = ASK_SYSTEM + (f"\n\n{context}" if context else "") + (_project_note(project, ad.type) if project is not None else "") + (
                 "\n\nThe user's message was translated into English for you. Reply in English; it is translated back." if translate else "")
             step = self.pool._call(name, self.pool._task(name, prompt_now, system=system, kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
@@ -254,8 +272,12 @@ class AgentRouter:
                 break
             if step.result.ok:
                 result_text, used = step.result.text, name
-                files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
-                         and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
+                if project is not None:
+                    from pga.projects import changed_files
+                    files = changed_files(project.path, before - 1)
+                else:
+                    files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
+                             and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
                 break
         original = None
         if translate and result_text and user is not None:  # the settled answer, translated whole (the live one was by paragraph)
@@ -267,6 +289,7 @@ class AgentRouter:
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
                           "model": steps[-1].result.model if used else None, "effort": (steps[-1].result.data or {}).get("effort") or effort if used else None,
                           "images": len(images or []), "attachments": attached,
+                          **({"project": {"id": str(project.id), "name": project.name, "full": bool(project.full_access)}} if project is not None else {}),
                           **({"translated": True, "original": original[:50000], "sent": text[:20000]} if original else {}),
                           "stopped": bool(steps and steps[-1].result.status == "STOPPED"),
                           **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
@@ -279,7 +302,7 @@ class AgentRouter:
                 "duration_s": round((utcnow() - t0).total_seconds(), 1), "cost_usd": last.cost_usd if last else None,
                 "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort"),
                 "stopped": res.data.get("stopped"), "attachments": attached,
-                "original": original, "sent": text if translate and text != asked else None}
+                "original": original, "sent": text if translate and text != asked else None, "project": res.data.get("project")}
 
     # -------------------------------------------------------------- long-term work
 

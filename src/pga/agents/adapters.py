@@ -32,7 +32,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pga.agents.base import READ_ONLY, WORKSPACE_WRITE, Adapter, AgentError, AgentResult, AgentTask
+from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE, Adapter, AgentError, AgentResult, AgentTask
 
 
 @lru_cache(maxsize=32)
@@ -181,7 +181,11 @@ class ClaudeLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns),
-               "--no-session-persistence", "--strict-mcp-config"]
+               "--no-session-persistence"]
+        if task.permissions == FULL:                  # a project you opened up: like Claude Code in your terminal, edits accepted
+            return cmd + ["--permission-mode", "acceptEdits", "--allowedTools",
+                          "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite"] + self.choice_flags(task)
+        cmd.append("--strict-mcp-config")
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep",
                     "--disallowedTools", "Bash,WebFetch,WebSearch,NotebookEdit"]
@@ -205,7 +209,7 @@ class ClaudeLocal(CLIAdapter):
 
     def _run(self, task: AgentTask) -> AgentResult:
         from pga.agents import links
-        if self.linked() and task.permissions != WORKSPACE_WRITE and self.config.get("api") and links.api_ok(self.name):
+        if self.linked() and task.permissions == READ_ONLY and not task.meta.get("project") and self.config.get("api") and links.api_ok(self.name):
             try:
                 return links.api_chat(self, task)
             except links.LinkDown as exc:
@@ -262,7 +266,10 @@ class CodebuddyLocal(ClaudeLocal):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns),
-               "--no-session-persistence", "--strict-mcp-config"]
+               "--no-session-persistence"]
+        if task.permissions == FULL:
+            return cmd + ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch"] + self.choice_flags(task)
+        cmd.append("--strict-mcp-config")
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
         else:
@@ -283,9 +290,11 @@ class CodebuddyLocal(ClaudeLocal):
 class CodexLocal(CLIAdapter):
     type, binary = "codex_local", "codex"
 
-    def server_command(self) -> list[str]:
+    def server_command(self, full: bool = False) -> list[str]:
         cmd = [self.exe() or self.binary, "app-server"]
         for feature in self.config.get("disable") or []:
+            if full and feature == "shell_tool":
+                continue
             cmd += ["--disable", str(feature)]
         return cmd
 
@@ -293,7 +302,7 @@ class CodexLocal(CLIAdapter):
         from pga.agents import links
         if self.linked():
             try:
-                srv = links.CodexServer.get(self)
+                srv = links.CodexServer.get(self, full=task.permissions == FULL)
             except links.LinkDown:
                 srv = None                                     # cannot start the app server: one-off `codex exec`
             if srv is not None:
@@ -306,7 +315,7 @@ class CodexLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         task.meta["_codex_out"] = out = os.path.join(task.workspace or tempfile.gettempdir(), f".codex-last-{os.getpid()}-{id(task)}.txt")
-        sandbox = "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"
+        sandbox = "workspace-write" if task.permissions in (WORKSPACE_WRITE, FULL) else "read-only"
         cmd = [exe, "exec", "--json", "--skip-git-repo-check", "--ephemeral", "-s", sandbox, "-o", out]
         if task.workspace:
             cmd += ["-C", task.workspace]
@@ -315,6 +324,8 @@ class CodexLocal(CLIAdapter):
         if self.config.get("reasoning"):                       # model_reasoning_effort: minimal | low | medium | high
             cmd += ["-c", f'model_reasoning_effort="{self.config["reasoning"]}"']
         for feature in self.config.get("disable") or []:       # e.g. memories (no reading ~/.codex/memories), shell_tool
+            if task.permissions == FULL and feature == "shell_tool":
+                continue                                         # a project you opened up: it may run commands there
             cmd += ["--disable", str(feature)]
         return cmd + ["-"]
 
@@ -402,7 +413,7 @@ class HermesLocal(CLIAdapter):
 
     def _run(self, task: AgentTask) -> AgentResult:
         from pga.agents import links
-        if self.linked() and task.permissions != WORKSPACE_WRITE:
+        if self.linked() and task.permissions == READ_ONLY and not task.meta.get("project"):
             api = links.HermesApi.of(self.config)
             if api.usable():
                 try:

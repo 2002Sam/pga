@@ -13,6 +13,7 @@ from typing import Any
 
 READ_ONLY = "read_only"                 # may read the workspace and the web; writes nothing
 WORKSPACE_WRITE = "workspace_write"     # may edit files inside its workspace; never runs shell commands outside it
+FULL = "full"                           # a project you opened up: may run commands and edit files there, with your MCP tools
 
 
 class AgentError(RuntimeError):
