@@ -72,8 +72,9 @@ def messages(session: "Session", user_id: uuid.UUID, conversation: str) -> list[
     out: list[dict] = []
     for r in runs:
         d = r.data or {}
-        out.append({"role": "user", "text": r.prompt, "at": r.started_at.isoformat()})
+        out.append({"role": "user", "text": r.prompt, "at": r.started_at.isoformat(), "images": d.get("images") or 0})
         out.append({"role": "agent", "agent": d.get("agent") or (d.get("tried") or ["—"])[-1], "text": r.output or "",
+                    "model": d.get("model"), "effort": d.get("effort"),
                     "ok": r.status == "SUCCEEDED", "error": r.error, "duration_s": r.duration_s, "files": d.get("files") or [],
                     "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat()})
     return out

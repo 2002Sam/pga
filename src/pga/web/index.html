@@ -649,6 +649,21 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
   padding: 7px 0 10px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
 .ag-talk .tk-ask textarea:focus { border-bottom-color: rgba(233,169,75,.85) !important; }
 .ag-talk .tk-ask textarea::placeholder { color: rgba(214,224,229,.36); }
+.ag-talk .tk-opts { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; font-size: 12px; color: rgba(214,224,229,.5); margin-top: -2px; }
+.ag-talk .tk-opts label { display: inline-flex; gap: 6px; align-items: center; }
+.ag-talk .tk-opts select { width: auto; max-width: 220px; border: 0 !important; border-bottom: 1px solid rgba(233,169,75,.25) !important; background: transparent !important;
+  color: #f3d38a; font: inherit; font-size: 12px; padding: 1px 2px; box-shadow: none !important; text-shadow: inherit; cursor: pointer; }
+.ag-talk .tk-opts select option { background: #0e151a; color: #e6ebed; }
+.ag-talk .tk-opts button { border: 0; background: transparent; color: rgba(214,224,229,.6); font: inherit; font-size: 12px; cursor: pointer; padding: 0; text-shadow: inherit; }
+.ag-talk .tk-opts button:hover:not(:disabled) { color: #fff3d6; } .ag-talk .tk-opts button:disabled { opacity: .4; cursor: default; }
+.ag-talk .tk-opts .via { margin-left: auto; font-size: 11px; color: rgba(214,224,229,.35); }
+.ag-talk .tk-pics { display: flex; gap: 8px; flex-wrap: wrap; }
+.ag-talk .tk-pics:empty { display: none; }
+.ag-talk .tk-pics .pic { position: relative; width: 64px; height: 64px; border: 1px solid rgba(233,169,75,.35); background: center/cover no-repeat; }
+.ag-talk .tk-pics .pic button { position: absolute; top: -8px; right: -8px; width: 18px; height: 18px; border-radius: 50%; border: 0; background: #0e151a; color: #f3d38a; font-size: 11px; line-height: 18px; padding: 0; cursor: pointer; }
+.ag-talk.dropping { outline: 1px dashed rgba(233,169,75,.6); outline-offset: 8px; }
+.tk-me .thumbs { display: flex; gap: 6px; margin-top: 4px; } .tk-me .thumbs img { width: 56px; height: 56px; object-fit: cover; border: 1px solid rgba(233,169,75,.3); }
+.tk-me .thumbs i { font-style: normal; font-size: 12px; color: rgba(214,224,229,.5); }
 .ag-hist { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; color: #e9e2d4; font-size: 13.5px; line-height: 1.5;
   transition: opacity .6s ease; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
 .ag-hist[hidden] { display: none; }
@@ -1024,7 +1039,10 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
           <span class="acts"><button type="button" data-talk="new" title="新对话：清空这里，agent 从头开始（新的线程 / 会话）">↺ 新对话</button><button type="button" data-talk="set" title="连接、额度、调度顺序">⚙ 设置</button><button type="button" data-talk="close" title="关闭（Esc，或点空白处）">✕</button></span></div>
         <div class="route" id="agTalkRoute"></div>
         <div class="tk-log" id="agTalkLog"></div>
+        <div class="tk-pics" id="agTalkPics"></div>
         <form class="tk-ask" id="agTalkAsk"><textarea id="agTalkInput" rows="1" spellcheck="false" aria-label="输入"></textarea></form>
+        <div class="tk-opts" id="agTalkOpts"></div>
+        <input type="file" id="agTalkFile" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
       </div>
       <div class="ag-card" id="agCard" hidden role="dialog" aria-label="对话">
         <div class="ag-card-in">
@@ -1679,8 +1697,8 @@ async function openConversation(id) {
   if (id === CARD.conv[k] && (CARD.log[k] || []).length) return;
   try {
     const r = await api(`/v1/users/${S.uid}/agents/conversation?id=${encodeURIComponent(id)}`); if (cardK() !== k) return;
-    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text }
-      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files });
+    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text, images: m.images || 0 }
+      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files, model: m.model, effort: m.effort });
     CARD.conv[k] = id; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
     saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
   } catch (e) { toast("读取这段对话失败：" + e.message); }
@@ -1788,6 +1806,65 @@ function cardRoute() {
   const s = d.status[CARD.key] || {};
   return `${esc(d.agents[CARD.key]?.role || "")} · ${esc(agTag(s))}`;
 }
+/* what you can choose for one agent: model, effort, pictures (GET /v1/agents/{name}/options) */
+const OPTS = { by: {}, choice: store.json("pga_agent_choice", {}) || {}, pics: {} };
+const EFF_ZH = { minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "很高", max: "最高", ultra: "极限" };
+async function loadOpts(agent) {
+  if (OPTS.by[agent]) return renderOpts();
+  try { OPTS.by[agent] = await api(`/v1/agents/${encodeURIComponent(agent)}/options`); } catch { OPTS.by[agent] = { models: [], images: false }; }
+  renderOpts();
+}
+function chosen(agent) {                              // what is picked for this agent (falls back to its own default)
+  const o = OPTS.by[agent] || {}, c = OPTS.choice[agent] || {};
+  const model = c.model && (o.models || []).some((m) => m.id === c.model) ? c.model : "";
+  const m = (o.models || []).find((x) => x.id === (model || o.default_model));
+  const effort = c.effort && (m?.efforts || []).some((e) => e.id === c.effort) ? c.effort : "";
+  return { model, effort, m, o };
+}
+function renderOpts() {
+  const box = $("#agTalkOpts"); if (!box || !CARD.kind) return;
+  const k = cardK(), pics = OPTS.pics[k] || [];
+  if (CARD.kind !== "agent") {                        // a kind of work: the agent is picked per question; pictures only
+    box.innerHTML = `<button type="button" data-opt="pic" title="附上图片（也可以直接粘贴或拖进来）；会交给能看图的 agent">＋ 图片</button>`;
+  } else {
+    const a = CARD.key, { model, effort, m, o } = chosen(a);
+    const models = o.models || [];
+    const dm = models.find((x) => x.id === o.default_model);
+    box.innerHTML = (models.length ? `<label>模型<select data-opt="model"><option value="">默认${dm ? " · " + esc(dm.label) : o.default_model ? " · " + esc(o.default_model) : ""}</option>
+        ${models.map((x) => `<option value="${esc(x.id)}" ${x.id === model ? "selected" : ""}>${esc(x.label)}${x.images ? "" : " · 不看图"}</option>`).join("")}</select></label>` : "")
+      + ((m?.efforts || []).length ? `<label>强度<select data-opt="effort"><option value="">默认${m.default_effort ? " · " + esc(EFF_ZH[m.default_effort] || m.default_effort) : o.default_effort ? " · " + esc(EFF_ZH[o.default_effort] || o.default_effort) : ""}</option>
+        ${m.efforts.map((e) => `<option value="${esc(e.id)}" ${e.id === effort ? "selected" : ""}>${esc(e.label)}</option>`).join("")}</select></label>` : "")
+      + `<button type="button" data-opt="pic" ${o.images === false || (m && m.images === false) ? 'disabled title="这个模型不能看图片"' : 'title="附上图片（也可以直接粘贴或拖进来）"'}>＋ 图片</button>`
+      + (o.via ? `<span class="via">经由 ${esc(o.via)}</span>` : "");
+  }
+  $("#agTalkPics").innerHTML = pics.map((p, i) => `<div class="pic" style="background-image:url('${p.data}')" title="${esc(p.name)}"><button type="button" data-opt="unpic" data-i="${i}" aria-label="去掉">×</button></div>`).join("");
+}
+function shrinkImage(file) {                          // big photos are scaled to ≤1800 px so a question stays light
+  return new Promise((done) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const data = String(r.result);
+      if (file.size < 1.5e6 && !/heic/i.test(file.type)) return done({ name: file.name || "image.png", data });
+      const img = new Image(); img.onload = () => { const k = Math.min(1, 1800 / Math.max(img.width, img.height)), c = document.createElement("canvas");
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        done({ name: (file.name || "image").replace(/\.\w+$/, "") + ".jpg", data: c.toDataURL("image/jpeg", .86) }); };
+      img.onerror = () => done(null); img.src = data;
+    };
+    r.onerror = () => done(null); r.readAsDataURL(file);
+  });
+}
+async function addPics(files) {
+  if (!CARD.kind) return;
+  const k = cardK(), list = (OPTS.pics[k] ||= []);
+  if (CARD.kind === "agent") { const { o, m } = chosen(CARD.key); if (o.images === false || m?.images === false) return toast("这个模型不能看图片：换一个模型或 agent"); }
+  for (const f of [...files].filter((f) => /^image\//.test(f.type)).slice(0, 6 - list.length)) { const p = await shrinkImage(f); if (p) list.push(p); }
+  renderOpts();
+}
+function thumb(dataUrl) {                             // a small copy for the conversation log (the log is kept in this browser)
+  return new Promise((done) => { const img = new Image(); img.onload = () => { const c = document.createElement("canvas"), k = 112 / Math.max(img.width, img.height);
+    c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k)); c.getContext("2d").drawImage(img, 0, 0, c.width, c.height); done(c.toDataURL("image/jpeg", .7)); };
+    img.onerror = () => done(""); img.src = dataUrl; });
+}
 function renderCard() {
   if (!CARD.kind || !AGV.data) return;
   const title = CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key;
@@ -1795,6 +1872,7 @@ function renderCard() {
   $("#agTalkRoute").innerHTML = cardRoute();
   $("#agTalkInput").placeholder = CARD.kind === "cat" ? `问一个${title}问题…（Enter 发送）` : `问 ${title}…（Enter 发送，Shift+Enter 换行）`;
   $("#agCardFront").innerHTML = "";
+  renderOpts(); if (CARD.kind === "agent") loadOpts(CARD.key);
   renderCardBack(); renderCardLog();
 }
 function renderCardBack() {
@@ -1812,9 +1890,9 @@ function renderCardBack() {
 function renderCardLog() {
   const box = $("#agTalkLog"); if (!box) return;
   const log = CARD.log[cardK()] || [];
-  box.innerHTML = log.slice(-14).map((m) => m.role === "user" ? `<div class="tk-me">${esc(m.text)}</div>`
+  box.innerHTML = log.slice(-14).map((m) => m.role === "user" ? `<div class="tk-me">${esc(m.text)}${(m.thumbs || []).length ? `<span class="thumbs">${m.thumbs.map((t) => t ? `<img src="${t}" alt="">` : "").join("")}</span>` : m.images ? `<span class="thumbs"><i>附 ${m.images} 张图</i></span>` : ""}</div>`
     : m.pending ? `<div class="tk-it flowing"><span class="m">${esc(m.agent || "…")} · 正在回答</span><span class="body"></span></div>`
-    : `<div class="tk-it ${m.ok === false ? "err" : ""}"><span class="m">${esc(m.agent || "—")}${m.duration_s ? ` · ${m.duration_s}s` : ""}</span><span class="body">${m.text ? agMd(m.text) : esc(m.error || "")}</span>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
+    : `<div class="tk-it ${m.ok === false ? "err" : ""}"><span class="m">${esc(m.agent || "—")}${m.model ? ` · ${esc(m.model)}` : ""}${m.effort ? ` · ${esc(EFF_ZH[m.effort] || m.effort)}` : ""}${m.duration_s ? ` · ${m.duration_s}s` : ""}</span><span class="body">${m.text ? agMd(m.text) : esc(m.error || "")}</span>${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
   box.scrollTop = box.scrollHeight;
 }
 const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.entries(CARD.log)) keep[k] = v.filter((m) => !m.pending).slice(-20); store.set("pga_cards", JSON.stringify(keep)); } catch {} };
@@ -1822,7 +1900,9 @@ async function cardSend(text) {
   if (!text || CARD.busy || !CARD.kind) return;
   const kind = CARD.kind, key = CARD.key, k = cardK(), log = (CARD.log[k] ||= []);
   const history = log.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
-  log.push({ role: "user", text }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
+  const pics = OPTS.pics[k] || [], ch = kind === "agent" ? chosen(key) : {};
+  const thumbs = await Promise.all(pics.map((p) => thumb(p.data))); OPTS.pics[k] = []; renderOpts();
+  log.push({ role: "user", text, thumbs, images: pics.length }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
   CARD.busy = true; FLOW.delete("card"); renderCardLog();
   let target = kind === "agent" ? key : null;
   if (!target) { try { const r = await api(`/v1/agents/route?category=${encodeURIComponent(key)}`); target = r.ranking.find((x) => x.usable)?.agent; } catch {} }
@@ -1830,7 +1910,8 @@ async function cardSend(text) {
   if (target) window.PGA_ROUTE?.(kind === "cat" ? ["you", "pc:" + key, "pa:" + target] : ["you", "pa:" + target]);
   pollLive();
   try {
-    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k) } });
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history, conversation: convOf(k),
+      model: ch.model || null, effort: ch.effort || null, images: pics.map((p) => ({ name: p.name, data: p.data })) } });
     const el = document.querySelector("#agTalk .tk-it.flowing .body");           // let the rest of the answer flow out before it settles
     if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
     Object.assign(pend, r, { pending: false });
@@ -1962,6 +2043,23 @@ function bindAgentView() {
   $("#agTalkAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = tin.value.trim(); if (!v || CARD.busy) return; tin.value = ""; tin.style.height = ""; cardSend(v); });
   tin.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agTalkAsk").requestSubmit(); } });
   tin.addEventListener("input", () => { tin.style.height = "auto"; tin.style.height = Math.min(150, tin.scrollHeight) + "px"; });
+  tin.addEventListener("paste", (e) => { const fs = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type)); if (fs.length) { e.preventDefault(); addPics(fs); } });
+  talk.addEventListener("change", (e) => {
+    const t = e.target; if (!CARD.kind) return;
+    if (t.id === "agTalkFile") { addPics(t.files); t.value = ""; return; }
+    if (t.dataset.opt === "model" || t.dataset.opt === "effort") {
+      const c = (OPTS.choice[CARD.key] ||= {}); c[t.dataset.opt] = t.value || ""; if (t.dataset.opt === "model") c.effort = "";
+      try { store.set("pga_agent_choice", JSON.stringify(OPTS.choice)); } catch {} renderOpts();
+    }
+  });
+  talk.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-opt]"); if (!b || b.tagName !== "BUTTON") return;
+    if (b.dataset.opt === "pic") $("#agTalkFile").click();
+    if (b.dataset.opt === "unpic") { (OPTS.pics[cardK()] || []).splice(+b.dataset.i, 1); renderOpts(); }
+  });
+  talk.addEventListener("dragover", (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === "file")) { e.preventDefault(); talk.classList.add("dropping"); } });
+  talk.addEventListener("dragleave", () => talk.classList.remove("dropping"));
+  talk.addEventListener("drop", (e) => { e.preventDefault(); talk.classList.remove("dropping"); addPics(e.dataTransfer?.files || []); });
   talk.addEventListener("pointerdown", (e) => e.stopPropagation());              // typing here is not a click on the sky
   card.addEventListener("pointerdown", (e) => e.stopPropagation());
   $("#agBack").onclick = () => exitAgentMode();

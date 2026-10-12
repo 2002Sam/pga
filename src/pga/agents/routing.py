@@ -57,6 +57,27 @@ ASK_SYSTEM = ("You are answering the user directly in a quick chat inside PGA, t
               "produces a document, write the file into the current directory and say its file name.")
 
 
+def _save_images(images: list[dict] | None, ws: str) -> list[str]:
+    """Pictures you attached (data URLs) → files in the conversation's folder, so every kind of agent can get them."""
+    import base64
+    import re as _re
+    out = []
+    for i, im in enumerate((images or [])[:6]):
+        m = _re.match(r"data:(image/(png|jpeg|jpg|gif|webp));base64,(.+)", str(im.get("data") or ""), _re.S)
+        if not m:
+            continue
+        raw = base64.b64decode(m.group(3), validate=False)
+        if len(raw) > 8_000_000:
+            continue
+        d = Path(ws) / "uploads"
+        d.mkdir(parents=True, exist_ok=True)
+        stem = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(im.get("name") or f"image-{i + 1}"))[:40].rsplit(".", 1)[0] or f"image-{i + 1}"
+        p = d / f"{int(time.time())}-{i + 1}-{stem}.{'jpg' if m.group(2) in ('jpeg', 'jpg') else m.group(2)}"
+        p.write_bytes(raw)
+        out.append(str(p))
+    return out
+
+
 def classify(text: str) -> tuple[str, str]:
     """(category, why) by rules; no model call, so it costs nothing and never waits."""
     hits = {cat: len(rx.findall(text or "")) for cat, rx in RULES}
@@ -125,9 +146,14 @@ class AgentRouter:
 
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
-            context: str | None = None) -> dict:
+            context: str | None = None, model: str | None = None, effort: str | None = None,
+            images: list[dict] | None = None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
-        the new message; one that does not gets the recent history written into the prompt."""
+        the new message; one that does not gets the recent history written into the prompt.
+
+        `model` / `effort` are what you picked for a named agent (its own default otherwise); `images` are pictures
+        you attached ({name, data: data URL}) — only agents that take images are asked."""
+        from pga.agents.options import options as agent_options
         if category and category not in (self.cfg.get("categories") or {}):
             raise ValueError(f"unknown category {category!r}")
         cat, cwhy = (category, "你在这一类里提问") if category else classify(text)
@@ -135,10 +161,16 @@ class AgentRouter:
             if agent not in self.pool.adapters:
                 raise ValueError(f"unknown agent {agent!r}")
             order, why = [agent], f"你指定了 {agent}"
+            if images and not agent_options(agent, self.pool.adapters[agent], self.pool.cfg["agents"][agent], self.rt)["images"]:
+                raise ValueError(f"{agent} 不能看图片：换一个能看图的 agent（ChatGPT、Claude、WorkBuddy），或去掉图片")
         else:
             ranked = self.rank(cat, now)
-            order = [x["agent"] for x in ranked if x["usable"]][:3]
-            why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}"
+            order = [x["agent"] for x in ranked if x["usable"]]
+            if images:                                    # pictures: only agents that can see them
+                order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]
+            order = order[:3]
+            why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}" + (" · 带图片" if images else "")
+            model = effort = None                        # a model you picked belongs to one agent, not to a whole category
         hist = [h for h in (history or [])[-6:] if isinstance(h, dict)]
         convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
@@ -150,18 +182,22 @@ class AgentRouter:
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
             ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
             before = time.time()
+            pics = _save_images(images, ws)
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
-                    "new_text": text, **({"conversation": conv} if conv else {})}
+                    "new_text": text, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
+                    **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
             step = self.pool._call(name, self.pool._task(name, prompt, system=ASK_SYSTEM + (f"\n\n{context}" if context else ""), kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
             steps.append(step)
             if step.result.ok:
                 result_text, used = step.result.text, name
-                files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".")
+                files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
                          and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
                 break
         res = PoolResult(bool(used), result_text, "ask", "single",
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
+                          "model": steps[-1].result.model if used else None, "effort": (steps[-1].result.data or {}).get("effort") or effort if used else None,
+                          "images": len(images or []),
                           **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
                          error=None if used else "; ".join(f"{s.result.agent}: {s.result.error}" for s in steps)[:800] or "no agent available")
         res.run_id = run_id
@@ -170,7 +206,7 @@ class AgentRouter:
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,
                 "files": files, "tried": [{"agent": s.result.agent, "status": s.result.status, "error": s.result.error} for s in steps],
                 "duration_s": round((utcnow() - t0).total_seconds(), 1), "cost_usd": last.cost_usd if last else None,
-                "run_id": str(run_id)}
+                "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort")}
 
     # -------------------------------------------------------------- long-term work
 

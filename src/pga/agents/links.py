@@ -622,7 +622,9 @@ class CodexServer:
         lid, conv = task.meta.get("live_id"), task.meta.get("conversation")
         sandbox = "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
-        model = ad.config.get("model")
+        model = task.meta.get("model") or ad.config.get("model")
+        effort = task.meta.get("effort") or ad.config.get("reasoning")
+        used_model = None
         tid, fresh = (thread_for(self.name, conv) if conv else None), True
         if tid and tid in self.loaded:
             fresh = False
@@ -642,7 +644,8 @@ class CodexServer:
                 params["developerInstructions"] = task.system.strip()
             if model:
                 params["model"] = str(model)
-            tid = self.rpc.request("thread/start", params, 60)["thread"]["id"]
+            started = self.rpc.request("thread/start", params, 60)
+            tid, used_model = started["thread"]["id"], started.get("model")
             self.loaded.add(tid)
             if conv:
                 _put("threads", f"{self.name}|{conv}", tid)
@@ -652,9 +655,12 @@ class CodexServer:
         q: queue.Queue = queue.Queue()
         self.listeners[tid] = q
         try:
-            params = {"threadId": tid, "input": [{"type": "text", "text": text}]}
-            if ad.config.get("reasoning"):
-                params["effort"] = str(ad.config["reasoning"])
+            params = {"threadId": tid, "input": [{"type": "text", "text": text}]
+                      + [{"type": "localImage", "path": str(p)} for p in task.meta.get("images") or []]}
+            if model:
+                params["model"] = str(model)
+            if effort:
+                params["effort"] = str(effort)
             turn_id = self.rpc.request("turn/start", params, 60)["turn"]["id"]
             finals, deltas, err, usage = [], [], None, None
             deadline = time.monotonic() + task.timeout_s
@@ -704,7 +710,8 @@ class CodexServer:
         out = (finals[-1] if finals else "".join(deltas)).strip()
         ok = bool(out) and not err
         return AgentResult(ok=ok, text=out, error=None if ok else (err or "no answer"), status="SUCCEEDED" if ok else "FAILED",
-                           session_id=tid, data={"via": "app-server", "thread": tid, **({"usage": usage} if usage else {})})
+                           session_id=tid, model=str(model or used_model or "") or None,
+                           data={"via": "app-server", "thread": tid, **({"effort": effort} if effort else {}), **({"usage": usage} if usage else {})})
 
 
 # ---------------------------------------------------------------- stream-json sessions (Claude Code / CodeBuddy)
@@ -721,6 +728,7 @@ class StreamSession:
         self.session_id = session_for(ad.name, conv)
         self.resumed = bool(self.session_id)
         self.permissions, self.cwd = task.permissions, task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
+        self.choice = (task.meta.get("model"), task.meta.get("effort"))
         exe = ad.exe()
         if not exe:
             raise LinkDown(f"{ad.binary} is not installed")
@@ -743,7 +751,7 @@ class StreamSession:
         key = f"{ad.name}|{conv}"
         with cls._ALL_LOCK:
             s = cls._ALL.get(key)
-            if s and (not s.alive() or s.permissions != task.permissions):
+            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"))):
                 s.close()
                 s = None
             warm = s is not None
@@ -787,9 +795,13 @@ class StreamSession:
         from pga.agents import live
         from pga.agents.adapters import _prompt
         lid = task.meta.get("live_id")
+        pics = list(task.meta.get("images") or [])
+        task.meta["images"] = []                                       # sent as pictures below, not as paths
         body = text if text else _prompt(task)
+        task.meta["images"] = pics
         if task.want_json and text:
             body += "\n\nReply with JSON only."
+        content = [*_image_blocks(pics), {"type": "text", "text": body}]
         with self.busy:
             self.used = time.monotonic()
             while not self.lines.empty():                                  # nothing left over from an earlier turn
@@ -797,8 +809,7 @@ class StreamSession:
                     self.lines.put(None)
                     break
             try:
-                self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": body}]}},
-                                              ensure_ascii=False) + "\n")
+                self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": content}}, ensure_ascii=False) + "\n")
                 self.p.stdin.flush()
             except (BrokenPipeError, OSError, ValueError) as exc:
                 raise LinkDown(f"session closed: {exc}") from exc
@@ -839,6 +850,21 @@ class StreamSession:
         return res
 
 
+def _image_blocks(paths: list) -> list[dict]:
+    """Pictures as Anthropic-style content blocks (Claude Code / CodeBuddy stream-json, the Anthropic API)."""
+    import base64
+    import mimetypes
+    out = []
+    for p in paths or []:
+        try:
+            data = Path(p).read_bytes()
+        except OSError:
+            continue
+        mt = mimetypes.guess_type(str(p))[0] or "image/png"
+        out.append({"type": "image", "source": {"type": "base64", "media_type": mt, "data": base64.b64encode(data).decode()}})
+    return out
+
+
 # ---------------------------------------------------------------- direct APIs
 
 
@@ -852,11 +878,12 @@ def api_chat(ad: "Adapter", task: AgentTask) -> AgentResult:
         raise LinkDown("no API key")
     messages = [{"role": "user" if h.get("role") == "user" else "assistant", "content": str(h.get("text") or "")}
                 for h in (task.meta.get("history") or []) if str(h.get("text") or "").strip()]
-    messages.append({"role": "user", "content": (task.meta.get("new_text") or task.prompt)
-                     + ("\n\nReply with JSON only." if task.want_json else "")})
+    ask = (task.meta.get("new_text") or task.prompt) + ("\n\nReply with JSON only." if task.want_json else "")
+    pics = _image_blocks(task.meta.get("images") or [])
+    messages.append({"role": "user", "content": [*pics, {"type": "text", "text": ask}] if pics else ask})
     while len(messages) > 1 and messages[0]["role"] != "user":
         messages.pop(0)
-    lid, model = task.meta.get("live_id"), str(api.get("model") or "claude-sonnet-5-5")
+    lid, model = task.meta.get("live_id"), str(task.meta.get("model") or api.get("model") or "claude-sonnet-5-5")
     if api.get("type", "anthropic") != "anthropic":
         raise LinkDown("only the Anthropic API is wired for agents")
     import anthropic

@@ -149,3 +149,22 @@ def test_past_conversations_are_rebuilt_per_card_from_the_ledger(rt, user, provi
     assert [(m["role"], m["text"]) for m in msgs] == [("user", "第一问"), ("agent", "fast answered"), ("user", "第二问"), ("agent", "fast answered")]
     assert [c["id"] for c in history.conversations(rt.session, user.id, "cat:quick")] == ["cat:quick:z"]
     assert history.messages(rt.session, user.id, f"run:{old['run_id']}")[0]["text"] == "以前的一问"
+
+
+def test_you_can_pick_the_model_and_attach_pictures(rt, user, provider, cfg, tmp_path):
+    import base64
+
+    from pga.agents.options import options
+    from pga.agents.routing import _save_images
+    provider.handler = lambda s, m: "fine"
+    pool = AgentPool(rt, cfg)
+    opts = options("fast", pool.adapters["fast"], cfg["agents"]["fast"], rt)
+    assert opts["images"] is False and opts["default_model"] and all(m["efforts"] == [] for m in opts["models"])
+    r = AgentRouter(rt, pool)
+    out = r.ask(user, "你好", agent="fast", model="fake-3")
+    assert out["ok"] and out["model"] == "fake-3" and provider.calls[-1].model == "fake-3"        # the model you picked answered
+    png = "data:image/png;base64," + base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 20).decode()
+    with pytest.raises(ValueError, match="不能看图片"):
+        r.ask(user, "看看这张图", agent="fast", images=[{"name": "a.png", "data": png}])
+    saved = _save_images([{"name": "shot one.png", "data": png}, {"name": "x", "data": "not an image"}], str(tmp_path))
+    assert len(saved) == 1 and saved[0].endswith(".png") and "uploads" in saved[0]

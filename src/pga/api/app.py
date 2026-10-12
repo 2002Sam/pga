@@ -1314,6 +1314,16 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.get("/v1/agents/{name}/options")
+    def agent_options(name: str, rt: Runtime = Depends(get_rt)):
+        """What you can choose when talking to this agent: models (with their efforts), and whether it takes images."""
+        from pga.agents import pool as ap
+        from pga.agents.options import options
+        p = ap.AgentPool(rt)
+        if name not in p.adapters:
+            raise HTTPException(404, "unknown agent")
+        return options(name, p.adapters[name], p.cfg["agents"][name], rt)
+
     @app.get("/v1/agents/links")
     def agents_links():
         """How each agent is connected right now (API / app-server / session / CLI) and whether it is reachable."""
@@ -1411,6 +1421,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         try:
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
+                                           model=str(body["model"]) if body.get("model") else None,
+                                           effort=str(body["effort"]) if body.get("effort") else None,
+                                           images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)

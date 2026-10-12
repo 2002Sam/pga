@@ -47,6 +47,8 @@ def _version(binary: str) -> str:
 def _prompt(task: AgentTask) -> str:
     parts = [task.system.strip()] if task.system.strip() else []
     parts.append(task.prompt.strip())
+    if task.meta.get("images"):                       # a one-off CLI reads the pictures from disk itself
+        parts.append("The user attached image(s); look at them before answering:\n" + "\n".join(f"- {p}" for p in task.meta["images"]))
     if task.want_json:
         parts.append("Reply with JSON only.")
     return "\n\n".join(parts)
@@ -174,9 +176,12 @@ class ClaudeLocal(CLIAdapter):
         else:
             cmd += ["--permission-mode", "default", "--allowedTools", "Read,Glob,Grep,WebSearch,WebFetch",
                     "--disallowedTools", "Bash,Edit,Write,NotebookEdit"]
-        if self.config.get("model"):
-            cmd += ["--model", str(self.config["model"])]
-        return cmd
+        return cmd + self.choice_flags(task)
+
+    def choice_flags(self, task: AgentTask) -> list[str]:
+        """The model and effort chosen for this question (or the agent's own), as CLI flags."""
+        model, effort = task.meta.get("model") or self.config.get("model"), task.meta.get("effort") or self.config.get("effort")
+        return (["--model", str(model)] if model else []) + (["--effort", str(effort)] if effort else [])
 
     def stdin(self, task: AgentTask) -> str:
         return _prompt(task)
@@ -205,12 +210,14 @@ class ClaudeLocal(CLIAdapter):
         return _stream_json_progress(line)
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
-        d, said = None, []
+        d, said, model = None, [], None
         for line in stdout.splitlines():                       # stream-json: the last "result" event is the answer
             try:
                 ev = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if isinstance(ev, dict) and ev.get("type") == "system" and ev.get("model"):
+                model = str(ev["model"])                       # the model that actually answers
             if isinstance(ev, dict) and ev.get("type") == "result":
                 d = ev
             elif isinstance(ev, dict) and ev.get("type") == "assistant":
@@ -227,9 +234,11 @@ class ClaudeLocal(CLIAdapter):
         ok = not d.get("is_error") and d.get("subtype", "success") == "success"
         why = (text or "; ".join(str(e) for e in d.get("errors") or [] if e)          # the reason, not just "error_during_execution"
                or "\n".join(x for x in said if x).strip() or d.get("subtype") or "error")
+        if not model and isinstance(d.get("modelUsage"), dict) and d["modelUsage"]:
+            model = max(d["modelUsage"].items(), key=lambda kv: (kv[1] or {}).get("outputTokens", 0) if isinstance(kv[1], dict) else 0)[0]
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=d.get("total_cost_usd"),
-                           session_id=d.get("session_id"), error=None if ok else why[:500],
-                           data={"turns": d.get("num_turns")})
+                           session_id=d.get("session_id"), error=None if ok else why[:500], model=model,
+                           data={"turns": d.get("num_turns"), **({"effort": task.meta.get("effort")} if task.meta.get("effort") else {})})
 
 
 class CodebuddyLocal(ClaudeLocal):
@@ -246,9 +255,7 @@ class CodebuddyLocal(ClaudeLocal):
             cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
         else:
             cmd += ["--permission-mode", "default", "--tools", "Read,Glob,Grep,WebSearch,WebFetch"]
-        if self.config.get("model"):
-            cmd += ["--model", str(self.config["model"])]
-        return cmd
+        return cmd + self.choice_flags(task)
 
     LOGIN = "WorkBuddy CLI 未登录或登录已过期：在终端运行一次 codebuddy 并输入 /login，或在设置里填 CODEBUDDY_API_KEY"
 
@@ -497,7 +504,8 @@ class LLM(Adapter):
     def _run(self, task: AgentTask) -> AgentResult:
         from pga.agents import live
         tier = int(self.config.get("tier", 2))
-        model, prov = self.rt.router.model_for(tier), getattr(self.rt.router.provider, "name", "")
+        chosen = str(task.meta.get("model") or "")
+        model, prov = chosen or self.rt.router.model_for(tier), getattr(self.rt.router.provider, "name", "")
         who = (f"You are the model {model}" + (f" served by {prov}" if prov else "") + f", PGA's own model (agent \"{self.name}\"). "
                "If asked which model you are, say exactly that; you are not Claude, GPT or any other model.")
         system = (task.system or "You are one agent in a team working for the user. Be concrete.") + "\n\n" + who
@@ -509,10 +517,14 @@ class LLM(Adapter):
         messages = hist + [{"role": "user", "content": ask + ("\n\nReply with JSON only." if task.want_json else "")}]
         lid, provider = task.meta.get("live_id"), self.rt.router.provider
         if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written
-            r = provider.stream(model=self.rt.router.model_for(tier), system=system, messages=messages,
+            r = provider.stream(model=chosen or self.rt.router.model_for(tier), system=system, messages=messages,
                                 max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None,
                                 on_delta=lambda piece: live.append(lid, piece))
             r.tier = tier
+        elif chosen:
+            r = provider.complete(model=chosen, system=system, messages=messages, max_tokens=int(self.config.get("max_tokens", 2500)), temperature=None)
+            r.tier = tier
+            live.append(lid, r.text)
         else:
             r = self.rt.router.complete(tier, system=system, messages=messages, max_tokens=int(self.config.get("max_tokens", 2500)),
                                         usage=None, delegate=False)
