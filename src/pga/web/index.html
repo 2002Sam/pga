@@ -3189,7 +3189,8 @@ function pinBody(n, pos) {
   PINS[n.id] = [+p.x.toFixed(3), +p.z.toFixed(3)]; try { store.set("pga_pins", JSON.stringify(PINS)); } catch {}
   n.flash = 1; ripple(p, 1 + n.r * 3, GOLD);
   const grew = fieldCovers(p);
-  if (systems.some((s2) => s2.id === n.id) || grew) { if (systems.some((s2) => s2.id === n.id)) { n.glide = null; n.pos.copy(p); } rebuildField(); }   // the field flows round it anew
+  if (systems.some((s2) => s2.id === n.id)) { n.reflow = true; n.glide.t = 0; }   // it glides there; the field reflows as it goes (frame)
+  else if (grew) rebuildField();
 }
 window.PGA_RESET_LAYOUT = () => {                                         // forget every position you set by dragging
   for (const k of Object.keys(PINS)) delete PINS[k];
@@ -3602,7 +3603,7 @@ const _v = new THREE.Vector3();
 function placeAll(dt, motion) {
   const done = new Set();
   for (const n of nodes.values()) if (n.fixed) {
-    if (n.glide) { n.glide.t = Math.min(1, n.glide.t + (dt || .016) * 3); const e = 1 - Math.pow(1 - n.glide.t, 3); n.pos.lerpVectors(n.glide.from, n.fixed, e); if (n.glide.t >= 1) n.glide = null; }
+    if (n.glide) { n.glide.t = Math.min(1, n.glide.t + (dt || .016) * (n.reflow ? 1.6 : 3)); const e = 1 - Math.pow(1 - n.glide.t, 3); n.pos.lerpVectors(n.glide.from, n.fixed, e); if (n.glide.t >= 1) n.glide = null; }
     else n.pos.copy(n.fixed);
     done.add(n.id);
   }
@@ -3840,15 +3841,14 @@ canvas.addEventListener("pointermove", (e) => {
     if (drag.active) {
       const p = planePoint(e, 0); if (p) drag.pos.copy(p);
       drag.target = MODE === "galaxy" ? dropTarget(e) : null;
-      if (drag.n.fixed) {                                                    // a black hole or a crystal follows the hand…
-        drag.home0 ||= drag.n.fixed.clone();
-        drag.n.fixed.copy(drag.target ? drag.home0 : drag.pos);             // …unless it is about to link: then it stays and pulls a string
-        if (systems.some((x) => x.id === drag.n.id) && performance.now() - fieldBuiltAt > 90) { placeAll(0, 0); rebuildField(); }   // the field follows it
-      }
+      if (drag.n.fixed && MODE === "agents") {                               // a crystal follows the hand, and the field with it
+        drag.n.fixed.copy(drag.pos);
+        if (performance.now() - fieldBuiltAt > 90) { placeAll(0, 0); rebuildField(); }
+      }                                                                      // a black hole stays put and pulls a string out to the hand
       const r = mainEl.getBoundingClientRect();
       tipEl.innerHTML = drag.target ? `<b>松开以连接</b>${escapeHTML(drag.n.d.label)} ⇄ ${escapeHTML(drag.target.d.label)}`
         : MODE === "agents" ? `<b>放到想要的位置</b>松开后它就停在那里`
-        : drag.n.d.kind === "aim" ? `<b>移动这个星系</b>松开就放在这里 · 停在数据库或技能上则是连接` : `<b>松开就放在这里</b>拖到另一颗星上则是连接`;
+        : drag.n.d.kind === "aim" ? `<b>从抱负拉出一根线</b>拖到数据库或技能上松开 = 连接 · 在空白处松开 = 把这个星系移到那里` : `<b>松开就放在这里</b>拖到另一颗星上则是连接`;
       tipEl.style.opacity = 1; tipEl.style.left = Math.min(r.width - tipEl.offsetWidth - 8, e.clientX - r.left + 16) + "px"; tipEl.style.top = Math.max(8, e.clientY - r.top + 14) + "px";
     }
     return;
@@ -3866,7 +3866,6 @@ canvas.addEventListener("pointerup", (e) => {
       down = null; tipEl.style.opacity = 0;
       if (d.target) {                                                       // onto another body: link them, the body goes home
         if (!d.n.fixed) d.n.ret = { from: d.pos.clone(), t: 0 };
-        else if (d.home0) { d.n.fixed.copy(d.home0); if (systems.some((x) => x.id === d.n.id)) { placeAll(0, 0); rebuildField(); } }
         ripple(d.target.pos, Math.max(1.2, d.target.r * 6)); d.target.flash = 1; d.n.flash = 1;
         window.dispatchEvent(new CustomEvent("pga:bridge", { detail: { a: d.n.id, b: d.target.id, aLabel: d.n.d.label, bLabel: d.target.d.label } }));
       } else pinBody(d.n, d.pos);                                           // empty space: it stays where you put it
@@ -4065,6 +4064,10 @@ function frame(now) {
   uExc.value = motion ? Math.min(1.2, energy * .6 + live.think * .6) : 0;
 
   placeAll(dt, motion);
+  for (const n of nodes.values()) if (n.reflow) {                          // a sun on the move: the streamlines follow it
+    if (!n.glide) { n.reflow = false; rebuildField(); }
+    else if (now - fieldBuiltAt > 90) rebuildField();
+  }
   feedBodies();
   if (motion) respawnFlecks(uTime.value);
   let flipU = 0;
@@ -4170,9 +4173,9 @@ function frame(now) {
     }
   }
   for (const g of scenery.children) if (g.userData.sys && nodes.has(g.userData.sys)) g.position.copy(nodes.get(g.userData.sys).pos);
-  tether.visible = !!drag?.active && MODE === "galaxy" && !!drag.target;
+  tether.visible = !!drag?.active && MODE === "galaxy";                  // every drag first draws a string from where it was
   if (tether.visible) { tether.geometry.setFromPoints(drag.n.fixed ? [drag.n.pos, drag.pos] : [drag.n.home || drag.n.pos, drag.n.pos]); tether.computeLineDistances(); }
-  pullTip.visible = !!(drag?.active && drag.n.fixed && drag.target && MODE === "galaxy");
+  pullTip.visible = !!(drag?.active && drag.n.fixed && MODE === "galaxy");
   if (pullTip.visible) { pullTip.position.copy(drag.pos); pullTip.quaternion.copy(camera.quaternion); pullTip.scale.setScalar(.22); }
   dropRing.visible = !!drag?.target;
   if (dropRing.visible) { dropRing.position.copy(drag.target.pos); dropRing.quaternion.copy(camera.quaternion); dropRing.scale.setScalar(Math.max(.35, drag.target.r * 2.4) * (1 + Math.sin(uTime.value * 8) * .06)); }
