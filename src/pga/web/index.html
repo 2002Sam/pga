@@ -600,7 +600,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #app.agentmode #agOverlay { opacity: 1; visibility: visible; transition: opacity .7s ease .9s, visibility 0s; }
 #agOverlay > * { pointer-events: auto; }
 #agOverlay > #agBubbles { pointer-events: none; }
-#app.agentmode .ticker, #app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
+#app.agentmode .ticker { visibility: hidden !important; pointer-events: none; }      /* hidden but kept in the grid (it is a row) */
+#app.agentmode .hud, #app.agentmode #feed, #app.agentmode .edge, #app.agentmode .state-pill, #app.agentmode #dock, #app.agentmode #popLines, #app.agentmode #pop { display: none !important; }
 .nlabel.pool small { color: rgba(243,211,138,.75); } .nlabel.pool.off { opacity: .55 !important; }
 .ag-bubble { position: absolute; left: 0; top: 0; width: 290px; max-height: 150px; overflow: hidden; display: flex; flex-direction: column;
   color: #f4ead6; font-size: 12.5px; line-height: 1.7; transition: opacity 1.2s; pointer-events: none;
