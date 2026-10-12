@@ -879,7 +879,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
   --text: #e6ebed; --muted: #8b979d; --dim: #56626a; }
 body, .flip-stage { background: #0e151a; }
 header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !important; }
-.dock, .pop, #tip3d, .tip, .toast, dialog.settings { background: rgba(12,19,24,.94) !important; }
+.pop, #tip3d, .tip, .toast, dialog.settings { background: rgba(12,19,24,.94) !important; }
+.dock { background: rgba(12,19,24,var(--dock-alpha, .72)) !important; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }   /* the chat box lets the sky show through (was .94); tune --dock-alpha */
 .hub-top { background: rgba(13,20,25,.86) !important; } .hub-right, .hub-left { background-color: transparent; }
 .hub-right { background: rgba(13,20,25,.9) !important; }
 .hub-left { background: linear-gradient(180deg, transparent 0, transparent 280px, rgba(13,20,25,.9) 281px) !important; }
@@ -3645,10 +3646,11 @@ function buildSystemDecor() {
 }
 // planets that bend the field around them, updated every frame: xyz = where, w = reach (0 = none)
 const uBodies = { value: Array.from({ length: 24 }, () => new THREE.Vector4()) };
-const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uBodies, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector4() }, uLift: { value: 1 } }, transparent: true, depthWrite: false,
+const uFog = { value: new THREE.Vector3(8, 20, 0) };      // while you talk: (near, far, strength) — the farther, the fainter
+const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uBodies, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector4() }, uLift: { value: 1 }, uFog }, transparent: true, depthWrite: false,
   vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; uniform vec4 uBodies[24]; vec3 bend(vec3 p){ for (int i = 0; i < 24; i++){ vec4 b = uBodies[i]; if (b.w <= 0.) continue; vec2 d = p.xz - b.xz; float r2 = dot(d, d) + 1e-4; float r = sqrt(r2); float f = exp(-r2 / (b.w * b.w * 2.)); p.xz += d / r * b.w * .62 * f * smoothstep(0., b.w * .45, r); p.y -= b.w * .34 * f; } return p; }
     attribute float aT; attribute float aA; attribute float aN; attribute float aS; attribute float aSeed; attribute vec3 aSide; attribute float aGold;
-    varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
+    varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR; varying float vZ;
     void main(){
       // a vibrating string: two slow standing waves, a quick tremor, and a lift out of the plane
       float w = sin(aS * 1.7 + uTime * 1.1 + aSeed) * .55 + sin(aS * 3.9 - uTime * 2.3 + aSeed * 1.7) * .3 + sin(aS * 11. + uTime * 6.5 + aSeed * 3.) * .15;
@@ -3659,12 +3661,14 @@ const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uBodies, uC
       vec2 q = position.xz - uC; float ang = atan(q.y, q.x);
       vD = length(q) / uR + .06 * sin(ang * 5. + aSeed) + .04 * sin(ang * 11. - uTime * .3 + aSeed * 2.) + .02 * sin(uTime * .5 + aSeed);
       vR = length(p.xz);
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
-  fragmentShader: `uniform float uTime, uLift; uniform vec4 uWave; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
+      vec4 mv = modelViewMatrix * vec4(p, 1.); vZ = -mv.z;
+      gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float uTime, uLift; uniform vec3 uFog; uniform vec4 uWave; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR; varying float vZ;
     float waveMask(float r){ if (uWave.y > .5) return mix(uWave.w, 1., 1. - smoothstep(uWave.x - .55, uWave.x, r)); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float e = smoothstep(0., .04, vT) * smoothstep(1., .96, vT) * (1. - smoothstep(.55, 1., vD)); float flow = .8 + .2 * sin(vS * 2. - uTime * 1.4);
       float gl = waveGlow(vR); vec3 c = mix(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), vG), vec3(1., .78, .42), min(1., gl));
-      gl_FragColor = vec4(c, vA * e * flow * (1. + vG * .6) * waveMask(vR) * (1. + gl * 2.5) * uLift); }` });
+      gl_FragColor = vec4(c, vA * e * flow * (1. + vG * .6) * waveMask(vR) * (1. + gl * 2.5) * uLift
+        * mix(1., clamp((uFog.y - vZ) / (uFog.y - uFog.x), .05, 1.), uFog.z)); }` });
 function buildFieldLines() {
   flowSamples.length = 0;
   if (!systems.length) return;
@@ -3955,15 +3959,15 @@ function placeAll(dt, motion) {
 /* ------------------------------------------------ links: strings between bodies; activity plucks them */
 const SEG = 16;
 const linkMat = new THREE.ShaderMaterial({
-  uniforms: { uTime, uHover: { value: 0 }, uWave: { value: new THREE.Vector4() }, uFoc: { value: 0 } }, transparent: true, depthWrite: false,
+  uniforms: { uTime, uHover: { value: 0 }, uWave: { value: new THREE.Vector4() }, uFoc: { value: 0 }, uFog }, transparent: true, depthWrite: false,
   vertexShader: `attribute float aT; attribute float aSeed; attribute float aHi; attribute float aW; attribute float aGold; attribute float aFoc;
-    varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR; varying float vF;
-    void main(){ vT = aT; vS = aSeed; vH = aHi; vW = aW; vG = aGold; vF = aFoc; vR = length(position.xz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
-  fragmentShader: `uniform float uTime, uHover, uFoc; uniform vec4 uWave; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR; varying float vF;
+    varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR; varying float vF; varying float vZ;
+    void main(){ vT = aT; vS = aSeed; vH = aHi; vW = aW; vG = aGold; vF = aFoc; vR = length(position.xz); vec4 mv = modelViewMatrix * vec4(position, 1.); vZ = -mv.z; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `uniform float uTime, uHover, uFoc; uniform vec3 uFog; uniform vec4 uWave; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR; varying float vF; varying float vZ;
     float waveMask(float r){ if (uWave.y > .5) return mix(uWave.w, 1., 1. - smoothstep(uWave.x - .55, uWave.x, r)); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float f = pow(1. - fract(vT - uTime * (.16 + vH * .3) + vS), 10.);
       float a = (.1 * vW + f * .22 + vH * .45) * mix(1., mix(.25, 1., step(.5, vH)), uHover);
-      a *= mix(1., mix(.16, 1., max(vF, step(.5, vH))), uFoc);
+      a *= mix(1., mix(.1, 1., max(vF, step(.5, vH))), uFoc) * mix(1., clamp((uFog.y - vZ) / (uFog.y - uFog.x), .05, 1.), uFog.z * (1. - max(vF, step(.5, vH))));
       gl_FragColor = vec4(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), max(vH * .55, vG * .9)), a * (1. + vG * 1.6) * waveMask(vR)); }` });
 let linkGeo = new THREE.BufferGeometry(), linkMesh = new THREE.LineSegments(linkGeo, linkMat);
 linkMesh.frustumCulled = false; world.add(linkMesh);
@@ -4397,7 +4401,8 @@ function frame(now) {
   uExc.value = motion ? Math.min(1.2, energy * .6 + live.think * .6) : 0;
 
   CALM += (CALM_GOAL - CALM) * Math.min(1, dt * 2.2);
-  linkMat.uniforms.uFoc.value = PEEK ? 0 : CALM; fieldMat.uniforms.uLift.value = 1 + .5 * CALM;   // other strings back, the field a little brighter
+  linkMat.uniforms.uFoc.value = PEEK ? 0 : CALM;
+  { const d = camera.position.distanceTo(controls.target); uFog.value.set(d * .7, d * 1.75, PEEK ? 0 : CALM); }   // far things fade, near ones stay
   { const w = mainEl.clientWidth, L = window.PGA_TALK_LAYOUT?.(w) || { xp: w * .32 };   // history | planet | the words
     const goal = TALK && MODE === "agents" && w > 720 ? Math.max(0, w / 2 - L.xp) : 0;
     if (Math.abs(goal - talkShift) > .5) { talkShift += (goal - talkShift) * Math.min(1, dt * 2.4); frameView(); } else if (talkShift !== goal) { talkShift = goal; frameView(); } }
@@ -4470,7 +4475,8 @@ function frame(now) {
     const appear = 1 - Math.pow(1 - n.spawn, 3);
     const wv = n.wv ?? 1;
     if (wv < 1) { n.group.position.y += (1 - wv) * .9; n.group.rotation.x = -(1 - wv) * Math.PI * .5; } else if (n.group.rotation.x) n.group.rotation.x = 0;
-    const tkGoal = TALK && MODE === "agents" && !PEEK ? (n.id === TALK ? 1 : RUNNING.has(n.id) ? .8 : n.id === "you" ? .5 : .28) : 1;
+    const near = Math.min(1, Math.max(0, (uFog.value.y - camera.position.distanceTo(n.pos)) / (uFog.value.y - uFog.value.x)));
+    const tkGoal = TALK && MODE === "agents" && !PEEK ? (n.id === TALK ? 1 : RUNNING.has(n.id) ? .8 : (n.id === "you" ? .12 : .05) + .3 * near) : 1;
     n.tk = (n.tk ?? 1) + (tkGoal - (n.tk ?? 1)) * Math.min(1, dt * 2.6);
     const s = n.r * appear * (1 + n.energy * .15) * (st.selected === n.id ? 1.12 : 1) * Math.max(.001, wv) * (.62 + .38 * n.tk);
     n.mesh.scale.setScalar(s);
