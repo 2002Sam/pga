@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    text,
     Boolean, Float, ForeignKey, Index, Integer, MetaData, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -256,7 +257,8 @@ class Belief(Base):
     reviewed_at: Mapped[datetime | None] = mapped_column(Tz())  # conclusion freshness (§13)
     superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("beliefs.id"))
 
-    __table_args__ = (Index("ix_beliefs_resp_status", "responsibility_id", "status"),)
+    __table_args__ = (Index("ix_beliefs_resp_status", "responsibility_id", "status"),
+                      Index("ix_beliefs_fts", text("to_tsvector('english', statement_en)"), postgresql_using="gin"))
 
 
 class BeliefEvidence(Base):
@@ -306,6 +308,8 @@ class Evidence(Base):
     source_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("sources.id", ondelete="SET NULL"))  # ext
     retracted_at: Mapped[datetime | None] = mapped_column(Tz())  # ext: source withdrawn / found wrong
     revised_at: Mapped[datetime | None] = mapped_column(Tz())    # ext: content changed upstream (§13)
+
+    __table_args__ = (Index("ix_evidence_fts", text("to_tsvector('english', canonical_summary_en)"), postgresql_using="gin"),)
 
 
 class ResponsibilityCluster(Base):
@@ -376,9 +380,46 @@ class Skill(Base):
     status: Mapped[SkillStatus] = mapped_column(enum_col(SkillStatus, "skill_status"), nullable=False)
     parent_version_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("skills.id"))
     created_at: Mapped[datetime] = _created()
+    # ext ------------------------------------------------------------------
+    task_kind: Mapped[str] = mapped_column(String(64), default="research", nullable=False)
+    support: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)  # episodes behind it
+    fingerprint: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)  # MinHash, for dedupe
+    activated_at: Mapped[datetime | None] = mapped_column(Tz())
+    retired_at: Mapped[datetime | None] = mapped_column(Tz())
+    retired_reason: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("scope", "owner_id", "name", "version", name="uq_skill_version",
                                        postgresql_nulls_not_distinct=True),)
+
+
+class SkillEpisode(Base):
+    """One piece of experience: a run, how it went, the lesson drawn, and which skills it was given."""
+    __tablename__ = "skill_episodes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    responsibility_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("responsibilities.id", ondelete="SET NULL"))
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    task_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    success: Mapped[float] = mapped_column(Float, nullable=False)          # 0..1
+    lesson_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    lesson_skill_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("skills.id", ondelete="SET NULL"))
+    used_skill_ids: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_skill_episodes_user_kind", "user_id", "task_kind", "created_at"),)
+
+
+class SkillEval(Base):
+    __tablename__ = "skill_evals"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    skill_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("skills.id", ondelete="CASCADE"), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    n_cases: Mapped[int] = mapped_column(Integer, nullable=False)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    evaluator: Mapped[str] = mapped_column(String(64), nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _created()
 
 
 # ------------------------------------------------------------------ translation

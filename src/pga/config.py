@@ -222,6 +222,24 @@ class MotivationPolicy(BaseModel):
     tier: int = 1                           # a cheap model is enough to decide; the work itself is allocated later
 
 
+class SkillsPolicy(BaseModel):
+    """Hermes-style self-improvement (spec §12): versioned, evaluated, deduplicated, reversible."""
+    min_support: int = 2                 # episodes behind a lesson before it may become a rule (one failure never does)
+    eval_threshold: float = 0.6          # eval score needed to activate
+    max_eval_cases: int = 6
+    similarity: float = 0.45             # lessons this similar are the same skill (dedupe)
+    auto_activate: bool = True           # activate after a passing eval; always audited and reversible
+    regression_window: int = 5           # uses of a new version before it is compared with its parent
+    regression_margin: float = 0.2       # success-rate drop that triggers an automatic rollback
+    context_max: int = 3                 # active skills shown to a research step
+
+
+class MemoryPolicy(BaseModel):
+    """Retrieval (spec §11): candidate context only — it never decides what is true."""
+    recall_limit: int = 5
+    min_rank: float = 0.01
+
+
 class LayersPolicy(BaseModel):
     """Information pyramid (pga.layers): every item at three levels of detail; processes take the level they need."""
     enabled: bool = True                    # build gist / brief / full with the model (off → rule cuts only)
@@ -294,6 +312,8 @@ class Policy(BaseModel):
     motivation: MotivationPolicy = MotivationPolicy()
     evolution: EvolutionPolicy = EvolutionPolicy()
     layers: LayersPolicy = LayersPolicy()
+    skills: SkillsPolicy = SkillsPolicy()
+    memory: MemoryPolicy = MemoryPolicy()
 
     def quota_for_tier(self, tier: int, provider: str | None = None) -> QuotaPolicy | None:
         matches = [q for q in self.quotas if tier in q.applies_to_tiers]

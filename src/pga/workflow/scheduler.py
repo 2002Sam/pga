@@ -117,3 +117,10 @@ def rt_research_agent(rt: "Runtime"):
 
 def responsibility_of(rt: "Runtime", job: Job) -> Responsibility | None:
     return rt.session.get(Responsibility, job.responsibility_id) if job.responsibility_id else None
+
+
+@register_planner
+def _skills_due(rt: "Runtime", user: User, now: datetime) -> list[dict]:
+    """Phase 3: evaluate candidate skills once they have enough supporting episodes."""
+    return [{"kind": "skill.evaluate", "key": f"skill-eval:{s.id}", "payload": {"skill_id": str(s.id)}, "priority": 160}
+            for s in rt.skills.due_for_eval(user.id)]

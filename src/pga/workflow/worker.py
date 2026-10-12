@@ -107,8 +107,8 @@ def _research(rt: "Runtime", job: Job, now: datetime) -> dict:
         raise Defer(out.retry_after or _defer_default(now), out.reason)
     if out.status == "failed":
         raise RuntimeError(out.reason)
-    if out.lesson and hasattr(rt, "learn_from"):
-        rt.learn_from(r, out)  # Phase 3: candidate skills from experience
+    if out.status == "done" and out.run_id and hasattr(rt, "learn_from"):
+        rt.learn_from(r, out)  # Phase 3: every step is an episode; its lesson may become a candidate skill
     return {"status": out.status, "reason": out.reason, "next_state": out.next_state, "forward": forward,
             "belief_changes": len(out.belief_changes), "run_id": str(out.run_id) if out.run_id else None}
 
@@ -233,6 +233,18 @@ def _plan_layers(rt: "Runtime", user: User, now: datetime) -> list[dict]:
         return []
     return [{"kind": "layers.build", "key": f"layers:{ref}", "payload": {"ref": ref}, "priority": 160}
             for ref in rt.layers.due(user.id, now, lp.builds_per_heartbeat)]
+
+
+@handler("skill.evaluate")
+def _skill_eval(rt: "Runtime", job: Job, now: datetime) -> dict:
+    from pga.db.models import Skill
+
+    skill = rt.session.get(Skill, uuid.UUID(job.payload["skill_id"]))
+    if skill is None or skill.status.value != "CANDIDATE":
+        return {"skipped": "no longer a candidate"}
+    res = rt.skills.evaluate(skill, _user(rt, job).id, now)
+    return {"score": round(res.score, 3), "passed": res.passed, "activated": res.activated,
+            "evaluator": res.evaluator, "reason": res.reason}
 
 
 @handler("exploration.run")

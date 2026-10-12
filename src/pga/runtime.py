@@ -82,6 +82,40 @@ class Runtime:
             from pga.agents.routing import make_delegate
             self.router.delegate = make_delegate(self)
 
+    # ---------------------------------------------------------------- Phase 3: learning hooks
+
+    @property
+    def skills(self):
+        if getattr(self, "_skills", None) is None:
+            from pga.skills import SkillService
+            self._skills = SkillService(self.session, self)
+        return self._skills
+
+    @property
+    def memory(self):
+        if getattr(self, "_memory", None) is None:
+            from pga.memory import MemoryService
+            self._memory = MemoryService(self.session, self.policy)
+        return self._memory
+
+    def skill_context(self, r, task_kind: str = "research") -> str:
+        """Active skills for a step; remembered so the episode can credit or blame them."""
+        text, ids = self.skills.context(r, task_kind)
+        self._offered = {**getattr(self, "_offered", {}), r.id: ids}
+        return text
+
+    def memory_context(self, r, query: str) -> str:
+        return self.memory.context(r.user_id, query)
+
+    def learn_from(self, r, outcome) -> None:
+        """A finished research step becomes an episode; its lesson feeds the candidate-skill loop."""
+        success = 1.0 if outcome.status == "done" and (outcome.belief_changes or r.useful_outcomes) else 0.4
+        if outcome.status == "failed":
+            success = 0.0
+        self.skills.record_episode(user_id=r.user_id, task_kind="research", success=success,
+                                   lesson=outcome.lesson, responsibility_id=r.id, run_id=outcome.run_id,
+                                   used_skill_ids=getattr(self, "_offered", {}).pop(r.id, []))
+
     def _usage(self) -> UsageContext:
         return self._billing
 

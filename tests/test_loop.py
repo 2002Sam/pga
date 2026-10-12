@@ -68,8 +68,12 @@ class Brain:
     def __init__(self):
         self.research = {"beliefs": [], "communicate": {"kind": "SILENT"}, "next": {"state": "monitor"}}
         self.queries = {"queries": ["world model benchmarks", "robot simulators"]}
+        self.extra: dict[str, dict] = {}   # other system-prompt markers → JSON reply (later phases)
 
     def __call__(self, system, messages):
+        for marker, reply in self.extra.items():
+            if system.startswith(marker):
+                return json.dumps(reply)
         if system.startswith(RESEARCH):
             return json.dumps(self.research)
         if system.startswith(EXPLORE):

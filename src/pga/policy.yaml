@@ -248,3 +248,19 @@ notify:
   dedupe_hours: 24
   quiet_hours: {start: 23, end: 8}  # your local time; held until morning
   default_channels: [in_app]        # add ntfy / webhook via user preferences.notify
+
+# §12 — reusable skills learned from experience (Phase 3). Versioned, evaluated, deduplicated, reversible.
+skills:
+  min_support: 2                    # a lesson needs this many episodes before it can become a rule
+  eval_threshold: 0.6               # eval score needed to activate a candidate
+  max_eval_cases: 6
+  similarity: 0.45                  # lessons this similar are merged into one skill
+  auto_activate: true               # activate after a passing eval (audited; roll back any time)
+  regression_window: 5              # uses of a new version before comparing it with its parent
+  regression_margin: 0.2            # success-rate drop that rolls a version back automatically
+  context_max: 3                    # active skills offered to a research step
+
+# §11 — retrieval: candidate context for the model, never the source of truth.
+memory:
+  recall_limit: 5
+  min_rank: 0.01
