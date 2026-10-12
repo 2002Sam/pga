@@ -582,41 +582,46 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-msg.it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; }
 #agChat, #agDetail { display: none !important; }                          /* the cards replace the fixed chat and detail panels */
 /* talking to a planet: no frame — the rest of the sky fades back, the words appear beside it */
-#agVeil { position: absolute; inset: 0; z-index: 2; pointer-events: none !important; opacity: 0; transition: opacity .6s ease;
+#agVeil { position: absolute; inset: 0; z-index: 2; pointer-events: none !important; opacity: 0; transition: opacity 1.1s ease;
   mask-composite: intersect; -webkit-mask-composite: source-in; }
 #agVeil.on { opacity: 1; }
 #agOverlay > #agBubbles { position: absolute; inset: 0; z-index: 3; transition: opacity .5s; }
-#app.talking #agBubbles { opacity: .16; }
-#app.talking .ag-top { opacity: .3; transition: opacity .4s; } #app.talking .ag-top:hover, #app.talking .ag-top:focus-within { opacity: 1; }
+#app.talking #agBubbles { opacity: .4; }
+.ag-top { transition: opacity .8s ease; }
+#app.talking .ag-top { opacity: .6; } #app.talking .ag-top:hover, #app.talking .ag-top:focus-within { opacity: 1; }
+#agTalkLine { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none !important; overflow: visible; opacity: 0; transition: opacity .9s ease .3s; }
+#app.talking #agTalkLine { opacity: 1; }
+#agTalkLine line { stroke: rgba(233,169,75,.5); stroke-width: 1; }
+#agTalkLine circle { fill: #e9a94b; opacity: .8; }
 #app.talking #agRoutes { display: none !important; }
-.ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(370px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px;
-  color: #f4ead6; font-size: 13px; line-height: 1.75; transition: opacity .35s ease;
+.ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(480px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px;
+  color: #f4ead6; font-size: 14.5px; line-height: 1.8; transition: opacity .6s ease;
   text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
 .ag-talk[hidden] { display: none; }
 .ag-talk .tk-h { display: flex; align-items: baseline; gap: 10px; }
-.ag-talk .who { font-size: 19px; letter-spacing: .06em; color: #fff3d6; }
+.ag-talk .who { font-size: 24px; letter-spacing: .06em; color: #fff3d6; }
 .ag-talk .acts { margin-left: auto; display: flex; gap: 2px; opacity: .5; transition: opacity .2s; }
 .ag-talk:hover .acts, .ag-talk:focus-within .acts { opacity: 1; }
-.ag-talk .acts button { border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 9.5px; letter-spacing: .12em; cursor: pointer; padding: 2px 5px; text-shadow: inherit; }
+.ag-talk .acts button { border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .12em; cursor: pointer; padding: 2px 5px; text-shadow: inherit; }
 .ag-talk .acts button:hover { color: #fff3d6; }
-.ag-talk .route { font-size: 11px; color: rgba(214,224,229,.55); line-height: 1.5; margin-top: -4px; }
+.ag-talk .route { font-size: 12.5px; color: rgba(214,224,229,.58); line-height: 1.55; margin-top: -4px; }
 .ag-talk .route b { color: #f3d38a; font-weight: 500; }
-.ag-talk .tk-log { display: flex; flex-direction: column; gap: 12px; max-height: min(46vh, 430px); overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
+.ag-talk .tk-log { display: flex; flex-direction: column; gap: 14px; max-height: min(58vh, 580px); overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
   mask-image: linear-gradient(transparent 0, #000 64px); -webkit-mask-image: linear-gradient(transparent 0, #000 64px); }
 .ag-talk .tk-log::-webkit-scrollbar { display: none; }
 .ag-talk .tk-log:empty { display: none; }
 .tk-me { color: rgba(214,224,229,.7); padding-left: 14px; position: relative; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tk-me::before { content: "›"; position: absolute; left: 0; color: rgba(233,169,75,.85); }
-.tk-it .m { display: block; font: var(--cap); font-size: 9px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
+.tk-it .m { display: block; font: var(--cap); font-size: 10px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
 .tk-it .body { white-space: pre-wrap; overflow-wrap: anywhere; color: #f6ecd8; }
-.tk-it .body code { font-family: var(--mono); font-size: 12px; color: #f3d38a; }
+.tk-it .body code { font-family: var(--mono); font-size: 13px; color: #f3d38a; }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
-.tk-it .files { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+.tk-it .files { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
 .ag-talk .tk-ask { margin: 0; }
 .ag-talk .tk-ask textarea { display: block; width: 100%; min-height: 0; max-height: 150px; resize: none; border: 0 !important; border-bottom: 1px solid rgba(233,169,75,.32) !important;
-  border-radius: 0; background: transparent !important; box-shadow: none !important; color: #fff3d6; font: inherit; font-size: 13.5px; line-height: 1.6;
-  padding: 4px 0 7px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
+  border-radius: 0; background: transparent !important; box-shadow: none !important; color: #fff3d6; font: inherit; font-size: 15.5px; line-height: 1.6;
+  padding: 6px 0 9px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
 .ag-talk .tk-ask textarea:focus { border-bottom-color: rgba(233,169,75,.85) !important; }
 .ag-talk .tk-ask textarea::placeholder { color: rgba(214,224,229,.36); }
 .ag-card { position: absolute; left: 0; top: 0; width: min(390px, calc(100% - 24px)); height: min(540px, calc(100% - 80px)); z-index: 7; perspective: 1400px; }
@@ -932,6 +937,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       <aside class="ag-panel ag-left" id="agRoutes"></aside>
       <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
       <div id="agVeil" aria-hidden="true"></div>
+      <svg id="agTalkLine" aria-hidden="true"><line></line><circle r="2.5"></circle></svg>
       <div id="agBubbles" aria-live="polite"></div>
       <div class="ag-talk" id="agTalk" hidden role="dialog" aria-label="对话">
         <div class="tk-h"><span class="who" id="agTalkWho"></span>
@@ -1539,16 +1545,17 @@ function openCard(kind, key) {                       // talk to a planet (or a k
   CARD.kind = kind; CARD.key = key;
   AGV.sel = kind === "agent" ? key : null; AGV.hoverCat = kind === "cat" ? key : null;
   const veil = $("#agVeil"), bg = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [14, 21, 26];
-  veil.style.background = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, .88)`;
+  veil.style.background = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, .58)`;
   renderCard(); el.hidden = false; el.style.opacity = 0; placeTalk();
   requestAnimationFrame(() => { el.style.opacity = 1; });
-  $("#app").classList.add("talking"); veil.classList.add("on"); window.PGA_CALM?.(true);
+  $("#app").classList.add("talking"); veil.classList.add("on"); window.PGA_CALM?.(true); window.PGA_TALK?.((kind === "cat" ? "pc:" : "pa:") + key);
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
 function closeCard() {
   const el = $("#agTalk"); closeTalkSettings(true);
   $("#app").classList.remove("talking"); $("#agVeil").classList.remove("on"); window.PGA_CALM?.(false);
   if (!CARD.kind) return;
+  window.PGA_TALK?.(null);
   CARD.kind = CARD.key = null; AGV.sel = null; AGV.hoverCat = null;
   el.style.opacity = 0; setTimeout(() => { if (!CARD.kind) el.hidden = true; }, 360);
 }
@@ -1572,18 +1579,27 @@ function placeTalk() {                               // the words stay beside th
   const el = $("#agTalk"); if (!el || el.hidden || !CARD.kind) return;
   const m = $("#main"), W = m.clientWidth, H = m.clientHeight;
   const b = window.PGA_BODY?.((CARD.kind === "cat" ? "pc:" : "pa:") + CARD.key); if (!b) return;
-  const w = el.offsetWidth || 370, h = el.offsetHeight || 120, gap = Math.max(30, b.r * 1.5 + 22);
+  const w = el.offsetWidth || 480, h = el.offsetHeight || 140, gap = Math.max(54, b.r * 1.6 + 40);
   const right = b.x + gap + w < W - 14 || b.x < W / 2;
-  let x = right ? b.x + gap : b.x - gap - w, y = b.y - h + 34;                     // the input line sits just below the planet's middle
-  x = Math.max(12, Math.min(W - w - 12, x)); y = Math.max(56, Math.min(H - h - 16, y));
+  let x = right ? b.x + gap : b.x - gap - w, y = b.y - h + 52;                     // the latest words sit level with the planet
+  x = Math.max(16, Math.min(W - w - 16, x)); y = Math.max(60, Math.min(H - h - 20, y));
   el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
+  const ln = $("#agTalkLine"), dir = right ? 1 : -1;                              // a fine gold line ties the words to their planet
+  if (ln) {
+    const y1 = Math.max(y + 14, Math.min(y + h - 14, b.y)), x1 = right ? x - 12 : x + w + 12, x0 = b.x + dir * (b.r + 7);
+    const l = ln.querySelector("line"), c = ln.querySelector("circle");
+    l.setAttribute("x1", x0.toFixed(1)); l.setAttribute("y1", b.y.toFixed(1)); l.setAttribute("x2", x1.toFixed(1)); l.setAttribute("y2", y1.toFixed(1));
+    c.setAttribute("cx", x0.toFixed(1)); c.setAttribute("cy", b.y.toFixed(1));
+    ln.style.visibility = Math.abs(x1 - x0) * dir > 8 ? "visible" : "hidden";
+  }
   const veil = $("#agVeil"), holes = [b];
   if (CARD.kind === "cat") {                                                     // a kind of work: the agent answering stays lit too
     const log = CARD.log[cardK()] || [], who = (log.find((x2) => x2.pending) || [...log].reverse().find((x2) => x2.agent))?.agent;
     const hb = who && window.PGA_BODY?.("pa:" + who); if (hb && hb.visible) holes.push(hb);
   }
-  const mask = holes.map((o) => { const r0 = o.r * 1.5 + 14, r1 = r0 + 46;      // a little lower than the planet, so its name stays lit
-    return `radial-gradient(circle at ${o.x.toFixed(0)}px ${(o.y + o.r * .55 + 6).toFixed(0)}px, transparent ${r0.toFixed(0)}px, #000 ${r1.toFixed(0)}px)`; }).join(", ");
+  const D = Math.max(W, H);                                                       // no hard edge: the sky fades gently with distance
+  const mask = holes.map((o) => { const r0 = o.r * 2 + 34, cy = o.y + o.r * .5 + 6;
+    return `radial-gradient(circle at ${o.x.toFixed(0)}px ${cy.toFixed(0)}px, transparent ${r0.toFixed(0)}px, rgba(0,0,0,.3) ${(r0 + D * .12).toFixed(0)}px, rgba(0,0,0,.7) ${(r0 + D * .3).toFixed(0)}px, #000 ${(r0 + D * .5).toFixed(0)}px)`; }).join(", ");
   if (veil.dataset.mask !== mask) { veil.dataset.mask = mask; veil.style.maskImage = mask; veil.style.webkitMaskImage = mask; }
 }
 function placeCard() {                                                    // beside its body, on the side with room
@@ -3292,6 +3308,11 @@ let MODE = "galaxy", AGENT_GRAPH = null, FLIP = null, EARTH_W = 0, ROUTE = null;
 const RUNNING = new Map();                                                // agent node id → when it last rippled
 let CALM = 0, CALM_GOAL = 0;                                              // 1 while you talk to a planet: the strings hum, they do not swing
 window.PGA_CALM = (on) => { CALM_GOAL = on ? 1 : 0; };
+let TALK = null, talkShift = 0;                                            // the body you are talking to: the view glides to it
+window.PGA_TALK = (id) => {
+  const was = TALK; TALK = id && nodes.has(id) ? id : null;
+  if (TALK) { focusId = TALK; flyT = 1; resetPan(); } else if (was) { focusId = null; flyT = 1; }
+};
 const PINS = (() => { try { return store.json("pga_pins", {}) || {}; } catch { return {}; } })();   // id → [x, z]: where you put it
 function applyPins() {
   for (const n of nodes.values()) {
@@ -3880,7 +3901,7 @@ function frameView() {
   const w = mainEl.clientWidth, h = mainEl.clientHeight; if (!w || !h) return;
   const dock = document.getElementById("dock"), covered = dock && !dock.classList.contains("collapsed") ? dock.offsetHeight + 14 : 0;
   const room = SOLO && document.getElementById("pop");                    // keep the body in the space left of the room panel
-  const shift = room && !room.hidden ? Math.round((room.offsetWidth + 32) / 2) : 0;
+  const shift = Math.max(room && !room.hidden ? Math.round((room.offsetWidth + 32) / 2) : 0, Math.round(talkShift));   // …or left of the talk
   camera.setViewOffset(w, h, shift, SOLO ? 0 : Math.round(covered * 0.42), w, h);
   camera.updateProjectionMatrix();
 }
@@ -4201,6 +4222,8 @@ function frame(now) {
   uExc.value = motion ? Math.min(1.2, energy * .6 + live.think * .6) : 0;
 
   CALM += (CALM_GOAL - CALM) * Math.min(1, dt * 2.2);
+  { const w = mainEl.clientWidth, goal = TALK && MODE === "agents" && w > 720 ? Math.min(w * .17, 250) : 0;   // planet to the left third, words to its right
+    if (Math.abs(goal - talkShift) > .5) { talkShift += (goal - talkShift) * Math.min(1, dt * 2.4); frameView(); } else if (talkShift !== goal) { talkShift = goal; frameView(); } }
   placeAll(dt, motion);
   for (const n of nodes.values()) if (n.reflow) {                          // a sun on the move: the streamlines follow it
     if (!n.glide) { n.reflow = false; rebuildField(); }
@@ -4252,7 +4275,7 @@ function frame(now) {
     flyT = Math.max(0, flyT - dt * .7);
     const narrow = Math.max(1, 1.2 / Math.min(1.2, camera.aspect));
     const sysR = fnode?.d.kind === "aim" ? systems.find((s) => s.id === fnode.id)?.R || 3 : 0;
-    const dist = (!fnode ? Math.max(14, boundR * 2.3) : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
+    const dist = (!fnode ? Math.max(14, boundR * 2.3) : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
     camDir.subVectors(camera.position, controls.target).normalize();
     if (camDir.y < .38) { camDir.y = .48; camDir.normalize(); }
     v3.copy(target).addScaledVector(camDir, dist);
