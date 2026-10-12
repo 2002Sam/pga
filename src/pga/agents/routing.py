@@ -160,7 +160,8 @@ class AgentRouter:
                          and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
                 break
         res = PoolResult(bool(used), result_text, "ask", "single",
-                         {"agent": used, "category": cat, "why": why, "files": files, "tried": order}, steps,
+                         {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
+                          **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
                          error=None if used else "; ".join(f"{s.result.agent}: {s.result.error}" for s in steps)[:800] or "no agent available")
         res.run_id = run_id
         self.pool._record(res, text, user, None, None, t0)

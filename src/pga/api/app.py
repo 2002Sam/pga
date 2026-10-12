@@ -1410,6 +1410,21 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         user_or_404(rt, user_id)
         return AgentPool(rt).history(user_id, limit)
 
+    @app.get("/v1/users/{user_id}/agents/conversations")
+    def agents_conversations(user_id: uuid.UUID, card: str = Query(..., pattern=r"^(agent|cat):[A-Za-z0-9_-]{1,40}$"),
+                             limit: int = Query(40, le=100), rt: Runtime = Depends(get_rt)):
+        """Past conversations on one card (an agent, or a kind of work), newest first."""
+        from pga.agents import history
+        user_or_404(rt, user_id)
+        return history.conversations(rt.session, user_id, card, limit)
+
+    @app.get("/v1/users/{user_id}/agents/conversation")
+    def agents_conversation(user_id: uuid.UUID, id: str = Query(..., max_length=120), rt: Runtime = Depends(get_rt)):
+        """One past conversation, message by message."""
+        from pga.agents import history
+        user_or_404(rt, user_id)
+        return {"id": id, "messages": history.messages(rt.session, user_id, id)}
+
     _ = FactType  # re-exported for OpenAPI enum docs
     return app
 

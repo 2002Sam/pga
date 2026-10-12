@@ -594,36 +594,56 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #agTalkLine line { stroke: rgba(233,169,75,.5); stroke-width: 1; }
 #agTalkLine circle { fill: #e9a94b; opacity: .8; }
 #app.talking #agRoutes { display: none !important; }
-.ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(480px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px;
-  color: #f4ead6; font-size: 14.5px; line-height: 1.8; transition: opacity .6s ease;
+.ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
+  color: #f4ead6; font-size: 15.5px; line-height: 1.8; transition: opacity .6s ease;
   text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
 .ag-talk[hidden] { display: none; }
 .ag-talk .tk-h { display: flex; align-items: baseline; gap: 10px; }
-.ag-talk .who { font-size: 24px; letter-spacing: .06em; color: #fff3d6; }
+.ag-talk .who { font-size: 28px; letter-spacing: .06em; color: #fff3d6; }
 .ag-talk .acts { margin-left: auto; display: flex; gap: 2px; opacity: .5; transition: opacity .2s; }
 .ag-talk:hover .acts, .ag-talk:focus-within .acts { opacity: 1; }
-.ag-talk .acts button { border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .12em; cursor: pointer; padding: 2px 5px; text-shadow: inherit; }
+.ag-talk .acts button { border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 11px; letter-spacing: .12em; cursor: pointer; padding: 2px 5px; text-shadow: inherit; }
 .ag-talk .acts button:hover { color: #fff3d6; }
-.ag-talk .route { font-size: 12.5px; color: rgba(214,224,229,.58); line-height: 1.55; margin-top: -4px; }
+.ag-talk .route { font-size: 13px; color: rgba(214,224,229,.58); line-height: 1.55; margin-top: -4px; }
 .ag-talk .route b { color: #f3d38a; font-weight: 500; }
-.ag-talk .tk-log { display: flex; flex-direction: column; gap: 14px; max-height: min(58vh, 580px); overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
+.ag-talk .tk-log { display: flex; flex-direction: column; gap: 16px; max-height: min(64vh, 700px); overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
   mask-image: linear-gradient(transparent 0, #000 64px); -webkit-mask-image: linear-gradient(transparent 0, #000 64px); }
 .ag-talk .tk-log::-webkit-scrollbar { display: none; }
 .ag-talk .tk-log:empty { display: none; }
 .tk-me { color: rgba(214,224,229,.7); padding-left: 14px; position: relative; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tk-me::before { content: "›"; position: absolute; left: 0; color: rgba(233,169,75,.85); }
-.tk-it .m { display: block; font: var(--cap); font-size: 10px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
+.tk-it .m { display: block; font: var(--cap); font-size: 10.5px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
 .tk-it .body { white-space: pre-wrap; overflow-wrap: anywhere; color: #f6ecd8; }
-.tk-it .body code { font-family: var(--mono); font-size: 13px; color: #f3d38a; }
+.tk-it .body code { font-family: var(--mono); font-size: 14px; color: #f3d38a; }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
 .tk-it .files { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
 .ag-talk .tk-ask { margin: 0; }
 .ag-talk .tk-ask textarea { display: block; width: 100%; min-height: 0; max-height: 150px; resize: none; border: 0 !important; border-bottom: 1px solid rgba(233,169,75,.32) !important;
-  border-radius: 0; background: transparent !important; box-shadow: none !important; color: #fff3d6; font: inherit; font-size: 15.5px; line-height: 1.6;
-  padding: 6px 0 9px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
+  border-radius: 0; background: transparent !important; box-shadow: none !important; color: #fff3d6; font: inherit; font-size: 16.5px; line-height: 1.6;
+  padding: 7px 0 10px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
 .ag-talk .tk-ask textarea:focus { border-bottom-color: rgba(233,169,75,.85) !important; }
 .ag-talk .tk-ask textarea::placeholder { color: rgba(214,224,229,.36); }
+.ag-hist { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; color: #e9e2d4; font-size: 13.5px; line-height: 1.5;
+  transition: opacity .6s ease; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
+.ag-hist[hidden] { display: none; }
+.ag-hist::before, .ag-talk::before { content: ""; position: absolute; z-index: -1; pointer-events: none;   /* a soft shade, not a frame */
+  background: radial-gradient(closest-side, rgba(8,12,15,.62), rgba(8,12,15,.32) 60%, transparent); }
+.ag-hist::before { inset: -60px -70px -60px -40px; }
+.ag-talk::before { inset: -50px -60px -40px -60px; }
+.ag-hist .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
+.ag-hist .hh button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .1em; cursor: pointer; text-shadow: inherit; }
+.ag-hist .hh button:hover { color: #fff3d6; }
+.ag-hist .hl { display: flex; flex-direction: column; max-height: min(62vh, 640px); overflow-y: auto; scrollbar-width: none; border-left: 1px solid rgba(233,169,75,.22);
+  mask-image: linear-gradient(#000 82%, transparent); -webkit-mask-image: linear-gradient(#000 82%, transparent); }
+.ag-hist .hl::-webkit-scrollbar { display: none; }
+.ag-hist .he { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px 8px 14px; cursor: pointer; color: inherit; font: inherit; position: relative; text-shadow: inherit; }
+.ag-hist .he .ht { display: block; color: rgba(236,228,214,.78); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-hist .he .hm { display: block; font-size: 11px; color: rgba(214,224,229,.42); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-hist .he:hover .ht { color: #fff3d6; }
+.ag-hist .he.on::before { content: ""; position: absolute; left: -2px; top: 10px; bottom: 10px; width: 3px; background: #e9a94b; }
+.ag-hist .he.on .ht { color: #fff3d6; }
+.ag-hist .empty { color: rgba(214,224,229,.4); font-size: 12.5px; padding: 6px 14px; }
 .ag-card { position: absolute; left: 0; top: 0; width: min(390px, calc(100% - 24px)); height: min(540px, calc(100% - 80px)); z-index: 7; perspective: 1400px; }
 .ag-card[hidden] { display: none; }
 .ag-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3,.7,.2,1); }
@@ -939,6 +959,10 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       <div id="agVeil" aria-hidden="true"></div>
       <svg id="agTalkLine" aria-hidden="true"><line></line><circle r="2.5"></circle></svg>
       <div id="agBubbles" aria-live="polite"></div>
+      <nav class="ag-hist" id="agHist" hidden aria-label="历史对话">
+        <div class="hh"><span>历史对话</span><button type="button" data-hist="new" title="开始一段新对话">＋ 新对话</button></div>
+        <div class="hl" id="agHistList"></div>
+      </nav>
       <div class="ag-talk" id="agTalk" hidden role="dialog" aria-label="对话">
         <div class="tk-h"><span class="who" id="agTalkWho"></span>
           <span class="acts"><button type="button" data-talk="new" title="新对话：清空这里，agent 从头开始（新的线程 / 会话）">↺ 新对话</button><button type="button" data-talk="set" title="连接、额度、调度顺序">⚙ 设置</button><button type="button" data-talk="close" title="关闭（Esc，或点空白处）">✕</button></span></div>
@@ -1546,8 +1570,8 @@ function openCard(kind, key) {                       // talk to a planet (or a k
   AGV.sel = kind === "agent" ? key : null; AGV.hoverCat = kind === "cat" ? key : null;
   const veil = $("#agVeil"), bg = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g) || [14, 21, 26];
   veil.style.background = `rgba(${bg[0]}, ${bg[1]}, ${bg[2]}, .58)`;
-  renderCard(); el.hidden = false; el.style.opacity = 0; placeTalk();
-  requestAnimationFrame(() => { el.style.opacity = 1; });
+  renderCard(); el.hidden = false; el.style.opacity = 0; HIST.card = null; renderHist(); loadHist(); placeTalk();
+  requestAnimationFrame(() => { el.style.opacity = 1; $("#agHist").style.opacity = 1; });
   $("#app").classList.add("talking"); veil.classList.add("on"); window.PGA_CALM?.(true); window.PGA_TALK?.((kind === "cat" ? "pc:" : "pa:") + key);
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
@@ -1557,7 +1581,8 @@ function closeCard() {
   if (!CARD.kind) return;
   window.PGA_TALK?.(null);
   CARD.kind = CARD.key = null; AGV.sel = null; AGV.hoverCat = null;
-  el.style.opacity = 0; setTimeout(() => { if (!CARD.kind) el.hidden = true; }, 360);
+  el.style.opacity = 0; setTimeout(() => { if (!CARD.kind) { el.hidden = true; $("#agHist").hidden = true; } }, 360);
+  $("#agHist").style.opacity = 0;
 }
 function openTalkSettings() {                        // ⚙: a card turns over beside the planet with its settings
   const el = $("#agCard"), inner = el.querySelector(".ag-card-in");
@@ -1575,11 +1600,49 @@ function closeTalkSettings(quick) {
   a.onfinish = () => { el.hidden = true; };
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
+// talking to a body: history on the left, the body, then the conversation — the scene keeps the body at `xp`
+window.PGA_TALK_LAYOUT = (W) => { const histW = W >= 980 ? Math.min(330, W * .25) : 0; return { histW, xp: histW ? histW + 120 : W * .32 }; };
+const HIST = { card: null, list: [], busy: false };
+async function loadHist() {
+  if (!CARD.kind || !S.uid) return;
+  const k = cardK();
+  try { const list = await api(`/v1/users/${S.uid}/agents/conversations?card=${encodeURIComponent(k)}`); if (cardK() === k) { HIST.card = k; HIST.list = list; renderHist(); } }
+  catch { if (cardK() === k) { HIST.card = k; HIST.list = []; renderHist(); } }
+}
+function renderHist() {
+  const box = $("#agHistList"); if (!box || !CARD.kind) return;
+  const cur = CARD.conv[cardK()], list = HIST.card === cardK() ? HIST.list : [];
+  const when = (iso) => { const d = new Date(iso), now = new Date(); return d.toDateString() === now.toDateString() ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : `${d.getMonth() + 1}-${d.getDate()}`; };
+  const live = (CARD.log[cardK()] || []).length && !list.some((c) => c.id === cur);
+  box.innerHTML = (live ? `<button type="button" class="he on" data-conv="${esc(cur)}"><span class="ht">${esc((CARD.log[cardK()].find((m) => m.role === "user") || {}).text || "当前对话")}</span><span class="hm">现在</span></button>` : "")
+    + list.map((c) => `<button type="button" class="he ${c.id === cur ? "on" : ""}" data-conv="${esc(c.id)}" title="${esc(c.last || "")}"><span class="ht">${esc(c.title || "（空）")}</span>
+      <span class="hm">${when(c.updated_at)} · ${c.turns} 轮${CARD.kind === "cat" && c.agents.length ? " · " + esc(c.agents.join("、")) : ""}${c.ok ? "" : " · 有失败"}</span></button>`).join("")
+    || `<div class="empty">还没有和 ${esc(CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key)} 的历史对话</div>`;
+}
+async function openConversation(id) {
+  if (CARD.busy || !CARD.kind) return;
+  const k = cardK();
+  if (id === CARD.conv[k] && (CARD.log[k] || []).length) return;
+  try {
+    const r = await api(`/v1/users/${S.uid}/agents/conversation?id=${encodeURIComponent(id)}`); if (cardK() !== k) return;
+    CARD.log[k] = r.messages.map((m) => m.role === "user" ? { role: "user", text: m.text }
+      : { role: "agent", agent: m.agent, text: m.text, ok: m.ok, error: m.error, duration_s: m.duration_s, files: m.files });
+    CARD.conv[k] = id; try { store.set("pga_card_conv", JSON.stringify(CARD.conv)); } catch {}
+    saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
+  } catch (e) { toast("读取这段对话失败：" + e.message); }
+}
+function newConversation() {
+  if (CARD.busy || !CARD.kind) return;
+  const k = cardK(); CARD.log[k] = []; convOf(k, true); saveCards(); renderCardLog(); renderHist(); $("#agTalkInput")?.focus();
+}
 function placeTalk() {                               // the words stay beside their planet; everything but it (and who answers) fades
   const el = $("#agTalk"); if (!el || el.hidden || !CARD.kind) return;
   const m = $("#main"), W = m.clientWidth, H = m.clientHeight;
   const b = window.PGA_BODY?.((CARD.kind === "cat" ? "pc:" : "pa:") + CARD.key); if (!b) return;
-  const w = el.offsetWidth || 480, h = el.offsetHeight || 140, gap = Math.max(54, b.r * 1.6 + 40);
+  const L = window.PGA_TALK_LAYOUT(W), gap = Math.max(64, b.r * 1.6 + 48);
+  const want = Math.max(360, Math.min(660, W - (b.x + gap) - 32));               // as wide as the room to the right allows
+  if (Math.abs((parseFloat(el.style.width) || 0) - want) > 2) el.style.width = want + "px";
+  const w = el.offsetWidth || want, h = el.offsetHeight || 140;
   const right = b.x + gap + w < W - 14 || b.x < W / 2;
   let x = right ? b.x + gap : b.x - gap - w, y = b.y - h + 52;                     // the latest words sit level with the planet
   x = Math.max(16, Math.min(W - w - 16, x)); y = Math.max(60, Math.min(H - h - 20, y));
@@ -1591,6 +1654,13 @@ function placeTalk() {                               // the words stay beside th
     l.setAttribute("x1", x0.toFixed(1)); l.setAttribute("y1", b.y.toFixed(1)); l.setAttribute("x2", x1.toFixed(1)); l.setAttribute("y2", y1.toFixed(1));
     c.setAttribute("cx", x0.toFixed(1)); c.setAttribute("cy", b.y.toFixed(1));
     ln.style.visibility = Math.abs(x1 - x0) * dir > 8 ? "visible" : "hidden";
+  }
+  const hist = $("#agHist");                                                      // the history list: left of the planet
+  if (hist) {
+    const show = L.histW > 0 && right;
+    if (hist.hidden === show) hist.hidden = !show;
+    if (show) { const hw = L.histW - 44, hh = hist.offsetHeight || 200; hist.style.width = hw + "px";
+      hist.style.transform = `translate(24px, ${Math.max(70, Math.min(H - hh - 24, b.y - hh * .45)).toFixed(0)}px)`; }
   }
   const veil = $("#agVeil"), holes = [b];
   if (CARD.kind === "cat") {                                                     // a kind of work: the agent answering stays lit too
@@ -1673,7 +1743,7 @@ async function cardSend(text) {
     Object.assign(pend, r, { pending: false });
     if (r.agent) window.PGA_ROUTE?.(["pa:" + r.agent, "you"], 2500);
   } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
-  CARD.busy = false; saveCards(); if (cardK() === k) renderCardLog(); loadAgentView();
+  CARD.busy = false; saveCards(); if (cardK() === k) { renderCardLog(); loadHist(); } loadAgentView();
 }
 
 /* ---- the left panel: dispatch rules */
@@ -1779,8 +1849,14 @@ function bindAgentView() {
     const b = e.target.closest("[data-talk]"); if (!b) return;
     if (b.dataset.talk === "close") closeCard();
     if (b.dataset.talk === "set") openTalkSettings();
-    if (b.dataset.talk === "new" && !CARD.busy) { const k = cardK(); CARD.log[k] = []; convOf(k, true); saveCards(); renderCardLog(); tin.focus(); toast("新对话：agent 会从头开始"); }
+    if (b.dataset.talk === "new") newConversation();
   });
+  const hist = $("#agHist");
+  hist.addEventListener("click", (e) => {
+    const c = e.target.closest("[data-conv]"); if (c) return openConversation(c.dataset.conv);
+    if (e.target.closest('[data-hist="new"]')) newConversation();
+  });
+  hist.addEventListener("pointerdown", (e) => e.stopPropagation());
   $("#agTalkAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = tin.value.trim(); if (!v || CARD.busy) return; tin.value = ""; tin.style.height = ""; cardSend(v); });
   tin.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agTalkAsk").requestSubmit(); } });
   tin.addEventListener("input", () => { tin.style.height = "auto"; tin.style.height = Math.min(150, tin.scrollHeight) + "px"; });
@@ -4222,7 +4298,8 @@ function frame(now) {
   uExc.value = motion ? Math.min(1.2, energy * .6 + live.think * .6) : 0;
 
   CALM += (CALM_GOAL - CALM) * Math.min(1, dt * 2.2);
-  { const w = mainEl.clientWidth, goal = TALK && MODE === "agents" && w > 720 ? Math.min(w * .17, 250) : 0;   // planet to the left third, words to its right
+  { const w = mainEl.clientWidth, L = window.PGA_TALK_LAYOUT?.(w) || { xp: w * .32 };   // history | planet | the words
+    const goal = TALK && MODE === "agents" && w > 720 ? Math.max(0, w / 2 - L.xp) : 0;
     if (Math.abs(goal - talkShift) > .5) { talkShift += (goal - talkShift) * Math.min(1, dt * 2.4); frameView(); } else if (talkShift !== goal) { talkShift = goal; frameView(); } }
   placeAll(dt, motion);
   for (const n of nodes.values()) if (n.reflow) {                          // a sun on the move: the streamlines follow it

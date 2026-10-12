@@ -131,3 +131,21 @@ def test_asking_inside_a_category_routes_by_that_category(rt, user, provider, cf
     assert out["category"] == "code" and out["agent"] == "coder" and "你在这一类里提问" in out["why"]
     with pytest.raises(ValueError):
         r.ask(user, "x", category="nope")
+
+
+def test_past_conversations_are_rebuilt_per_card_from_the_ledger(rt, user, provider, cfg):
+    from pga.agents import history
+    provider.handler = lambda s, m: "fast answered"
+    r = AgentRouter(rt, AgentPool(rt, cfg))
+    r.ask(user, "第一问", agent="fast", conversation="agent:fast:c1")
+    r.ask(user, "第二问", agent="fast", conversation="agent:fast:c1")
+    old = r.ask(user, "以前的一问", agent="fast")                             # from before conversation ids
+    r.ask(user, "别的卡片", conversation="cat:quick:z")
+    convs = history.conversations(rt.session, user.id, "agent:fast")
+    assert sorted(c["id"] for c in convs) == sorted(["agent:fast:c1", f"run:{old['run_id']}"])
+    c1 = next(c for c in convs if c["id"] == "agent:fast:c1")
+    assert c1["title"] == "第一问" and c1["turns"] == 2 and c1["agents"] == ["fast"] and c1["last"] == "fast answered"
+    msgs = history.messages(rt.session, user.id, "agent:fast:c1")
+    assert [(m["role"], m["text"]) for m in msgs] == [("user", "第一问"), ("agent", "fast answered"), ("user", "第二问"), ("agent", "fast answered")]
+    assert [c["id"] for c in history.conversations(rt.session, user.id, "cat:quick")] == ["cat:quick:z"]
+    assert history.messages(rt.session, user.id, f"run:{old['run_id']}")[0]["text"] == "以前的一问"
