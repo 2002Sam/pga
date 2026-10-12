@@ -335,7 +335,7 @@ class AgentPool:
                          prompt=task.prompt, task_kind=task.meta.get("task_kind", ""))
         task.meta["live_id"] = lid
         from pga.agents.base import PGA_MARK
-        if not task.prompt.startswith(PGA_MARK):
+        if self.adapters[name].type not in ("llm", "http") and not task.prompt.startswith(PGA_MARK):   # only agents that keep transcripts
             task.prompt = f"{PGA_MARK}\n{task.prompt}"
         if callable(task.meta.get("translate")):            # the reader's language, paragraph by paragraph, while it writes
             live.translate_along(lid, task.meta["translate"])
