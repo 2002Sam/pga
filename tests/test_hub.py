@@ -129,7 +129,7 @@ def test_background_sync_notifies_once(rt, user, provider, session, monkeypatch)
     from pga.hub import service as hub_service
 
     convs, _ = parse_upload("c.json", json.dumps(CLAUDE).encode())
-    monkeypatch.setattr(hub_service, "read_local", lambda connector: convs)
+    monkeypatch.setattr(hub_service, "read_local_split", lambda connector: (convs, set()))
     a = rt.hub.create(user.id, name="Claude Code", vendor="claude_code", connector="claude_code")
     report = rt.hub.background_sync(user, T0)
     assert report["summarized"] == ["Claude Code"] and report["digest"] is True
@@ -238,3 +238,10 @@ def test_a_pool_agent_sees_its_own_apps_past_and_can_carry_it_on(session_factory
     cxid = c.get(f"/v1/users/{user.id}/agents/chatgpt/past").json()[0]["id"]
     r = c.post(f"/v1/users/{user.id}/agents/chatgpt/past/{cxid}/continue").json()
     assert r["resumes"] == "thread" and links.thread_for("chatgpt", f"{user.id}:{r['conversation']}") == "thread-42"   # Codex resumes that very thread
+
+
+def test_sessions_pga_ran_itself_are_left_out_and_removed():
+    from pga.hub.connectors import Conv, pga_made
+    assert pga_made(Conv("a", "t", turns=[("user", "[via PGA]\nWhat is in src/?"), ("assistant", "x")]))
+    assert pga_made(Conv("b", "t", turns=[("user", "<aim>\nBuild…</aim>\n\nAsk the next questions."), ("assistant", "x")]))
+    assert not pga_made(Conv("c", "t", turns=[("user", "帮我看看这个 bug"), ("assistant", "x")]))

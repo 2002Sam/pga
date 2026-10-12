@@ -83,3 +83,8 @@ class Adapter:
 
     def _run(self, task: AgentTask) -> AgentResult:
         raise NotImplementedError
+
+
+# The first line of every prompt PGA sends to an agent: the Agent Hub, which imports your own sessions from those
+# agents' stores, recognises PGA's own sessions by it and leaves them out (they are in PGA's history already).
+PGA_MARK = "[via PGA]"

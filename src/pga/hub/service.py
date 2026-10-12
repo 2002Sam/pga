@@ -24,7 +24,7 @@ from pga.agent.common import UNTRUSTED_NOTE, ModelOutputError, parse_json
 from pga.allocator import Estimates, Justification, RunRequest
 from pga.db.models import AgentConversation, HubDigest, LinkedAgent, User
 from pga.db.types import CommKind, NotifyReason, utcnow
-from pga.hub.connectors import Conv, ImportError_, detect_local, excerpt, iter_corpus, parse_upload, read_local
+from pga.hub.connectors import Conv, ImportError_, detect_local, excerpt, iter_corpus, parse_upload, read_local, read_local_split
 from pga.notify.service import Proposal
 
 if TYPE_CHECKING:
@@ -151,9 +151,14 @@ class HubService:
         if agent.connector not in LOCAL:
             raise HubError("this agent is linked by file import; upload a new export instead")
         try:
-            convs = read_local(agent.connector)
+            convs, own = read_local_split(agent.connector)
         except Exception as exc:  # unreadable store: report, don't crash the loop
             raise HubError(f"could not read {agent.name}: {exc}") from exc
+        if own:                                          # imported before PGA could recognise its own sessions
+            for row in self.session.scalars(select(AgentConversation).where(AgentConversation.linked_agent_id == agent.id,
+                                                                           AgentConversation.external_id.in_(own))):
+                self.session.delete(row)
+            self.session.flush()
         return self.ingest(agent, convs, now)
 
     # ---------------------------------------------------------------- model work

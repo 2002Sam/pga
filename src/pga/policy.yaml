@@ -237,7 +237,7 @@ workflow:
   candidate_budget_units: 60000     # exploration budget for an agent-opened CANDIDATE child
   candidate_ttl_hours: 168
   source_failure_disable_after: 10
-  hub_sync_hours: 6                 # Agent Hub: re-read local agents (Claude Code, Hermes) this often
+  hub_sync_hours: 0.5               # Agent Hub: re-read local agents (Claude Code, Codex, Hermes, WorkBuddy…) every 30 min
 
 # §16 — when the agent may interrupt you.
 notify:

@@ -289,8 +289,18 @@ PGA_HOME = Path.home() / "Documents" / "PGA"
 def pga_started(cwd: str | None) -> bool:
     """A session PGA started itself (its workspaces, a temp folder): already in PGA's own history."""
     c = str(cwd or "")
-    return bool(c) and ("/Documents/PGA/workspaces" in c or str(PGA_HOME / "workspaces") in c
+    return bool(c) and ("/Documents/PGA/workspaces" in c or str(PGA_HOME / "workspaces") in c or "/Documents/PGA/evolution/" in c
                         or c.startswith(("/private/tmp", "/tmp", "/var/folders", "/private/var/folders")) or "pga-agent-" in c)
+
+
+_PGA_SIGNS = ("[via PGA]", "on a perpetual task", "\nAsk the next questions.", "\nAnswer it.", "\nReview them.",
+              "\nLook back.", "<open_questions>", "<your_task role=", "You are implementing one reviewed improvement")
+
+
+def pga_made(c: "Conv") -> bool:
+    """A session PGA's own agents ran (marked, or the perpetual / team prompts from before the mark): PGA has it already."""
+    first = next((t for r, t in c.turns if r == "user"), "")
+    return any(s in first[:20000] for s in _PGA_SIGNS) or first.lstrip().startswith("<aim>")
 
 
 _REMINDER = re.compile(r"<system-reminder[^>]*>[\s\S]*?</system-reminder>")
@@ -498,7 +508,21 @@ def read_local(connector: str) -> list[Conv]:
     c = LOCAL_CONNECTORS.get(connector)
     if c is None:
         raise ImportError_(f"unknown local connector {connector!r}")
-    return c["read"]()
+    return read_local_split(connector)[0]
+
+
+def read_local_split(connector: str) -> tuple[list[Conv], set[str]]:
+    """Your sessions, and the ids of the sessions PGA's own agents ran (left out)."""
+    c = LOCAL_CONNECTORS.get(connector)
+    if c is None:
+        raise ImportError_(f"unknown local connector {connector!r}")
+    mine, own = [], set()
+    for x in c["read"]():
+        if pga_made(x):
+            own.add(x.external_id)
+        else:
+            mine.append(x)
+    return mine, own
 
 
 def iter_corpus(convs: Iterable[tuple[str, datetime | None, str]], budget: int) -> str:

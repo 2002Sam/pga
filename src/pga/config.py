@@ -211,7 +211,7 @@ class WorkflowPolicy(BaseModel):
     candidate_budget_units: float = 60_000
     candidate_ttl_hours: float = 168
     source_failure_disable_after: int = 10
-    hub_sync_hours: float = 6              # Agent Hub: re-read local agents (Claude Code, Hermes) this often
+    hub_sync_hours: float = 0.5            # Agent Hub: re-read local agents (Claude Code, Codex, Hermes…) every 30 min
     snapshot_every_minutes: float = 5      # a snapshot of what PGA is doing, so a stop (even a crash) can be resumed
     snapshots_kept: int = 500              # in the database; JSON files under ~/Documents/PGA/snapshots keep the last 100
 
