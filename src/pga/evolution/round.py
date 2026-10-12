@@ -148,9 +148,30 @@ class EvolutionService:
         out = fn(rnd, user, now)
         self.s.flush()
         if rnd.phase not in ("done", "stopped"):
-            self.rt.workflow.enqueue("evolution.step", user_id=user.id, dedupe_key=f"evo:{rnd.id}:{rnd.phase}",
+            # the step count is part of the key: "implement" runs once per accepted proposal, and the same key as the
+            # job running right now would be swallowed as a duplicate — the round would stall after one implementation
+            self.rt.workflow.enqueue("evolution.step", user_id=user.id, dedupe_key=f"evo:{rnd.id}:{rnd.phase}:{len(rnd.log or [])}",
                                      payload={"round_id": str(rnd.id)}, priority=120, now=now)
         return out
+
+    def revive(self, user_id: uuid.UUID, now: datetime | None = None, stale_min: float = 20) -> EvolutionRound | None:
+        """A round that is open but has no step queued or running (lost job, a restart in between) gets its next step."""
+        from pga.db.models import Job
+        from pga.db.types import JobStatus
+        now = now or utcnow()
+        rnd = open_round(self.rt, user_id)
+        if rnd is None:
+            return None
+        live = [j for j in self.s.scalars(select(Job).where(Job.kind == "evolution.step", Job.user_id == user_id,
+                                                            Job.status.in_([JobStatus.QUEUED, JobStatus.RUNNING])))
+                if (j.payload or {}).get("round_id") == str(rnd.id)]
+        last = max([datetime.fromisoformat(e["at"]) for e in rnd.log or [] if e.get("at")] or [rnd.created_at])
+        if live or now - last < timedelta(minutes=stale_min):
+            return None
+        self._log(rnd, rnd.phase, "the round had stalled with no step queued; resumed", now)
+        self.rt.workflow.enqueue("evolution.step", user_id=user_id, dedupe_key=f"evo:{rnd.id}:{rnd.phase}:{len(rnd.log or [])}",
+                                 payload={"round_id": str(rnd.id)}, priority=120, now=now)
+        return rnd
 
     # -------------------------------------------------------------- A · diagnose
 

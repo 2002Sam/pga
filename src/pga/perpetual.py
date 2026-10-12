@@ -242,6 +242,7 @@ class Perpetual:
             r0 = r0_state(self.rt, t.user_id).tension
             if open_round(self.rt, t.user_id):
                 blocked = "一轮进化正在进行"
+                self._evo().revive(t.user_id, now)
             elif len(line) >= int(c["max_line"]):
                 blocked = f"进化线上已有 {len(line)} 个候选等你推广"
             elif backlog:

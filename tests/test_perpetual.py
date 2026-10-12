@@ -182,3 +182,38 @@ def test_you_answer_its_question_and_the_answer_becomes_guidance(rt, user, setup
     c = eng.answer(t, q, "先让它更会提问题", "Make it better at asking questions first")
     assert q.status == "answered" and c.kind == "correction" and "Q" in c.text
     assert "Make it better at asking" in eng.team.context(aim)
+
+
+def test_a_round_with_two_accepted_proposals_implements_both_and_a_stalled_round_is_revived(rt, user, setup):
+    """Regression: the second "implement" step used the same dedupe key as the job running it and was swallowed."""
+    from pga.db.models import ProposalReview
+    from pga.workflow.worker import HANDLERS
+    eng, t, aim, coding = setup
+    rt.coding = coding                                   # the worker's handler must use the stand-in, never the real repo
+    svc = EvolutionService(rt, coding=coding)
+    good = {"goal_alignment": 0.9, "evidence_strength": 0.9, "expected_gain": 0.9, "implementation_cost": 0.1, "regression_risk": 0.1, "reversibility": 0.9}
+    ps = [ImprovementProposal(user_id=user.id, code=f"P0{i}", title=title, change="add a line", files=["src/pga/dedupe.py"], status="NEW",
+                              created_at=datetime.now(timezone.utc)) for i, title in ((1, "First small change"), (2, "Second different improvement"))]
+    rt.session.add_all(ps)
+    rt.session.flush()
+    rnd = svc.start(user, trigger="perpetual", force=True, slate=ps)
+    for p in ps:
+        rt.session.add(ProposalReview(proposal_id=p.id, round_id=rnd.id, reviewer="t", scores=good, objections=[], critical=False,
+                                      created_at=datetime.now(timezone.utc)))
+    rt.session.flush()
+    for _ in range(8):                                     # the worker: claim → run → complete
+        jobs = rt.workflow.claim("w", limit=1)
+        if not jobs:
+            break
+        out = HANDLERS[jobs[0].kind](rt, jobs[0], datetime.now(timezone.utc))
+        rt.workflow.complete(jobs[0], out or {})
+    assert rnd.phase == "done", rnd.log
+    assert sorted(v.label for v in rt.session.scalars(select(AgentVersion).where(AgentVersion.round_id == rnd.id))) == ["v1a", "v2a"]
+
+    stuck = svc.start(user, trigger="perpetual", force=True, slate=[])  # an open round whose job got lost
+    stuck.phase = "control"
+    for j in rt.workflow.claim("w", limit=5):
+        rt.workflow.complete(j, {})
+    assert svc.revive(user.id) is None                                   # not stale yet
+    later = datetime.now(timezone.utc) + timedelta(minutes=30)
+    assert svc.revive(user.id, later) is stuck and rt.workflow.claim("w", limit=1, now=later)
