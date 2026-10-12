@@ -869,7 +869,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
     <div id="labels"></div>
     <div class="hud tl">
       <div class="legend"><span><i style="background:#000 !important"></i>黑洞 · 抱负</span><span><i style="background:#eef1f2 !important"></i>白色星球 · 数据库</span><span><i style="transform:rotate(45deg)"></i>晶体 · 技能</span><span><i></i>暗色行星 · agent</span><span><i class="f"></i>卫星 · 判断 / 证据</span><span><i></i>地球 · 你</span></div>
-      <div class="hint">单击地球：翻到另一面的 agent 调度星图（再点地球翻回） · 单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
+      <div class="hint">单击地球：翻到另一面的 agent 调度星图（再点地球翻回） · 按住中键拖动（或 Shift + 拖空白处）：平移视图 · 单击星体：放大 · 再单击或双击：显示 / 收起各栏 · 右键：进入它的房间（详情 · 编辑）· 单击空白：回到全景 · 拖动：把数据库连到抱负（或从黑洞拉线）</div>
     </div>
     <div class="state-pill" id="statePill">STANDBY</div>
     <div id="feed" aria-live="polite"></div>
@@ -3203,6 +3203,7 @@ camera.position.set(0, 18, 34);
 const controls = new OrbitControls(camera, canvas);
 Object.assign(controls, { enableDamping: true, dampingFactor: 0.07, rotateSpeed: 0.6, zoomSpeed: 0.8, minDistance: 2.5, maxDistance: 160,
   enablePan: false, autoRotateSpeed: 0.18, minPolarAngle: 0.22, maxPolarAngle: 1.36 });
+controls.mouseButtons = { LEFT: 0, MIDDLE: -1, RIGHT: -1 };                 // left turns; the middle button pans (below); right opens a room
 
 /* ------------------------------------------------ ink: one colour, several strengths */
 const INK = { hi: "#eef1f2", mid: "#b7bec2", lo: "#6c767c", dim: "#38424a" };
@@ -3771,6 +3772,30 @@ function dropTarget(e) {                                  // the nearest linkabl
   }
   return best;
 }
+const PAN = new THREE.Vector3(), _panR = new THREE.Vector3(), _panU = new THREE.Vector3();
+let panning = null;
+window.PGA_PAN = () => PAN.toArray().map((x) => +x.toFixed(3));
+const resetPan = () => PAN.set(0, 0, 0);
+canvas.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });   // no browser autoscroll
+canvas.addEventListener("pointerdown", (e) => {
+  if (!(e.button === 1 || (e.button === 0 && e.shiftKey && !pick(e)))) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  panning = { x: e.clientX, y: e.clientY }; controls.enabled = false; canvas.style.cursor = "move"; idleUntil = performance.now() + 9000;
+  try { canvas.setPointerCapture(e.pointerId); } catch {}
+}, { capture: true });
+canvas.addEventListener("pointermove", (e) => {
+  if (!panning) return;
+  e.stopImmediatePropagation();
+  const dx = e.clientX - panning.x, dy = e.clientY - panning.y; panning.x = e.clientX; panning.y = e.clientY;
+  const r = canvas.getBoundingClientRect(), dist = camera.position.distanceTo(controls.target);
+  const perPx = 2 * dist * Math.tan(camera.fov * Math.PI / 360) / (r.height || 1);
+  camera.updateMatrixWorld(); _panR.setFromMatrixColumn(camera.matrixWorld, 0); _panU.setFromMatrixColumn(camera.matrixWorld, 1);
+  const delta = _panR.multiplyScalar(-dx * perPx).add(_panU.multiplyScalar(dy * perPx));
+  PAN.add(delta); controls.target.add(delta); camera.position.add(delta);   // move now, and keep it moved
+}, { capture: true });
+const endPan = (e) => { if (!panning) return; e?.stopImmediatePropagation?.(); panning = null; controls.enabled = true; canvas.style.cursor = ""; down = null; idleUntil = performance.now() + 9000; };
+canvas.addEventListener("pointerup", endPan, { capture: true });
+canvas.addEventListener("pointercancel", endPan, { capture: true });
 canvas.addEventListener("pointerdown", (e) => {
   down = { x: e.clientX, y: e.clientY, t: performance.now() }; idleUntil = performance.now() + 9000;
   if (rooming()) return;                                                   // in the room the canvas only turns the body
@@ -3832,7 +3857,7 @@ canvas.addEventListener("dblclick", (e) => {
   clearTimeout(clickTimer); clickTimer = null;
   const n = pick(e);
   if (n) { select(n, "bars"); return; }                                    // double-click a body: fly there and show the bars
-  window.dispatchEvent(new CustomEvent("pga:select", { detail: { kind: "user", id: "you", quiet: true } })); focusId = null; flyT = 1; focusedId = null;
+  window.dispatchEvent(new CustomEvent("pga:select", { detail: { kind: "user", id: "you", quiet: true } })); focusId = null; flyT = 1; focusedId = null; resetPan();
 });
 canvas.addEventListener("contextmenu", (e) => {                          // right-click a body: open its room
   if (rooming()) { e.preventDefault(); return; }
@@ -3859,6 +3884,7 @@ function select(n, mode = "click") {
   for (const l of links) if (l.a === n.id || l.b === n.id) l.boost = Math.max(l.boost, .8);     // pluck its strings
   window.dispatchEvent(new CustomEvent("pga:select", { detail: { id: n.id, kind: n.d.kind, node: n.d, mode } }));
   if (mode === "edit") return;
+  resetPan();
   if (n.d.kind === "user" || n.d.kind === "core") { focusId = null; flyT = 1; }
   else if (!["agent", "slot"].includes(n.d.kind)) { focusId = n.id; flyT = 1; }
   else if (n.d.kind === "agent") { focusId = n.id; flyT = 1; }
@@ -3883,6 +3909,7 @@ function showTip(n, e) {
 
 /* ------------------------------------------------ reactions to the page */
 let focusId = null, flyT = 1, lastSelected;
+const _aim = new THREE.Vector3();
 window.PGA_FOCUS = () => focusId;                                         // which body the camera is on (null = the whole view)
 const ORIGIN = new THREE.Vector3(), EARTH_FILL_W = new THREE.Color("#e9e6df"), EARTH_RIM_W = new THREE.Color("#ffffff");
 window.PGA_MODE = () => (FLIP ? FLIP.to : MODE);
@@ -3890,7 +3917,7 @@ window.PGA_SET_AGENTS = (g) => { AGENT_GRAPH = g; if (MODE === "agents" && !FLIP
 const smoothstep01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 window.PGA_FLIP_TO = (to) => {                                            // turn the sky over (galaxy ⇄ agents), then spread out from Earth
   if (FLIP || to === MODE || (to === "agents" && !AGENT_GRAPH)) return false;
-  focusId = null; focusedId = null; flyT = 1;
+  focusId = null; focusedId = null; flyT = 1; resetPan();
   camera.updateMatrixWorld();
   const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize(), c = camera.position.clone().normalize();
   let best = { deg: 55, sgn: 1 };
@@ -3983,7 +4010,7 @@ window.addEventListener("pga:fx", (e) => {
   else if (d.type === "research") { for (let i = 0; i < 3; i++) pulse("core", d.id, { size: .07, delay: i * .4 }); }
   else if (d.type === "heartbeat") { for (const s of systems) { const n = nodes.get(s.id); if (n) { ripple(n.pos, s.R); n.flash = 1; } } links.forEach((l) => { l.boost = Math.max(l.boost, l.kind === "aim" || l.kind === "agent" ? .9 : .4); }); }
 });
-window.addEventListener("pga:focus", (e) => { const id = e.detail?.id; if (id && nodes.has(id)) { focusId = id; flyT = 1; } });
+window.addEventListener("pga:focus", (e) => { const id = e.detail?.id; if (id && nodes.has(id)) { focusId = id; flyT = 1; resetPan(); } });
 
 /* ------------------------------------------------ frame loop */
 const clock = new THREE.Clock(); const v3 = new THREE.Vector3(), camDir = new THREE.Vector3();
@@ -4042,7 +4069,7 @@ function frame(now) {
 
   if (st.selected !== lastSelected) { lastSelected = st.selected; if (st.selected && nodes.has(st.selected)) focusId = st.selected; else if (focusId && nodes.get(focusId)?.d.kind === "agent") focusId = null; flyT = 1; }
   const fnode = focusId && !FLIP ? nodes.get(focusId) : null;
-  const target = FLIP ? ORIGIN : fnode ? fnode.pos : boundC;
+  const target = _aim.copy(FLIP ? ORIGIN : fnode ? fnode.pos : boundC).add(PAN);
   controls.target.lerp(target, .07);
   if (flyT > 0) {
     flyT = Math.max(0, flyT - dt * .7);
