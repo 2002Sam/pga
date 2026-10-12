@@ -2715,7 +2715,7 @@ function popHTML(d) {
        <textarea id="f-aim" rows="9" maxlength="20000">${esc(full(d))}</textarea>` +
       acts([b("save", "保存", 'class="go"'), b("view", "取消"), b("aim-del", "删除这个抱负", 'class="danger"')]);
     return head(`● AMBITION ${no} · 抱负 · 详情`) + `<h3>${esc(d.label)}</h3>` + pyrHTML(d.id) +
-      sec("概况") + `<div class="rows">${row("agent", planets.length)}${row("数据库 / 技能", `${dbs.length} / ${sks.length}`)}${gaugeRow("平均张力", avg)}</div>` +
+      sec("概况") + `<div class="rows">${row("agent", planets.length)}${row("数据库 / 技能", `${dbs.length} / ${sks.length}`)}${gaugeRow("平均张力", avg)}${d.perpetual ? gaugeRow("永续任务张力", d.perpetual.pressure || 0) : ""}</div>` +
       sec("agent", planets.length) + (planets.length ? `<ul class="lst">${planets.map((n) => li(n, STATUS[n.status] || n.status, (n.tension || 0).toFixed(2))).join("")}</ul>`
         : `<div class="sub">还没有 agent 服务这个目标——新建 agent 时选它。</div>`) +
       (dbs.length ? sec("数据库", dbs.length) + `<ul class="lst">${dbs.map((n) => li(n, n.private ? "私密" : n.origin === "AGENT" ? "自动" : "")).join("")}</ul>` : "") +
@@ -2774,7 +2774,7 @@ function popHTML(d) {
   if (d.kind === "user") {
     const n = graphNodes();
     return head("⊕ 地球 · 你 · EARTH") + `<h3>你</h3><div class="sub">所有长期目标都从这里出发。</div>` +
-      `<div class="rows">${row("长期目标", n.filter((x) => x.kind === "aim" && !x.placeholder).length)}${row("agent", n.filter((x) => x.kind === "agent").length)}${row("其他 AI", n.filter((x) => x.kind === "ai").length)}${row("系统压力", (S.pnow?.pressure ?? 0).toFixed(3))}</div>` +
+      `<div class="rows">${row("长期目标", n.filter((x) => x.kind === "aim" && !x.placeholder).length)}${row("agent", n.filter((x) => x.kind === "agent").length)}${row("其他 AI", n.filter((x) => x.kind === "ai").length)}${row("系统压力", (S.pnow?.p ?? 0).toFixed(3))}</div>` +
       acts([b("aim-new", "＋ 新太阳系"), b("sky", (S.fold?.l && S.fold?.r && S.fold?.t) ? "展开所有栏" : "只看星空")]);
   }
   if (d.kind === "core") return head("◐ 月亮 · 总助理 · CORE") + `<h3>总助理</h3><div class="sub">统筹所有 agent，也是你平时说话的对象。它回答时以你的长期目标为方向。</div>` +

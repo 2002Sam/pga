@@ -396,7 +396,16 @@ class EvolutionService:
 
     def _implement(self, rnd: EvolutionRound, user: User, now: datetime) -> dict:
         """One accepted proposal per step (a coding run plus two test suites must fit inside a job lease)."""
-        done_ids = {v.proposal_id for v in self.s.scalars(select(AgentVersion).where(AgentVersion.round_id == rnd.id))}
+        mine = list(self.s.scalars(select(AgentVersion).where(AgentVersion.round_id == rnd.id)))
+        for v in mine:                                     # PGA stopped in the middle of this step last time
+            if v.status == "CANDIDATE" and not v.verification:
+                v.status, v.note = "FAILED", "interrupted (PGA stopped during implementation)"
+                self.coding.discard(v.worktree)
+        tries: dict = {}
+        for v in mine:
+            if v.note.startswith("interrupted"):
+                tries[v.proposal_id] = tries.get(v.proposal_id, 0) + 1
+        done_ids = {v.proposal_id for v in mine if not v.note.startswith("interrupted") or tries.get(v.proposal_id, 0) >= 2}
         todo = [p for p in self._slate(rnd) if p.status == "ACCEPTED" and p.id not in done_ids]
         if not todo:
             return self._finish_implement(rnd, user, now)

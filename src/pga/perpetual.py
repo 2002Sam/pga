@@ -643,8 +643,9 @@ class Perpetual:
                 line.append({"id": str(v.id), "label": v.label, "title": pr.title if pr else "", "code": pr.code if pr else None,
                              "files": v.files[:8], "tests": (v.verification or {}).get("candidate_tests", {}).get("passed"),
                              "at": v.created_at.isoformat()})
-        rnd = self.s.scalar(select(EvolutionRound).where(EvolutionRound.user_id == t.user_id, EvolutionRound.trigger == "perpetual")
-                            .order_by(EvolutionRound.created_at.desc()).limit(1))
+        from pga.evolution.motivation import open_round
+        rnd = open_round(self.rt, t.user_id) or self.s.scalar(select(EvolutionRound).where(EvolutionRound.user_id == t.user_id)
+                                                              .order_by(EvolutionRound.created_at.desc()).limit(1))
         return {"id": str(t.id), "aim_id": str(t.aim_id), "aim": aim.text if aim else "", "status": t.status, "phase": t.phase,
                 "phase_zh": PHASE_ZH.get(t.phase, t.phase), "phase_note": t.phase_note,
                 "phase_since": t.phase_since.isoformat() if t.phase_since else None, "next_at": t.next_at.isoformat() if t.next_at else None,
@@ -652,7 +653,7 @@ class Perpetual:
                 "pause_s": round(t.pause_s), "rest_ratio": round(t.rest_s / total, 4) if total else 0.0,
                 "project": {"id": str(p.id), "name": p.name, "path": p.path} if p else None, "settings": c,
                 "evolves": bool(c["evolve"] and self.self_project(t)), "line": line,
-                "round": {"id": str(rnd.id), "phase": rnd.phase, "log": (rnd.log or [])[-4:]} if rnd else None,
+                "round": {"id": str(rnd.id), "phase": rnd.phase, "trigger": rnd.trigger, "log": (rnd.log or [])[-4:]} if rnd and self.self_project(t) else None,
                 "ledger": (t.ledger or [])[:20], "created_at": t.created_at.isoformat()}
 
 

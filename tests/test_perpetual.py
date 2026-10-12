@@ -217,3 +217,25 @@ def test_a_round_with_two_accepted_proposals_implements_both_and_a_stalled_round
     assert svc.revive(user.id) is None                                   # not stale yet
     later = datetime.now(timezone.utc) + timedelta(minutes=30)
     assert svc.revive(user.id, later) is stuck and rt.workflow.claim("w", limit=1, now=later)
+
+
+def test_an_implementation_interrupted_by_a_restart_is_retried_once(rt, user, setup):
+    from pga.db.models import ProposalReview
+    eng, t, aim, coding = setup
+    svc = EvolutionService(rt, coding=coding)
+    good = {"goal_alignment": 0.9, "evidence_strength": 0.9, "expected_gain": 0.9, "implementation_cost": 0.1, "regression_risk": 0.1, "reversibility": 0.9}
+    p = ImprovementProposal(user_id=user.id, code="P01", title="One change", change="add a line", status="NEW", created_at=datetime.now(timezone.utc))
+    rt.session.add(p)
+    rt.session.flush()
+    rnd = svc.start(user, trigger="perpetual", force=True, slate=[p])
+    rt.session.add(ProposalReview(proposal_id=p.id, round_id=rnd.id, reviewer="t", scores=good, objections=[], critical=False,
+                                  created_at=datetime.now(timezone.utc)))
+    svc.step(rnd)                                           # control → implement
+    ghost = AgentVersion(user_id=user.id, label="v1a", parent_id=svc.ensure_v0(user.id, datetime.now(timezone.utc)).id, proposal_id=p.id,
+                         round_id=rnd.id, status="CANDIDATE", created_at=datetime.now(timezone.utc))   # what a restart leaves behind
+    rt.session.add(ghost)
+    rt.session.flush()
+    svc.step(rnd)
+    assert ghost.status == "FAILED" and ghost.note.startswith("interrupted")
+    good_v = [v for v in rt.session.scalars(select(AgentVersion).where(AgentVersion.round_id == rnd.id)) if v.verification.get("ok")]
+    assert len(good_v) == 1 and "+STEP_1" in good_v[0].patch

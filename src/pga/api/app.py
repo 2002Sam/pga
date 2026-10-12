@@ -673,7 +673,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         start = end_edge - step * buckets
         live = [r for r in rt.responsibilities.list(user_id) if r.status not in TERMINAL_STATUSES]
         ids = [r.id for r in live]
-        current: dict[uuid.UUID, float] = {}
+        current: dict[Any, float] = {}
+        created: dict[Any, datetime] = {}
         for r in live:
             before = rt.session.scalar(select(TensionChange.tension_after).where(
                 TensionChange.responsibility_id == r.id, TensionChange.created_at < start)
@@ -687,9 +688,25 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                           .where(TensionChange.responsibility_id.in_(ids),
                                                  TensionChange.created_at >= start)
                                           .order_by(TensionChange.created_at))) if ids else []
+        # a perpetual task's pressure is part of the system's pressure: it is what keeps that task working
+        from pga.db.models import PerpetualTask
+        perp = list(rt.session.scalars(select(PerpetualTask).where(PerpetualTask.user_id == user_id, PerpetualTask.status == "running")))
+        for t in perp:
+            key = f"perpetual:{t.id}"
+            for e in reversed(t.ledger or []):
+                try:
+                    at = datetime.fromisoformat(e["at"])
+                except (KeyError, ValueError):
+                    continue
+                if at < start:
+                    current[key] = float(e.get("pressure") or 0.0)
+                else:
+                    changes.append((key, at, float(e.get("pressure") or 0.0)))
+            created[key] = t.created_at
+        changes.sort(key=lambda c: c[1])
         usage = list(rt.session.execute(select(UsageRecord.created_at, UsageRecord.units).where(
             UsageRecord.user_id == user_id, UsageRecord.created_at >= start)))
-        created = {r.id: r.created_at for r in live}
+        created.update({r.id: r.created_at for r in live})
 
         def level() -> float:
             return max(current.values(), default=0.0)
@@ -712,7 +729,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             points.append({"t0": (edge - step).isoformat(), "t": edge.isoformat(), "p": round(c, 4), "o": round(o, 4), "h": round(hi, 4),
                            "l": round(lo, 4), "c": round(c, 4),
                            "avg": round(sum(vals) / len(vals), 4) if vals else 0.0, "units": round(units, 1)})
-        tensions = [r.tension for r in live]
+        tensions = [r.tension for r in live] + [t.pressure for t in perp]
         recent = sum(u for at, u in usage if at >= now - timedelta(minutes=2))
         last_change = rt.session.scalar(select(func.max(TensionChange.created_at)).where(
             TensionChange.responsibility_id.in_(ids))) if ids else None
@@ -725,7 +742,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                         "wake_threshold": min((r.wake_threshold for r in live), default=0.75),
                         "units_last_2m": round(recent, 1),
                         "last_event_at": last_change.isoformat() if last_change else None,
-                        "worker": worker_status(rt, user_id, now)}}
+                        "worker": worker_status(rt, user_id, now),
+                        "perpetual": [{"pressure": t.pressure, "phase": t.phase, "cycles": t.cycles} for t in perp]}}
 
     @app.get("/v1/users/{user_id}/graph")
     def graph(user_id: uuid.UUID, evidence_per_agent: int = Query(10, ge=0, le=40), rt: Runtime = Depends(get_rt)):
@@ -740,9 +758,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         links: list[dict] = [{"source": "you", "target": "core", "kind": "talk"}]
         seen: set[str] = {"core", "you"}
         aim_ids = {a.id for a in aim_rows}
+        from pga.db.models import PerpetualTask
+        perp = {t.aim_id: t for t in rt.session.scalars(select(PerpetualTask).where(PerpetualTask.user_id == user_id))}
         for i, a in enumerate(aim_rows):
+            t = perp.get(a.id)
             nodes.append({"id": f"aim:{a.id}", "kind": "aim", "aim_id": str(a.id), "label": a.text, "label_en": a.text_en,
-                          "position": i})
+                          "position": i, **({"tension": t.pressure if t.status == "running" else 0.0,
+                                             "perpetual": {"pressure": t.pressure, "phase": t.phase, "status": t.status}} if t else {})})
             links.append({"source": "you", "target": f"aim:{a.id}", "kind": "aim"})
         if not aim_rows:
             nodes.append({"id": "aim:new", "kind": "aim", "aim_id": None, "label": "设定长期目标", "placeholder": True, "position": 0})
