@@ -779,7 +779,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk > * { max-width: 880px; }
 .ag-hist .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
 .ag-hist .hh button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .1em; cursor: pointer; text-shadow: inherit; }
-.ag-hist .hh button:hover { color: #fff3d6; }
+.ag-hist .hh button:hover { color: #fff3d6; } .ag-hist .hh button + button { margin-left: 12px; } .ag-hist .hh button:disabled { opacity: .5; cursor: default; }
 .ag-hist .hl { display: flex; flex-direction: column; max-height: min(62vh, 640px); overflow-y: auto; scrollbar-width: none; border-left: 1px solid rgba(233,169,75,.22);
   mask-image: linear-gradient(#000 82%, transparent); -webkit-mask-image: linear-gradient(#000 82%, transparent); }
 .ag-hist .hl::-webkit-scrollbar { display: none; }
@@ -1120,7 +1120,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
         <svg id="agMapSvg" role="img" aria-label="agent 星图缩略"></svg>
       </div>
       <nav class="ag-hist" id="agHist" hidden aria-label="历史对话">
-        <div class="hh"><span>历史对话</span><button type="button" data-hist="new" title="开始一段新对话">＋ 新对话</button></div>
+        <div class="hh"><span>历史对话</span><button type="button" data-hist="sync" title="现在就从本机所有 agent（Claude Code、ChatGPT/Codex、Hermes、WorkBuddy、CodeBuddy）导入新的对话；平时每 30 分钟自动导入一次">↻ 同步</button><button type="button" data-hist="new" title="开始一段新对话">＋ 新对话</button></div>
         <div class="hl" id="agHistList"></div>
       </nav>
       <div class="ag-talk" id="agTalk" hidden role="dialog" aria-label="对话">
@@ -1194,7 +1194,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
     <div class="hub-title"><h1>Agent Atlas<b>星图</b></h1><span class="hide-sm">你用过和正在用的所有 AI，汇成一张图</span></div>
     <span class="grow"></span>
     <span class="muted small" id="hubStatus"></span>
-    <button id="hubSyncAll" title="读取本机 Claude Code、ChatGPT/Codex、Hermes、WorkBuddy 的新对话（之后每隔几小时自动读一次），更新摘要">同步本机 agent</button>
+    <button id="hubSyncAll" title="读取本机 Claude Code、ChatGPT/Codex、Hermes、WorkBuddy、CodeBuddy 的新对话（平时每 30 分钟自动读一次），更新摘要">同步本机 agent</button>
     <button class="gold" id="hubDigestBtn" title="把所有 agent 的摘要合成一张全景图">生成综合摘要</button>
     <button class="flipbtn" id="toMain" title="翻回控制台">Control Room <b>控制台</b></button>
   </div>
@@ -1804,6 +1804,18 @@ function renderHist() {
         <span class="hm">${when(c.at)}${c.model ? " · " + esc(c.model) : ""}${c.project ? " · " + esc(c.project) : ""} · ${c.messages} 条</span></button>`).join(""));
   }
 }
+async function syncAgents(btn) {                     // import from every local agent now, then refresh what is shown
+  if (btn?.disabled) return;
+  const label = btn?.textContent; if (btn) { btn.disabled = true; btn.textContent = "同步中…"; }
+  try {
+    const r = await api(`/v1/users/${S.uid}/hub/sync`, { method: "POST" });
+    const s = r.synced || {}, n = Object.values(s).reduce((a, x) => a + (x.new || 0), 0), u = Object.values(s).reduce((a, x) => a + (x.updated || 0), 0);
+    const errs = Object.keys(r.errors || {}).filter((k) => k !== "digest");
+    toast(n || u ? `已导入：新对话 ${n} 个，更新 ${u} 个${errs.length ? ` · ${errs.join("、")} 没读到` : ""}` : `没有新的对话${errs.length ? ` · ${errs.join("、")} 没读到` : ""}`);
+    loadHist(); loadPastCounts();
+  } catch (e) { toast("同步失败：" + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+}
 async function openPast(id) {                         // read a past conversation from the agent's own app, in full, read-only
   if (CARD.busy || CARD.kind !== "agent") return;
   const k = cardK();
@@ -2270,6 +2282,7 @@ function bindAgentView() {
     const pp = e.target.closest("[data-past]"); if (pp) return openPast(pp.dataset.past);
     const c = e.target.closest("[data-conv]"); if (c) { if (CARD.past) delete CARD.past[cardK()]; return openConversation(c.dataset.conv); }
     if (e.target.closest('[data-hist="new"]')) newConversation();
+    const sy = e.target.closest('[data-hist="sync"]'); if (sy) syncAgents(sy);
   });
   hist.addEventListener("pointerdown", (e) => e.stopPropagation());
   const map = $("#agMap");
