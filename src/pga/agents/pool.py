@@ -237,6 +237,13 @@ def _slot(name: str, n: int) -> threading.BoundedSemaphore:
         return _SEMAPHORES[key]
 
 
+def busy(name: str, n: int) -> bool:
+    """Every slot of this agent is taken right now (another thread is running it)."""
+    with _SEM_LOCK:
+        s = _SEMAPHORES.get(f"{name}:{n}")
+    return s is not None and getattr(s, "_value", 1) <= 0
+
+
 @dataclass
 class Step:
     step: str

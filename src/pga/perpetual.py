@@ -277,7 +277,9 @@ class Perpetual:
         names = [m["agent"] for m in roster if m["role"] == role] + [m["agent"] for m in roster if m["role"] != role]
         names += [x["agent"] for x in self.router.rank("serious") if x.get("usable")]
         names += [n for n in self.pool.adapters if n not in names]
+        from pga.agents.pool import busy
         resets: list[datetime] = []
+        waiting: str | None = None                       # usable but busy elsewhere (e.g. implementing a change): last resort
         for n in dict.fromkeys(x for x in names if x):
             if not self.cfg_paid and self.pool.adapters[n].type in PAID:
                 continue                                     # a subscription's quota, not your money
@@ -292,7 +294,12 @@ class Perpetual:
                     except ValueError:
                         pass
                 continue
+            if busy(n, int(self.pool.cfg["agents"][n].get("max_concurrent", 1))):
+                waiting = waiting or n
+                continue
             return n, None
+        if waiting:
+            return waiting, None
         return None, (min(resets) if resets else None)
 
     def _ask(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str) -> tuple[str, str | None]:

@@ -239,3 +239,16 @@ def test_an_implementation_interrupted_by_a_restart_is_retried_once(rt, user, se
     assert ghost.status == "FAILED" and ghost.note.startswith("interrupted")
     good_v = [v for v in rt.session.scalars(select(AgentVersion).where(AgentVersion.round_id == rnd.id)) if v.verification.get("ok")]
     assert len(good_v) == 1 and "+STEP_1" in good_v[0].patch
+
+
+def test_a_busy_agent_is_passed_over_for_a_free_one(rt, user, setup):
+    from pga.agents.pool import _slot
+    eng, t, aim, _ = setup
+    first, _ = eng.pick(aim, "researcher", 0.1, datetime.now(timezone.utc))
+    s = _slot(first, 1)
+    s.acquire()
+    try:
+        other, _ = eng.pick(aim, "researcher", 0.1, datetime.now(timezone.utc))
+        assert other and other != first
+    finally:
+        s.release()
