@@ -163,3 +163,21 @@ def test_the_live_board_shows_output_while_an_agent_works(rt, user, provider, tm
     assert "first thought" in seen["mid"] and "final answer" not in seen["mid"]          # streamed, not at the end
     done = [r for r in live.snapshot() if r["agent"] == "slow"][-1]
     assert not done["running"] and done["ok"] and "final answer" in done["text"]
+
+
+def test_a_cli_failure_reports_its_reason_and_an_expired_login_reads_as_one(rt, user):
+    """CodeBuddy 2.x puts "Authentication required" in the stream and ends with subtype error_during_execution."""
+    from pga.agents.adapters import ClaudeLocal, CodebuddyLocal
+    from pga.agents.base import AgentTask
+    from pga.agents.quota import AUTH_ERROR
+    msg = "Authentication required. Please use /login command to sign in to your account"
+    stream = "\n".join(json.dumps(e) for e in [
+        {"type": "system", "subtype": "init"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": msg}]}},
+        {"type": "result", "subtype": "error_during_execution", "is_error": True, "num_turns": 2, "errors": [msg]}])
+    task = AgentTask(prompt="你好")
+    r = CodebuddyLocal("workbuddy", {}).parse(stream, "", task)
+    assert not r.ok and r.status == "FAILED" and "/login" in r.error and AUTH_ERROR.search(r.error)
+    plain = stream.replace(msg, "the model is overloaded")
+    r = ClaudeLocal("claude", {}).parse(plain, "", task)
+    assert not r.ok and r.error == "the model is overloaded"                  # not just "error_during_execution"

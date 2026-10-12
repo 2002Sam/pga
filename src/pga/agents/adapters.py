@@ -193,8 +193,10 @@ class ClaudeLocal(CLIAdapter):
             return AgentResult(ok=bool(text), text=text, error=None if text else stderr[-500:])
         text = str(d.get("result") or "")
         ok = not d.get("is_error") and d.get("subtype", "success") == "success"
+        why = (text or "; ".join(str(e) for e in d.get("errors") or [] if e)          # the reason, not just "error_during_execution"
+               or "\n".join(x for x in said if x).strip() or d.get("subtype") or "error")
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=d.get("total_cost_usd"),
-                           session_id=d.get("session_id"), error=None if ok else (text or d.get("subtype") or "error")[:500],
+                           session_id=d.get("session_id"), error=None if ok else why[:500],
                            data={"turns": d.get("num_turns")})
 
 
@@ -216,10 +218,15 @@ class CodebuddyLocal(ClaudeLocal):
             cmd += ["--model", str(self.config["model"])]
         return cmd
 
+    LOGIN = "WorkBuddy CLI 未登录或登录已过期：在终端运行一次 codebuddy 并输入 /login，或在设置里填 CODEBUDDY_API_KEY"
+
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
         if not stdout.strip() and "Authentication required" in stderr:
-            return AgentResult(ok=False, status="FAILED", error="WorkBuddy CLI 未登录：设置 CODEBUDDY_API_KEY，或在终端运行一次 codebuddy 并 /login")
-        return super().parse(stdout, stderr, task)
+            return AgentResult(ok=False, status="FAILED", error=self.LOGIN)
+        r = super().parse(stdout, stderr, task)
+        if not r.ok and "Authentication required" in (r.error or ""):   # newer CLIs report it inside the stream
+            r.error = self.LOGIN
+        return r
 
 
 class CodexLocal(CLIAdapter):
@@ -425,7 +432,10 @@ class LLM(Adapter):
     def _run(self, task: AgentTask) -> AgentResult:
         from pga.agents import live
         tier = int(self.config.get("tier", 2))
-        system = task.system or "You are one agent in a team working for the user. Be concrete."
+        model, prov = self.rt.router.model_for(tier), getattr(self.rt.router.provider, "name", "")
+        who = (f"You are the model {model}" + (f" served by {prov}" if prov else "") + f", PGA's own model (agent \"{self.name}\"). "
+               "If asked which model you are, say exactly that; you are not Claude, GPT or any other model.")
+        system = (task.system or "You are one agent in a team working for the user. Be concrete.") + "\n\n" + who
         messages = [{"role": "user", "content": task.prompt + ("\n\nReply with JSON only." if task.want_json else "")}]
         lid, provider = task.meta.get("live_id"), self.rt.router.provider
         if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written
