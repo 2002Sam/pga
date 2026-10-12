@@ -1374,7 +1374,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         try:
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"),
-                                           history=body.get("history") if isinstance(body.get("history"), list) else None)
+                                           history=body.get("history") if isinstance(body.get("history"), list) else None,
+                                           category=str(body["category"]) if body.get("category") else None)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 

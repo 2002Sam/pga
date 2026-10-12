@@ -123,8 +123,10 @@ class AgentRouter:
     # -------------------------------------------------------------- the agent chat
 
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
-            now: datetime | None = None) -> dict:
-        cat, cwhy = classify(text)
+            now: datetime | None = None, category: str | None = None) -> dict:
+        if category and category not in (self.cfg.get("categories") or {}):
+            raise ValueError(f"unknown category {category!r}")
+        cat, cwhy = (category, "你在这一类里提问") if category else classify(text)
         if agent and agent != "auto":
             if agent not in self.pool.adapters:
                 raise ValueError(f"unknown agent {agent!r}")

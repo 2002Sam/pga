@@ -580,6 +580,27 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-bubble .t span::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .ag-bubble.done .t span::after { content: ""; }
 .ag-msg.it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; }
+#agChat, #agDetail { display: none !important; }                          /* the cards replace the fixed chat and detail panels */
+.ag-card { position: absolute; left: 0; top: 0; width: min(390px, calc(100% - 24px)); height: min(540px, calc(100% - 80px)); z-index: 7; perspective: 1400px; }
+.ag-card[hidden] { display: none; }
+.ag-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3,.7,.2,1); }
+.ag-card-in.flipped { transform: rotateY(180deg); }
+.ag-card .cf { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: flex; flex-direction: column; gap: 8px;
+  padding: 14px 16px; background: rgba(6,8,10,.9); border: 1px solid rgba(233,169,75,.34); overflow: hidden; }
+.ag-card .cf::before, .ag-card .cf::after { content: ""; position: absolute; width: 7px; height: 7px; border: 1px solid #e9a94b; pointer-events: none; }
+.ag-card .cf::before { left: -4px; top: -4px; border-width: 1px 0 0 1px; } .ag-card .cf::after { right: -4px; bottom: -4px; border-width: 0 1px 1px 0; }
+.ag-card .back { transform: rotateY(180deg); overflow: auto; scrollbar-width: thin; }
+.ag-card .ch { display: flex; align-items: baseline; gap: 8px; }
+.ag-card .ch .t { font-size: 17px; color: #f6ead2; letter-spacing: .04em; }
+.ag-card .ch small { font: var(--cap); font-size: 9.5px; letter-spacing: .14em; color: rgba(233,169,75,.85); text-transform: uppercase; }
+.ag-card .ch button { margin-left: auto; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; padding: 0 4px; }
+.ag-card .ch button + button { margin-left: 0; }
+.ag-card .ch button:hover { color: #fff3d6; }
+.ag-card .route { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.ag-card .route b { color: #f3d38a; font-weight: 500; }
+.ag-card .card-log { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; scrollbar-width: thin; padding-right: 4px; max-height: none; }
+.ag-card .card-log:empty::before { content: attr(data-empty); color: var(--dim); font-size: 12px; line-height: 1.6; }
+.ag-card .ag-ask textarea { min-height: 40px; }
 .ag-top { position: absolute; top: 0; left: 0; right: 0; z-index: 4; display: flex; align-items: center; gap: 10px; padding: 14px 18px; pointer-events: none; flex-wrap: wrap; }
 .ag-top > * { pointer-events: auto; }
 .ag-title { font: var(--cap); font-size: 11px; letter-spacing: .34em; color: #e9a94b; text-transform: uppercase; white-space: nowrap; }
@@ -858,12 +879,19 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
         <button class="ag-btn" id="agRoutesBtn" title="调度偏好">调度</button>
         <span class="grow"></span>
         <span class="ag-spend" id="agSpend"></span>
+        <button class="ag-btn" id="agResetPos" title="把拖动过的星体放回默认位置">复位</button>
         <button class="ag-btn" id="agToAtlas" title="你和各个 AI 的历史对话星图">对话星图</button>
         <button class="ag-btn" id="agBack" title="翻回你的星空（也可以再点地球）">⟲ 星空</button>
       </div>
       <aside class="ag-panel ag-left" id="agRoutes"></aside>
       <aside class="ag-panel ag-right" id="agDetail" hidden></aside>
       <div id="agBubbles" aria-live="polite"></div>
+      <div class="ag-card" id="agCard" hidden role="dialog" aria-label="对话">
+        <div class="ag-card-in">
+          <section class="cf front" id="agCardFront"></section>
+          <section class="cf back" id="agCardBack"></section>
+        </div>
+      </div>
       <section class="ag-panel ag-chat" id="agChat">
         <div class="ag-picker" id="agPicker"></div>
         <div class="ag-log" id="agLog"></div>
@@ -1304,6 +1332,7 @@ async function loadAgentView() {
   $("#agSpend").textContent = `今天外部 agent 花费 $${(AGV.data.spent_today || 0).toFixed(2)} / $${(+AGV.data.run.daily_usd_cap || 0).toFixed(0)}`;
   renderAgRoutes(); renderAgDetail(); renderAgPicker(); renderAgLog();
   window.PGA_SET_AGENTS?.(agentGraph(AGV.data));
+  if (CARD.kind) { const r = $("#agCard .route"); if (r) r.innerHTML = cardRoute(); if (CARD.kind === "cat") renderCardBack(); }
 }
 
 /* ---- the agents side of the sky: the same 3D scene turned over around Earth */
@@ -1358,7 +1387,7 @@ async function enterAgentMode() {
 function exitAgentMode() {
   if (!AGM.on || AGM.busy) return; AGM.busy = true;
   if (!window.PGA_FLIP_TO?.("galaxy")) { AGM.busy = false; return; }
-  AGM.on = false; clearTimeout(AGM.poll); window.PGA_RUNNING?.([]); FLOW.clear();
+  AGM.on = false; clearTimeout(AGM.poll); window.PGA_RUNNING?.([]); FLOW.clear(); closeCard();
   $("#app").classList.remove("agentmode"); $("#agBubbles").innerHTML = "";
   setTimeout(() => { setFold(AGM.fold || { l: true, r: true, t: true }); AGM.busy = false; window.dispatchEvent(new Event("resize")); }, 1900);
 }
@@ -1367,12 +1396,13 @@ async function pollLive() {
   if (!AGM.on) return;
   let list = []; try { list = await api("/v1/agents/live"); } catch { AGM.poll = setTimeout(pollLive, 2500); return; }
   AGM.live = list;
-  const busy = list.some((r) => r.running) || AGV.busy;
+  const busy = list.some((r) => r.running) || AGV.busy || CARD.busy;
   AGM.poll = setTimeout(pollLive, busy ? 500 : 1600);                    // quicker while someone is answering
-  const pend = AGV.chat.find((m) => m.pending);                           // the chat answer flows from the live board too
-  if (pend && pend.target) {
+  const cardPend = (CARD.log[cardK()] || []).find((m) => m.pending);     // answers flow from the live board while they are written
+  for (const [pend, sel, key] of [[AGV.chat.find((m) => m.pending), "#agLog .ag-msg.flowing .body", "chat"], [cardPend, "#agCard .ag-msg.flowing .body", "card"]]) {
+    if (!pend || !pend.target) continue;
     const r = [...list].reverse().find((x) => x.agent === pend.target && x.workflow === "chat" && x.started >= pend.since - 2);
-    if (r && r.text) { pend.stream = r.text; const el = document.querySelector("#agLog .ag-msg.flowing .body"); if (el) flowTo("chat", r.text, el, r.agent); }
+    if (r && r.text) { pend.stream = r.text; const el = document.querySelector(sel); if (el) flowTo(key, r.text, el, r.agent); }
   }
   window.PGA_RUNNING?.(list.filter((r) => r.running).map((r) => "pa:" + r.agent));
   for (const r of list) if (!AGM.seen.has(r.id)) {                         // a new piece of work: show its gold path
@@ -1415,6 +1445,104 @@ function placeBubbles() {                                                 // kee
   });
 }
 
+/* ---- a card that turns over beside a planet or a kind of work: talk to it on the front, its settings on the back */
+const CARD = { kind: null, key: null, busy: false, log: store.json("pga_cards", {}) || {} };
+const cardK = () => CARD.kind + ":" + CARD.key;
+function openCard(kind, key) {
+  const el = $("#agCard");
+  if (!el.hidden && CARD.kind === kind && CARD.key === key) return;
+  const swap = !el.hidden;
+  CARD.kind = kind; CARD.key = key;
+  AGV.sel = kind === "agent" ? key : null; AGV.hoverCat = kind === "cat" ? key : null;
+  el.querySelector(".ag-card-in").classList.remove("flipped");
+  renderCard(); el.hidden = false; placeCard();
+  el.animate([{ transform: `${el.style.transform} perspective(1400px) rotateY(${swap ? 180 : -96}deg) scale(${swap ? 1 : .72})`, opacity: swap ? .4 : 0 },
+              { transform: `${el.style.transform} perspective(1400px) rotateY(0deg) scale(1)`, opacity: 1 }],
+             { duration: swap ? 520 : 680, easing: "cubic-bezier(.2,.8,.25,1)" });
+  setTimeout(() => $("#agCardInput")?.focus(), 350);
+}
+function closeCard() {
+  const el = $("#agCard"); if (el.hidden) return;
+  const a = el.animate([{ transform: `${el.style.transform} perspective(1400px) rotateY(0deg) scale(1)`, opacity: 1 },
+                        { transform: `${el.style.transform} perspective(1400px) rotateY(96deg) scale(.72)`, opacity: 0 }], { duration: 360, easing: "ease-in" });
+  a.onfinish = () => { el.hidden = true; };
+  CARD.kind = CARD.key = null; AGV.sel = null; AGV.hoverCat = null;
+}
+function placeCard() {                                                    // beside its body, on the side with room
+  const el = $("#agCard"), m = $("#main"), W = m.clientWidth, H = m.clientHeight;
+  const b = window.PGA_BODY?.((CARD.kind === "cat" ? "pc:" : "pa:") + CARD.key);
+  const w = el.offsetWidth || 390, h = el.offsetHeight || 520;
+  let x = W - w - 20, y = 60, side = "left";
+  if (b && b.visible) {
+    const right = b.x + b.r + 40 + w < W - 12;
+    x = right ? b.x + b.r + 40 : b.x - b.r - 40 - w; side = right ? "left" : "right";
+    y = b.y - h * .35;
+  }
+  x = Math.max(12, Math.min(W - w - 12, x)); y = Math.max(56, Math.min(H - h - 12, y));
+  el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`; el.style.transformOrigin = side === "left" ? "0% 40%" : "100% 40%";
+}
+function cardRoute() {
+  const d = AGV.data; if (!d) return "";
+  if (CARD.kind === "cat") {
+    const list = (d.ranking?.[CARD.key] || []);
+    const usable = list.filter((x) => x.usable).map((x) => x.agent), skipped = list.filter((x) => !x.usable).map((x) => x.agent);
+    return `问题会交给 <b>${esc(usable[0] || "（没有可用的 agent）")}</b>${usable.length > 1 ? `，不行就换 ${usable.slice(1, 3).map(esc).join(" → ")}` : ""}${skipped.length ? ` · 跳过：${skipped.map(esc).join("、")}` : ""}`;
+  }
+  const s = d.status[CARD.key] || {}, q = s.quota || {};
+  return `${esc(d.agents[CARD.key]?.role || "")} · ${!s.available ? "未接通" : q.source === "login" ? "需要登录" : q.remaining != null ? `剩余 ${Math.round(q.remaining * 100)}%` : "用量未知"}`;
+}
+function renderCard() {
+  if (!CARD.kind || !AGV.data) return;
+  const title = CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key;
+  $("#agCardFront").innerHTML = `<div class="ch"><span class="t">${esc(title)}</span><small>${CARD.kind === "cat" ? "直接提问 · 按调度" : "直接对话"}</small>
+      <button type="button" data-card="flip" title="设置（翻到背面）">⚙</button><button type="button" data-card="close" title="关闭">✕</button></div>
+    <div class="route">${cardRoute()}</div>
+    <div class="ag-log card-log" id="agCardLog" data-empty="${CARD.kind === "cat" ? `在「${esc(title)}」里提问：会按这一类的调度顺序交给 agent，回答会一边生成一边流出来。` : `直接问 ${esc(title)}。回答会一边生成一边流出来，它的行星会随之跳动。`}"></div>
+    <form class="ag-ask" id="agCardAsk"><textarea id="agCardInput" rows="2" placeholder="${CARD.kind === "cat" ? "问一个" + esc(title) + "问题…" : "问 " + esc(title) + "…"}（Enter 发送，Shift+Enter 换行）"></textarea><button class="ag-btn" type="submit">发送</button></form>`;
+  renderCardBack(); renderCardLog();
+}
+function renderCardBack() {
+  const el = $("#agCardBack"); if (!el || !CARD.kind) return;
+  const head = `<div class="ch"><span class="t">${esc(CARD.kind === "cat" ? (CAT_ZH[CARD.key] || CARD.key) : CARD.key)}</span><small>设置</small>
+      <button type="button" data-card="flip" title="翻回对话">↩</button><button type="button" data-card="close" title="关闭">✕</button></div>`;
+  if (CARD.kind === "agent") { el.innerHTML = head + `<div id="agCardDetail"></div>`; renderAgDetail(); return; }
+  const d = AGV.data, c = d.routing.categories[CARD.key] || { prefer: [] }, st = d.status;
+  el.innerHTML = head + `<div class="ag-sub">「${esc(c.label || CARD.key)}」的问题按这个顺序交给 agent；再按模式（${MODE_ZH[d.routing.mode]}）和剩余用量调整。</div>
+    <div class="ag-cat hot" data-cat="${CARD.key}"><div class="ag-chips">${(c.prefer || []).map((n, i) => `<span class="ag-chip ${i === 0 ? "first" : ""} ${st[n]?.available && st[n]?.enabled !== false && st[n]?.quota?.source !== "login" ? "" : "off"}" data-agsel="${esc(n)}">
+      <button type="button" data-agmv="${CARD.key}|${esc(n)}|-1" title="提前">‹</button>${esc(n)}<button type="button" data-agmv="${CARD.key}|${esc(n)}|1" title="延后">›</button><button type="button" data-agrm="${CARD.key}|${esc(n)}" title="移出">×</button></span>`).join("")}</div>
+      <select data-agadd="${CARD.key}"><option value="">＋ 加入…</option>${Object.keys(d.agents).filter((n) => !(c.prefer || []).includes(n)).map((n) => `<option>${esc(n)}</option>`).join("")}</select></div>
+    <div class="actions"><button type="button" class="ag-btn" data-agsave="routes">保存这个顺序</button></div><div class="ag-out" id="agRoutesOut"></div>`;
+}
+function renderCardLog() {
+  const box = $("#agCardLog"); if (!box) return;
+  const log = CARD.log[cardK()] || [];
+  box.innerHTML = log.slice(-30).map((m) => m.role === "user" ? `<div class="ag-msg me">${esc(m.text)}</div>`
+    : m.pending ? `<div class="ag-msg it flowing"><span class="m">${esc(m.agent || "…")} · 正在回答</span><span class="body"></span></div>`
+    : `<div class="ag-msg it ${m.ok === false ? "err" : ""}"><span class="m">${esc(m.agent || "—")}${m.duration_s ? ` · ${m.duration_s}s` : ""}${m.why ? ` · ${esc(m.why)}` : ""}</span>${m.text ? agMd(m.text) : esc(m.error || "")}${(m.files || []).length ? `<span class="files">文件：${m.files.map(esc).join("<br>")}</span>` : ""}</div>`).join("");
+  box.scrollTop = box.scrollHeight;
+}
+const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.entries(CARD.log)) keep[k] = v.filter((m) => !m.pending).slice(-20); store.set("pga_cards", JSON.stringify(keep)); } catch {} };
+async function cardSend(text) {
+  if (!text || CARD.busy || !CARD.kind) return;
+  const kind = CARD.kind, key = CARD.key, k = cardK(), log = (CARD.log[k] ||= []);
+  const history = log.filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
+  log.push({ role: "user", text }); const pend = { role: "agent", pending: true, since: Date.now() / 1000 }; log.push(pend);
+  CARD.busy = true; FLOW.delete("card"); renderCardLog();
+  let target = kind === "agent" ? key : null;
+  if (!target) { try { const r = await api(`/v1/agents/route?category=${encodeURIComponent(key)}`); target = r.ranking.find((x) => x.usable)?.agent; } catch {} }
+  pend.target = target; pend.agent = target; if (cardK() === k) renderCardLog();
+  if (target) window.PGA_ROUTE?.(kind === "cat" ? ["you", "pc:" + key, "pa:" + target] : ["you", "pa:" + target]);
+  pollLive();
+  try {
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: kind === "agent" ? key : "auto", category: kind === "cat" ? key : null, history } });
+    const el = document.querySelector("#agCard .ag-msg.flowing .body");          // let the rest of the answer flow out before it settles
+    if (el && r.text && cardK() === k) { const f = flowTo("card", r.text, el, r.agent); await new Promise((done) => { const wait = () => (f.n >= f.target.length || !el.isConnected ? done() : setTimeout(wait, 60)); wait(); }); }
+    Object.assign(pend, r, { pending: false });
+    if (r.agent) window.PGA_ROUTE?.(["pa:" + r.agent, "you"], 2500);
+  } catch (e) { Object.assign(pend, { pending: false, ok: false, error: e.message }); }
+  CARD.busy = false; saveCards(); if (cardK() === k) renderCardLog(); loadAgentView();
+}
+
 /* ---- the left panel: dispatch rules */
 function renderAgRoutes() {
   const d = AGV.data, r = d.routing, st = d.status, el = $("#agRoutes"); if (!el) return;
@@ -1440,12 +1568,12 @@ async function agSaveConfig(msgEl, okText) {
 
 /* ---- the right panel: one agent */
 function renderAgDetail() {
-  const el = $("#agDetail"), d = AGV.data; if (!el || !d) return;
+  const el = CARD.kind === "agent" ? $("#agCardDetail") : $("#agDetail"), d = AGV.data; if (!el || !d) return;
   const n = AGV.sel; el.hidden = !n; if (!n) return;
   const a = d.agents[n], s = d.status[n] || {}, q = s.quota || {}, t = a.traits || {};
   const ranks = Object.entries(d.ranking || {}).map(([cat, list]) => { const i = list.findIndex((x) => x.agent === n); return i < 0 ? null : `${CAT_ZH[cat] || cat} 第 ${i + 1}${list[i].usable ? "" : "（跳过）"}`; }).filter(Boolean);
   const dots = (k) => `<span class="ag-dots">${[1, 2, 3, 4, 5].map((v) => `<button type="button" class="${(t[k] || 3) >= v ? "on" : ""}" data-agtrait="${k}|${v}" aria-label="${k} ${v}"></button>`).join("")}</span>`;
-  el.innerHTML = `<div class="ag-h">${esc(n)} <small>${esc(a.role || "")}</small><button class="x" type="button" data-agclose aria-label="关闭">✕</button></div>
+  el.innerHTML = (CARD.kind === "agent" ? "" : `<div class="ag-h">${esc(n)} <small>${esc(a.role || "")}</small><button class="x" type="button" data-agclose aria-label="关闭">✕</button></div>`) + `
     <dl class="ag-kv"><dt>连接方式</dt><dd>${esc(a.link || a.adapter)}</dd><dt>接口</dt><dd class="mono">${esc(a.adapter)}${a.command ? `<br><span class="muted small">${esc(a.command)}</span>` : ""}${a.model ? ` · ${esc(a.model)}` : ""}</dd>
       <dt>状态</dt><dd>${s.available ? "● 已接通 · " : "○ 未接通 · "}${esc(s.detail || "")}</dd>
       <dt>剩余用量</dt><dd>${q.remaining != null ? `<div class="ag-qbar"><i style="width:${Math.round(q.remaining * 100)}%"></i></div>` : ""}${esc(q.detail || "未知")}${q.resets_at ? ` · ${esc(new Date(q.resets_at).toLocaleString())} 重置` : ""}</dd>
@@ -1454,7 +1582,7 @@ function renderAgDetail() {
     <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
     ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? "令牌已设置" : `需要令牌：${a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
       <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button></div>`).join("")}
-    <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button><button type="button" class="ag-btn" data-agpick="${esc(n)}">在下方问它</button></div>
+    <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button></div>
     <div class="ag-out" id="agDetailOut"></div>`;
 }
 
@@ -1499,10 +1627,19 @@ function bindAgentView() {
   window.addEventListener("pga:earth", (e) => (e.detail?.mode === "agents" ? exitAgentMode() : enterAgentMode()));
   window.addEventListener("pga:poolpick", (e) => {
     const { agent, cat } = e.detail || {};
-    if (agent) { AGV.sel = agent; renderAgDetail(); }
-    if (cat) { AGV.hoverCat = AGV.hoverCat === cat ? null : cat; renderAgRoutes(); $("#agRoutes").classList.add("show");
-      const first = (AGV.data?.ranking?.[cat] || []).find((x) => x.usable); if (first) window.PGA_ROUTE?.(["you", "pc:" + cat, "pa:" + first.agent], 3500); }
+    if (agent) openCard("agent", agent);
+    if (cat) { openCard("cat", cat); const first = (AGV.data?.ranking?.[cat] || []).find((x) => x.usable); if (first) window.PGA_ROUTE?.(["you", "pc:" + cat, "pa:" + first.agent], 3500); }
   });
+  window.addEventListener("pga:popclose", () => { if (AGM.on && !CARD.busy) closeCard(); });
+  $("#agResetPos").onclick = () => { window.PGA_RESET_LAYOUT?.(); toast("星体已放回默认位置"); };
+  const card = $("#agCard");
+  card.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-card]"); if (!b) return;
+    if (b.dataset.card === "close") closeCard();
+    if (b.dataset.card === "flip") card.querySelector(".ag-card-in").classList.toggle("flipped");
+  });
+  card.addEventListener("submit", (e) => { if (e.target.id !== "agCardAsk") return; e.preventDefault(); const v = $("#agCardInput").value.trim(); if (!v) return; $("#agCardInput").value = ""; cardSend(v); });
+  card.addEventListener("keydown", (e) => { if (e.target.id === "agCardInput" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agCardAsk").requestSubmit(); } });
   $("#agBack").onclick = () => exitAgentMode();
   $("#agToAtlas").onclick = () => { exitAgentMode(); setTimeout(() => flipTo("back"), 2000); };
   $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
@@ -1513,13 +1650,13 @@ function bindAgentView() {
     const d = AGV.data, r = d.routing;
     if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
     if (t.dataset.agmv) { const [cat, n, dir] = t.dataset.agmv.split("|"), L = r.categories[cat].prefer, i = L.indexOf(n), j = i + +dir;
-      if (j >= 0 && j < L.length) { [L[i], L[j]] = [L[j], L[i]]; renderAgRoutes(); } return; }
-    if (t.dataset.agrm) { const [cat, n] = t.dataset.agrm.split("|"); r.categories[cat].prefer = r.categories[cat].prefer.filter((x) => x !== n); renderAgRoutes(); return; }
+      if (j >= 0 && j < L.length) { [L[i], L[j]] = [L[j], L[i]]; renderAgRoutes(); renderCardBack(); } return; }
+    if (t.dataset.agrm) { const [cat, n] = t.dataset.agrm.split("|"); r.categories[cat].prefer = r.categories[cat].prefer.filter((x) => x !== n); renderAgRoutes(); renderCardBack(); return; }
     if (t.dataset.agsave === "routes") { r.long_tasks = $("#agLong")?.checked ?? r.long_tasks; return agSaveConfig("#agRoutesOut", "调度已保存，下一个任务开始生效"); }
     if (t.dataset.agsave === "agent") { const a = d.agents[AGV.sel]; a.enabled = !!face.querySelector("[data-agon]")?.checked; return agSaveConfig("#agDetailOut", "已保存"); }
     if (t.dataset.agtrait) { const [k, v] = t.dataset.agtrait.split("|"); const a = d.agents[AGV.sel]; a.traits = { ...(a.traits || {}), [k]: +v }; renderAgDetail(); return; }
-    if (t.dataset.agclose !== undefined) { AGV.sel = null; renderAgDetail(); return; }
-    if (t.dataset.agsel && !e.target.closest("button")) { AGV.sel = t.dataset.agsel; renderAgDetail(); return; }
+    if (t.dataset.agclose !== undefined) { closeCard(); return; }
+    if (t.dataset.agsel && !e.target.closest("button")) { openCard("agent", t.dataset.agsel); return; }
     if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
     if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
       try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
@@ -1527,10 +1664,10 @@ function bindAgentView() {
       try { const x = await api("/v1/agents/test", { body: { agent: t.dataset.agtest } }); if (o) { o.textContent = x.ok ? `正常 · ${x.duration_s}s · 「${x.reply}」` : `失败：${x.error || x.detail}`; o.className = "ag-out " + (x.ok ? "ok" : "bad"); } }
       catch (err) { if (o) { o.textContent = err.message; o.className = "ag-out bad"; } } finally { t.disabled = false; } }
   });
-  face.addEventListener("change", (e) => { const s = e.target.closest("[data-agadd]"); if (!s || !s.value) return; AGV.data.routing.categories[s.dataset.agadd].prefer.push(s.value); renderAgRoutes(); });
+  face.addEventListener("change", (e) => { const s = e.target.closest("[data-agadd]"); if (!s || !s.value) return; AGV.data.routing.categories[s.dataset.agadd].prefer.push(s.value); renderAgRoutes(); renderCardBack(); });
   $("#agAsk").addEventListener("submit", (e) => { e.preventDefault(); const v = $("#agInput").value.trim(); if (!v) return; $("#agInput").value = ""; agSend(v); });
   $("#agInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agAsk").requestSubmit(); } });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && AGM.on && !document.querySelector("dialog[open]")) { if (AGV.sel) { AGV.sel = null; renderAgDetail(); } } });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && AGM.on && !document.querySelector("dialog[open]")) closeCard(); });
 }
 
 const AG = { data: null, poll: 0 };
@@ -3019,6 +3156,26 @@ let SOLO = null;                                                          // the
 // two sides of one sky: "galaxy" (your ambitions) and "agents" (who does the work). Earth is the hinge.
 let MODE = "galaxy", AGENT_GRAPH = null, FLIP = null, EARTH_W = 0, ROUTE = null;
 const RUNNING = new Map();                                                // agent node id → when it last rippled
+const PINS = (() => { try { return store.json("pga_pins", {}) || {}; } catch { return {}; } })();   // id → [x, z]: where you put it
+function applyPins() {
+  for (const n of nodes.values()) {
+    const p = PINS[n.id];
+    if (p && n.id !== "you") { n.fixed = new THREE.Vector3(p[0], 0, p[1]); n.pinned = true; } else n.pinned = false;
+  }
+}
+function pinBody(n, pos) {
+  const from = n.pos.clone(), p = new THREE.Vector3(pos.x, 0, pos.z);
+  n.fixed = p; n.pinned = true; n.ret = null; n.glide = { from, t: 0 };
+  PINS[n.id] = [+p.x.toFixed(3), +p.z.toFixed(3)]; try { store.set("pga_pins", JSON.stringify(PINS)); } catch {}
+  n.flash = 1; ripple(p, 1 + n.r * 3, GOLD);
+  if (systems.some((s2) => s2.id === n.id)) { clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines(); }   // a sun or a crystal moved: the field flows round it anew
+}
+window.PGA_RESET_LAYOUT = () => {                                         // forget every position you set by dragging
+  for (const k of Object.keys(PINS)) delete PINS[k];
+  try { store.set("pga_pins", null); } catch {}
+  for (const n of nodes.values()) n.pinned = false;
+  layoutKey = ""; syncGraph();
+};
 const rooming = () => !!SOLO;
 try {
   THREE = await import("three");
@@ -3363,6 +3520,7 @@ function layoutAgents(all) {                                   // the other side
   ags.forEach((n, i) => { setOrbit(n, "you", 3.6 + (i % 2) * 1.05, (hash(n.id, 4) - .5) * .14, .3); if (!n.placed) { n.orbit.ang = i / Math.max(1, ags.length) * TAU; n.placed = true; } });
   const cats = all.filter((n) => n.d.pool && n.d.kind === "skill");
   cats.forEach((n, i) => { const [a, r] = CAT_POS[n.d.cat] || [i / cats.length * TAU, 8.4]; n.fixed = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * .78); });
+  applyPins();
   systems = cats.map((n) => ({ id: n.id, R: 1.5, planets: 0, rings: [] }));
   boundC.set(0, 0, 0); boundR = 9.6;
   clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines();
@@ -3405,6 +3563,7 @@ function layoutOrbits() {
     const l = links.find((x) => x.a === n.id && x.kind === "feed"), p = l && nodes.has(l.b) && l.b !== "core" ? l.b : "you", k = next("s" + p);
     setOrbit(n, p, p === "you" ? 1.3 + k * .12 : 1.72 + k * .1, .12, .6);
   }
+  applyPins();
   const pts = [new THREE.Vector3(), ...systems.map((s) => nodes.get(s.id).fixed)];
   boundC.set(0, 0, 0); pts.forEach((p) => boundC.add(p)); boundC.divideScalar(pts.length);
   boundR = Math.max(earthZone + 1, ...systems.map((s) => nodes.get(s.id).fixed.distanceTo(boundC) + s.R + .8));
@@ -3413,7 +3572,11 @@ function layoutOrbits() {
 const _v = new THREE.Vector3();
 function placeAll(dt, motion) {
   const done = new Set();
-  for (const n of nodes.values()) if (n.fixed) { n.pos.copy(n.fixed); done.add(n.id); }
+  for (const n of nodes.values()) if (n.fixed) {
+    if (n.glide) { n.glide.t = Math.min(1, n.glide.t + (dt || .016) * 3); const e = 1 - Math.pow(1 - n.glide.t, 3); n.pos.lerpVectors(n.glide.from, n.fixed, e); if (n.glide.t >= 1) n.glide = null; }
+    else n.pos.copy(n.fixed);
+    done.add(n.id);
+  }
   for (let pass = 0; pass < 5 && done.size < nodes.size; pass++) {
     for (const n of nodes.values()) {
       if (done.has(n.id)) continue;
@@ -3613,17 +3776,20 @@ canvas.addEventListener("pointerdown", (e) => {
   if (rooming()) return;                                                   // in the room the canvas only turns the body
   if (e.button !== 0) return;
   const n = pick(e);
-  if (n && MODE === "galaxy" && DRAGGABLE.has(n.d.kind) && !n.d.placeholder) { drag = { n, x: e.clientX, y: e.clientY, active: false, pos: n.pos.clone(), target: null }; controls.enabled = false; }
+  const movable = n && !n.d.placeholder && (MODE === "galaxy" ? DRAGGABLE.has(n.d.kind) : n.d.pool);
+  if (movable) { drag = { n, x: e.clientX, y: e.clientY, active: false, pos: n.pos.clone(), target: null }; controls.enabled = false; }
 }, { capture: true });
 canvas.addEventListener("pointermove", (e) => {
   if (drag) {
-    if (!drag.active && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) { drag.active = true; canvas.setPointerCapture?.(e.pointerId); canvas.style.cursor = "grabbing"; window.dispatchEvent(new CustomEvent("pga:popclose")); }
+    if (!drag.active && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 6) { drag.active = true; try { canvas.setPointerCapture?.(e.pointerId); } catch {} canvas.style.cursor = "grabbing"; window.dispatchEvent(new CustomEvent("pga:popclose")); }
     if (drag.active) {
-      const p = planePoint(e, drag.n.pos.y); if (p) drag.pos.copy(p);
-      drag.target = dropTarget(e);
+      const p = planePoint(e, 0); if (p) drag.pos.copy(p);
+      drag.target = MODE === "galaxy" ? dropTarget(e) : null;
+      if (MODE === "agents" && drag.n.fixed) drag.n.fixed.copy(drag.pos);    // a crystal follows the hand
       const r = mainEl.getBoundingClientRect();
       tipEl.innerHTML = drag.target ? `<b>松开以连接</b>${escapeHTML(drag.n.d.label)} ⇄ ${escapeHTML(drag.target.d.label)}`
-        : drag.n.d.kind === "aim" ? `<b>从抱负拉出一根线</b>拖到一个数据库或技能上，它的知识就会服务这个抱负` : `<b>拖到另一颗星上</b>拖到黑洞上，就让它服务那个抱负`;
+        : MODE === "agents" ? `<b>放到想要的位置</b>松开后它就停在那里`
+        : drag.n.d.kind === "aim" ? `<b>移动这个星系</b>松开就放在这里 · 拖到数据库或技能上则是连接` : `<b>松开就放在这里</b>拖到另一颗星上则是连接`;
       tipEl.style.opacity = 1; tipEl.style.left = Math.min(r.width - tipEl.offsetWidth - 8, e.clientX - r.left + 16) + "px"; tipEl.style.top = Math.max(8, e.clientY - r.top + 14) + "px";
     }
     return;
@@ -3639,11 +3805,11 @@ canvas.addEventListener("pointerup", (e) => {
     const d = drag; drag = null; controls.enabled = true; canvas.style.cursor = "";
     if (d.active) {
       down = null; tipEl.style.opacity = 0;
-      if (!d.n.fixed) d.n.ret = { from: d.pos.clone(), t: 0 };
-      if (d.target) {
+      if (d.target) {                                                       // onto another body: link them, the body goes home
+        if (!d.n.fixed) d.n.ret = { from: d.pos.clone(), t: 0 };
         ripple(d.target.pos, Math.max(1.2, d.target.r * 6)); d.target.flash = 1; d.n.flash = 1;
         window.dispatchEvent(new CustomEvent("pga:bridge", { detail: { a: d.n.id, b: d.target.id, aLabel: d.n.d.label, bLabel: d.target.d.label } }));
-      }
+      } else pinBody(d.n, d.pos);                                           // empty space: it stays where you put it
       return;
     }
   }
@@ -3923,7 +4089,7 @@ function frame(now) {
       const o = n.orbit, p = nodes.get(o.parent);
       n.orbitLine.position.copy(p ? p.pos : _v.set(0, 0, 0)); n.orbitLine.scale.setScalar(Math.max(.01, o.r)); n.orbitLine.rotation.x = -o.incl;
       const base = n.d.kind === "belief" ? (o.parent === focusParent ? .14 : .03) : n.d.kind === "slot" ? .07 : .16;
-      setOp(n.orbitLine.material, (base + ((hovered === n || st.selected === n.id) ? .25 : 0)) * (n.wv ?? 1));
+      setOp(n.orbitLine.material, n.pinned ? 0 : (base + ((hovered === n || st.selected === n.id) ? .25 : 0)) * (n.wv ?? 1));
     }
     if (n.label) {
       v3.copy(n.pos).project(camera);
@@ -3941,9 +4107,9 @@ function frame(now) {
     }
   }
   for (const g of scenery.children) if (g.userData.sys && nodes.has(g.userData.sys)) g.position.copy(nodes.get(g.userData.sys).pos);
-  tether.visible = !!drag?.active;
+  tether.visible = !!drag?.active && MODE === "galaxy" && (!!drag.target || !!drag.n.fixed);
   if (tether.visible) { tether.geometry.setFromPoints(drag.n.fixed ? [drag.n.pos, drag.pos] : [drag.n.home || drag.n.pos, drag.n.pos]); tether.computeLineDistances(); }
-  pullTip.visible = !!(drag?.active && drag.n.fixed);
+  pullTip.visible = !!(drag?.active && drag.n.fixed && MODE === "galaxy");
   if (pullTip.visible) { pullTip.position.copy(drag.pos); pullTip.quaternion.copy(camera.quaternion); pullTip.scale.setScalar(.22); }
   dropRing.visible = !!drag?.target;
   if (dropRing.visible) { dropRing.position.copy(drag.target.pos); dropRing.quaternion.copy(camera.quaternion); dropRing.scale.setScalar(Math.max(.35, drag.target.r * 2.4) * (1 + Math.sin(uTime.value * 8) * .06)); }

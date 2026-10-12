@@ -121,3 +121,12 @@ def test_long_term_work_goes_to_the_routed_agent_and_falls_back(rt, user, provid
         CURRENT_TASK.reset(token)
     assert res.provider == "thinker"
     assert rt.router.complete(2, system="Reply with JSON only.", messages=[{"role": "user", "content": "e"}]).provider == "fake"
+
+
+def test_asking_inside_a_category_routes_by_that_category(rt, user, provider, cfg):
+    provider.handler = lambda s, m: "fast answered"
+    r = AgentRouter(rt, AgentPool(rt, cfg))
+    out = r.ask(user, "你好", category="code")                     # a short greeting would be "quick" — the category wins
+    assert out["category"] == "code" and out["agent"] == "coder" and "你在这一类里提问" in out["why"]
+    with pytest.raises(ValueError):
+        r.ask(user, "x", category="nope")
