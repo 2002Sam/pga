@@ -60,8 +60,17 @@ class CLIAdapter(Adapter):
     strip_env: tuple[str, ...] = ()
     secrets: tuple[str, ...] = ()           # read from pga/.env (Settings), passed to the CLI, never shown or logged
 
+    def secret_map(self) -> dict[str, str]:
+        """Env var the CLI reads → the key it is stored under in pga/.env. A second copy of an agent (claude-2) keeps its
+        own token under its own key (`secret_keys`), and the CLI still gets it under the name it expects."""
+        names = list(self.secrets) + [str(x) for x in (self.config.get("secret_env") or [])]
+        alias = self.config.get("secret_keys") or {}
+        return {n: str(alias.get(n) or n) for n in names}
+
     def secret_names(self) -> list[str]:
-        return list(self.secrets) + [str(x) for x in (self.config.get("secret_env") or [])]
+        """The keys you can set for this agent (Settings / its card): its CLI tokens, and its API key if it has one."""
+        api = (self.config.get("api") or {}).get("key_env")
+        return list(dict.fromkeys([*self.secret_map().values(), *([str(api)] if api else [])]))
 
     def secrets_set(self) -> dict[str, bool]:
         from pga.llm.catalog import get_key
@@ -91,9 +100,9 @@ class CLIAdapter(Adapter):
         env = {k: v for k, v in os.environ.items() if k not in self.strip_env}
         env.update({k: str(v) for k, v in (self.config.get("env") or {}).items()})
         from pga.llm.catalog import get_key
-        for name in self.secret_names():
-            if get_key(name):
-                env[name] = get_key(name)
+        for name, stored in self.secret_map().items():          # never the API key: the CLI would bill it instead
+            if get_key(stored):
+                env[name] = get_key(stored)
         return env
 
     def linked(self) -> bool:

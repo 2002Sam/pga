@@ -2012,9 +2012,10 @@ function renderAgDetail() {
       <dt>能力</dt><dd>${esc((a.capabilities || []).join(" · "))}</dd><dt>调度位置</dt><dd>${esc(ranks.join(" · ") || "不在任何类别里")}</dd></dl>
     <div class="ag-traits"><span>质量</span>${dots("quality")}<span>速度</span>${dots("speed")}<span>成本</span>${dots("cost")}</div>
     <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
-    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? "令牌已设置" : `需要令牌：${a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : a.adapter === "hermes_local" ? "直接走 Hermes 本地 API：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
+    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? (k.startsWith("ANTHROPIC_API_KEY") ? "Anthropic API key 已设置" : "令牌已设置") : `需要令牌：${k.startsWith("ANTHROPIC_API_KEY") ? "（可选）Anthropic API key，在 console.anthropic.com 创建；有效时提问直接走 API、按量计费" : a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>（用这个 agent 对应的那个账号登录）" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : a.adapter === "hermes_local" ? "直接走 Hermes 本地 API：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
       <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button></div>`).join("")}
     <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button></div>
+    <div class="actions"><button type="button" class="ag-btn" data-agclone="${esc(n)}" title="再加一个同类的 agent：用另一个账号的令牌或另一把 API key，额度和历史分开算">＋ 再加一个 ${esc(n)}</button>${a.clone_of ? `<button type="button" class="ag-btn" data-agdel="${esc(n)}">删除这个 agent</button>` : ""}</div>
     <div class="ag-out" id="agDetailOut"></div>`;
 }
 
@@ -2166,7 +2167,7 @@ function bindAgentView() {
   $("#agRoutesBtn").onclick = () => $("#agRoutes").classList.toggle("show");
   const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink]");
+    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel]");
     if (!t || !AGV.data) return;
     const d = AGV.data, r = d.routing;
     if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
@@ -2181,6 +2182,15 @@ function bindAgentView() {
     if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
     if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
       try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
+    if (t.dataset.agclone) {                         // a second copy: its own token / key, its own quota and history
+      try { const r = await api(`/v1/agents/${encodeURIComponent(t.dataset.agclone)}/clone`, { method: "POST", body: {} }); AGV.data = r;
+        window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); AGV.sel = r.name; toast(`已添加 ${r.name}：把另一个账号的令牌（或 API key）粘到它的设置里`);
+        setTimeout(() => { openCard("agent", r.name); setTimeout(() => openTalkSettings(), 400); }, 1200); }
+      catch (err) { toast("没能添加：" + err.message); } return; }
+    if (t.dataset.agdel) {
+      if (!confirm(`删除 ${t.dataset.agdel}？它的令牌留在本机 .env 里，可以以后再用。`)) return;
+      try { AGV.data = await api(`/v1/agents/${encodeURIComponent(t.dataset.agdel)}`, { method: "DELETE" }); closeCard(); window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); toast("已删除"); }
+      catch (err) { toast("没能删除：" + err.message); } return; }
     if (t.dataset.aglink) { const n = t.dataset.aglink, o = $("#agDetailOut"); t.disabled = true; if (o) { o.textContent = `正在检查 ${n} 的连接…`; o.className = "ag-out"; }
       try { const x = await api("/v1/agents/links/check", { body: { agent: n } }); const L = x.links[n] || {}; await loadAgentView();
         const o2 = $("#agDetailOut"); if (o2) { o2.textContent = `${L.label || L.state} · ${L.detail || ""}`; o2.className = "ag-out " + (["online", "expiring"].includes(L.state) ? "ok" : "bad"); } }

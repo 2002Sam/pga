@@ -1314,6 +1314,72 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.post("/v1/agents/{name}/clone", status_code=201)
+    def agents_clone(name: str, body: dict | None = None, rt: Runtime = Depends(get_rt)):
+        """A second copy of an agent (another account or API key): same kind and settings, its own token / key, its own
+        quota and history; it joins every category right after the original."""
+        import copy
+        import re as _re
+
+        from pga.agents import pool as ap
+        data = ap.load()
+        agents = data["agents"]
+        if name not in agents:
+            raise HTTPException(404, "unknown agent")
+        new = str((body or {}).get("name") or "").strip().lower()
+        if not new:
+            i = 2
+            while f"{name}-{i}" in agents:
+                i += 1
+            new = f"{name}-{i}"
+        if not _re.match(r"^[a-z0-9][a-z0-9_-]{0,39}$", new) or new in agents:
+            raise HTTPException(422, f"name {new!r} is taken or not allowed (lowercase letters, digits, - or _)")
+        a = copy.deepcopy(agents[name])
+        suffix = _re.sub(r"[^A-Z0-9]", "_", new.upper())
+        ad = ap.AgentPool(rt).adapters[name]
+        a["secret_keys"] = {env: f"{env}__{suffix}" for env in ad.secret_map()}
+        if isinstance(a.get("api"), dict) and a["api"].get("key_env"):
+            a["api"]["key_env"] = f"{str(a['api']['key_env']).split('__')[0]}__{suffix}"
+        a["role"] = f"{a.get('role') or name} · #{new.rsplit('-', 1)[-1]}"
+        a["link"] = (a.get("link") or "") + f"（{new} 是 {name} 的第二份：自己的令牌 / key、自己的额度）"
+        a["clone_of"] = name
+        agents[new] = a
+        for c in (data["routing"].get("categories") or {}).values():
+            pref = c.get("prefer") or []
+            if name in pref and new not in pref:
+                pref.insert(pref.index(name) + 1, new)
+        try:
+            ap.save(data)
+        except ap.PoolError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"name": new, **_pool_view(rt)}
+
+    @app.delete("/v1/agents/{name}")
+    def agents_delete(name: str, rt: Runtime = Depends(get_rt)):
+        """Remove an agent you added (a copy); the built-in ones can only be disabled."""
+        from pga.agents import pool as ap
+        data = ap.load()
+        a = data["agents"].get(name)
+        if a is None:
+            raise HTTPException(404, "unknown agent")
+        if not a.get("clone_of"):
+            raise HTTPException(422, "only an agent you added can be removed; disable this one instead")
+        del data["agents"][name]
+        for c in (data["routing"].get("categories") or {}).values():
+            c["prefer"] = [n for n in c.get("prefer") or [] if n != name]
+        for w in data["workflows"].values():
+            for k in ("agents", "members", "workers"):
+                if isinstance(w.get(k), list):
+                    w[k] = [n for n in w[k] if n != name]
+            for k in ("chair", "planner", "merge"):
+                if w.get(k) == name:
+                    w[k] = a["clone_of"]
+        try:
+            ap.save(data)
+        except ap.PoolError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return _pool_view(rt)
+
     @app.post("/v1/agents/live/{lid}/stop")
     def agents_stop(lid: str):
         """Stop an answer while it is being written: the agent is interrupted, what it said so far is kept."""

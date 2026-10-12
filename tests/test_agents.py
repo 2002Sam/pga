@@ -181,3 +181,25 @@ def test_a_cli_failure_reports_its_reason_and_an_expired_login_reads_as_one(rt, 
     plain = stream.replace(msg, "the model is overloaded")
     r = ClaudeLocal("claude", {}).parse(plain, "", task)
     assert not r.ok and r.error == "the model is overloaded"                  # not just "error_during_execution"
+
+
+def test_a_second_claude_has_its_own_token_and_joins_after_the_first(session_factory, policy, provider, backend, tmp_path, monkeypatch):
+    from pga.agents import pool as ap
+    from pga.llm import catalog
+    monkeypatch.setattr(ap, "CONFIG", tmp_path / "agents.yaml")
+    c = TestClient(create_app(session_factory, lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend)))
+    v = c.post("/v1/agents/claude/clone", json={}).json()
+    assert v["name"] == "claude-2"
+    a = v["agents"]["claude-2"]
+    assert a["secret_keys"] == {"CLAUDE_CODE_OAUTH_TOKEN": "CLAUDE_CODE_OAUTH_TOKEN__CLAUDE_2"} and a["api"]["key_env"] == "ANTHROPIC_API_KEY__CLAUDE_2"
+    code = v["routing"]["categories"]["code"]["prefer"]
+    assert code.index("claude-2") == code.index("claude") + 1
+    keys = {"CLAUDE_CODE_OAUTH_TOKEN": "first-account", "CLAUDE_CODE_OAUTH_TOKEN__CLAUDE_2": "second-account"}
+    monkeypatch.setattr(catalog, "get_key", lambda n: keys.get(n))
+    pool = AgentPool(Runtime(session_factory(), policy=policy, provider=provider, translation_backend=backend))
+    assert pool.adapters["claude"].env()["CLAUDE_CODE_OAUTH_TOKEN"] == "first-account"
+    assert pool.adapters["claude-2"].env()["CLAUDE_CODE_OAUTH_TOKEN"] == "second-account"          # the CLI sees its own account
+    assert "ANTHROPIC_API_KEY__CLAUDE_2" not in pool.adapters["claude-2"].env()                   # never the API key
+    assert c.delete("/v1/agents/claude").status_code == 422                                      # built-ins stay
+    v = c.delete("/v1/agents/claude-2").json()
+    assert "claude-2" not in v["agents"] and "claude-2" not in v["routing"]["categories"]["code"]["prefer"]
