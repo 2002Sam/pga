@@ -744,6 +744,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 8px; color: #e9e2d4; font-size: 13.5px; line-height: 1.5;
   transition: opacity .6s ease; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
 .ag-hist[hidden] { display: none; }
+.ag-hist.drawer { z-index: 30; padding: 12px 6px 10px; background: rgba(8,11,15,.94); border: 1px solid rgba(233,169,75,.3); box-shadow: 0 12px 40px rgba(0,0,0,.6); }
+.ag-talk .tk-h .acts .histbtn { display: none; } #app.narrowtalk .ag-talk .tk-h .acts .histbtn { display: inline-block; }
 .ag-map { position: absolute; left: 0; top: 0; z-index: 5; display: flex; flex-direction: column; gap: 4px; transition: opacity .6s ease;
   text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9); }
 .ag-map[hidden] { display: none; }
@@ -791,7 +793,11 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist .hsep { padding: 14px 14px 4px; font: var(--cap); font-size: 9.5px; letter-spacing: .18em; color: rgba(233,169,75,.7); text-transform: uppercase; }
 .ag-hist .he.past .ht { color: rgba(236,228,214,.62); }
 .tk-past { font-size: 12.5px; color: rgba(214,224,229,.7); padding-bottom: 8px; border-bottom: 1px solid rgba(233,169,75,.2); }
-.tk-past b { color: #f3d38a; font-weight: 500; } .tk-past .ro { margin-left: 8px; font: var(--cap); font-size: 9.5px; letter-spacing: .14em; color: rgba(233,169,75,.6); }
+.tk-past b { color: #f3d38a; font-weight: 500; }
+.tk-past .acts2 { display: inline-flex; margin-left: 10px; } .tk-past .acts2 button[data-pastact="go"] { color: #f3d38a; border: 1px solid rgba(233,169,75,.55); padding: 1px 8px; }
+.tk-opts .past-bar { flex-basis: 100%; display: flex; gap: 10px; align-items: center; padding: 6px 10px; margin-bottom: 4px; border: 1px solid rgba(233,169,75,.35); background: rgba(233,169,75,.06); font-size: 12px; color: rgba(243,230,201,.85); }
+.tk-opts .past-bar span { flex: 1; } .tk-opts .past-bar button { border: 1px solid rgba(220,232,238,.25); background: transparent; color: inherit; padding: 2px 10px; cursor: pointer; font: inherit; }
+.tk-opts .past-bar button.go { border-color: rgba(233,169,75,.7); color: #f3d38a; } .tk-past .ro { margin-left: 8px; font: var(--cap); font-size: 9.5px; letter-spacing: .14em; color: rgba(233,169,75,.6); }
 .ag-card { position: absolute; left: 0; top: 0; width: min(390px, calc(100% - 24px)); height: min(540px, calc(100% - 80px)); z-index: 7; perspective: 1400px; }
 .ag-card[hidden] { display: none; }
 .ag-card-in { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .7s cubic-bezier(.3,.7,.2,1); }
@@ -1119,7 +1125,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
       </nav>
       <div class="ag-talk" id="agTalk" hidden role="dialog" aria-label="对话">
         <div class="tk-h"><span class="who" id="agTalkWho"></span>
-          <span class="acts"><button type="button" data-talk="new" title="新对话：清空这里，agent 从头开始（新的线程 / 会话）">↺ 新对话</button><button type="button" data-talk="set" title="连接、额度、调度顺序">⚙ 设置</button><button type="button" data-talk="close" title="关闭（Esc，或点空白处）">✕</button></span></div>
+          <span class="acts"><button type="button" class="histbtn" data-talk="hist" title="历史对话，和它在原应用里的旧对话（可以接着聊）">☰ 历史</button><button type="button" data-talk="new" title="新对话：清空这里，agent 从头开始（新的线程 / 会话）">↺ 新对话</button><button type="button" data-talk="set" title="连接、额度、调度顺序">⚙ 设置</button><button type="button" data-talk="close" title="关闭（Esc，或点空白处）">✕</button></span></div>
         <div class="route" id="agTalkRoute"></div>
         <div class="tk-log" id="agTalkLog"></div>
         <div class="tk-pics" id="agTalkPics"></div>
@@ -1743,7 +1749,7 @@ function openCard(kind, key) {                       // talk to a planet (or a k
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
 function closeCard() {
-  const el = $("#agTalk"); closeTalkSettings(true);
+  const el = $("#agTalk"); closeTalkSettings(true); HIST.drawer = false;
   $("#app").classList.remove("talking"); window.PGA_CALM?.(false);
   if (!CARD.kind) return;
   window.PGA_TALK?.(null);
@@ -1814,7 +1820,8 @@ async function continuePast() {                       // carry it on here: the s
     CARD.log[k] = (v.turns || []).slice(-20).map((t) => t.role === "user" ? { role: "user", text: t.text } : { role: "agent", agent: v.agent, model: v.model, text: t.text });
     delete CARD.past[k]; saveCards(); renderHist(); renderCardLog(); renderOpts(); $("#agTalkInput")?.focus();
     toast(r.resumes === "thread" ? "接着聊：会续上原来的那个线程" : r.resumes === "session" ? "接着聊：会续上原来的那个会话" : "接着聊：最近的对话内容会一起带上");
-  } catch (e) { toast("没能接上：" + e.message); }
+    return true;
+  } catch (e) { toast("没能接上：" + e.message); return false; }
 }
 async function openConversation(id) {
   if (CARD.busy || !CARD.kind) return;
@@ -1901,10 +1908,15 @@ function placeTalk() {                               // the words stay beside th
     map.style.width = mw + "px"; map.style.transform = `translate(24px, ${my}px)`;
     if (performance.now() - MAP.at > 120) { MAP.at = performance.now(); renderMap(); }
     if (hist) {
-      const show = L.histW > 0 && right, top = my + map.offsetHeight + 22;
+      const wide = L.histW > 0 && right, show = wide || !!HIST.drawer, top = my + map.offsetHeight + 22;
+      $("#app").classList.toggle("narrowtalk", !wide);          // too narrow for a history column: it opens as a drawer (☰ 历史)
+      hist.classList.toggle("drawer", !wide);
       if (hist.hidden === show) hist.hidden = !show;
-      if (show) { hist.style.width = (L.histW - 44) + "px"; hist.style.transform = `translate(24px, ${top}px)`;
-        const hl = $("#agHistList"); if (hl) hl.style.maxHeight = Math.max(120, H - top - 60) + "px"; }
+      const hl = $("#agHistList");
+      if (show && wide) { hist.style.width = (L.histW - 44) + "px"; hist.style.transform = `translate(24px, ${top}px)`;
+        if (hl) hl.style.maxHeight = Math.max(120, H - top - 60) + "px"; }
+      else if (show) { hist.style.width = Math.min(320, W - 40) + "px"; hist.style.transform = "translate(12px, 56px)";
+        if (hl) hl.style.maxHeight = Math.max(160, H - 150) + "px"; }
     }
   }
 }
@@ -1994,6 +2006,12 @@ function renderOpts() {
         ${m.efforts.map((e) => `<option value="${esc(e.id)}" ${e.id === effort ? "selected" : ""}>${esc(e.label)}</option>`).join("")}</select></label>` : "")
       + tr + `<button type="button" data-opt="pic" title="${o.images === false || (m && m.images === false) ? "附上文档（这个模型不能看图片，只能读文档的文字）" : "附上图片或文档（PDF、Word、Excel、PPT、文本、代码；也可以粘贴或拖进来）"}">＋ 附件</button>`
       + (o.via ? `<span class="via">经由 ${esc(o.via)}</span>` : "");
+  }
+  const pv = CARD.past?.[k];
+  if (pv) {                                           // an old conversation from the agent's own app: one tap (or just type) carries it on
+    box.insertAdjacentHTML("afterbegin", `<div class="past-bar"><span>这是 ${esc(pv.agent)} 里的旧对话${pv.resumable ? "，可以续上原来的线程" : ""}</span>
+      <button type="button" class="go" data-pastact="go">↪ 接着聊</button><button type="button" data-pastact="back">返回当前对话</button></div>`);
+    $("#agTalkInput").placeholder = `直接输入就会接着这段对话聊${pv.resumable ? "（续上原线程）" : ""}（Enter 发送）`;
   }
   const docs = OPTS.docs[k] || [], kb = (n) => n > 1e6 ? (n / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1e3)) + " KB";
   $("#agTalkPics").innerHTML = pics.map((p, i) => `<div class="pic" style="background-image:url('${p.data}')" title="${esc(p.name)}"><button type="button" data-opt="unpic" data-i="${i}" aria-label="去掉">×</button></div>`).join("")
@@ -2085,7 +2103,7 @@ const saveCards = () => { try { const keep = {}; for (const [k, v] of Object.ent
   .map((m) => Object.fromEntries(Object.entries(m).filter(([f]) => !f.startsWith("_")))); store.set("pga_cards", JSON.stringify(keep)); } catch {} };   // attachments stay in memory only
 async function cardSend(text) {
   if (!text || CARD.busy || !CARD.kind) return;
-  if (CARD.past?.[cardK()]) return toast("这是原应用里的旧对话：先按「接着聊」，再在这里继续");
+  if (CARD.past?.[cardK()] && !(await continuePast())) return;   // typing in an old conversation carries it on first
   CARD.busy = true;
   const kind = CARD.kind, key = CARD.key, k = cardK();
   if (CARD.editAt != null) {                         // edited and resent: the conversation goes on from there, in a new branch
@@ -2244,9 +2262,11 @@ function bindAgentView() {
     if (b.dataset.talk === "close") closeCard();
     if (b.dataset.talk === "set") openTalkSettings();
     if (b.dataset.talk === "new") newConversation();
+    if (b.dataset.talk === "hist") { HIST.drawer = !HIST.drawer; placeTalk(); }
   });
   const hist = $("#agHist");
   hist.addEventListener("click", (e) => {
+    if (e.target.closest("[data-past], [data-conv]") && HIST.drawer) { HIST.drawer = false; setTimeout(placeTalk, 0); }   // narrow window: the drawer closes once you pick
     const pp = e.target.closest("[data-past]"); if (pp) return openPast(pp.dataset.past);
     const c = e.target.closest("[data-conv]"); if (c) { if (CARD.past) delete CARD.past[cardK()]; return openConversation(c.dataset.conv); }
     if (e.target.closest('[data-hist="new"]')) newConversation();
