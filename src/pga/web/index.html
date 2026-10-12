@@ -3138,7 +3138,7 @@ function buildSystemDecor() {
     for (const ring of sys.rings || []) { const l = ring.dashed ? new THREE.LineSegments(DASH, shiverMat(.22, { amp: .006 })) : new THREE.Line(CIRCLE, shiverMat(.16, { amp: .006 })); l.scale.setScalar(ring.r); g.add(l); }
   }
 }
-const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
+const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector4() } }, transparent: true, depthWrite: false,
   vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; attribute float aT; attribute float aA; attribute float aN; attribute float aS; attribute float aSeed; attribute vec3 aSide; attribute float aGold;
     varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
     void main(){
@@ -3152,8 +3152,8 @@ const fieldMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value
       vD = length(q) / uR + .06 * sin(ang * 5. + aSeed) + .04 * sin(ang * 11. - uTime * .3 + aSeed * 2.) + .02 * sin(uTime * .5 + aSeed);
       vR = length(p.xz);
       gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.); }`,
-  fragmentShader: `uniform float uTime; uniform vec3 uWave; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
-    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
+  fragmentShader: `uniform float uTime; uniform vec4 uWave; varying float vT; varying float vA; varying float vS; varying float vD; varying float vG; varying float vR;
+    float waveMask(float r){ if (uWave.y > .5) return mix(uWave.w, 1., 1. - smoothstep(uWave.x - .55, uWave.x, r)); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float e = smoothstep(0., .04, vT) * smoothstep(1., .96, vT) * (1. - smoothstep(.55, 1., vD)); float flow = .8 + .2 * sin(vS * 2. - uTime * 1.4);
       float gl = waveGlow(vR); vec3 c = mix(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), vG), vec3(1., .78, .42), min(1., gl));
       gl_FragColor = vec4(c, vA * e * flow * (1. + vG * .6) * waveMask(vR) * (1. + gl * 2.5)); }` });
@@ -3218,9 +3218,9 @@ fleckGeo.setAttribute("aVel", fattr(FLECKS * FV, 3));
 fleckGeo.setAttribute("aU", fattr(FLECKS * FV, 1));
 fleckGeo.setAttribute("aSide", fattr(FLECKS * FV, 3));
 fleckGeo.setAttribute("aWave", fattr(FLECKS * FV, 4));    // cycles, amplitude, speed, phase
-const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
-  vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; uniform vec3 uWave;
-    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
+const fleckMat = new THREE.ShaderMaterial({ uniforms: { uTime, uExc, uC: { value: new THREE.Vector2() }, uR: { value: 20 }, uWave: { value: new THREE.Vector4() } }, transparent: true, depthWrite: false,
+  vertexShader: `uniform float uTime, uExc; uniform vec2 uC; uniform float uR; uniform vec4 uWave;
+    float waveMask(float r){ if (uWave.y > .5) return mix(uWave.w, 1., 1. - smoothstep(uWave.x - .55, uWave.x, r)); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     attribute float aBirth; attribute float aLife; attribute float aHue; attribute vec3 aVel; attribute float aU; attribute vec3 aSide; attribute vec4 aWave;
     varying float vA; varying float vH;
     void main(){ float age = uTime - aBirth, t = age / aLife;
@@ -3437,12 +3437,12 @@ function placeAll(dt, motion) {
 /* ------------------------------------------------ links: strings between bodies; activity plucks them */
 const SEG = 16;
 const linkMat = new THREE.ShaderMaterial({
-  uniforms: { uTime, uHover: { value: 0 }, uWave: { value: new THREE.Vector3() } }, transparent: true, depthWrite: false,
+  uniforms: { uTime, uHover: { value: 0 }, uWave: { value: new THREE.Vector4() } }, transparent: true, depthWrite: false,
   vertexShader: `attribute float aT; attribute float aSeed; attribute float aHi; attribute float aW; attribute float aGold;
     varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR;
     void main(){ vT = aT; vS = aSeed; vH = aHi; vW = aW; vG = aGold; vR = length(position.xz); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }`,
-  fragmentShader: `uniform float uTime, uHover; uniform vec3 uWave; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR;
-    float waveMask(float r){ if (uWave.y > .5) return 1. - smoothstep(uWave.x - .55, uWave.x, r); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
+  fragmentShader: `uniform float uTime, uHover; uniform vec4 uWave; varying float vT; varying float vS; varying float vH; varying float vW; varying float vG; varying float vR;
+    float waveMask(float r){ if (uWave.y > .5) return mix(uWave.w, 1., 1. - smoothstep(uWave.x - .55, uWave.x, r)); if (uWave.y < -.5) return smoothstep(uWave.x, uWave.x + .55, r); return 1.; } float waveGlow(float r){ return uWave.z * exp(-pow((r - uWave.x) / .45, 2.)); }
     void main(){ float f = pow(1. - fract(vT - uTime * (.16 + vH * .3) + vS), 10.);
       float a = (.1 * vW + f * .22 + vH * .45) * mix(1., mix(.25, 1., step(.5, vH)), uHover);
       gl_FragColor = vec4(mix(vec3(.9, .93, .94), vec3(.91, .66, .3), max(vH * .55, vG * .9)), a * (1. + vG * 1.6) * waveMask(vR)); }` });
@@ -3722,49 +3722,64 @@ const ORIGIN = new THREE.Vector3(), EARTH_FILL_W = new THREE.Color("#e9e6df"), E
 window.PGA_MODE = () => (FLIP ? FLIP.to : MODE);
 window.PGA_SET_AGENTS = (g) => { AGENT_GRAPH = g; if (MODE === "agents" && !FLIP) syncGraph(); };
 const smoothstep01 = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
-window.PGA_FLIP_TO = (to) => {                                            // turn the sky over: galaxy ⇄ agents, spreading out from Earth
+window.PGA_FLIP_TO = (to) => {                                            // turn the sky over (galaxy ⇄ agents), then spread out from Earth
   if (FLIP || to === MODE || (to === "agents" && !AGENT_GRAPH)) return false;
   focusId = null; focusedId = null; flyT = 1;
-  const dying = [], dead = new THREE.Group(); world.add(dead);
-  let oldR = 0;
-  for (const n of [...nodes.values()]) {                                   // the old side keeps drawing until the front reaches it
-    if (n.id === "you") continue;
-    oldR = Math.max(oldR, Math.hypot(n.pos.x, n.pos.z));
-    nodes.delete(n.id); const k = pickables.indexOf(n.mesh); if (k >= 0) pickables.splice(k, 1);
-    n.label?.remove(); n.label = null; n.passed = false; dying.push(n);
+  camera.updateMatrixWorld();
+  const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 0).normalize(), c = camera.position.clone().normalize();
+  let best = { deg: 55, sgn: 1 };
+  search: for (let deg = 1; deg <= 89; deg++) for (const sgn of [1, -1]) {   // the angle at which the disc is seen edge-on
+    if (new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, sgn * deg * Math.PI / 180).dot(c) <= 0) { best = { deg, sgn }; break search; }
   }
-  const deadField = fieldMat.clone(), deadLink = linkMat.clone();
-  for (const m of [deadField, deadLink]) { m.uniforms.uTime = uTime; m.uniforms.uWave = { value: new THREE.Vector3(0, -1, 1) }; }
-  deadField.uniforms.uExc = uExc;
-  for (const c of [...scenery.children]) { scenery.remove(c); dead.add(c); c.traverse?.((o) => { if (o.material === fieldMat) o.material = deadField; }); }
-  const oldLinks = new THREE.LineSegments(linkGeo, deadLink); oldLinks.frustumCulled = false; dead.add(oldLinks);   // old strings, frozen
+  const edge = best.sgn * best.deg * Math.PI / 180;
+  const dying = [], dead = new THREE.Group(); world.add(dead);
+  deadField.uniforms.uC.value.copy(fieldMat.uniforms.uC.value); deadField.uniforms.uR.value = fieldMat.uniforms.uR.value;
+  deadField.uniforms.uWave.value.set(0, 0, 0, 0); deadLink.uniforms.uWave.value.set(0, 0, 0, 0);
+  for (const n of [...nodes.values()]) {                                   // the old side turns away with the world, intact
+    if (n.id === "you") continue;
+    nodes.delete(n.id); const k = pickables.indexOf(n.mesh); if (k >= 0) pickables.splice(k, 1);
+    n.label?.remove(); n.label = null; dying.push(n);
+  }
+  for (const c2 of [...scenery.children]) { scenery.remove(c2); dead.add(c2); c2.traverse?.((o) => { if (o.material === fieldMat) o.material = deadField; }); }
+  const oldLinks = new THREE.LineSegments(linkGeo, deadLink); oldLinks.frustumCulled = false; dead.add(oldLinks);
   linkGeo = new THREE.BufferGeometry(); linkMesh.geometry = linkGeo; links = []; pulses.forEach((p) => p.balls.forEach((m) => fxGroup.remove(m))); pulses.length = 0;
-  MODE = to; layoutKey = ""; syncGraph();                                   // the new side, waiting behind the front
+  MODE = to; layoutKey = ""; syncGraph();                                   // the new side, hidden until the turn shows it
   let newR = boundR;
-  for (const n of nodes.values()) { if (n.id !== "you") { n.wv = 0; newR = Math.max(newR, Math.hypot(n.pos.x, n.pos.z)); } }
+  for (const n of nodes.values()) if (n.id !== "you") { n.wv = 0; newR = Math.max(newR, Math.hypot(n.pos.x, n.pos.z)); }
+  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 1, 0, 0);
   const ring = new THREE.Line(CIRCLE, shiverMat(1, { amp: .03, color: GOLD })), ring2 = new THREE.Line(CIRCLE, shiverMat(.4, { amp: .02 }));
-  ring.position.y = ring2.position.y = .02; world.add(ring, ring2);
-  const you = nodes.get("you"); if (you) { you.flash = 1; ripple(you.pos, 1.6, GOLD); ripple(you.pos, 1.1); }
-  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 1, 1);
-  FLIP = { to, t0: performance.now(), dur: 2600, Rmax: Math.max(oldR, newR) + 3, r: 0, dying, dead, deadMats: [deadField, deadLink], ring, ring2 };
+  ring.position.y = ring2.position.y = .02; ring.visible = ring2.visible = false; world.add(ring, ring2);
+  const you = nodes.get("you"); if (you) you.flash = 1;
+  FLIP = { to, t0: performance.now(), flipDur: 1300, spreadDur: 1700, axis, edge, back: edge - best.sgn * Math.PI, swapped: false, spreading: false,
+           Rmax: newR + 2.5, r: 0, dying, dead, ring, ring2 };
   return true;
 };
-function endTurn() {
+const deadField = fieldMat.clone(), deadLink = linkMat.clone();             // the old side keeps its look while it turns away
+for (const m of [deadField, deadLink]) { m.uniforms.uTime = uTime; m.uniforms.uWave = { value: new THREE.Vector4() }; }
+deadField.uniforms.uExc = uExc;
+function swapSides() {                                                     // edge-on: the old side is gone, the new one shows its faint lines
+  FLIP.swapped = true;
   for (const n of FLIP.dying) {
     n.group.parent?.remove(n.group); if (n.orbitLine) world.remove(n.orbitLine);
-    n.group.traverse((x) => { if (x.geometry && !SHARED.has(x.geometry)) x.geometry.dispose(); x.material?.dispose?.(); });
+    n.group.traverse((x) => { if (x.geometry && !SHARED.has(x.geometry)) x.geometry.dispose(); if (x.material !== deadField && x.material !== deadLink) x.material?.dispose?.(); });
     n.orbitLine?.material.dispose();
   }
-  clearGroup(FLIP.dead); world.remove(FLIP.dead);
+  FLIP.dying = [];
+  for (const c of [...FLIP.dead.children]) { FLIP.dead.remove(c); c.traverse?.((x) => { if (x.geometry && !SHARED.has(x.geometry)) x.geometry.dispose(); if (x.material !== deadField && x.material !== deadLink) x.material?.dispose?.(); }); }
+  world.remove(FLIP.dead);
+  fieldMat.uniforms.uWave.value.set(0, 1, 0, .3); fleckMat.uniforms.uWave.value.set(0, 1, 0, .3);
+}
+function endTurn() {
   for (const r of [FLIP.ring, FLIP.ring2]) { world.remove(r); r.material.dispose(); }
-  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 0, 0);
+  for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(0, 0, 0, 0);
   for (const n of nodes.values()) { delete n.wv; n.group.rotation.x = 0; }
+  world.quaternion.identity();
   FLIP = null;
   window.dispatchEvent(new CustomEvent("pga:flipped", { detail: { mode: MODE } }));
 }
-window.PGA_TURN = () => FLIP && {                                         // for checks: how far the front has spread
-  u: +((performance.now() - FLIP.t0) / FLIP.dur).toFixed(2), r: +FLIP.r.toFixed(2), Rmax: +FLIP.Rmax.toFixed(2),
-  oldShown: FLIP.dying.filter((n) => n.group.scale.x > .05).length, oldTotal: FLIP.dying.length,
+window.PGA_TURN = () => FLIP && {                                         // for checks: where the turn is
+  phase: FLIP.spreading ? "spread" : FLIP.swapped ? "turn · new side" : "turn · old side", r: +FLIP.r.toFixed(2), Rmax: +FLIP.Rmax.toFixed(2),
+  tilt: +(2 * Math.acos(Math.min(1, Math.abs(world.quaternion.w))) * 180 / Math.PI).toFixed(1), oldTotal: FLIP.dying.length,
   newShown: [...nodes.values()].filter((n) => n.id !== "you" && (n.wv ?? 1) > .5).length, newTotal: nodes.size - 1,
 };
 window.PGA_BEAT = (id) => {                                                // a planet answering: it beats with each piece of text
@@ -3824,28 +3839,31 @@ function frame(now) {
   placeAll(dt, motion);
   if (motion) respawnFlecks(uTime.value);
   let flipU = 0;
-  if (FLIP) {                                                              // the change spreads out from Earth
-    flipU = Math.min(1, (now - FLIP.t0) / FLIP.dur);
-    const R = FLIP.Rmax * (1 - Math.pow(1 - flipU, 1.5));
-    FLIP.r = R;
-    for (const m of [fieldMat, linkMat, fleckMat]) m.uniforms.uWave.value.set(R, 1, 1);
-    for (const m of FLIP.deadMats) m.uniforms.uWave.value.set(R, -1, 1);
-    FLIP.ring.scale.setScalar(Math.max(.01, R)); setOp(FLIP.ring.material, .95 * Math.pow(1 - flipU, .6));
-    FLIP.ring2.scale.setScalar(Math.max(.01, R * .965)); setOp(FLIP.ring2.material, .35 * (1 - flipU));
-    for (const n of FLIP.dying) {                                          // the old side folds away as the front passes it
-      const d = Math.hypot(n.pos.x, n.pos.z), v = 1 - smoothstep01(d - .55, d + .25, R);
-      n.group.scale.setScalar(Math.max(.001, v)); n.group.position.copy(n.pos); n.group.position.y += (1 - v) * .9;
-      n.group.rotation.x = (1 - v) * Math.PI * .5;
-      if (n.orbitLine) setOp(n.orbitLine.material, .16 * v);
-      if (!n.passed && v < .6) { n.passed = true; ripple(n.pos, .7 + n.r * 2, GOLD); }
+  if (FLIP) {
+    const el = now - FLIP.t0;
+    if (el < FLIP.flipDur) {                                               // 1 · the page turns over around Earth
+      flipU = el / FLIP.flipDur;
+      if (flipU >= .5 && !FLIP.swapped) swapSides();
+      const phi = flipU < .5 ? FLIP.edge * Math.pow(flipU / .5, 1.7) : FLIP.back * Math.pow(1 - (flipU - .5) / .5, 2.3);
+      world.quaternion.setFromAxisAngle(FLIP.axis, phi);
+      for (const n of nodes.values()) if (n.id !== "you") n.wv = 0;
+    } else {                                                               // 2 · then it spreads out from Earth
+      if (!FLIP.swapped) swapSides();
+      world.quaternion.identity();
+      flipU = 1;
+      const u = Math.min(1, (el - FLIP.flipDur) / FLIP.spreadDur), R = FLIP.Rmax * (1 - Math.pow(1 - u, 1.5));
+      if (!FLIP.spreading) { FLIP.spreading = true; FLIP.ring.visible = FLIP.ring2.visible = true; const you = nodes.get("you"); if (you) { you.flash = 1; ripple(you.pos, 1.6, GOLD); } }
+      FLIP.r = R;
+      fieldMat.uniforms.uWave.value.set(R, 1, 1, .3); fleckMat.uniforms.uWave.value.set(R, 1, 1, .3); linkMat.uniforms.uWave.value.set(R, 1, 1, 0);
+      FLIP.ring.scale.setScalar(Math.max(.01, R)); setOp(FLIP.ring.material, .95 * Math.pow(1 - u, .6));
+      FLIP.ring2.scale.setScalar(Math.max(.01, R * .965)); setOp(FLIP.ring2.material, .35 * (1 - u));
+      for (const n of nodes.values()) if (n.id !== "you") { const d = Math.hypot(n.pos.x, n.pos.z); n.wv = smoothstep01(d - .9, d - .1, R); }
+      if (u >= 1) endTurn();
     }
-    for (const g of FLIP.dead.children) if (g.userData.sys) { const d = Math.hypot(g.position.x, g.position.z); g.scale.setScalar(Math.max(.001, 1 - smoothstep01(d - 1, d + 1, R))); }
-    for (const n of nodes.values()) if (n.id !== "you") { const d = Math.hypot(n.pos.x, n.pos.z); n.wv = smoothstep01(d - .9, d - .1, R); }
-    if (flipU >= 1) endTurn();
   }
   const youN = nodes.get("you");                                           // Earth turns white on the agents side
   if (youN?.mesh.material.uniforms?.uFill) {
-    const goal = Math.max(MODE === "agents" ? 1 : 0, FLIP ? Math.max(0, 1 - flipU * 3) : 0);   // a white flash as the turn leaves Earth
+    const goal = Math.max(MODE === "agents" ? 1 : 0, FLIP && !FLIP.spreading ? Math.sin(Math.PI * Math.min(1, flipU)) : 0);   // white while it turns over
     EARTH_W += (goal - EARTH_W) * Math.min(1, dt * 3.2);
     const u = youN.mesh.material.uniforms; youN.fill0 ||= u.uFill.value.clone(); youN.rim0 ||= u.uC.value.clone();
     u.uFill.value.copy(youN.fill0).lerp(EARTH_FILL_W, EARTH_W); u.uC.value.copy(youN.rim0).lerp(EARTH_RIM_W, EARTH_W);
