@@ -595,7 +595,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 #agTalkLine circle { fill: #e9a94b; opacity: .8; }
 #app.talking #agRoutes { display: none !important; }
 .ag-talk { position: absolute; left: 0; top: 0; z-index: 5; width: min(560px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 9px;
-  color: #f4ead6; font-size: 15.5px; line-height: 1.8; transition: opacity .6s ease;
+  box-sizing: border-box; padding: 18px 28px 18px 40px; color: #f4ead6; font-size: 15.5px; line-height: 1.8; transition: opacity .6s ease;
   text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
 .ag-talk[hidden] { display: none; }
 .ag-talk .tk-h { display: flex; align-items: baseline; gap: 10px; }
@@ -606,10 +606,11 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk .acts button:hover { color: #fff3d6; }
 .ag-talk .route { font-size: 13px; color: rgba(214,224,229,.58); line-height: 1.55; margin-top: -4px; }
 .ag-talk .route b { color: #f3d38a; font-weight: 500; }
-.ag-talk .tk-log { display: flex; flex-direction: column; gap: 16px; max-height: min(64vh, 700px); overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
+.ag-talk .tk-log { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; padding-top: 34px; margin-top: -26px;
   mask-image: linear-gradient(transparent 0, #000 64px); -webkit-mask-image: linear-gradient(transparent 0, #000 64px); }
 .ag-talk .tk-log::-webkit-scrollbar { display: none; }
-.ag-talk .tk-log:empty { display: none; }
+.ag-talk .tk-log > :first-child { margin-top: auto; }                            /* the newest words sit just above the input */
+.ag-talk .tk-log:empty::before { content: ""; margin-top: auto; }
 .tk-me { color: rgba(214,224,229,.7); padding-left: 14px; position: relative; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tk-me::before { content: "›"; position: absolute; left: 0; color: rgba(233,169,75,.85); }
 .tk-it .m { display: block; font: var(--cap); font-size: 10.5px; letter-spacing: .16em; color: rgba(233,169,75,.72); text-transform: uppercase; }
@@ -618,7 +619,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .tk-it.flowing .body::after { content: "▍"; color: #e9a94b; animation: blink 1s infinite; margin-left: 1px; }
 .tk-it.err .body { color: #f08a7a; }
 .tk-it .files { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
-.ag-talk .tk-ask { margin: 0; }
+.ag-talk .tk-ask { margin: 0; flex: none; }
 .ag-talk .tk-ask textarea { display: block; width: 100%; min-height: 0; max-height: 150px; resize: none; border: 0 !important; border-bottom: 1px solid rgba(233,169,75,.32) !important;
   border-radius: 0; background: transparent !important; box-shadow: none !important; color: #fff3d6; font: inherit; font-size: 16.5px; line-height: 1.6;
   padding: 7px 0 10px; outline: none; caret-color: #e9a94b; text-shadow: inherit; }
@@ -630,7 +631,9 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-hist::before, .ag-talk::before { content: ""; position: absolute; z-index: -1; pointer-events: none;   /* a soft shade, not a frame */
   background: radial-gradient(closest-side, rgba(8,12,15,.62), rgba(8,12,15,.32) 60%, transparent); }
 .ag-hist::before { inset: -60px -70px -60px -40px; }
-.ag-talk::before { inset: -50px -60px -40px -60px; }
+.ag-talk::before { inset: 0 -20px -20px 0; border-radius: 0;                   /* the right side: deepens from the planet outwards */
+  background: linear-gradient(to right, transparent, rgba(8,12,15,.5) 90px, rgba(8,12,15,.62) 60%, rgba(8,12,15,.66)); }
+.ag-talk > * { max-width: 880px; }
 .ag-hist .hh { display: flex; align-items: baseline; gap: 10px; padding-left: 15px; font: var(--cap); font-size: 10.5px; letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; }
 .ag-hist .hh button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: var(--cap); font-size: 10.5px; letter-spacing: .1em; cursor: pointer; text-shadow: inherit; }
 .ag-hist .hh button:hover { color: #fff3d6; }
@@ -1601,7 +1604,7 @@ function closeTalkSettings(quick) {
   setTimeout(() => $("#agTalkInput")?.focus(), 200);
 }
 // talking to a body: history on the left, the body, then the conversation — the scene keeps the body at `xp`
-window.PGA_TALK_LAYOUT = (W) => { const histW = W >= 980 ? Math.min(330, W * .25) : 0; return { histW, xp: histW ? histW + 120 : W * .32 }; };
+window.PGA_TALK_LAYOUT = (W) => { const histW = W >= 980 ? Math.min(320, W * .23) : 0; return { histW, xp: histW ? histW + 105 : W * .26 }; };
 const HIST = { card: null, list: [], busy: false };
 async function loadHist() {
   if (!CARD.kind || !S.uid) return;
@@ -1639,21 +1642,19 @@ function placeTalk() {                               // the words stay beside th
   const el = $("#agTalk"); if (!el || el.hidden || !CARD.kind) return;
   const m = $("#main"), W = m.clientWidth, H = m.clientHeight;
   const b = window.PGA_BODY?.((CARD.kind === "cat" ? "pc:" : "pa:") + CARD.key); if (!b) return;
-  const L = window.PGA_TALK_LAYOUT(W), gap = Math.max(64, b.r * 1.6 + 48);
-  const want = Math.max(360, Math.min(660, W - (b.x + gap) - 32));               // as wide as the room to the right allows
-  if (Math.abs((parseFloat(el.style.width) || 0) - want) > 2) el.style.width = want + "px";
-  const w = el.offsetWidth || want, h = el.offsetHeight || 140;
-  const right = b.x + gap + w < W - 14 || b.x < W / 2;
-  let x = right ? b.x + gap : b.x - gap - w, y = b.y - h + 52;                     // the latest words sit level with the planet
-  x = Math.max(16, Math.min(W - w - 16, x)); y = Math.max(60, Math.min(H - h - 20, y));
-  el.style.transform = `translate(${x.toFixed(0)}px, ${y.toFixed(0)}px)`;
-  const ln = $("#agTalkLine"), dir = right ? 1 : -1;                              // a fine gold line ties the words to their planet
+  // the conversation takes the whole right side, from beside the planet to the edge, under the top bar to the bottom
+  const L = window.PGA_TALK_LAYOUT(W), gap = Math.max(40, b.r * 1.3 + 26), top = 60, bottom = 0;
+  const right = W - (b.x + gap) >= 340;
+  const x = right ? Math.round(b.x + gap) : 0, w = right ? W - x : W, y = right ? top : Math.max(top, Math.round(H * .4)), h = H - y - bottom;
+  if (el.dataset.box !== `${x},${y},${w},${h}`) { el.dataset.box = `${x},${y},${w},${h}`; el.style.width = w + "px"; el.style.height = h + "px";
+    el.style.transform = `translate(${x}px, ${y}px)`; }
+  const ln = $("#agTalkLine"), dir = 1;                                         // a fine gold line ties the words to their planet
   if (ln) {
-    const y1 = Math.max(y + 14, Math.min(y + h - 14, b.y)), x1 = right ? x - 12 : x + w + 12, x0 = b.x + dir * (b.r + 7);
+    const y1 = b.y, x1 = x + 28, x0 = b.x + dir * (b.r + 7);
     const l = ln.querySelector("line"), c = ln.querySelector("circle");
     l.setAttribute("x1", x0.toFixed(1)); l.setAttribute("y1", b.y.toFixed(1)); l.setAttribute("x2", x1.toFixed(1)); l.setAttribute("y2", y1.toFixed(1));
     c.setAttribute("cx", x0.toFixed(1)); c.setAttribute("cy", b.y.toFixed(1));
-    ln.style.visibility = Math.abs(x1 - x0) * dir > 8 ? "visible" : "hidden";
+    ln.style.visibility = right && x1 - x0 > 8 ? "visible" : "hidden";
   }
   const hist = $("#agHist");                                                      // the history list: left of the planet
   if (hist) {
