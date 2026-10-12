@@ -252,9 +252,12 @@ class ClaudeLocal(CLIAdapter):
                or "\n".join(x for x in said if x).strip() or d.get("subtype") or "error")
         if not model and isinstance(d.get("modelUsage"), dict) and d["modelUsage"]:
             model = max(d["modelUsage"].items(), key=lambda kv: (kv[1] or {}).get("outputTokens", 0) if isinstance(kv[1], dict) else 0)[0]
-        return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=d.get("total_cost_usd"),
+        # the CLI reports an API-equivalent cost even on a subscription login (PGA strips API keys from its env), so it is
+        # kept as information only: it is not money spent and must not count toward the daily cost cap
+        return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=None,
                            session_id=d.get("session_id"), error=None if ok else why[:500], model=model,
-                           data={"turns": d.get("num_turns"), **({"effort": task.meta.get("effort")} if task.meta.get("effort") else {})})
+                           data={"turns": d.get("num_turns"), "notional_cost_usd": d.get("total_cost_usd"),
+                                 **({"effort": task.meta.get("effort")} if task.meta.get("effort") else {})})
 
 
 class CodebuddyLocal(ClaudeLocal):
