@@ -203,3 +203,18 @@ def test_a_second_claude_has_its_own_token_and_joins_after_the_first(session_fac
     assert c.delete("/v1/agents/claude").status_code == 422                                      # built-ins stay
     v = c.delete("/v1/agents/claude-2").json()
     assert "claude-2" not in v["agents"] and "claude-2" not in v["routing"]["categories"]["code"]["prefer"]
+
+
+def test_plus_adds_a_second_account_with_its_token_in_one_step(session_factory, policy, provider, backend, tmp_path, monkeypatch):
+    from pga.agents import pool as ap
+    from pga.llm import catalog
+    monkeypatch.setattr(ap, "CONFIG", tmp_path / "agents.yaml")
+    saved = {}
+    monkeypatch.setattr(catalog, "set_key", lambda n, v: saved.__setitem__(n, v))
+    c = TestClient(create_app(session_factory, lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend)))
+    assert c.post("/v1/agents/claude/clone", json={"secrets": {"NOPE": "x"}}).status_code == 422
+    assert "claude-2" not in c.get("/v1/agents").json()["agents"]                               # nothing half-made
+    v = c.post("/v1/agents/claude/clone", json={"secrets": {"CLAUDE_CODE_OAUTH_TOKEN": " sk-ant-oat-second "}}).json()
+    assert v["name"] == "claude-2" and saved == {"CLAUDE_CODE_OAUTH_TOKEN__CLAUDE_2": "sk-ant-oat-second"}
+    v = c.post("/v1/agents/claude/clone", json={"secrets": {"ANTHROPIC_API_KEY": "k3"}}).json()
+    assert v["name"] == "claude-3" and saved["ANTHROPIC_API_KEY__CLAUDE_3"] == "k3"

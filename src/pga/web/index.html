@@ -888,6 +888,11 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-msg.it.err { border-left-color: var(--acc-2); color: var(--muted); }
 .ag-msg .files { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .ag-ask { display: flex; gap: 8px; align-items: flex-end; }
+.ag-btn.plus { min-width: 30px; font-size: 15px; line-height: 1; padding-left: 8px; padding-right: 8px; } .ag-btn.plus.on { color: #f3d38a; border-color: rgba(233,169,75,.7); }
+.ag-plus { margin: 6px 0 4px; padding: 8px 10px; border: 1px dashed rgba(233,169,75,.45); background: rgba(233,169,75,.05); }
+.ag-plus .ag-sub { margin: 0 0 6px; }
+.ag-acct { display: flex; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid rgba(220,232,238,.08); font-size: 12px; }
+.ag-acct b { color: #f3d38a; font-weight: 500; } .ag-acct span { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ag-ask textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; background: rgba(0,0,0,.35); border: 1px solid rgba(233,169,75,.3); color: var(--text); font-size: 13px; padding: 8px 10px; }
 .ag-ask textarea:focus { border-color: #e9a94b; outline: none; box-shadow: none; }
 .ag-ask .ag-btn { height: 38px; padding: 0 16px; }
@@ -2170,6 +2175,8 @@ async function agSaveConfig(msgEl, okText) {
 }
 
 /* ---- the right panel: one agent */
+const accountsOf = (n) => Object.entries(AGV.data?.agents || {}).filter(([, a]) => a.clone_of === n).map(([c]) => c);
+function nextClone(n) { let i = 2; while (AGV.data?.agents?.[`${n}-${i}`]) i++; return `${n}-${i}`; }
 function renderAgDetail() {
   const el = CARD.kind === "agent" ? $("#agCardDetail") : $("#agDetail"), d = AGV.data; if (!el || !d) return;
   const n = AGV.sel; el.hidden = !n; if (!n) return;
@@ -2184,7 +2191,11 @@ function renderAgDetail() {
     <div class="ag-traits"><span>质量</span>${dots("quality")}<span>速度</span>${dots("speed")}<span>成本</span>${dots("cost")}</div>
     <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
     ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? (k.startsWith("ANTHROPIC_API_KEY") ? "Anthropic API key 已设置" : "令牌已设置") : `需要令牌：${k.startsWith("ANTHROPIC_API_KEY") ? "（可选）Anthropic API key，在 console.anthropic.com 创建；有效时提问直接走 API、按量计费" : a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>（用这个 agent 对应的那个账号登录）" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : a.adapter === "hermes_local" ? "直接走 Hermes 本地 API：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
-      <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button></div>`).join("")}
+      <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button>${a.clone_of ? "" : `<button type="button" class="ag-btn plus ${AGV.plus === n + "|" + k ? "on" : ""}" data-agplus="${esc(k)}" title="再加一个账号：另一个账号的${k.startsWith("ANTHROPIC_API_KEY") ? " API key" : "令牌"}，额度和历史分开算">＋</button>`}</div>
+      ${AGV.plus === n + "|" + k ? `<div class="ag-plus"><div class="ag-sub">第 ${accountsOf(n).length + 2} 个账号的${k.startsWith("ANTHROPIC_API_KEY") ? " Anthropic API key" : "令牌"}${a.adapter === "claude_local" && !k.startsWith("ANTHROPIC_API_KEY") ? "：在终端运行 <code>claude setup-token</code>，授权时在浏览器里登录<b>另一个</b> Claude 账号（可先退出当前账号，或把授权链接复制到无痕窗口），把打印出的 <code>sk-ant-oat…</code> 粘到这里" : ""}。保存后它会成为一个新的 agent（${esc(nextClone(n))}），排在 ${esc(n)} 后面：${esc(n)} 用完、忙或只剩给你保留的额度时自动换它。</div>
+        <div class="ag-ask"><input type="password" data-agnew="${esc(k)}" placeholder="第二个账号的 ${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agnewsave="${esc(k)}">保存为新账号</button><button type="button" class="ag-btn" data-agplus="${esc(k)}">取消</button></div></div>` : ""}`).join("")}
+    ${!a.clone_of && accountsOf(n).length ? `<div class="ag-sub" style="margin-top:8px">其他账号</div>${accountsOf(n).map((c) => { const cs = d.status[c] || {}; const ok = Object.values(cs.secrets || {}).some(Boolean);
+      return `<div class="ag-acct"><b>${esc(c)}</b><span>${ok ? "令牌已设置" : "还没有令牌"} · ${linkLine(cs)}</span><button type="button" class="ag-btn mini" data-agopen="${esc(c)}">设置</button><button type="button" class="ag-btn mini" data-agdel="${esc(c)}">删除</button></div>`; }).join("")}` : ""}
     <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button></div>
     <div class="actions"><button type="button" class="ag-btn" data-agclone="${esc(n)}" title="再加一个同类的 agent：用另一个账号的令牌或另一把 API key，额度和历史分开算">＋ 再加一个 ${esc(n)}</button>${a.clone_of ? `<button type="button" class="ag-btn" data-agdel="${esc(n)}">删除这个 agent</button>` : ""}</div>
     <div class="ag-out" id="agDetailOut"></div>`;
@@ -2371,7 +2382,7 @@ function bindAgentView() {
   $("#agProj").addEventListener("pointerdown", (e) => e.stopPropagation());
   const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel]");
+    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel],[data-agplus],[data-agnewsave],[data-agopen]");
     if (!t || !AGV.data) return;
     const d = AGV.data, r = d.routing;
     if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
@@ -2386,6 +2397,16 @@ function bindAgentView() {
     if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
     if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
       try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
+    if (t.dataset.agplus) { const key = `${AGV.sel}|${t.dataset.agplus}`; AGV.plus = AGV.plus === key ? null : key; renderAgDetail();
+      setTimeout(() => face.querySelector(`[data-agnew="${CSS.escape(t.dataset.agplus)}"]`)?.focus(), 50); return; }
+    if (t.dataset.agnewsave) {                        // ＋: another account's token → a new agent with it, in one step
+      const k = t.dataset.agnewsave, v = face.querySelector(`[data-agnew="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return toast("先粘贴第二个账号的令牌");
+      t.disabled = true;
+      try { const r = await api(`/v1/agents/${encodeURIComponent(AGV.sel)}/clone`, { method: "POST", body: { secrets: { [k]: v } } });
+        AGV.data = r; AGV.plus = null; window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); await loadAgentView(); renderAgDetail();
+        toast(`已添加第二个账号：${r.name}（令牌只存在本机 .env）`); }
+      catch (err) { toast("没能保存：" + err.message); t.disabled = false; } return; }
+    if (t.dataset.agopen) { const c = t.dataset.agopen; closeTalkSettings(true); setTimeout(() => { openCard("agent", c); setTimeout(() => openTalkSettings(), 400); }, 200); return; }
     if (t.dataset.agclone) {                         // a second copy: its own token / key, its own quota and history
       try { const r = await api(`/v1/agents/${encodeURIComponent(t.dataset.agclone)}/clone`, { method: "POST", body: {} }); AGV.data = r;
         window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); AGV.sel = r.name; toast(`已添加 ${r.name}：把另一个账号的令牌（或 API key）粘到它的设置里`);
@@ -2393,7 +2414,8 @@ function bindAgentView() {
       catch (err) { toast("没能添加：" + err.message); } return; }
     if (t.dataset.agdel) {
       if (!confirm(`删除 ${t.dataset.agdel}？它的令牌留在本机 .env 里，可以以后再用。`)) return;
-      try { AGV.data = await api(`/v1/agents/${encodeURIComponent(t.dataset.agdel)}`, { method: "DELETE" }); closeCard(); window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); toast("已删除"); }
+      try { const gone = t.dataset.agdel; AGV.data = await api(`/v1/agents/${encodeURIComponent(gone)}`, { method: "DELETE" });
+        if (CARD.key === gone) closeCard(); else renderAgDetail(); window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); toast("已删除"); }
       catch (err) { toast("没能删除：" + err.message); } return; }
     if (t.dataset.aglink) { const n = t.dataset.aglink, o = $("#agDetailOut"); t.disabled = true; if (o) { o.textContent = `正在检查 ${n} 的连接…`; o.className = "ag-out"; }
       try { const x = await api("/v1/agents/links/check", { body: { agent: n } }); const L = x.links[n] || {}; await loadAgentView();

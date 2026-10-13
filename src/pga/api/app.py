@@ -1385,6 +1385,24 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         a["role"] = f"{a.get('role') or name} · #{new.rsplit('-', 1)[-1]}"
         a["link"] = (a.get("link") or "") + f"（{new} 是 {name} 的第二份：自己的令牌 / key、自己的额度）"
         a["clone_of"] = name
+        # the new account's token(s), given with the same names as the original's (e.g. CLAUDE_CODE_OAUTH_TOKEN): saved
+        # under the copy's own names before anything else, so a rejected token leaves no half-made agent behind
+        given = (body or {}).get("secrets") or {}
+        if not isinstance(given, dict):
+            raise HTTPException(422, "secrets must be an object")
+        names = dict(a["secret_keys"])
+        api_orig = (agents[name].get("api") or {}).get("key_env")
+        if api_orig and isinstance(a.get("api"), dict):
+            names[str(api_orig)] = a["api"]["key_env"]
+        for env, value in given.items():
+            if env not in names:
+                raise HTTPException(422, f"{name} has no secret called {env}")
+            if not str(value or "").strip():
+                raise HTTPException(422, "the token is empty")
+            try:
+                catalog.set_key(names[env], str(value).strip())
+            except catalog.ModelConfigError as exc:
+                raise HTTPException(422, str(exc)) from exc
         agents[new] = a
         for c in (data["routing"].get("categories") or {}).values():
             pref = c.get("prefer") or []
