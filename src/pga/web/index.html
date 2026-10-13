@@ -888,6 +888,20 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-msg.it.err { border-left-color: var(--acc-2); color: var(--muted); }
 .ag-msg .files { display: block; font-size: 11px; color: var(--muted); margin-top: 4px; }
 .ag-ask { display: flex; gap: 8px; align-items: flex-end; }
+.acc-card { border: 1px solid var(--line); padding: 10px 12px; margin: 0 0 10px; } .acc-card.off { opacity: .55; }
+.acc-h { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .acc-h b { font-size: 14px; } .acc-h .acc-on input { width: auto; margin: 0; }
+.acc-h .acc-role { color: var(--muted); font-size: 12px; } .acc-h .acc-st { flex-basis: 100%; order: 5; color: var(--muted); font-size: 12px; }
+.acc-h .acc-btns { margin-left: auto; display: flex; gap: 6px; }
+.acc-foot { font-size: 12px; color: var(--muted); margin: 6px 0 10px; line-height: 1.6; }
+details.adv { margin-top: 6px; } details.adv > summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.acct { margin-top: 8px; } .acct-t { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; font: var(--cap); font-size: 10px; letter-spacing: .14em; color: rgba(233,169,75,.85); }
+.acct-t .acct-st { font: inherit; letter-spacing: 0; text-transform: none; color: var(--muted); font-size: 11px; flex: 1; } .acct-t button { margin-left: auto; }
+.acct-k { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+.acct-k .lbl { min-width: 150px; font-size: 12px; } .acct-k .state { font-size: 11px; } .acct-k .state.ok { color: #9fe0b5; } .acct-k .state.no { color: #f0b27a; }
+.acct-k input { flex: 1; min-width: 140px; font-size: 12px; padding: 4px 8px; }
+.acct-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 2px 0 6px; }
+.acct-new { margin: 4px 0 8px; padding: 8px 10px; border: 1px dashed rgba(233,169,75,.45); background: rgba(233,169,75,.05); }
+.acct-out { font-size: 12px; color: var(--muted); min-height: 0; } .acct-out.ok { color: #9fe0b5; } .acct-out.bad { color: #f08a7a; }
 .ag-btn.plus { min-width: 30px; font-size: 15px; line-height: 1; padding-left: 8px; padding-right: 8px; } .ag-btn.plus.on { color: #f3d38a; border-color: rgba(233,169,75,.7); }
 .ag-plus { margin: 6px 0 4px; padding: 8px 10px; border: 1px dashed rgba(233,169,75,.45); background: rgba(233,169,75,.05); }
 .ag-plus .ag-sub { margin: 0 0 6px; }
@@ -1231,12 +1245,12 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
   <form method="dialog">
     <div class="set-h"><h3 class="grow">设置</h3><button class="ghost" value="close" aria-label="关闭">✕</button></div>
     <div class="set-body">
-      <div class="set-group" id="modelsGroup"><div class="t">模型与 API</div>
-        <p class="small muted" style="margin:0 0 10px">格式和 Hermes Agent 一样：<code>models.yaml</code> 里是 <code>model:</code>（使用哪个通道、三档模型）和 <code>providers:</code>（各个通道），密钥只写进本机 <code>.env</code>，不会回传到页面。保存后下一次请求即生效，不用重启。</p>
+      <div class="set-group" id="modelsGroup"><div class="t">PGA 自己的模型 · 按次计费的 API</div>
+        <p class="small muted" style="margin:0 0 10px">总助理和后台思考（研究、翻译、摘要）用的模型，按次计费。格式和 Hermes Agent 一样：<code>models.yaml</code> 里是 <code>model:</code>（使用哪个通道、三档模型）和 <code>providers:</code>（各个通道），密钥只写进本机 <code>.env</code>，不会回传到页面。保存后下一次请求即生效，不用重启。</p>
         <div id="modelsBox" class="models"><p class="small muted">读取中…</p></div>
       </div>
-      <div class="set-group" id="agentsGroup"><div class="t">Agent 聚合</div>
-        <p class="small muted" style="margin:0 0 8px">把本机的 Claude Code、Codex、Hermes 和 PGA 自己的模型聚成一个池子：<b>单个</b>（第一个可用的，失败就换下一个）· <b>议会</b>（并行回答 → 匿名互评 → 主席综合）· <b>车队</b>（拆成子任务并行做 → 合并）。自我改进写代码也走这里。配置在 <code>agents.yaml</code>。</p>
+      <div class="set-group" id="agentsGroup"><div class="t">外部 Agent · 账号与连接</div>
+        <p class="small muted" style="margin:0 0 8px">你这台 Mac 上的 Claude Code、ChatGPT / Codex、Hermes、WorkBuddy：PGA 把任务派给它们，用的是它们自己的订阅额度。每个 agent 的令牌、第二个账号都在这里（和星球上 ⚙ 设置里的是同一份）。</p>
         <div id="agentsBox"><p class="small muted">读取中…</p></div>
       </div>
       <div class="set-group"><div class="t">压力图样式</div>
@@ -2175,8 +2189,89 @@ async function agSaveConfig(msgEl, okText) {
 }
 
 /* ---- the right panel: one agent */
-const accountsOf = (n) => Object.entries(AGV.data?.agents || {}).filter(([, a]) => a.clone_of === n).map(([c]) => c);
-function nextClone(n) { let i = 2; while (AGV.data?.agents?.[`${n}-${i}`]) i++; return `${n}-${i}`; }
+const agData = () => AGV.data || AG.data;
+const accountsOf = (n) => Object.entries(agData()?.agents || {}).filter(([, a]) => a.clone_of === n).map(([c]) => c);
+function nextClone(n) { let i = 2; while (agData()?.agents?.[`${n}-${i}`]) i++; return `${n}-${i}`; }
+/* ---- an agent's accounts and tokens: one component, the same in Settings and on the planet's ⚙ 设置 */
+const ACCT = { plus: null };
+const ACCOUNT_KEYS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CODEBUDDY_API_KEY"];   // keys that are an account (＋ adds another)
+const keyBase = (k) => k.split("__")[0];
+function keyLabel(k) {
+  return { CLAUDE_CODE_OAUTH_TOKEN: "Claude 订阅令牌", ANTHROPIC_API_KEY: "Anthropic API key（可选 · 按量计费）", CODEBUDDY_API_KEY: "CodeBuddy / WorkBuddy API key",
+           HERMES_API_SERVER_KEY: "Hermes 本地 API key（可选 · 更快）" }[keyBase(k)] || keyBase(k);
+}
+function keyHint(a, k) {
+  const b = keyBase(k);
+  if (b === "CLAUDE_CODE_OAUTH_TOKEN") return "在终端运行 <code>claude setup-token</code>，浏览器授权时登录<b>这个</b>账号，把打印出的 <code>sk-ant-oat…</code> 粘到这里。";
+  if (b === "ANTHROPIC_API_KEY") return "在 console.anthropic.com 创建。有效时简单的提问直接走 API（按量计费）；不填就全部走订阅。";
+  if (b === "CODEBUDDY_API_KEY") return "在 WorkBuddy / CodeBuddy 控制台创建。";
+  if (b === "HERMES_API_SERVER_KEY") return "可选：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key 粘到这里。不填就用 Hermes 命令行。";
+  return "";
+}
+function noKeyHint(a) {
+  return { codex_local: "用这台 Mac 上 ChatGPT / Codex 的登录，不需要令牌（一台 Mac 一个登录，所以不能在这里加第二个账号）。",
+           hermes_local: "用 Hermes 自己的登录。", llm: "PGA 自己的模型：密钥在上面的「PGA 自己的模型」里设置。",
+           gemini_local: "需要先在这台 Mac 上安装 Gemini CLI。" }[a.adapter] || "";
+}
+function acctKeyRow(n, k, set, main) {
+  const open = ACCT.plus === `${n}|${k}`, canPlus = main && ACCOUNT_KEYS.includes(keyBase(k));
+  const st = agData().status[n] || {}, said = `${st.link?.detail || ""} ${st.detail || ""}`;
+  const bad = set && new RegExp(`${keyBase(k)}[^·]*(无效|invalid|过期|expired)`, "i").test(said);
+  return `<div class="acct-k"><span class="lbl">${esc(keyLabel(k))}</span><span class="state ${set && !bad ? "ok" : "no"}">${!set ? "未设置" : bad ? "已设置 · 无效，请换一个" : "已设置"}</span>
+      <input type="password" data-acct-in="${esc(n)}|${esc(k)}" placeholder="${set ? "粘贴新的以替换" : "粘贴到这里"}" autocomplete="off">
+      <button type="button" class="ag-btn" data-acct="save" data-n="${esc(n)}" data-k="${esc(k)}">保存</button>
+      ${canPlus ? `<button type="button" class="ag-btn plus ${open ? "on" : ""}" data-acct="plus" data-n="${esc(n)}" data-k="${esc(k)}" title="再加一个账号">＋</button>` : ""}</div>
+    ${set ? "" : `<div class="acct-hint">${keyHint(agData().agents[n], k)}</div>`}
+    ${open ? `<div class="acct-new"><div class="acct-hint">另一个账号的${esc(keyLabel(k))}${keyBase(k) === "CLAUDE_CODE_OAUTH_TOKEN" ? "：运行 <code>claude setup-token</code>，授权时在浏览器里登录<b>另一个</b> Claude 账号（可先退出当前账号，或把授权链接复制到无痕窗口）" : ""}。保存后成为 <b>${esc(nextClone(n))}</b>，排在 ${esc(n)} 后面：${esc(n)} 用完、忙或只剩给你保留的额度时自动换它。</div>
+      <div class="acct-k"><input type="password" data-acct-new="${esc(n)}|${esc(k)}" placeholder="另一个账号的${esc(keyLabel(k))}" autocomplete="off">
+        <button type="button" class="ag-btn" data-acct="add" data-n="${esc(n)}" data-k="${esc(k)}">保存为新账号</button><button type="button" class="ag-btn" data-acct="plus" data-n="${esc(n)}" data-k="${esc(k)}">取消</button></div></div>` : ""}`;
+}
+function acctHTML(n) {
+  const d = agData(), a = d.agents[n], sec = d.status[n]?.secrets || {}, clones = accountsOf(n);
+  const keys = Object.entries(sec);
+  return `<div class="acct" data-acct-for="${esc(n)}">
+    ${keys.length ? `<div class="acct-t">${clones.length ? "账号 1 · " + esc(n) : "账号与令牌"}</div>` + keys.map(([k, set]) => acctKeyRow(n, k, set, true)).join("") : `<div class="acct-hint">${noKeyHint(a)}</div>`}
+    ${clones.map((c, i) => { const cs = d.status[c] || {};
+      return `<div class="acct-t">账号 ${i + 2} · ${esc(c)} <span class="acct-st">${linkLine(cs)}</span><button type="button" class="ag-btn mini" data-acct="del" data-n="${esc(c)}">删除这个账号</button></div>`
+        + Object.entries(cs.secrets || {}).map(([k, set]) => acctKeyRow(c, k, set, false)).join(""); }).join("")}
+    <div class="acct-out" data-acct-out="${esc(n)}"></div></div>`;
+}
+async function refreshAgents() {                     // after any change: both places show the same thing
+  const d = await api("/v1/agents"); AGV.data = d; AG.data = d;
+  if ($("#settings")?.open) renderAgents();
+  if (CARD.kind === "agent") { renderAgDetail(); renderCardBack?.(); }
+  window.PGA_SET_AGENTS?.(agentGraph(d));
+}
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-acct]"); if (!t) return;
+  e.preventDefault();
+  const n = t.dataset.n, k = t.dataset.k, act = t.dataset.acct;
+  const base = agData()?.agents?.[n]?.clone_of || n;
+  const out = (m, ok) => { const o = document.querySelectorAll(`[data-acct-out="${CSS.escape(base)}"]`); o.forEach((x) => { x.textContent = m; x.className = "acct-out " + (ok === true ? "ok" : ok === false ? "bad" : ""); }); };
+  const val = (attr) => t.closest(".acct")?.querySelector(`[${attr}="${CSS.escape(n + "|" + k)}"]`)?.value.trim();
+  try {
+    if (act === "plus") { ACCT.plus = ACCT.plus === `${n}|${k}` ? null : `${n}|${k}`; if ($("#settings")?.open) renderAgents(); if (CARD.kind === "agent") renderAgDetail();
+      setTimeout(() => document.querySelector(`[data-acct-new="${CSS.escape(n + "|" + k)}"]`)?.focus(), 30); return; }
+    if (act === "save") { const v = val("data-acct-in"); if (!v) return out("先粘贴令牌", false);
+      t.disabled = true; await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await refreshAgents(); out(`${keyLabel(k)} 已保存（只存在本机 .env）`, true); return; }
+    if (act === "add") { const v = val("data-acct-new"); if (!v) return out("先粘贴另一个账号的令牌", false);
+      t.disabled = true; const r = await api(`/v1/agents/${encodeURIComponent(n)}/clone`, { method: "POST", body: { secrets: { [k]: v } } });
+      ACCT.plus = null; await refreshAgents(); out(`已添加 ${r.name}（令牌只存在本机 .env）`, true); return; }
+    if (act === "del") { if (!confirm(`删除 ${n}？它的令牌留在本机 .env 里，可以以后再加回来。`)) return;
+      await api(`/v1/agents/${encodeURIComponent(n)}`, { method: "DELETE" }); if (CARD.key === n) closeCard(); await refreshAgents(); out(`已删除 ${n}`, true); return; }
+    if (act === "test") { t.disabled = true; out(`正在测试 ${n}…（外部 CLI 可能要几十秒）`);
+      const x = await api("/v1/agents/test", { body: { agent: n } }); out(x.ok ? `${n} 正常 · ${x.duration_s}s · 「${x.reply}」` : `${n} 失败：${x.error || x.detail}`, !!x.ok); return; }
+    if (act === "check") { t.disabled = true; out(`正在检查 ${n} 的连接…`);
+      const x = await api("/v1/agents/links/check", { body: { agent: n } }); const L = x.links[n] || {}; await refreshAgents();
+      out(`${n}：${L.label || L.state} · ${L.detail || ""}`, ["online", "expiring"].includes(L.state)); return; }
+  } catch (err) { out(err.message, false); } finally { t.disabled = false; }
+});
+document.addEventListener("change", async (e) => {
+  const c = e.target.closest("[data-acct-on]"); if (!c) return;
+  const d = agData(), n = c.dataset.acctOn; d.agents[n].enabled = c.checked;
+  try { await api("/v1/agents", { method: "PUT", body: { agents: d.agents, workflows: d.workflows, routing: d.routing, run: d.run } }); await refreshAgents(); }
+  catch (err) { toast("保存失败：" + err.message); c.checked = !c.checked; }
+});
 function renderAgDetail() {
   const el = CARD.kind === "agent" ? $("#agCardDetail") : $("#agDetail"), d = AGV.data; if (!el || !d) return;
   const n = AGV.sel; el.hidden = !n; if (!n) return;
@@ -2190,14 +2285,8 @@ function renderAgDetail() {
       <dt>能力</dt><dd>${esc((a.capabilities || []).join(" · "))}</dd><dt>调度位置</dt><dd>${esc(ranks.join(" · ") || "不在任何类别里")}</dd></dl>
     <div class="ag-traits"><span>质量</span>${dots("quality")}<span>速度</span>${dots("speed")}<span>成本</span>${dots("cost")}</div>
     <label class="ag-tog"><input type="checkbox" data-agon ${a.enabled === false ? "" : "checked"}><span>启用</span></label>
-    ${Object.entries(s.secrets || {}).map(([k, set]) => `<div class="ag-sub">${set ? (k.startsWith("ANTHROPIC_API_KEY") ? "Anthropic API key 已设置" : "令牌已设置") : `需要令牌：${k.startsWith("ANTHROPIC_API_KEY") ? "（可选）Anthropic API key，在 console.anthropic.com 创建；有效时提问直接走 API、按量计费" : a.adapter === "claude_local" ? "在终端运行 <code>claude setup-token</code>（用这个 agent 对应的那个账号登录）" : a.adapter === "codebuddy_local" ? "在 WorkBuddy / CodeBuddy 控制台创建 API key" : a.adapter === "hermes_local" ? "直接走 Hermes 本地 API：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key" : esc(k)}，粘贴到这里（只存本机 .env）`}</div>
-      <div class="ag-ask"><input type="password" data-agsecret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agsecretsave="${esc(k)}">保存</button>${a.clone_of ? "" : `<button type="button" class="ag-btn plus ${AGV.plus === n + "|" + k ? "on" : ""}" data-agplus="${esc(k)}" title="再加一个账号：另一个账号的${k.startsWith("ANTHROPIC_API_KEY") ? " API key" : "令牌"}，额度和历史分开算">＋</button>`}</div>
-      ${AGV.plus === n + "|" + k ? `<div class="ag-plus"><div class="ag-sub">第 ${accountsOf(n).length + 2} 个账号的${k.startsWith("ANTHROPIC_API_KEY") ? " Anthropic API key" : "令牌"}${a.adapter === "claude_local" && !k.startsWith("ANTHROPIC_API_KEY") ? "：在终端运行 <code>claude setup-token</code>，授权时在浏览器里登录<b>另一个</b> Claude 账号（可先退出当前账号，或把授权链接复制到无痕窗口），把打印出的 <code>sk-ant-oat…</code> 粘到这里" : ""}。保存后它会成为一个新的 agent（${esc(nextClone(n))}），排在 ${esc(n)} 后面：${esc(n)} 用完、忙或只剩给你保留的额度时自动换它。</div>
-        <div class="ag-ask"><input type="password" data-agnew="${esc(k)}" placeholder="第二个账号的 ${esc(k)}" autocomplete="off" style="flex:1"><button type="button" class="ag-btn" data-agnewsave="${esc(k)}">保存为新账号</button><button type="button" class="ag-btn" data-agplus="${esc(k)}">取消</button></div></div>` : ""}`).join("")}
-    ${!a.clone_of && accountsOf(n).length ? `<div class="ag-sub" style="margin-top:8px">其他账号</div>${accountsOf(n).map((c) => { const cs = d.status[c] || {}; const ok = Object.values(cs.secrets || {}).some(Boolean);
-      return `<div class="ag-acct"><b>${esc(c)}</b><span>${ok ? "令牌已设置" : "还没有令牌"} · ${linkLine(cs)}</span><button type="button" class="ag-btn mini" data-agopen="${esc(c)}">设置</button><button type="button" class="ag-btn mini" data-agdel="${esc(c)}">删除</button></div>`; }).join("")}` : ""}
+    ${acctHTML(n)}
     <div class="actions"><button type="button" class="ag-btn" data-agtest="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button><button type="button" class="ag-btn" data-agsave="agent">保存设置</button></div>
-    <div class="actions"><button type="button" class="ag-btn" data-agclone="${esc(n)}" title="再加一个同类的 agent：用另一个账号的令牌或另一把 API key，额度和历史分开算">＋ 再加一个 ${esc(n)}</button>${a.clone_of ? `<button type="button" class="ag-btn" data-agdel="${esc(n)}">删除这个 agent</button>` : ""}</div>
     <div class="ag-out" id="agDetailOut"></div>`;
 }
 
@@ -2382,7 +2471,7 @@ function bindAgentView() {
   $("#agProj").addEventListener("pointerdown", (e) => e.stopPropagation());
   const face = $("#agOverlay");
   face.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel],[data-agplus],[data-agnewsave],[data-agopen]");
+    const t = e.target.closest("[data-agmode],[data-agmv],[data-agrm],[data-agsave],[data-agsel],[data-agclose],[data-agtrait],[data-agtest],[data-agpick],[data-agsecretsave],[data-aglink],[data-agclone],[data-agdel]");
     if (!t || !AGV.data) return;
     const d = AGV.data, r = d.routing;
     if (t.dataset.agmode) { r.mode = t.dataset.agmode; renderAgRoutes(); return agSaveConfig("#agRoutesOut", `已切换到「${MODE_ZH[r.mode]}」`); }
@@ -2397,16 +2486,6 @@ function bindAgentView() {
     if (t.dataset.agpick) { AGV.pick = t.dataset.agpick; renderAgPicker(); $("#agInput").focus(); return; }
     if (t.dataset.agsecretsave) { const k = t.dataset.agsecretsave, v = face.querySelector(`[data-agsecret="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return;
       try { await api("/v1/agents/secrets", { method: "PUT", body: { [k]: v } }); await loadAgentView(); const o = $("#agDetailOut"); if (o) { o.textContent = `${k} 已保存到 .env`; o.className = "ag-out ok"; } } catch (err) { toast(err.message); } return; }
-    if (t.dataset.agplus) { const key = `${AGV.sel}|${t.dataset.agplus}`; AGV.plus = AGV.plus === key ? null : key; renderAgDetail();
-      setTimeout(() => face.querySelector(`[data-agnew="${CSS.escape(t.dataset.agplus)}"]`)?.focus(), 50); return; }
-    if (t.dataset.agnewsave) {                        // ＋: another account's token → a new agent with it, in one step
-      const k = t.dataset.agnewsave, v = face.querySelector(`[data-agnew="${CSS.escape(k)}"]`)?.value.trim(); if (!v) return toast("先粘贴第二个账号的令牌");
-      t.disabled = true;
-      try { const r = await api(`/v1/agents/${encodeURIComponent(AGV.sel)}/clone`, { method: "POST", body: { secrets: { [k]: v } } });
-        AGV.data = r; AGV.plus = null; window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); await loadAgentView(); renderAgDetail();
-        toast(`已添加第二个账号：${r.name}（令牌只存在本机 .env）`); }
-      catch (err) { toast("没能保存：" + err.message); t.disabled = false; } return; }
-    if (t.dataset.agopen) { const c = t.dataset.agopen; closeTalkSettings(true); setTimeout(() => { openCard("agent", c); setTimeout(() => openTalkSettings(), 400); }, 200); return; }
     if (t.dataset.agclone) {                         // a second copy: its own token / key, its own quota and history
       try { const r = await api(`/v1/agents/${encodeURIComponent(t.dataset.agclone)}/clone`, { method: "POST", body: {} }); AGV.data = r;
         window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); AGV.sel = r.name; toast(`已添加 ${r.name}：把另一个账号的令牌（或 API key）粘到它的设置里`);
@@ -2440,25 +2519,25 @@ async function loadAgents() {
 function renderAgents() {
   const d = AG.data, st = d.status;
   const flowAgents = (w) => w.pattern === "single" ? (w.agents || []).join(" → ") : w.pattern === "council" ? `${(w.members || []).join(" · ")} ｜ 主席 ${w.chair || "—"}` : `规划 ${w.planner || "—"} → ${(w.workers || []).join(" · ")} → 合并 ${w.merge || "—"}`;
-  $("#agentsBox").innerHTML = `
-    ${Object.entries(d.agents).map(([n, a]) => `<div class="ag-row">
-      <input type="checkbox" data-ag-on="${esc(n)}" ${a.enabled === false ? "" : "checked"} aria-label="启用 ${esc(n)}">
-      <span><b>${esc(n)}</b> <span class="r">${esc(a.role || "")} · ${esc(a.adapter)}</span></span>
-      <button type="button" class="ghost small" data-ag-test="${esc(n)}" ${st[n]?.available ? "" : "disabled"}>测试</button>
-      <span class="st ${st[n]?.available ? "ok" : "no"}">${esc(st[n]?.detail || "")} <span class="caps">· ${esc((a.capabilities || []).join(" / "))}</span></span>
-      ${Object.entries(st[n]?.secrets || {}).map(([k, set]) => `<span class="st" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span>${set ? "令牌已设置" : `后台运行需要令牌：在终端运行 <code>${a.adapter === "claude_local" ? "claude setup-token" : esc(k)}</code>，把结果粘贴到这里（只存进本机 .env）`}</span>
-        <input type="password" data-ag-secret="${esc(k)}" placeholder="${set ? "替换 " : ""}${esc(k)}" autocomplete="off" style="flex:1;min-width:140px;font-size:11px;padding:3px 6px">
-        <button type="button" class="ghost small" data-ag-act="secret" data-name="${esc(k)}">保存</button></span>`).join("")}
-    </div>`).join("")}
-    <div class="sub" style="margin-top:10px">工作流</div>
-    ${Object.entries(d.workflows).map(([n, w]) => `<div class="ag-flow"><b>${esc(n)}</b><span class="p">${PATTERN_ZH[w.pattern] || w.pattern}</span>${esc(w.label || "")}<div class="w">${esc(flowAgents(w))}${w.permissions === "workspace_write" ? " · 可在工作目录写文件" : " · 只读"}</div></div>`).join("")}
-    <div class="m-status" id="agStatus">今天外部 agent 花费 $${(d.spent_today || 0).toFixed(2)} / 上限 $${(+d.run.daily_usd_cap || 0).toFixed(2)} · <span class="mono">${esc(d.file)}</span></div>
-    <div class="ag-run"><div class="sub" style="margin-top:6px">派活</div>
-      <select id="agFlow">${Object.entries(d.workflows).map(([n, w]) => `<option value="${esc(n)}">${esc(n)} · ${PATTERN_ZH[w.pattern] || w.pattern}</option>`).join("")}</select>
-      <textarea id="agPrompt" placeholder="交给 agent 池的任务，例如：比较三种长期记忆的组织方式，各自的取舍是什么？"></textarea>
-      <div class="actions"><button type="button" class="small primary" data-ag-act="run">在后台运行</button><button type="button" class="ghost small" data-ag-act="save">保存启用状态</button></div></div>
-    <div class="ag-hist" id="agHist"></div>`;
+  const keepOpen = $("#agentsBox details.adv")?.open;
+  const main = Object.entries(d.agents).filter(([, a]) => !a.clone_of && a.adapter !== "llm");
+  $("#agentsBox").innerHTML = main.map(([n, a]) => { const s = st[n] || {}, q = s.quota || {};
+    return `<div class="acc-card ${a.enabled === false ? "off" : ""}">
+      <div class="acc-h"><label class="acc-on" title="关掉后不再派活给它"><input type="checkbox" data-acct-on="${esc(n)}" ${a.enabled === false ? "" : "checked"}></label>
+        <b>${esc(n)}</b><span class="acc-role">${esc((a.role || "").split("·")[0])}</span>
+        <span class="acc-st">${s.available ? linkLine(s) : esc(s.detail || "未安装")}${s.available && q.remaining != null ? ` · 剩余 ${Math.round(q.remaining * 100)}%` : ""}</span>
+        <span class="acc-btns">${s.link ? `<button type="button" class="ag-btn mini" data-acct="check" data-n="${esc(n)}">检查连接</button>` : ""}<button type="button" class="ag-btn mini" data-acct="test" data-n="${esc(n)}" ${s.available ? "" : "disabled"}>测试</button></span></div>
+      ${acctHTML(n)}</div>`; }).join("")
+    + `<div class="acc-foot">每个 agent 的调度顺序、质量 / 速度 / 成本偏好和默认模型：在<b>调度星图</b>里点它的星球 → ⚙ 设置。今天按次计费的花费 $${(d.spent_today || 0).toFixed(2)} / 上限 $${(+d.run.daily_usd_cap || 0).toFixed(2)}（订阅额度不算钱）。</div>
+    <details class="adv" ${keepOpen ? "open" : ""}><summary>高级：工作流、手动派活、最近运行</summary>
+      <p class="small muted" style="margin:6px 0">单个（第一个可用的，失败就换下一个）· 议会（并行回答 → 匿名互评 → 主席综合）· 车队（拆成子任务并行做 → 合并）。配置在 <span class="mono">${esc(d.file)}</span>。</p>
+      ${Object.entries(d.workflows).map(([n, w]) => `<div class="ag-flow"><b>${esc(n)}</b><span class="p">${PATTERN_ZH[w.pattern] || w.pattern}</span>${esc(w.label || "")}<div class="w">${esc(flowAgents(w))}${w.permissions === "workspace_write" ? " · 可在工作目录写文件" : " · 只读"}</div></div>`).join("")}
+      <div class="m-status" id="agStatus"></div>
+      <div class="ag-run"><div class="sub" style="margin-top:6px">派活</div>
+        <select id="agFlow">${Object.entries(d.workflows).map(([n, w]) => `<option value="${esc(n)}">${esc(n)} · ${PATTERN_ZH[w.pattern] || w.pattern}</option>`).join("")}</select>
+        <textarea id="agPrompt" placeholder="交给 agent 池的任务，例如：比较三种长期记忆的组织方式，各自的取舍是什么？"></textarea>
+        <div class="actions"><button type="button" class="small primary" data-ag-act="run">在后台运行</button></div></div>
+      <div class="ag-hist" id="agHist"></div></details>`;
 }
 async function loadAgentRuns() {
   let runs = []; try { runs = await api(`/v1/users/${S.uid}/agents/runs?limit=8`); } catch { return; }
@@ -2474,22 +2553,9 @@ function bindAgents() {
   const box = $("#agentsBox");
   box.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("input")) e.preventDefault(); });
   box.addEventListener("click", async (e) => {
-    const t = e.target.closest("[data-ag-test], [data-ag-act]"); if (!t) return;
+    const t = e.target.closest("[data-ag-act]"); if (!t) return;
     const msg = (m, cls = "") => { const el = $("#agStatus"); if (el) { el.textContent = m; el.className = "m-status " + cls; } };
-    if (t.dataset.agTest) {
-      const n = t.dataset.agTest; t.disabled = true; msg(`正在测试 ${n}…（外部 CLI 可能要几十秒）`);
-      try { const r = await api("/v1/agents/test", { body: { agent: n } }); msg(r.ok ? `${n} 正常 · ${r.duration_s}s · 回复「${r.reply}」${r.cost_usd ? ` · $${r.cost_usd.toFixed(4)}` : ""}` : `${n} 失败：${r.error || r.detail}`, r.ok ? "ok" : "bad"); }
-      catch (err) { msg(err.message, "bad"); } finally { t.disabled = false; }
-    } else if (t.dataset.agAct === "secret") {
-      const name = t.dataset.name, inp = box.querySelector(`[data-ag-secret="${CSS.escape(name)}"]`), v = inp?.value.trim();
-      if (!v) return msg("先粘贴令牌", "bad");
-      try { AG.data = await api("/v1/agents/secrets", { method: "PUT", body: { [name]: v } }); renderAgents(); loadAgentRuns(); msg(`${name} 已保存到 .env`, "ok"); }
-      catch (err) { msg("保存失败：" + err.message, "bad"); }
-    } else if (t.dataset.agAct === "save") {
-      const d = AG.data; box.querySelectorAll("[data-ag-on]").forEach((c) => { d.agents[c.dataset.agOn].enabled = c.checked; });
-      try { AG.data = await api("/v1/agents", { method: "PUT", body: { agents: d.agents, workflows: d.workflows, run: d.run } }); renderAgents(); loadAgentRuns(); msg("已保存到 agents.yaml", "ok"); }
-      catch (err) { msg("保存失败：" + err.message, "bad"); }
-    } else if (t.dataset.agAct === "run") {
+    if (t.dataset.agAct === "run") {
       const prompt = $("#agPrompt").value.trim(); if (!prompt) return msg("先写一个任务", "bad");
       try {
         await api(`/v1/users/${S.uid}/agents/run`, { body: { workflow: $("#agFlow").value, prompt } });
