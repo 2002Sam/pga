@@ -5,12 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>PGA 助理</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
-<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=2">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png?v=2">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0b0f16">
-<link rel="alternate icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><radialGradient id='g'><stop offset='0' stop-color='%23b9f3ff'/><stop offset='.55' stop-color='%236ee7ff'/><stop offset='1' stop-color='%238b5cf6'/></radialGradient></defs><circle cx='16' cy='16' r='13' fill='url(%23g)'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/github-dark.min.css">
@@ -1081,7 +1080,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 <canvas class="paint" id="paintFront" aria-hidden="true"></canvas>
 <div class="app" id="app" data-view="chat">
   <header>
-    <div class="brand"><img class="mark" src="/icons/icon.svg" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
+    <div class="brand"><img class="mark" src="/icons/icon.svg?v=2" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
     <span class="chip plain hide-sm" id="provider" title="当前模型通道">…</span>
     <span class="chip" id="workerChip" title="后台循环状态">…</span>
     <span class="grow"></span>
@@ -1282,6 +1281,12 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
           <label class="opt"><input type="radio" name="range" value="7d"><b>7 天</b><span>2 小时一根</span></label>
         </div>
       </div>
+      <div class="set-group"><div class="t">打开时先看</div>
+        <div class="opts">
+          <label class="opt"><input type="radio" name="start" value="agents"><b>调度星图</b><span>各个 agent、它们的连接和正在做的事</span></label>
+          <label class="opt"><input type="radio" name="start" value="galaxy"><b>抱负网络</b><span>长期目标、agent、判断和证据</span></label>
+        </div>
+      </div>
       <div class="set-group"><div class="t">3D 网络</div>
         <div class="opts">
           <label class="opt"><input type="radio" name="motion" value="full"><b>完整动效</b><span>辉光、粒子、流光</span></label>
@@ -1340,7 +1345,7 @@ const KIND = { NOTIFICATION: "通知", QUESTION: "需要你决定", SILENT: "静
 const RUN_KIND = { user_interaction: "对话", chat: "对话", synthesis: "研究", exploration: "探索", monitoring: "监测", comparison: "对比" };
 const NODE_KIND = { core: "长期目标", ai: "AI agent", user: "你", agent: "AGENT", belief: "判断", evidence: "证据", source: "信息源", slot: "空位" };
 
-const DEFAULTS = { chart: "ecg", range: "live", motion: "full", autoRotate: true, showEvidence: true, labelsAlways: true, showEn: false, browserNotify: false, followProgress: true };
+const DEFAULTS = { start: "agents", chart: "ecg", range: "live", motion: "full", autoRotate: true, showEvidence: true, labelsAlways: true, showEn: false, browserNotify: false, followProgress: true };
 const SET = Object.assign({}, DEFAULTS, store.json("pga_settings", {}));
 const AS_UID = new URLSearchParams(location.search).get("as");
 // testing aid: ?rafpoly keeps animation running when the page is not being composited (a hidden preview pane)
@@ -1462,11 +1467,19 @@ async function boot() {
   renderWho();
   await Promise.all([loadConversation(), loadNotes(), loadPressure(), loadGraph()]);
   renderSide();
+  if (SET.start === "agents") openStartView();
   setInterval(loadPressure, 4000);
   setInterval(loadGraph, 8000);
   setInterval(() => { loadResps(); loadNotes().then(() => S.tab === "notes" && renderSide()); }, 15000);
 }
 
+async function openStartView() {                     // open on the dispatch constellation (Settings → 打开时先看)
+  for (let i = 0; i < 40 && !AGM.on; i++) {         // the 3D scene loads as its own module: wait until it can turn over
+    if (window.PGA_FLIP_TO && !AGM.busy) await enterAgentMode();
+    if (AGM.on) return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
 function bindUI() {
   $("#newChat").onclick = () => { delete S.convs[S.agent || "core"]; store.set("pga_convs", JSON.stringify(S.convs)); renderMessages([]); setView("chat"); };
   $("#heartbeat").onclick = async (ev) => {
