@@ -181,3 +181,16 @@ def test_linked_ai_agents_orbit_the_aim(client):
     g = client.get(f"/v1/users/{uid}/graph").json()
     assert any(n["id"] == f"ai:{a['id']}" and n["kind"] == "ai" for n in g["nodes"])
     assert {"source": f"ai:{a['id']}", "target": "you", "kind": "ai"} in g["links"]
+
+
+def test_icons_and_manifest_are_served(session_factory, policy, provider, backend):
+    from fastapi.testclient import TestClient as _TC
+    from pga.api.app import create_app as _create
+    from pga.runtime import Runtime as _RT
+    c = _TC(_create(session_factory, lambda s: _RT(s, policy=policy, provider=provider, translation_backend=backend)))
+    m = c.get("/manifest.webmanifest").json()
+    assert {i["sizes"] for i in m["icons"]} >= {"192x192", "512x512"}
+    for i in m["icons"]:
+        assert c.get(i["src"]).status_code == 200
+    assert c.get("/icons/apple-touch-icon.png").headers["content-type"] == "image/png"
+    assert c.get("/icons/..%2Fapp.py").status_code == 404 and c.get("/icons/nope.png").status_code == 404

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- PGA: the black hole at the centre of the map — a dark hole, its photon ring, and the warm accretion disk
+       passing behind and in front of it. macOS icon grid: an 824-px rounded square, 100 px in from each edge. -->
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="34%" r="78%">
+      <stop offset="0" stop-color="#232b3a"/>
+      <stop offset=".55" stop-color="#0e131c"/>
+      <stop offset="1" stop-color="#05070b"/>
+    </radialGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity=".16"/>
+      <stop offset=".5" stop-color="#ffffff" stop-opacity=".03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity=".08"/>
+    </linearGradient>
+    <linearGradient id="disk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a3a10" stop-opacity="0"/>
+      <stop offset=".16" stop-color="#b8541a"/>
+      <stop offset=".42" stop-color="#f3b45e"/>
+      <stop offset=".5" stop-color="#fff0cf"/>
+      <stop offset=".6" stop-color="#f6c070"/>
+      <stop offset=".86" stop-color="#c2601e"/>
+      <stop offset="1" stop-color="#8a3a10" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset=".5" stop-color="#ffb35c" stop-opacity="0"/>
+      <stop offset=".62" stop-color="#ffb35c" stop-opacity=".42"/>
+      <stop offset=".78" stop-color="#ff9a3c" stop-opacity=".12"/>
+      <stop offset="1" stop-color="#ff9a3c" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9"/></filter>
+    <radialGradient id="shade" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#020305"/>
+      <stop offset=".72" stop-color="#020305"/>
+      <stop offset="1" stop-color="#020305" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft2" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="14"/></filter>
+    <linearGradient id="lens" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff0cf"/>
+      <stop offset=".22" stop-color="#f3b45e"/>
+      <stop offset=".5" stop-color="#b8541a" stop-opacity=".35"/>
+      <stop offset=".8" stop-color="#e9a94b" stop-opacity=".8"/>
+      <stop offset="1" stop-color="#ffd79a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".38"/>
+    </filter>
+    <clipPath id="squircle"><rect x="100" y="100" width="824" height="824" rx="186"/></clipPath>
+    <!-- the half of the disk that passes in front of the hole: below the disk's own tilted mid-line -->
+    <clipPath id="front"><path d="M 294 512 A 218 218 0 0 0 730 512 Z" transform="rotate(-10 512 512)"/></clipPath>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)"/>
+  </g>
+  <g clip-path="url(#squircle)">
+    <!-- a few stars -->
+    <g fill="#e9e2d4">
+      <circle cx="232" cy="248" r="3.2" opacity=".55"/><circle cx="790" cy="214" r="2.6" opacity=".5"/>
+      <circle cx="842" cy="702" r="3" opacity=".45"/><circle cx="196" cy="772" r="2.4" opacity=".4"/>
+      <circle cx="676" cy="830" r="2" opacity=".35"/><circle cx="338" cy="170" r="2" opacity=".35"/>
+    </g>
+    <!-- glow around the hole -->
+    <circle cx="512" cy="512" r="300" fill="url(#halo)"/>
+    <!-- the disk, back half (drawn whole, the hole covers what is behind it) -->
+    <g transform="rotate(-10 512 512)">
+      <ellipse cx="512" cy="512" rx="350" ry="62" fill="none" stroke="#ffd79a" stroke-width="36" opacity=".35" filter="url(#soft)"/>
+      <ellipse cx="512" cy="512" rx="350" ry="62" fill="none" stroke="url(#disk)" stroke-width="30"/>
+      <ellipse cx="512" cy="512" rx="350" ry="62" fill="none" stroke="#fff3d6" stroke-width="8" opacity=".5"/>
+    </g>
+    <!-- the hole's shadow: the far side of the disk fades into it instead of being cut off -->
+    <circle cx="512" cy="512" r="214" fill="url(#shade)"/>
+    <!-- light bent around the hole: the far side of the disk, lensed up over the top and down under the bottom -->
+    <ellipse cx="512" cy="506" rx="196" ry="184" fill="none" stroke="url(#lens)" stroke-width="34" filter="url(#soft2)" opacity=".95"/>
+    <ellipse cx="512" cy="506" rx="196" ry="184" fill="none" stroke="url(#lens)" stroke-width="12"/>
+    <!-- the hole and its photon ring -->
+    <circle cx="512" cy="512" r="152" fill="#020305"/>
+    <circle cx="512" cy="512" r="160" fill="none" stroke="#ffe7bf" stroke-width="9" opacity=".95"/>
+    <circle cx="512" cy="512" r="160" fill="none" stroke="#ffbf6e" stroke-width="22" opacity=".45" filter="url(#soft)"/>
+    <!-- the disk, front half: across the hole -->
+    <g clip-path="url(#front)">
+      <g transform="rotate(-10 512 512)">
+        <ellipse cx="512" cy="512" rx="350" ry="62" fill="none" stroke="url(#disk)" stroke-width="30"/>
+        <ellipse cx="512" cy="512" rx="350" ry="62" fill="none" stroke="#fff3d6" stroke-width="8" opacity=".5"/>
+      </g>
+    </g>
+    <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="url(#edge)" stroke-width="4"/>
+  </g>
+</svg>

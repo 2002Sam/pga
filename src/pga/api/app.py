@@ -137,6 +137,25 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def web_app() -> FileResponse:
         return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html")
 
+    ICONS = Path(__file__).resolve().parent.parent / "web" / "icons"
+
+    @app.get("/icons/{name}", include_in_schema=False)
+    def web_icon(name: str) -> FileResponse:
+        f = ICONS / name
+        if "/" in name or name.startswith(".") or not f.is_file():
+            raise HTTPException(404, "no such icon")
+        return FileResponse(f, headers={"Cache-Control": "public, max-age=86400"})
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    def web_manifest() -> JSONResponse:
+        """So the app installed from the browser (and its Dock icon) gets the real icon, not a letter."""
+        return JSONResponse({"name": "PGA 助理", "short_name": "PGA", "start_url": "/", "scope": "/", "display": "standalone",
+                             "background_color": "#05070b", "theme_color": "#0b0f16",
+                             "icons": [{"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                                       {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                                       {"src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml"}]},
+                            media_type="application/manifest+json")
+
     # ---------------------------------------------------------------- health
 
     @app.get("/healthz")
