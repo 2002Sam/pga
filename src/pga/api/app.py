@@ -1315,18 +1315,28 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def _pool_view(rt: Runtime, rank: bool = True) -> dict:
         from pga.agents import pool as ap
         from pga.agents.routing import AgentRouter
+        import time as _t
+        marks, t0 = [], _t.monotonic()
+        mark = lambda what: marks.append((what, round(_t.monotonic() - t0, 2)))  # noqa: E731
         p = ap.AgentPool(rt)
         router = AgentRouter(rt, p)
         status = p.status()
+        mark("status")
         from pga.agents import links
         lv = links.view() if links.active() else {}
+        mark("links")
         for n in status:
             status[n]["quota"] = router.quota(n).as_dict()
+            mark(f"quota:{n}")
             status[n]["link"] = lv.get(n)
+        ranking = {c: router.rank(c) for c in (p.cfg["routing"].get("categories") or {})} if rank else {}
+        mark("rank")
+        if marks[-1][1] > 3:                                 # slow: say where the time went
+            logging.getLogger("pga.api").warning("agents view took %.1fs: %s", marks[-1][1], marks)
         return {"links_active": links.active(), "agents": p.cfg["agents"], "workflows": p.cfg["workflows"], "routing": p.cfg["routing"], "run": p.cfg["run"],
                 "status": status, "configured": ap.CONFIG.exists(), "file": str(ap.CONFIG), "spent_today": round(p.spent_today(), 4),
                 "adapters": sorted(ap.ADAPTERS), "patterns": list(ap.PATTERNS), "modes": list(ap.MODES),
-                "ranking": {c: router.rank(c) for c in (p.cfg["routing"].get("categories") or {})} if rank else {}}
+                "ranking": ranking}
 
     @app.get("/v1/agents")
     def agents_get(rt: Runtime = Depends(get_rt)):

@@ -153,8 +153,12 @@ class AgentRouter:
     # -------------------------------------------------------------- choosing
 
     def quota(self, name: str) -> quotas.Quota:
-        ad = self.pool.adapters.get(name)
-        return quotas.for_agent(self.rt.session, name, self.pool.cfg["agents"].get(name, {}), ad.type if ad else "")
+        """Each agent's quota is looked up once per router (one request): ranking asks for it again per category."""
+        memo = self.__dict__.setdefault("_quota_memo", {})
+        if name not in memo:
+            ad = self.pool.adapters.get(name)
+            memo[name] = quotas.for_agent(self.rt.session, name, self.pool.cfg["agents"].get(name, {}), ad.type if ad else "")
+        return memo[name]
 
     def category_of_task(self, kind: str) -> str | None:
         for cat, kinds in (self.cfg.get("task_kinds") or {}).items():
