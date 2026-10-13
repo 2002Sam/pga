@@ -151,9 +151,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """So the app installed from the browser (and its Dock icon) gets the real icon, not a letter."""
         return JSONResponse({"name": "PGA 助理", "short_name": "PGA", "start_url": "/", "scope": "/", "display": "standalone",
                              "background_color": "#05070b", "theme_color": "#0b0f16",
-                             "icons": [{"src": "/icons/icon-192.png?v=2", "sizes": "192x192", "type": "image/png"},
-                                       {"src": "/icons/icon-512.png?v=2", "sizes": "512x512", "type": "image/png"},
-                                       {"src": "/icons/icon.svg?v=2", "sizes": "any", "type": "image/svg+xml"}]},
+                             "icons": [{"src": "/icons/icon-192.png?v=3", "sizes": "192x192", "type": "image/png"},
+                                       {"src": "/icons/icon-512.png?v=3", "sizes": "512x512", "type": "image/png"}]},
                             media_type="application/manifest+json")
 
     # ---------------------------------------------------------------- health

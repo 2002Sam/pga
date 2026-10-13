@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>PGA 助理</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=2">
-<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png?v=2">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png?v=3">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=3">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#0b0f16">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1044,7 +1044,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 .hub-left { background: linear-gradient(180deg, transparent 0, transparent 280px, rgba(13,20,25,.9) 281px) !important; }
 /* tiny solid blocks */
 .section-h .t::before, .h-sec h2::before, .set-group > .t::before, .pop .ph span:first-child::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 8px; vertical-align: 1px; background: var(--acc); }
-.brand .mark { display: block; width: 34px; height: 34px; margin: -6px -4px -6px -8px; filter: drop-shadow(0 0 6px rgba(233,169,75,.18)); }
+.brand .mark { display: block; width: 30px; height: 30px; border-radius: 8px; margin: -4px -2px -4px -4px; box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 0 10px rgba(255,255,255,.06); }
 .brand .seal[hidden] { display: none !important; }
 .brand .seal { box-shadow: inset 0 0 0 1px var(--line-3), 3px 3px 0 -1px var(--acc); }
 .tabs button.on { border-bottom-color: var(--acc); }
@@ -1080,7 +1080,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 <canvas class="paint" id="paintFront" aria-hidden="true"></canvas>
 <div class="app" id="app" data-view="chat">
   <header>
-    <div class="brand"><img class="mark" src="/icons/icon.svg?v=2" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
+    <div class="brand"><img class="mark" src="/icons/logo-128.png?v=3" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
     <span class="chip plain hide-sm" id="provider" title="当前模型通道">…</span>
     <span class="chip" id="workerChip" title="后台循环状态">…</span>
     <span class="grow"></span>
