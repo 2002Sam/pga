@@ -901,6 +901,10 @@ details.adv { margin-top: 6px; } details.adv > summary { cursor: pointer; font-s
 .acct-k input { flex: 1; min-width: 140px; font-size: 12px; padding: 4px 8px; }
 .acct-hint { font-size: 11.5px; color: var(--muted); line-height: 1.6; margin: 2px 0 6px; }
 .acct-new { margin: 4px 0 8px; padding: 8px 10px; border: 1px dashed rgba(233,169,75,.45); background: rgba(233,169,75,.05); }
+.acct-new.login .step { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; font-size: 12.5px; }
+.acct-new.login .step > b { display: inline-grid; place-items: center; width: 18px; height: 18px; border: 1px solid rgba(233,169,75,.6); border-radius: 50%; font-size: 11px; color: #f3d38a; font-weight: 400; }
+.acct-new.login a { color: #f3d38a; word-break: break-all; } .acct-new.login code.code { font-size: 16px; letter-spacing: .12em; color: #fff3d6; padding: 2px 8px; border: 1px solid rgba(233,169,75,.5); }
+.acct-k .acct-who { font-size: 11px; color: var(--muted); }
 .acct-out { font-size: 12px; color: var(--muted); min-height: 0; } .acct-out.ok { color: #9fe0b5; } .acct-out.bad { color: #f08a7a; }
 .ag-btn.plus { min-width: 30px; font-size: 15px; line-height: 1; padding-left: 8px; padding-right: 8px; } .ag-btn.plus.on { color: #f3d38a; border-color: rgba(233,169,75,.7); }
 .ag-plus { margin: 6px 0 4px; padding: 8px 10px; border: 1px dashed rgba(233,169,75,.45); background: rgba(233,169,75,.05); }
@@ -2193,11 +2197,13 @@ const agData = () => AGV.data || AG.data;
 const accountsOf = (n) => Object.entries(agData()?.agents || {}).filter(([, a]) => a.clone_of === n).map(([c]) => c);
 function nextClone(n) { let i = 2; while (agData()?.agents?.[`${n}-${i}`]) i++; return `${n}-${i}`; }
 /* ---- an agent's accounts and tokens: one component, the same in Settings and on the planet's ⚙ 设置 */
-const ACCT = { plus: null };
-const ACCOUNT_KEYS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CODEBUDDY_API_KEY"];   // keys that are an account (＋ adds another)
+const ACCT = { plus: null, login: null, pool: {}, timer: 0 };
+const ACCOUNT_KEYS = ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "CODEBUDDY_API_KEY", "GEMINI_API_KEY"];   // keys that are an account (＋ adds another)
+const SIGN_IN = { codex_local: "ChatGPT 账号", hermes_local: "ChatGPT 账号（Hermes 的账号池）" };          // agents whose accounts are logins
 const keyBase = (k) => k.split("__")[0];
 function keyLabel(k) {
   return { CLAUDE_CODE_OAUTH_TOKEN: "Claude 订阅令牌", ANTHROPIC_API_KEY: "Anthropic API key（可选 · 按量计费）", CODEBUDDY_API_KEY: "CodeBuddy / WorkBuddy API key",
+           GEMINI_API_KEY: "Gemini API key",
            HERMES_API_SERVER_KEY: "Hermes 本地 API key（可选 · 更快）" }[keyBase(k)] || keyBase(k);
 }
 function keyHint(a, k) {
@@ -2205,13 +2211,48 @@ function keyHint(a, k) {
   if (b === "CLAUDE_CODE_OAUTH_TOKEN") return "在终端运行 <code>claude setup-token</code>，浏览器授权时登录<b>这个</b>账号，把打印出的 <code>sk-ant-oat…</code> 粘到这里。";
   if (b === "ANTHROPIC_API_KEY") return "在 console.anthropic.com 创建。有效时简单的提问直接走 API（按量计费）；不填就全部走订阅。";
   if (b === "CODEBUDDY_API_KEY") return "在 WorkBuddy / CodeBuddy 控制台创建。";
+  if (b === "GEMINI_API_KEY") return "在 aistudio.google.com 创建（每个 Google 账号一把）。";
   if (b === "HERMES_API_SERVER_KEY") return "可选：在 <code>~/.hermes/.env</code> 写入 <code>API_SERVER_ENABLED=true</code> 和 <code>API_SERVER_KEY=…</code>，运行 <code>hermes gateway restart</code>，再把同一个 key 粘到这里。不填就用 Hermes 命令行。";
   return "";
 }
 function noKeyHint(a) {
-  return { codex_local: "用这台 Mac 上 ChatGPT / Codex 的登录，不需要令牌（一台 Mac 一个登录，所以不能在这里加第二个账号）。",
-           hermes_local: "用 Hermes 自己的登录。", llm: "PGA 自己的模型：密钥在上面的「PGA 自己的模型」里设置。",
-           gemini_local: "需要先在这台 Mac 上安装 Gemini CLI。" }[a.adapter] || "";
+  return { llm: "PGA 自己的模型：密钥在上面的「PGA 自己的模型」里设置。" }[a.adapter] || "";
+}
+function loginBox(n) {                               // the sign-in in progress for this agent (or its new copy)
+  const L = ACCT.login; if (!L || (L.agent !== n && L.from !== n)) return "";
+  const st = { starting: "正在准备登录…", waiting: "等你在浏览器里登录…", done: "✓ 已登录", failed: "没有登录成功", cancelled: "已取消" }[L.status] || L.status;
+  return `<div class="acct-new login">
+    ${L.url ? `<div class="step"><b>1</b> 打开 <a href="${esc(L.url)}" target="_blank" rel="noopener">${esc(L.url)}</a> ，登录<b>另一个</b>账号</div>` : ""}
+    ${L.code ? `<div class="step"><b>2</b> 输入一次性代码 <code class="code">${esc(L.code)}</code><button type="button" class="ag-btn mini" data-acct="copycode">复制</button></div>` : ""}
+    <div class="acct-hint">${esc(st)}${L.detail ? " · " + esc(L.detail) : ""}${L.note && L.status !== "done" ? " · " + esc(L.note) : ""}${L.status === "waiting" ? "（代码 15 分钟内有效）" : ""}</div>
+    <div class="acct-k">${["starting", "waiting"].includes(L.status) ? `<button type="button" class="ag-btn" data-acct="logincancel">取消</button>`
+      : `<button type="button" class="ag-btn" data-acct="loginclose">关闭</button>${L.status !== "done" ? `<button type="button" class="ag-btn" data-acct="login" data-n="${esc(L.agent)}">再试一次</button>` : ""}`}</div></div>`;
+}
+function signInHTML(n) {                             // ChatGPT / Codex and Hermes: accounts are logins, not tokens
+  const d = agData(), a = d.agents[n], s = d.status[n] || {}, who = s.link?.detail || "";
+  if (a.adapter === "hermes_local") {
+    if (ACCT.pool[n] === undefined) { ACCT.pool[n] = null; api(`/v1/agents/${encodeURIComponent(n)}/pool`).then((r) => { ACCT.pool[n] = r.accounts || []; acctRepaint(); }).catch(() => { ACCT.pool[n] = []; }); }
+    const pool = ACCT.pool[n];
+    return `<div class="acct-t">${esc(SIGN_IN[a.adapter])}</div>
+      ${pool == null ? `<div class="acct-hint">正在读取 Hermes 的账号池…</div>` : pool.length ? pool.map((x) => `<div class="acct-k"><span class="lbl">账号 ${x.n} · ${esc(x.label)}</span><span class="state ${x.exhausted ? "no" : "ok"}">${x.current ? "正在用" : x.exhausted ? "暂时用完" : "备用"}</span></div>`).join("") : `<div class="acct-hint">Hermes 还没有登录 ChatGPT。</div>`}
+      <div class="acct-k"><button type="button" class="ag-btn" data-acct="login" data-n="${esc(n)}">＋ 登录另一个 ChatGPT 账号</button></div>
+      <div class="acct-hint">加进 Hermes 自己的账号池：一个用完，Hermes 自动换下一个（只影响 Hermes，不影响 ChatGPT / Codex）。</div>${loginBox(n)}`;
+  }
+  return `<div class="acct-t">${accountsOf(n).length ? "账号 1 · " + esc(n) : esc(SIGN_IN[a.adapter])}</div>
+    <div class="acct-k"><span class="lbl">这台 Mac 上 ChatGPT 的登录</span><span class="state ${s.link?.state === "online" ? "ok" : "no"}">${s.link?.state === "online" ? "已登录" : "未登录"}</span><span class="acct-who">${esc(who)}</span></div>
+    <div class="acct-k"><button type="button" class="ag-btn" data-acct="login" data-n="${esc(n)}">＋ 登录另一个 ChatGPT 账号</button></div>
+    <div class="acct-hint">另一个账号会成为 <b>${esc(nextClone(n))}</b>（它的登录单独放在 ~/Documents/PGA/accounts 里，不影响这台 Mac 上 ChatGPT 的登录），排在 ${esc(n)} 后面，${esc(n)} 用完时自动换它。</div>${loginBox(n)}`;
+}
+function acctRepaint() { if ($("#settings")?.open) renderAgents(); if (CARD.kind === "agent") renderAgDetail(); }
+function watchLogin() {
+  clearTimeout(ACCT.timer);
+  const L = ACCT.login; if (!L || !["starting", "waiting"].includes(L.status)) return;
+  ACCT.timer = setTimeout(async () => {
+    try { const v = await api(`/v1/agents/logins/${L.id}`); ACCT.login = { ...L, ...v };
+      if (v.status === "done") { delete ACCT.pool[L.from || L.agent]; delete ACCT.pool[L.agent]; await refreshAgents(); toast(`已登录：${v.agent}`); }
+      else acctRepaint(); } catch {}
+    watchLogin();
+  }, 2000);
 }
 function acctKeyRow(n, k, set, main) {
   const open = ACCT.plus === `${n}|${k}`, canPlus = main && ACCOUNT_KEYS.includes(keyBase(k));
@@ -2228,12 +2269,12 @@ function acctKeyRow(n, k, set, main) {
 }
 function acctHTML(n) {
   const d = agData(), a = d.agents[n], sec = d.status[n]?.secrets || {}, clones = accountsOf(n);
-  const keys = Object.entries(sec);
+  const keys = Object.entries(sec), signIn = !!SIGN_IN[a.adapter];
   return `<div class="acct" data-acct-for="${esc(n)}">
-    ${keys.length ? `<div class="acct-t">${clones.length ? "账号 1 · " + esc(n) : "账号与令牌"}</div>` + keys.map(([k, set]) => acctKeyRow(n, k, set, true)).join("") : `<div class="acct-hint">${noKeyHint(a)}</div>`}
+    ${signIn ? signInHTML(n) : keys.length ? `<div class="acct-t">${clones.length ? "账号 1 · " + esc(n) : "账号与令牌"}</div>` + keys.map(([k, set]) => acctKeyRow(n, k, set, true)).join("") : `<div class="acct-hint">${noKeyHint(a)}</div>`}
     ${clones.map((c, i) => { const cs = d.status[c] || {};
-      return `<div class="acct-t">账号 ${i + 2} · ${esc(c)} <span class="acct-st">${linkLine(cs)}</span><button type="button" class="ag-btn mini" data-acct="del" data-n="${esc(c)}">删除这个账号</button></div>`
-        + Object.entries(cs.secrets || {}).map(([k, set]) => acctKeyRow(c, k, set, false)).join(""); }).join("")}
+      return `<div class="acct-t">账号 ${i + 2} · ${esc(c)} <span class="acct-st">${linkLine(cs)}</span>${signIn ? `<button type="button" class="ag-btn mini" data-acct="login" data-n="${esc(c)}">重新登录</button>` : ""}<button type="button" class="ag-btn mini" data-acct="del" data-n="${esc(c)}">删除这个账号</button></div>`
+        + Object.entries(cs.secrets || {}).map(([k, set]) => acctKeyRow(c, k, set, false)).join("") + (signIn ? loginBox(c) : ""); }).join("")}
     <div class="acct-out" data-acct-out="${esc(n)}"></div></div>`;
 }
 async function refreshAgents() {                     // after any change: both places show the same thing
@@ -2259,6 +2300,13 @@ document.addEventListener("click", async (e) => {
       ACCT.plus = null; await refreshAgents(); out(`已添加 ${r.name}（令牌只存在本机 .env）`, true); return; }
     if (act === "del") { if (!confirm(`删除 ${n}？它的令牌留在本机 .env 里，可以以后再加回来。`)) return;
       await api(`/v1/agents/${encodeURIComponent(n)}`, { method: "DELETE" }); if (CARD.key === n) closeCard(); await refreshAgents(); out(`已删除 ${n}`, true); return; }
+    if (act === "login") { t.disabled = true; out(`正在为 ${n} 准备登录…`);
+      const v = await api(`/v1/agents/${encodeURIComponent(n)}/accounts/login`, { method: "POST" });
+      ACCT.login = { ...v, from: n }; AGV.data = AG.data = { ...v }; window.PGA_SET_AGENTS?.(agentGraph(v));
+      out(v.status === "failed" ? `没能开始登录：${v.detail}` : "", v.status === "failed" ? false : undefined); acctRepaint(); watchLogin(); return; }
+    if (act === "logincancel") { if (ACCT.login) { await api(`/v1/agents/logins/${ACCT.login.id}`, { method: "DELETE" }).catch(() => {}); ACCT.login.status = "cancelled"; } acctRepaint(); return; }
+    if (act === "loginclose") { ACCT.login = null; acctRepaint(); return; }
+    if (act === "copycode") { if (ACCT.login?.code) { copyText(ACCT.login.code); out("代码已复制", true); } return; }
     if (act === "test") { t.disabled = true; out(`正在测试 ${n}…（外部 CLI 可能要几十秒）`);
       const x = await api("/v1/agents/test", { body: { agent: n } }); out(x.ok ? `${n} 正常 · ${x.duration_s}s · 「${x.reply}」` : `${n} 失败：${x.error || x.detail}`, !!x.ok); return; }
     if (act === "check") { t.disabled = true; out(`正在检查 ${n} 的连接…`);

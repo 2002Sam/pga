@@ -446,6 +446,7 @@ class HermesLocal(CLIAdapter):
 
 class GeminiLocal(CLIAdapter):
     type, binary = "gemini_local", "gemini"
+    secrets = ("GEMINI_API_KEY",)                    # one key per account (Google AI Studio); a copy gets its own
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "Answer the request given on standard input."]

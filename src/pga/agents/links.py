@@ -357,11 +357,14 @@ def _probe_codex(ad: "Adapter") -> Check:
     q = None
     try:
         q = _codex_quota(srv.rpc.request("account/rateLimits/read", None, 30))
+        if q and (ad.config.get("env") or {}).get("CODEX_HOME"):    # another ChatGPT account: never shared with the first
+            q["source"] = f"codex_live:{ad.name}"
     except LinkDown:
         pass
     plan = a.get("planType") or ""
-    return Check("online", "app-server", f"{'ChatGPT' if a.get('type') == 'chatgpt' else a.get('type', '')}{' · ' + plan if plan else ''}",
-                 quota=q)
+    who = a.get("email") or ""                                     # which account, once there is more than one
+    return Check("online", "app-server", f"{'ChatGPT' if a.get('type') == 'chatgpt' else a.get('type', '')}{' · ' + plan if plan else ''}"
+                 f"{' · ' + who if who else ''}", quota=q)
 
 
 def _token_expiry(name: str, token: str | None) -> datetime | None:

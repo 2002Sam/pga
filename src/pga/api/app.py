@@ -1360,6 +1360,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def agents_clone(name: str, body: dict | None = None, rt: Runtime = Depends(get_rt)):
         """A second copy of an agent (another account or API key): same kind and settings, its own token / key, its own
         quota and history; it joins every category right after the original."""
+        new = _clone(rt, name, body or {})
+        return {"name": new, **_pool_view(rt)}
+
+    def _clone(rt: Runtime, name: str, body: dict, env_for=None) -> str:
         import copy
         import re as _re
 
@@ -1385,6 +1389,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         a["role"] = f"{a.get('role') or name} · #{new.rsplit('-', 1)[-1]}"
         a["link"] = (a.get("link") or "") + f"（{new} 是 {name} 的第二份：自己的令牌 / key、自己的额度）"
         a["clone_of"] = name
+        if env_for is not None:                          # e.g. its own CODEX_HOME: a login of its own
+            a["env"] = {**(a.get("env") or {}), **env_for(new)}
         # the new account's token(s), given with the same names as the original's (e.g. CLAUDE_CODE_OAUTH_TOKEN): saved
         # under the copy's own names before anything else, so a rejected token leaves no half-made agent behind
         given = (body or {}).get("secrets") or {}
@@ -1412,7 +1418,79 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             ap.save(data)
         except ap.PoolError as exc:
             raise HTTPException(422, str(exc)) from exc
-        return {"name": new, **_pool_view(rt)}
+        return new
+
+    # ---------------------------------------------------------------- another account by signing in (Codex, Hermes)
+
+    @app.post("/v1/agents/{name}/accounts/login", status_code=201)
+    def agents_account_login(name: str, rt: Runtime = Depends(get_rt)):
+        """Sign in another account: ChatGPT / Codex gets a copy with its own Codex folder; Hermes adds the login to its
+        own account pool. Returns the link and one-time code to show; poll GET /v1/agents/logins/{id}."""
+        from pga.agents import accounts
+        from pga.agents import pool as ap
+        p = ap.AgentPool(rt)
+        ad = p.adapters.get(name)
+        if ad is None:
+            raise HTTPException(404, "unknown agent")
+        exe = ad.exe()
+        if not exe:
+            raise HTTPException(422, f"{name} is not installed on this Mac")
+        cfg = p.cfg["agents"][name]
+        if ad.type == "codex_local":
+            home = (cfg.get("env") or {}).get("CODEX_HOME")
+            target = name
+            if not (cfg.get("clone_of") and home):               # the original: make the copy with a folder of its own
+                target = _clone(rt, name, {}, env_for=lambda new: {"CODEX_HOME": str(accounts.codex_home(new))})
+                ad = ap.AgentPool(rt).adapters[target]
+            lg = accounts.start(target, "codex", [exe, "login", "--device-auth"], ad.env(),
+                                note=f"在打开的页面登录另一个 ChatGPT 账号；登录后它就是 {target}")
+        elif ad.type == "hermes_local":
+            lg = accounts.start(name, "hermes", [exe, "auth", "add", "openai-codex", "--no-browser"], ad.env(),
+                                note="登录另一个 ChatGPT 账号：它会加进 Hermes 自己的账号池，一个用完自动换下一个")
+        else:
+            raise HTTPException(422, "this agent adds accounts with a token or key (＋ beside it)")
+        import time as _time
+        for _ in range(80):                                      # the link and code appear within a few seconds
+            if lg.status != "starting":
+                break
+            _time.sleep(0.25)
+        return {**lg.view(), **_pool_view(rt)}
+
+    @app.get("/v1/agents/logins/{lid}")
+    def agents_login_status(lid: str, rt: Runtime = Depends(get_rt)):
+        from pga.agents import accounts, links
+        lg = accounts.get(lid)
+        if lg is None:
+            raise HTTPException(404, "no such sign-in")
+        v = lg.view()
+        if v["status"] == "done" and not getattr(lg, "_after", False):
+            lg._after = True
+            accounts.forget_pool()
+            try:
+                if links.KEEPER:
+                    links.KEEPER[0].check(lg.agent)             # see the new login at once
+            except Exception:  # noqa: BLE001 - the heartbeat will look again
+                pass
+        return v
+
+    @app.delete("/v1/agents/logins/{lid}")
+    def agents_login_cancel(lid: str):
+        from pga.agents import accounts
+        lg = accounts.get(lid)
+        if lg is None:
+            raise HTTPException(404, "no such sign-in")
+        lg.cancel()
+        return lg.view()
+
+    @app.get("/v1/agents/{name}/pool")
+    def agents_pool_accounts(name: str, rt: Runtime = Depends(get_rt)):
+        """Hermes' own account pool (the ChatGPT logins it rotates through)."""
+        from pga.agents import accounts
+        from pga.agents import pool as ap
+        ad = ap.AgentPool(rt).adapters.get(name)
+        if ad is None or ad.type != "hermes_local" or not ad.exe():
+            return {"accounts": []}
+        return {"accounts": accounts.hermes_pool(ad.exe())}
 
     @app.delete("/v1/agents/{name}")
     def agents_delete(name: str, rt: Runtime = Depends(get_rt)):

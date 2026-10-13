@@ -87,9 +87,11 @@ def deepseek_balance(full: float = 50.0) -> Quota:
     return _cached(f"deepseek_balance:{full}", 300, look)
 
 
-def codex_sessions() -> Quota:
+def codex_sessions(root: Path | None = None) -> Quota:
+    root = root or CODEX_SESSIONS
+
     def look() -> Quota:
-        files = sorted(CODEX_SESSIONS.glob("*/*/*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:6]
+        files = sorted(root.glob("*/*/*/*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:6]
         best, when = None, None
         for f in files:
             last = None
@@ -120,7 +122,7 @@ def codex_sessions() -> Quota:
         stale = f" · 截至 {when.astimezone().strftime('%m-%d %H:%M')}" if when and utcnow() - when > timedelta(hours=6) else ""
         return Quota(max(0.0, 1 - used / 100), " · ".join(parts) + stale, "codex_sessions",
                      resets_at=reset.isoformat() if reset else None, exhausted=used >= 100)
-    return _cached("codex_sessions", 120, look)
+    return _cached(f"codex_sessions:{root}", 120, look)
 
 
 def _find_limits(o: Any) -> dict | None:
@@ -179,6 +181,11 @@ def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str) -> Qu
     src = q.get("source") or ("observed" if adapter_type != "llm" else "none")
     if src == "deepseek_balance":
         return deepseek_balance(float(q.get("full", 50)))
+    if src == "codex_sessions" and (cfg.get("env") or {}).get("CODEX_HOME"):   # another ChatGPT account: its own limits
+        live = links.live_quota(name)
+        if live:
+            return Quota(live.get("remaining"), live.get("detail", ""), "codex_live", live.get("resets_at"), bool(live.get("exhausted")))
+        return codex_sessions(Path(str(cfg["env"]["CODEX_HOME"])).expanduser() / "sessions")
     if src == "codex_sessions":
         live = links.live_quota(name) or links.shared_quota("codex_live")      # read from the app server, if fresh
         if live:

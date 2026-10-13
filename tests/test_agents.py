@@ -218,3 +218,52 @@ def test_plus_adds_a_second_account_with_its_token_in_one_step(session_factory, 
     assert v["name"] == "claude-2" and saved == {"CLAUDE_CODE_OAUTH_TOKEN__CLAUDE_2": "sk-ant-oat-second"}
     v = c.post("/v1/agents/claude/clone", json={"secrets": {"ANTHROPIC_API_KEY": "k3"}}).json()
     assert v["name"] == "claude-3" and saved["ANTHROPIC_API_KEY__CLAUDE_3"] == "k3"
+
+
+FAKE_LOGIN = r'''#!/bin/sh
+# a stand-in for `codex login --device-auth` / `hermes auth add …`: prints the link and code, then "signs in"
+echo "1. Open this link in your browser and sign in to your account"
+echo "   https://auth.openai.com/codex/device"
+echo "2. Enter this one-time code"
+echo "   ABCD-EFG12"
+sleep 1
+[ -n "$CODEX_HOME" ] && echo '{}' > "$CODEX_HOME/auth.json"
+echo "$CODEX_HOME" > "$(dirname "$0")/home.txt"
+exit 0
+'''
+
+
+def test_signing_in_another_chatgpt_account_and_a_hermes_pool_account(session_factory, policy, provider, backend, tmp_path, monkeypatch):
+    import time as _t
+    from pga.agents import accounts
+    from pga.agents import pool as ap
+    script = tmp_path / "fakecli"
+    script.write_text(FAKE_LOGIN)
+    script.chmod(0o755)
+    (tmp_path / "dotcodex").mkdir()
+    (tmp_path / "dotcodex" / "config.toml").write_text('model = "gpt-x"\n')
+    monkeypatch.setattr(ap, "CONFIG", tmp_path / "agents.yaml")
+    monkeypatch.setattr(accounts, "ACCOUNTS_DIR", tmp_path / "accounts")
+    monkeypatch.setattr(accounts, "CODEX_HOME", tmp_path / "dotcodex")
+    c = TestClient(create_app(session_factory, lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend)))
+    d = c.get("/v1/agents").json()
+    d["agents"]["chatgpt"]["command"] = str(script)
+    d["agents"]["hermes"]["command"] = str(script)
+    assert c.put("/v1/agents", json={k: d[k] for k in ("agents", "workflows", "routing", "run")}).status_code == 200
+
+    v = c.post("/v1/agents/chatgpt/accounts/login").json()
+    assert v["agent"] == "chatgpt-2" and v["url"] == "https://auth.openai.com/codex/device" and v["code"] == "ABCD-EFG12"
+    home = tmp_path / "accounts" / "chatgpt-2"
+    assert v["agents"]["chatgpt-2"]["env"]["CODEX_HOME"] == str(home) and (home / "config.toml").exists()   # settings, not the login
+    for _ in range(40):
+        s = c.get(f"/v1/agents/logins/{v['id']}").json()
+        if s["status"] != "waiting":
+            break
+        _t.sleep(0.2)
+    assert s["status"] == "done" and (home / "auth.json").exists()
+    assert (tmp_path / "home.txt").read_text().strip() == str(home)                 # signed in inside its own folder
+
+    h = c.post("/v1/agents/hermes/accounts/login").json()
+    assert h["agent"] == "hermes" and h["code"] == "ABCD-EFG12" and "hermes-2" not in h["agents"]   # Hermes' own pool, no copy
+    assert c.post("/v1/agents/claude/accounts/login").status_code == 422           # tokens use ＋ beside the token
+    assert c.delete(f"/v1/agents/logins/{h['id']}").json()["status"] in ("cancelled", "done")
