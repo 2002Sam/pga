@@ -1680,6 +1680,38 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.post("/v1/users/{user_id}/agents/translate")
+    def agents_translate(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Replies already on screen, into your language: what the live translation does, after the fact — turning
+        译 on translates the answers that came before it too. Long ones go a few paragraphs at a time."""
+        from pga.agents.routing import _live_translator, _reader_lang
+        u = user_or_404(rt, user_id)
+        texts = [str(t or "") for t in (body.get("texts") or [])][:20]
+        if not texts:
+            return {"texts": []}
+        if sum(len(t) for t in texts) > 150_000:
+            raise HTTPException(422, "too much text to translate at once")
+        tr = _live_translator(rt, str(body.get("lang") or _reader_lang(u)))
+
+        def one(text: str) -> str:
+            if not text.strip():
+                return text
+            parts, cur = [], ""
+            for para in text.split("\n\n"):                  # keep each call small enough for the model's reply
+                if cur and len(cur) + len(para) > 3000:
+                    parts.append(cur)
+                    cur = ""
+                cur += ("\n\n" if cur else "") + para
+            parts.append(cur)
+            try:
+                return "\n\n".join(tr(p) if p.strip() else p for p in parts)
+            except Exception as exc:  # noqa: BLE001 - the original stays on screen
+                log.info("translating a reply failed: %s", exc)
+                return text
+
+        with rt.billing(user_ctx(u)):
+            return {"texts": [one(t) for t in texts]}
+
     @app.get("/v1/users/{user_id}/agents/runs")
     def agents_runs(user_id: uuid.UUID, limit: int = Query(20, le=100), rt: Runtime = Depends(get_rt)):
         from pga.agents import AgentPool

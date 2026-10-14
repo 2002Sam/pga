@@ -224,3 +224,28 @@ def test_translate_sends_english_and_brings_back_the_readers_language(rt, user, 
     from pga.agents import history
     msgs = history.messages(rt.session, user.id, f"run:{out['run_id']}")
     assert msgs[0]["text"] == "你好" and msgs[1]["original"] == "Here is the summary." and msgs[1]["sent"] == "Hello"
+
+
+def test_earlier_replies_can_be_translated_after_the_fact(session_factory, policy, provider, backend, monkeypatch):
+    from fastapi.testclient import TestClient as _TC
+    from pga.agents import routing
+    from pga.api.app import create_app as _create
+    from pga.runtime import Runtime as _RT
+    calls = []
+
+    def fake(rt, lang):
+        def tr(piece):
+            calls.append(piece)
+            if "boom" in piece:
+                raise RuntimeError("model down")
+            return "译：" + piece
+        return tr
+    monkeypatch.setattr(routing, "_live_translator", fake)
+    c = _TC(_create(session_factory, lambda s: _RT(s, policy=policy, provider=provider, translation_backend=backend)))
+    uid = c.post("/v1/users", json={"locale": "zh-CN", "timezone": "Asia/Shanghai"}).json()["id"]
+    long = "\n\n".join(["para " + "x" * 1400] * 4)                                   # ~5.6k chars → split into calls
+    out = c.post(f"/v1/users/{uid}/agents/translate", json={"texts": ["Hello", "", long, "boom"]}).json()["texts"]
+    assert out[0] == "译：Hello" and out[1] == ""                                   # empty stays empty, no call
+    assert out[2].count("译：") == len([p for p in calls if p.startswith("para")]) >= 2
+    assert out[3] == "boom"                                                       # a failed call leaves the original
+    assert c.post(f"/v1/users/{uid}/agents/translate", json={"texts": []}).json() == {"texts": []}
