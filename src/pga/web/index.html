@@ -717,6 +717,7 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-proj .pj .path { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin: 2px 0 4px; }
 .ag-proj .pj .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
 .ag-proj .pj .row label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; } .ag-proj .pj .row input { width: auto; accent-color: #e9a94b; }
+.ag-proj .pj .talkrow select { width: auto; font-size: 11.5px; padding: 1px 4px; } .ag-proj .pj .talkrow button { color: #f3d38a !important; }
 .ag-proj .pj .row button { border: 0; background: transparent; color: rgba(243,211,138,.85); cursor: pointer; padding: 0; font: inherit; }
 .ag-proj .act { margin: 6px 0 0 2px; font-size: 11.5px; color: rgba(214,224,229,.7); } .ag-proj .act div { padding: 3px 0; border-bottom: 1px dashed rgba(220,232,238,.08); }
 .ag-proj .act b { color: #f3d38a; font-weight: 500; } .ag-proj .act i { font-style: normal; color: var(--muted); }
@@ -1702,6 +1703,13 @@ function agentGraph(d) {
     links.push({ source: "you", target: "pc:" + cat, kind: "spoke" });
     usable.slice(0, 3).forEach((x, i) => links.push({ source: "pc:" + cat, target: "pa:" + x.agent, kind: "route" + (i + 1) }));
   }
+  for (const p of PROJ.list || []) {                   // projects: folders the agents work in, any agent, a planet each
+    nodes.push({ id: "pj:" + p.id, kind: "database", pool: true, project: p.id, label: p.name, tag: "项目 · " + (p.full_access ? "完整权限" : "只读") });
+    links.push({ source: "you", target: "pj:" + p.id, kind: "spoke" });
+    for (const [k, pid] of Object.entries(PROJ.choice || {}))
+      if (pid === p.id && k.startsWith("agent:") && d.agents[k.slice(6)]) links.push({ source: "pj:" + p.id, target: "pa:" + k.slice(6), kind: "route2" });
+  }
+  nodes.push({ id: "pj:new", kind: "slot", pool: true, project: "new", label: "＋ 新项目", tag: "添加一个文件夹" });
   return { nodes, links, events: [], runs: [], free_slots: 0 };
 }
 async function enterAgentMode() {
@@ -2028,26 +2036,47 @@ function cardRoute() {
 }
 /* ---- projects: folders any agent can work in, picked per conversation */
 const PROJ = { list: null, open: null, act: {}, choice: store.json("pga_card_project", {}) || {}, ok: {} };
-async function loadProjects() { try { PROJ.list = await api(`/v1/users/${S.uid}/projects`); } catch { PROJ.list = []; } renderProjects(); renderOpts(); }
+async function loadProjects() { try { PROJ.list = await api(`/v1/users/${S.uid}/projects`); } catch { PROJ.list = []; } renderProjects(); renderOpts(); refreshProjectPlanets(); }
 function renderProjects() {
   const el = $("#agProj"); if (!el) return;
   const list = PROJ.list || [];
   el.innerHTML = `<div class="ag-h">项目 <small>agent 可以进去工作的文件夹 · 和用哪个 agent 无关</small><button class="x" type="button" data-proj="close">✕</button></div>
     <div class="ag-sub">在任何对话的输入框下面选一个项目，用哪个 agent 都可以，随时换 agent 接着改。默认只能<b>读</b>项目里的文件；打开「完整权限」后（每次在对话里还要确认一次），agent 可以在里面<b>执行命令、修改文件</b>、使用你的 MCP，就像在终端里用它一样。</div>
-    ${list.map((p) => `<div class="pj"><div class="t">${esc(p.name)}${p.full_access ? `<span class="full">完整权限</span>` : ""}</div>
+    ${list.map((p) => `<div class="pj" data-pj="${p.id}"><div class="t">${esc(p.name)}${p.full_access ? `<span class="full">完整权限</span>` : ""}</div>
       <div class="path">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</div>
       <div class="row"><label><input type="checkbox" data-proj="full" data-id="${p.id}" ${p.full_access ? "checked" : ""}> 允许执行命令、修改文件</label>
         <button type="button" data-proj="act" data-id="${p.id}">${PROJ.open === p.id ? "收起记录" : "谁做过什么"}</button><button type="button" data-proj="del" data-id="${p.id}">移除</button>
         ${p.last_used_at ? `<span>上次 ${new Date(p.last_used_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>` : ""}</div>
+      <div class="row talkrow">在这里对话：<select data-proj-agent="${p.id}">${Object.entries(AGV.data?.agents || {}).filter(([, a]) => a.adapter !== "llm" && a.enabled !== false)
+        .map(([n]) => `<option ${n === "claude" ? "selected" : ""}>${esc(n)}</option>`).join("")}</select><button type="button" data-proj="talk" data-id="${p.id}">开始 →</button></div>
       ${PROJ.open === p.id ? `<div class="act">${(PROJ.act[p.id] || []).map((a) => `<div><i>${new Date(a.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</i> <b>${esc(a.agent || "—")}</b>${a.model ? ` · ${esc(a.model)}` : ""}${a.full ? " · 完整" : " · 只读"} — ${esc(a.asked)}${(a.changed || []).length ? `<br><i>改了：${a.changed.map(esc).join("、")}</i>` : ""}</div>`).join("") || "还没有 agent 在这里工作过"}</div>` : ""}
     </div>`).join("") || `<div class="ag-sub">还没有项目。</div>`}
     <form class="add" id="projAdd"><input type="text" id="projPath" placeholder="文件夹路径，例如 ~/Documents/my-app" autocomplete="off"><input type="text" id="projName" placeholder="名字（可选）" autocomplete="off">
       <label class="ag-tog"><input type="checkbox" id="projFull"><span>允许执行命令、修改文件<small>之后也可以随时打开或关闭</small></span></label>
       <button class="ag-btn" type="submit">＋ 添加项目</button></form>`;
 }
+async function openProjectPlanet(id) {              // a project's planet: its record, its full-access switch, a conversation in it
+  closeCard();
+  const el = $("#agProj"); el.classList.add("show");
+  if (id === "new") { await loadProjects(); setTimeout(() => $("#projPath")?.focus(), 200); return; }
+  PROJ.open = id;
+  try { PROJ.act[id] = await api(`/v1/users/${S.uid}/projects/${id}/activity`); } catch { PROJ.act[id] = []; }
+  await loadProjects();
+  el.querySelector(`[data-pj="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "nearest" });
+}
+function talkIn(pid, agent) {                         // open that agent's talk with the project already chosen
+  const p = (PROJ.list || []).find((x) => x.id === pid); if (!p || !agent) return;
+  const key = "agent:" + agent;
+  if (p.full_access && !PROJ.ok[key + p.id] && !confirm(`完整模式：${agent} 可以在「${p.name}」（${p.path}）里执行命令、修改文件，并使用你的 MCP 工具。确定吗？`)) return;
+  PROJ.ok[key + p.id] = true; PROJ.choice[key] = p.id;
+  try { store.set("pga_card_project", JSON.stringify(PROJ.choice)); } catch {}
+  $("#agProj").classList.remove("show"); openCard("agent", agent); refreshProjectPlanets();
+}
+const refreshProjectPlanets = () => { if (AGV.data) window.PGA_SET_AGENTS?.(agentGraph(AGV.data)); };
 async function projectAct(t) {
   const id = t.dataset.id, act = t.dataset.proj;
   if (act === "close") { $("#agProj").classList.remove("show"); return; }
+  if (act === "talk") { talkIn(id, $("#agProj").querySelector(`[data-proj-agent="${CSS.escape(id)}"]`)?.value); return; }
   if (act === "act") { PROJ.open = PROJ.open === id ? null : id; if (PROJ.open) { try { PROJ.act[id] = await api(`/v1/users/${S.uid}/projects/${id}/activity`); } catch { PROJ.act[id] = []; } } renderProjects(); return; }
   if (act === "del") { if (!confirm("移除这个项目？（只是从列表里去掉，文件夹本身不动）")) return; await api(`/v1/users/${S.uid}/projects/${id}`, { method: "DELETE" }); return loadProjects(); }
 }
@@ -2450,7 +2479,8 @@ async function agSend(text) {
 function bindAgentView() {
   window.addEventListener("pga:earth", (e) => (e.detail?.mode === "agents" ? exitAgentMode() : enterAgentMode()));
   window.addEventListener("pga:poolpick", (e) => {
-    const { agent, cat } = e.detail || {};
+    const { agent, cat, project } = e.detail || {};
+    if (project) return openProjectPlanet(project);
     if (agent) openCard("agent", agent);
     if (cat) { openCard("cat", cat); const first = (AGV.data?.ranking?.[cat] || []).find((x) => x.usable); if (first) window.PGA_ROUTE?.(["you", "pc:" + cat, "pa:" + first.agent], 3500); }
   });
@@ -2505,7 +2535,7 @@ function bindAgentView() {
       if (p && p.full_access && !PROJ.ok[key + p.id] && !confirm(`完整模式：${CARD.kind === "agent" ? CARD.key : "这一类问题交给的 agent"} 可以在「${p.name}」（${p.path}）里执行命令、修改文件，并使用你的 MCP 工具。确定吗？`)) { t.value = PROJ.choice[key] || ""; return; }
       if (p) PROJ.ok[key + p.id] = true;
       if (v) PROJ.choice[key] = v; else delete PROJ.choice[key];
-      try { store.set("pga_card_project", JSON.stringify(PROJ.choice)); } catch {} renderCard(); return;
+      try { store.set("pga_card_project", JSON.stringify(PROJ.choice)); } catch {} renderCard(); refreshProjectPlanets(); return;
     }
     if (t.dataset.opt === "projfull") {               // full access for the chosen project, from inside the talk
       const key = cardK(), p = (PROJ.list || []).find((x) => x.id === PROJ.choice[key]); if (!p) return;
@@ -4482,6 +4512,7 @@ function inkOf(d) {
   }
 }
 function radiusOf(d) {
+  if (d.project) return d.project === "new" ? .2 : .32;      // a project's planet on the agents side
   switch (d.kind) {
     case "aim": return 0.8;
     case "user": return 0.36; case "core": return 0.12; case "slot": return 0.2;
@@ -4786,6 +4817,11 @@ function layoutAgents(all) {                                   // the other side
   const you = nodes.get("you"); if (you) you.fixed = new THREE.Vector3(0, 0, 0);
   const ags = all.filter((n) => n.d.pool && n.d.kind === "agent");
   ags.forEach((n, i) => { setOrbit(n, "you", 3.6 + (i % 2) * 1.05, (hash(n.id, 4) - .5) * .14, .3); if (!n.placed) { n.orbit.ang = i / Math.max(1, ags.length) * TAU; n.placed = true; } });
+  const projs = all.filter((n) => n.d.pool && n.d.project).sort((a, b) => (a.d.project === "new") - (b.d.project === "new"));
+  projs.forEach((n, i) => {                              // the projects: a row on the near arc, facing you (the kinds of work are on the far one)
+    const a = Math.PI / 2 - (i - (projs.length - 1) / 2) * .46, r = 7.5;
+    n.fixed = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * .78);
+  });
   const cats = all.filter((n) => n.d.pool && n.d.kind === "skill");
   cats.forEach((n, i) => { const [a, r] = CAT_POS[n.d.cat] || [i / cats.length * TAU, 8.4]; n.fixed = new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * .78); });
   applyPins();
@@ -5156,7 +5192,7 @@ function select(n, mode = "click") {
   }
   if (n.d.pool) {                                                          // the agents side: show that agent / that kind of work
     n.flash = 1; ripple(n.pos, 1.2, GOLD);
-    window.dispatchEvent(new CustomEvent("pga:poolpick", { detail: { id: n.id, agent: n.d.agent, cat: n.d.cat } }));
+    window.dispatchEvent(new CustomEvent("pga:poolpick", { detail: { id: n.id, agent: n.d.agent, cat: n.d.cat, project: n.d.project } }));
     return;
   }
   // first click zooms in; a click on the body already zoomed to (or a double-click) shows / folds the bars

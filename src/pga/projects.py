@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from pga.db.models import AgentRun, Project
+from pga.db.models import AgentRun, Project, User
 from pga.db.types import utcnow
 
 if TYPE_CHECKING:
@@ -50,22 +50,36 @@ def check_path(raw: str, home: Path | None = None) -> Path:
 
 
 class Projects:
+    """A project is a folder on this Mac, so every (non-demo) account on it sees the same projects — the browser you
+    happen to open PGA in decides which account you are, not which folders exist. A demo account sees only its own."""
+
     def __init__(self, session: "Session"):
         self.session = session
 
+    def owners(self, user_id: uuid.UUID) -> list[uuid.UUID]:
+        me = self.session.get(User, user_id)
+        if me is None or (me.preferences or {}).get("demo"):
+            return [user_id]
+        return [u.id for u in self.session.scalars(select(User)) if not (u.preferences or {}).get("demo")]
+
     def list(self, user_id: uuid.UUID) -> list[Project]:
-        return list(self.session.scalars(select(Project).where(Project.user_id == user_id)
-                                         .order_by(Project.last_used_at.desc().nulls_last(), Project.created_at.desc())))
+        out, seen = [], set()
+        for p in self.session.scalars(select(Project).where(Project.user_id.in_(self.owners(user_id)))
+                                      .order_by(Project.last_used_at.desc().nulls_last(), Project.created_at.desc())):
+            if p.path not in seen:                             # the same folder added from two accounts: shown once
+                seen.add(p.path)
+                out.append(p)
+        return out
 
     def get(self, user_id: uuid.UUID, pid: uuid.UUID) -> Project:
         p = self.session.get(Project, pid)
-        if p is None or p.user_id != user_id:
+        if p is None or p.user_id not in self.owners(user_id):
             raise ProjectError("没有这个项目")
         return p
 
     def create(self, user_id: uuid.UUID, *, path: str, name: str = "", notes: str = "", full_access: bool = False) -> Project:
         folder = check_path(path)
-        if self.session.scalar(select(Project).where(Project.user_id == user_id, Project.path == str(folder))):
+        if self.session.scalar(select(Project).where(Project.user_id.in_(self.owners(user_id)), Project.path == str(folder))):
             raise ProjectError("这个文件夹已经是一个项目了")
         p = Project(user_id=user_id, name=(name or folder.name).strip()[:120], path=str(folder), notes=notes[:2000],
                     full_access=bool(full_access), created_at=utcnow())
@@ -92,7 +106,7 @@ class Projects:
 
     def activity(self, p: Project, limit: int = 40) -> list[dict]:
         """Which agents worked in this project, newest first (from the ledger)."""
-        rows = self.session.scalars(select(AgentRun).where(AgentRun.user_id == p.user_id, AgentRun.parent_id.is_(None),
+        rows = self.session.scalars(select(AgentRun).where(AgentRun.user_id.in_(self.owners(p.user_id)), AgentRun.parent_id.is_(None),
                                                            AgentRun.workflow == "ask")
                                     .order_by(AgentRun.started_at.desc()).limit(800))
         out = []

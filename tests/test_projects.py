@@ -67,3 +67,25 @@ def test_any_agent_works_in_the_project_and_who_did_what_is_kept(rt, user, provi
     assert auto["agent"] == "alpha"
     acts = ps.activity(p)
     assert [x["agent"] for x in acts] == ["alpha", "beta", "alpha"] and all(x["full"] for x in acts)
+
+
+def test_projects_are_the_macs_folders_seen_from_every_local_account(rt, user, policy, tmp_path):
+    from datetime import datetime, timezone
+    from pga.db.models import Project, User
+    other = User(locale="zh-CN", timezone="Asia/Shanghai", permission_policy_id=user.permission_policy_id, preferences={})
+    demo = User(locale="zh-CN", timezone="Asia/Shanghai", permission_policy_id=user.permission_policy_id, preferences={"demo": True})
+    rt.session.add_all([other, demo])
+    rt.session.flush()
+    p = Project(user_id=user.id, name="PGA", path=str(tmp_path), created_at=datetime.now(timezone.utc))
+    rt.session.add(p)
+    rt.session.flush()
+    ps = Projects(rt.session)
+    assert [x.name for x in ps.list(other.id)] == ["PGA"]                 # another browser, same Mac: same projects
+    assert ps.get(other.id, p.id) is p
+    assert ps.list(demo.id) == []                                          # the demo sees none of your folders
+    with pytest.raises(ProjectError):
+        ps.get(demo.id, p.id)
+    dup = Project(user_id=other.id, name="PGA again", path=str(tmp_path), created_at=datetime.now(timezone.utc))
+    rt.session.add(dup)
+    rt.session.flush()
+    assert len(ps.list(user.id)) == 1                                      # the same folder twice is shown once
