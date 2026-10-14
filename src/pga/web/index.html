@@ -268,6 +268,8 @@ dialog.settings::backdrop { background: rgba(8, 6, 4, .62); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 8px); color: #2a231d; padding: 9px 16px; border-radius: 5px 10px 7px 9px; font-size: 13px; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100vw - 32px); z-index: 99; box-shadow: 0 10px 30px rgba(0,0,0,.45);
   background: var(--tex), linear-gradient(#e2dccf, #d0c9bc); background-blend-mode: soft-light, normal; background-size: 360px, auto; }
 .toast.on { opacity: 1; transform: translate(-50%, 0); }
+.newver { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 98; padding: 6px 14px; border: 1px solid rgba(233,169,75,.7);
+  background: rgba(20,16,10,.92); color: #f3d38a; font-size: 12.5px; cursor: pointer; letter-spacing: .04em; }
 
 /* ---------------------------------------------------------------- Agent Atlas: a light fog-grey canvas — the other side of the painting */
 .hub { --paper: #2b2520; --gold: #b5381f; --rose: #335749; --sage: #335749; --hline: rgba(75, 64, 56, .2); --hmuted: #6c6258;
@@ -1471,11 +1473,30 @@ async function boot() {
   await Promise.all([loadConversation(), loadNotes(), loadPressure(), loadGraph()]);
   renderSide();
   if (SET.start === "agents") openStartView();
+  watchVersion();
   setInterval(loadPressure, 4000);
   setInterval(loadGraph, 8000);
   setInterval(() => { loadResps(); loadNotes().then(() => S.tab === "notes" && renderSide()); }, 15000);
 }
 
+/* a page left open keeps running the old code after PGA is updated: notice, and refresh when you are not in the middle of something */
+const UIV = { at: null };
+function quietNow() {
+  if (CARD.busy || document.querySelector("dialog[open]")) return false;
+  return ![...document.querySelectorAll("textarea, input[type=text], input[type=password], input:not([type])")].some((x) => x.value && x.value.trim());
+}
+async function watchVersion() {
+  try { UIV.at = (await api("/v1/version")).ui; } catch { return; }
+  setInterval(async () => {
+    let v; try { v = (await api("/v1/version")).ui; } catch { return; }
+    if (!v || v === UIV.at) return;
+    if (quietNow()) { toast("PGA 已更新，正在刷新…"); setTimeout(() => location.reload(), 900); return; }
+    if (!$("#newVersion")) {
+      document.body.insertAdjacentHTML("beforeend", `<button type="button" id="newVersion" class="newver">PGA 有新版本 · 点这里刷新</button>`);
+      $("#newVersion").onclick = () => location.reload();
+    }
+  }, 20000);
+}
 async function openStartView() {                     // open on the dispatch constellation (Settings → 打开时先看)
   for (let i = 0; i < 40 && !AGM.on; i++) {         // the 3D scene loads as its own module: wait until it can turn over
     if (window.PGA_FLIP_TO && !AGM.busy) await enterAgentMode();

@@ -137,6 +137,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def web_app() -> FileResponse:
         return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html")
 
+    WEB = Path(__file__).resolve().parent.parent / "web"
+
+    @app.get("/v1/version", include_in_schema=False)
+    def web_version() -> dict:
+        """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
+        st = (WEB / "index.html").stat()
+        return {"ui": f"{int(st.st_mtime)}-{st.st_size}"}
+
     ICONS = Path(__file__).resolve().parent.parent / "web" / "icons"
 
     @app.get("/icons/{name}", include_in_schema=False)
