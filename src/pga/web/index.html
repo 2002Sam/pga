@@ -707,6 +707,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-talk .tk-opts .editing { color: #f3d38a; }
 .ag-talk .tk-opts button.stop { color: #f08a7a; }
 .ag-talk .tk-opts .trbtn.on { color: #f3d38a; }
+.ag-talk .tk-opts .fullsw { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; } .ag-talk .tk-opts .fullsw input { width: auto; margin: 0; accent-color: #f08a7a; }
+.ag-talk .tk-opts .fullsw.on { color: #f08a7a; }
 .ag-proj { display: none; } .ag-proj.show { display: block; }
 #app.talking .ag-proj { display: none !important; }
 .ag-proj .pj { padding: 10px 0; border-top: 1px solid rgba(233,169,75,.16); }
@@ -2071,7 +2073,8 @@ function renderOpts() {
   const lead = (CARD.busy ? `<button type="button" class="stop" data-opt="stop" title="停止生成：保留已经写出的部分">■ 停止</button>` : "")
     + (CARD.editAt != null ? `<span class="editing">正在修改第 ${CARD.editAt + 1} 条 · 发送后从这里重新开始 <button type="button" data-opt="unedit">取消</button></span>` : "");
   const pk = cardK(), pid = PROJ.choice[pk], plist = PROJ.list || [];
-  const proj = `<label title="在哪个项目里工作（和用哪个 agent 无关）">项目<select data-opt="project"><option value="">无</option>${plist.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(p.name)}${p.full_access ? " · 完整" : " · 只读"}</option>`).join("")}<option value="__new">＋ 添加项目…</option></select></label>`;
+  const proj = `<label title="在哪个项目里工作（和用哪个 agent 无关）">项目<select data-opt="project"><option value="">无</option>${plist.map((p) => `<option value="${p.id}" ${p.id === pid ? "selected" : ""}>${esc(p.name)}${p.full_access ? " · 完整" : " · 只读"}</option>`).join("")}<option value="__new">＋ 添加项目…</option></select></label>`
+    + (() => { const cp = plist.find((p) => p.id === pid); return cp ? `<label class="fullsw ${cp.full_access ? "on" : ""}" title="打开后，agent 可以在「${esc(cp.name)}」里执行命令、修改文件、用你的 MCP 工具，就像在终端里用它（这个项目的所有对话都适用，可随时关掉）"><input type="checkbox" data-opt="projfull" ${cp.full_access ? "checked" : ""}>完整权限</label>` : ""; })();
   const tr = `<button type="button" class="trbtn ${trOn() ? "on" : ""}" data-opt="tr" title="翻译：你用中文输入，会先翻成英文再发给 agent；它的回答会一边生成一边翻成中文（可随时看英文原文）">译 中⇄英${trOn() ? " · 开" : ""}</button>`;
   $("#agTalkInput").placeholder = trOn() ? "用中文输入，会翻成英文发出；回答会译成中文（Enter 发送）"
     : CARD.kind === "cat" ? `问一个${CAT_ZH[CARD.key] || CARD.key}问题…（Enter 发送）` : `问 ${CARD.key}…（Enter 发送，Shift+Enter 换行）`;
@@ -2492,7 +2495,7 @@ function bindAgentView() {
   tin.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#agTalkAsk").requestSubmit(); } });
   tin.addEventListener("input", () => { tin.style.height = "auto"; tin.style.height = Math.min(150, tin.scrollHeight) + "px"; });
   tin.addEventListener("paste", (e) => { const fs = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type)); if (fs.length) { e.preventDefault(); addPics(fs); } });
-  talk.addEventListener("change", (e) => {
+  talk.addEventListener("change", async (e) => {
     const t = e.target; if (!CARD.kind) return;
     if (t.id === "agTalkFile") { addPics(t.files); t.value = ""; return; }
     if (t.dataset.opt === "project") {
@@ -2503,6 +2506,18 @@ function bindAgentView() {
       if (p) PROJ.ok[key + p.id] = true;
       if (v) PROJ.choice[key] = v; else delete PROJ.choice[key];
       try { store.set("pga_card_project", JSON.stringify(PROJ.choice)); } catch {} renderCard(); return;
+    }
+    if (t.dataset.opt === "projfull") {               // full access for the chosen project, from inside the talk
+      const key = cardK(), p = (PROJ.list || []).find((x) => x.id === PROJ.choice[key]); if (!p) return;
+      const on = t.checked;
+      if (on && !confirm(`完整权限：在「${p.name}」（${p.path}）里，agent 可以执行命令、修改文件，并使用你的 MCP 工具。\n这个项目的所有对话都会这样，可以随时在这里关掉。确定打开吗？`)) { t.checked = false; return; }
+      try {
+        await api(`/v1/users/${S.uid}/projects/${p.id}`, { method: "PATCH", body: { full_access: on } });
+        if (on) PROJ.ok[key + p.id] = true;
+        await loadProjects(); renderCard();
+        toast(on ? `已打开完整权限：下一条消息起，agent 可以在「${p.name}」里改文件、跑命令` : `「${p.name}」回到只读`);
+      } catch (err) { t.checked = !on; toast("没能保存：" + err.message); }
+      return;
     }
     if (t.dataset.opt === "model" || t.dataset.opt === "effort") {
       const c = (OPTS.choice[CARD.key] ||= {}); c[t.dataset.opt] = t.value || ""; if (t.dataset.opt === "model") c.effort = "";
