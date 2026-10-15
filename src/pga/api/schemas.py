@@ -53,6 +53,7 @@ class BridgeIn(BaseModel):
     a: str = Field(min_length=1, max_length=80)   # graph refs: an agent id, "k:<body id>" or "aim:<aim id>"
     b: str = Field(min_length=1, max_length=80)
     note: str = Field("", max_length=500)
+    kind: str = Field("relates", max_length=16)   # relates | references | derived_from | depends_on | contradicts
 
 
 class LayersBuildIn(BaseModel):

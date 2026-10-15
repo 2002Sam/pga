@@ -259,6 +259,9 @@ class Bridge(Base):
     a_ref: Mapped[str] = mapped_column(String(80), nullable=False)
     b_ref: Mapped[str] = mapped_column(String(80), nullable=False)
     note: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # what the line means — so the workspace is something agents can act on, not only a picture:
+    # relates | references | derived_from | depends_on | contradicts
+    kind: Mapped[str] = mapped_column(String(16), default="relates", server_default="relates", nullable=False)
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (UniqueConstraint("user_id", "a_ref", "b_ref", name="uq_bridge_pair"), Index("ix_bridges_user", "user_id"))

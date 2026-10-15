@@ -85,7 +85,7 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
                                 .order_by(AgentRun.started_at.desc()).limit(200)):
         cid = (r.data or {}).get("conversation") or f"run:{r.id}"
         c = convs.setdefault(cid, {"agent": (r.data or {}).get("agent") or r.agent, "title": " ".join((r.prompt or "").split())[:60],
-                                   "turns": 0, "at": r.started_at})
+                                   "turns": 0, "at": r.started_at, "folder": ((r.data or {}).get("project") or {}).get("id")})
         c["turns"] += 1
         c["title"] = " ".join((r.prompt or "").split())[:60] or c["title"]       # the first thing you said
     for cid, c in list(convs.items())[:14]:
@@ -93,6 +93,9 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
         add({"id": f"cv:{cid}"[:180], "kind": "conv", "label": c["title"] or "对话", "agent": c["agent"], "parent": parent,
              "conversation": cid, "turns": c["turns"], "at": c["at"].isoformat()})
         links.append({"source": parent, "target": f"cv:{cid}"[:180], "kind": "conv"})
+        if c.get("folder"):                                      # it worked in this folder
+            links.append({"source": f"cv:{cid}"[:180], "target": f"fd:{c['folder']}", "kind": "rel", "rel": "references"})
+    added_q: list[dict] = []
     for q in rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind == "question",
                                                       AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None),
                                                       (AimNote.status.in_(["open", "for_you"])) | (AimNote.created_at >= since))
@@ -104,6 +107,21 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
         for who in {q.agent, d.get("answered_by")} - {None}:     # the agents who asked and answered it
             if who in model_node:
                 links.append({"source": model_node[who], "target": qid, "kind": "talk"})
+        if d.get("parent"):                                      # a follow-up depends on the question it came from
+            parent_q = next((n["id"] for n in added_q if n.get("code") == d["parent"]), None)
+            if parent_q:
+                links.append({"source": qid, "target": parent_q, "kind": "rel", "rel": "depends_on"})
+        added_q.append({"id": qid, "code": d.get("code")})
+    # knowledge: what the agents found out — each answer an object derived from its question
+    for n in rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind.in_(["answer", "insight"]),
+                                                      AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None))
+                                .order_by(AimNote.created_at.desc()).limit(18)):
+        d = n.data or {}
+        kid = f"kn:{n.id}"
+        add({"id": kid, "kind": "knowledge", "label": n.text[:90], "aim": f"aim:{n.aim_id}", "code": d.get("code"),
+             "note": str(n.id), "proposal": d.get("proposal")})
+        src = next((x["id"] for x in added_q if x.get("code") and x.get("code") == d.get("code")), None)
+        links.append({"source": kid, "target": src or f"aim:{n.aim_id}", "kind": "rel", "rel": "derived_from" if src else "relates"})
 
 
 def create_app(session_factory: sessionmaker[Session] | None = None,
@@ -337,7 +355,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 "created_at": b.created_at}
 
     def bridge_out(br) -> dict:
-        return {"id": br.id, "a": br.a_ref, "b": br.b_ref, "note": br.note, "created_at": br.created_at}
+        return {"id": br.id, "a": br.a_ref, "b": br.b_ref, "note": br.note, "kind": br.kind, "created_at": br.created_at}
 
     @app.get("/v1/users/{user_id}/bodies")
     def list_bodies(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
@@ -403,7 +421,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.post("/v1/users/{user_id}/bridges", status_code=201)
     def create_bridge(user_id: uuid.UUID, body: sc.BridgeIn, rt: Runtime = Depends(get_rt)):
         user_or_404(rt, user_id)
-        return bridge_out(BodyService(rt).bridge(user_id, body.a, body.b, body.note))
+        return bridge_out(BodyService(rt).bridge(user_id, body.a, body.b, body.note, body.kind))
 
     @app.delete("/v1/bridges/{bridge_id}", status_code=204)
     def delete_bridge(bridge_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
@@ -921,7 +939,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             links.append({"source": f"aim:{p.aim_id}" if p.aim_id in aim_ids else "you", "target": f"fd:{p.id}", "kind": "folder"})
         for br in bodies.bridges(user_id):
             if br.a_ref in seen and br.b_ref in seen:
-                links.append({"source": br.a_ref, "target": br.b_ref, "kind": "bridge", "id": str(br.id), "note": br.note})
+                links.append({"source": br.a_ref, "target": br.b_ref, "kind": "bridge", "id": str(br.id), "note": br.note, "rel": br.kind})
 
         # the information pyramid: each item's gist (L1) for labels, and whether its pyramid is built
         layered = [n for n in nodes if n.get("kind") in ("aim", "agent", "database", "skill") and not n.get("placeholder")]

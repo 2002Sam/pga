@@ -465,15 +465,8 @@ function renderMini() {
   let out = `<ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r1}" ry="${r1 * SQ}"/><ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r2}" ry="${r2 * SQ}"/>`;
   const A = aims.map((a, i) => [a, ...pos(i, aims.length, r2, -Math.PI / 2)]);
   const G = agents.map((a, i) => [a, ...pos(i, agents.length, r1, -Math.PI / 2 + .4)]);
-  for (const [a, x, y] of A) for (const w of a.task?.working || []) { const g = G.find(([b]) => b.name === w.agent); if (g) out += `<line class="ln lit" x1="${g[1]}" y1="${g[2]}" x2="${x}" y2="${y}"/>`; }
+  for (const [a, x, y] of A) if (a.task?.working?.length) out += `<line class="ln lit" x1="${cx}" y1="${cy}" x2="${x}" y2="${y}"/>`;
   out += `<g class="nd you ${cur === "you" ? "is-cur" : ""}" data-mini="me" transform="translate(${cx},${cy})"><title>我 · 直接让 agent 做事</title><circle class="body" r="5"/>${cur === "you" ? `<circle class="cur" r="11"/>` : ""}<text y="17">我</text></g>`;
-  for (const [a, x, y] of G) {
-    const q = a.quota || {}, rem = q.remaining != null ? Math.max(0, Math.min(1, q.remaining)) : null, R = 5, ra = R + 2.6, id = "ag:" + a.name;
-    const arc = rem != null && rem > 0 ? (rem >= .999 ? `<circle class="rem" r="${ra}"/>` : (() => { const t = -Math.PI / 2 + rem * Math.PI * 2;
-      return `<path class="rem" d="M 0 ${-ra} A ${ra} ${ra} 0 ${rem > .5 ? 1 : 0} 1 ${(ra * Math.cos(t)).toFixed(2)} ${(ra * Math.sin(t)).toFixed(2)}"/>`; })()) : "";
-    out += `<g class="nd model ${a.enabled === false || a.available === false ? "off" : ""} ${live.has(a.name) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="agent:${esc(a.name)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-      <title>模型 · ${esc(a.name)}${live.has(a.name) ? " · 正在工作" : ""}</title><circle class="run" r="${R}"/><polygon class="body" points="0,${-R - 1} ${R + 1},0 0,${R + 1} ${-R - 1},0"/>${arc}${cur === id ? `<circle class="cur" r="${R + 6}"/>` : ""}<text y="${R + 12}">${esc(a.name)}</text></g>`;
-  }
   for (const [a, x, y] of A) {
     const id = "aim:" + a.id, short = a.text.length > 10 ? a.text.slice(0, 9) + "…" : a.text;
     out += `<g class="nd aim ${workingAims.has(a.id) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="aim:${a.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
@@ -537,6 +530,7 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
   if (d.kind === "user" || d.kind === "core") { setView("me", null, true); return go(); }
   if (d.kind === "folder" && d.project_id) { setView("folder", d.project_id, true); return go(); }
   if (d.kind === "conv" && d.id.startsWith("cq:") && d.parent?.startsWith("aim:")) { setView("aim", d.parent.slice(4), true); return go(); }
+  if (d.kind === "knowledge" && d.aim?.startsWith("aim:")) { setView("aim", d.aim.slice(4), true); return go(); }
   if (d.kind === "conv" && d.conversation) {                     // a conversation of yours: open it with its agent
     const ag = (C.data?.agents || []).find((x) => x.name === d.agent)?.name;
     if (ag) { setView("agent", ag, true); resumeConv(d.conversation, ag); return go(); }
@@ -565,19 +559,21 @@ async function loadOverview() {
 }
 /* the map shows the work: the models and conversations at work ripple; beads run between agents and what they discuss */
 let tellN = 0;
-function tellMap() {
+function tellMap() {                     // what is at work ripples; beads run along the relations between objects
   const g = C.graph?.nodes || [], has = (id) => g.some((n) => n.id === id);
   const ids = new Set(), pairs = [];
   for (const r of (C.live || []).filter((x) => x.running)) {
-    const m = mapNodeOf({ kind: "agent", id: r.agent }), tg = r.tags || {};
-    if (m) ids.add(m);
-    if (tg.conversation && has("cv:" + tg.conversation)) { ids.add("cv:" + tg.conversation); if (m) pairs.push([m, "cv:" + tg.conversation]); }
-    if (tg.question) {
-      const qid = "cq:" + tg.question; ids.add(qid); if (m) pairs.push([m, qid]);
-      const q = g.find((n) => n.id === qid), asker = q?.agent && mapNodeOf({ kind: "agent", id: q.agent });
-      if (asker && asker !== m) pairs.push([qid, asker]);                       // the answer goes back to who asked
-    } else if (tg.aim && m) pairs.push([m, "aim:" + tg.aim]);
-    if (tg.perpetual && tg.aim) ids.add("aim:" + tg.aim);
+    const tg = r.tags || {}, aim = tg.aim ? "aim:" + tg.aim : null, folder = tg.project ? "fd:" + tg.project : null;
+    if (tg.conversation && has("cv:" + tg.conversation)) {
+      const cv = "cv:" + tg.conversation; ids.add(cv);
+      if (folder && has(folder)) { ids.add(folder); pairs.push([cv, folder]); }      // a conversation working in a folder
+    }
+    if (tg.question && has("cq:" + tg.question)) {
+      const q = "cq:" + tg.question; ids.add(q);
+      if (aim) pairs.push([aim, q]);                                                 // the goal asks …
+      for (const k of g.filter((n) => n.kind === "knowledge" && n.aim === aim).slice(0, 2)) pairs.push([k.id, q]);   // … what is known feeds the answer
+      if (folder && has(folder)) pairs.push([folder, q]);
+    } else if (aim) { ids.add(aim); if (folder && has(folder)) pairs.push([folder, aim]); }
   }
   try {
     const w = $("#map").contentWindow;
@@ -703,8 +699,8 @@ function prefBar() {
   const rows = (d.rows || []).filter((r) => r.usable);
   return `<div class="prefbar"><div class="presets">${Object.entries(PRESETS).map(([k, [zh]]) => `<button class="${k === cur ? "on" : ""}" data-preset="${k}">${zh}</button>`).join("")}
       ${cur === "custom" ? `<span class="dim" style="font-size:11.5px">自定义权重（在设置里）</span>` : ""}</div>
-    <div class="prefs">${rows.map((r) => `<label title="${esc(r.agent)}：拖动设置你对它的偏好；目标份额 ${Math.round(r.share * 100)}%"><span>${esc(r.agent)}<b>${Math.round(r.share * 100)}%</b></span>
-      <input type="range" min="0" max="1" step="0.1" value="${r.parts.preference}" data-pref="${esc(r.agent)}" ${r.pinned ? "disabled" : ""}></label>`).join("") || `<span class="dim" style="font-size:12px">载入中…</span>`}</div></div>`;
+    ${C.folds.has("settings") ? `<div class="prefs">${rows.map((r) => `<label title="${esc(r.agent)}：拖动设置你对它的偏好；目标份额 ${Math.round(r.share * 100)}%"><span>${esc(r.agent)}<b>${Math.round(r.share * 100)}%</b></span>
+      <input type="range" min="0" max="1" step="0.1" value="${r.parts.preference}" data-pref="${esc(r.agent)}" ${r.pinned ? "disabled" : ""}></label>`).join("") || `<span class="dim" style="font-size:12px">载入中…</span>`}</div>` : ""}</div>`;
 }
 function settingsHtml(t) {
   return `<div class="settings">
@@ -968,13 +964,13 @@ function evHtml(e) {
   if (e.type === "run") {
     const open = C.open.has(e.id), d = C.details[e.id];
     return `<div class="ev run ${e.status !== "SUCCEEDED" ? "bad" : ""}">
-      <div class="h"><span class="k">${esc(STEP[e.step] || e.step_zh || e.step)}</span><b>${esc(e.agent)}</b>${e.role ? `<span>${esc(ROLE[e.role] || e.role)}</span>` : ""}<span>${esc(dur(e.duration_s))}</span>${e.status !== "SUCCEEDED" ? `<span style="color:var(--bad)">${esc(e.status)}</span>` : ""}${at}</div>
+      <div class="h"><span class="k">${esc(STEP[e.step] || e.step_zh || e.step)}</span><b title="${esc(e.agent)}">${esc(ROLE[e.role] || e.role || "agent")}</b><span>${esc(dur(e.duration_s))}</span>${e.status !== "SUCCEEDED" ? `<span style="color:var(--bad)">${esc(e.status)}</span>` : ""}${at}</div>
       <div class="b ${open ? "" : "clamp"}">${esc(e.error && !e.summary ? e.error : e.summary)}</div>
       <div class="more"><button class="ghost" data-open="${e.id}">${open ? "收起过程" : e.has_trace ? "看完整过程（读了什么、怎么想的）" : "看完整提示和回答"}</button></div>
       ${open ? `<div class="detail">${d ? detailHtml(d) : `<span class="dim">载入中…</span>`}</div>` : ""}</div>`;
   }
   const user = e.kind === "correction" || (e.kind === "question" && e.status === "for_you");
-  const by = e.agent ? `<b>${esc(e.agent)}</b>${e.role ? `<span>${esc(ROLE[e.role] || e.role)}</span>` : ""}` : e.kind === "correction" ? "<b>你</b>" : "";
+  const by = e.agent ? `<b title="${esc(e.agent)}">${esc(ROLE[e.role] || e.role || "agent")}</b>` : e.kind === "correction" ? "<b>你</b>" : "";
   const st = e.kind === "question" ? { open: "待研究", for_you: "等你回答", answered: "已回答", dropped: "已放下" }[e.status] || e.status : "";
   return `<div class="ev ${e.kind === "question" ? "q" : ""} ${user ? "user" : ""}">
     <div class="h"><span class="k">${esc(KIND[e.kind] || e.kind)}${e.data?.code ? " " + esc(e.data.code) : ""}</span>${by}${st ? `<span>${esc(st)}</span>` : ""}${at}</div>

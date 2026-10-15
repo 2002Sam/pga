@@ -22,6 +22,8 @@ from pga.db.models import Aim, Body, Bridge, Responsibility, User
 from pga.db.types import Origin, utcnow
 
 KINDS = ("database", "skill")
+# what a line between two objects means (an explicit relation, not just "these are near each other")
+RELATIONS = ("relates", "references", "derived_from", "depends_on", "contradicts")
 
 EXPAND_SYSTEM = f"""You help a person pursue a long-range ambition. Name the knowledge bases (databases) they should
 build up and the skills they should develop to get there. Be concrete and specific to this ambition; short titles
@@ -90,6 +92,13 @@ class BodyService:
             if ref.startswith("aim:"):
                 a = self.session.get(Aim, uuid.UUID(ref[4:]))
                 return a is not None and a.user_id == user_id
+            if ref.startswith("fd:"):                           # a project folder (shared across this Mac's accounts)
+                from pga.projects import ProjectError, Projects
+                try:
+                    Projects(self.session).get(user_id, uuid.UUID(ref[3:]))
+                    return True
+                except ProjectError:
+                    return False
             r = self.session.get(Responsibility, uuid.UUID(ref))
             return r is not None and r.user_id == user_id
         except ValueError:
@@ -98,17 +107,20 @@ class BodyService:
     def bridges(self, user_id: uuid.UUID) -> list[Bridge]:
         return list(self.session.scalars(select(Bridge).where(Bridge.user_id == user_id).order_by(Bridge.created_at)))
 
-    def bridge(self, user_id: uuid.UUID, a: str, b: str, note: str = "") -> Bridge:
+    def bridge(self, user_id: uuid.UUID, a: str, b: str, note: str = "", kind: str = "relates") -> Bridge:
         if a == b:
             raise BodyError("a body cannot be linked to itself")
+        if kind not in RELATIONS:
+            raise BodyError(f"a link is one of {', '.join(RELATIONS)}")
         for ref in (a, b):
             if not self._exists(user_id, ref):
                 raise BodyError(f"unknown body {ref!r}")
         a, b = sorted((a, b))
         found = self.session.scalar(select(Bridge).where(Bridge.user_id == user_id, Bridge.a_ref == a, Bridge.b_ref == b))
         if found:
+            found.kind = kind
             return found
-        br = Bridge(user_id=user_id, a_ref=a, b_ref=b, note=note[:500])
+        br = Bridge(user_id=user_id, a_ref=a, b_ref=b, note=note[:500], kind=kind)
         self.session.add(br)
         self.session.flush()
         return br

@@ -84,3 +84,19 @@ def test_expand_fills_an_ambition_with_databases_and_skills(client, provider):
     # asking again does not repeat what is already on the map
     provider.handler = lambda s, m: json.dumps({"databases": [{"title": "Agent papers"}], "skills": []})
     assert client.post(f"/v1/aims/{a1['id']}/expand").status_code == 422
+
+
+def test_links_say_what_they_mean(rt, user):
+    import pytest
+
+    from pga.aims import AimService
+    from pga.bodies import BodyError, BodyService
+
+    aim = AimService(rt.session).create(user, "世界模型", "World models")
+    svc = BodyService(rt)
+    a = svc.create(user, kind="database", title="论文库", title_en="Paper library", aim_id=aim.id)
+    br = svc.bridge(user.id, f"k:{a.id}", f"aim:{aim.id}", kind="derived_from")
+    assert br.kind == "derived_from"
+    assert svc.bridge(user.id, f"aim:{aim.id}", f"k:{a.id}", kind="contradicts").kind == "contradicts"   # same pair: updated
+    with pytest.raises(BodyError):
+        svc.bridge(user.id, f"k:{a.id}", f"aim:{aim.id}", kind="vibes")
