@@ -221,6 +221,30 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .ag { cursor: pointer; }
 .ag.sel { background: rgba(255,255,255,.035); box-shadow: inset 2px 0 0 var(--gold); }
 
+/* a folder: its tree and a file */
+.tree { font: 12.5px/1.75 var(--mono); border-left: 1px solid var(--line-2); padding-left: 8px; max-height: 60vh; overflow: auto; }
+.tree .row { display: flex; gap: 6px; align-items: baseline; cursor: pointer; white-space: nowrap; }
+.tree .row:hover { color: #fff3d6; }
+.tree .row.dir::before { content: "▸"; color: var(--muted); width: 10px; display: inline-block; }
+.tree .row.dir.open::before { content: "▾"; color: var(--gold); }
+.tree .row.file::before { content: ""; width: 10px; display: inline-block; }
+.tree .row.hid, .tree .row.heavy { color: var(--dim); }
+.tree .row.cur { color: var(--gold); }
+.tree .row small { color: var(--dim); margin-left: auto; padding-left: 12px; }
+.tree .sub { padding-left: 14px; }
+.fview { margin-top: 12px; min-width: 0; }
+#center { overflow-x: hidden; }
+.split > * { min-width: 0; }
+.fview pre { margin: 6px 0 0; padding: 10px 12px; border: 1px solid var(--line-2); max-height: 60vh; overflow: auto; font: 11.5px/1.6 var(--mono); white-space: pre; color: #d6d6d6; background: rgba(5,5,5,.6); }
+.split { display: grid; grid-template-columns: minmax(220px, 38%) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1180px) { .split { grid-template-columns: 1fr; } }
+.mini .nd.model .body { fill: #07090b; stroke: rgba(220,232,238,.8); }
+.mini .nd.folder .body { fill: #07090b; stroke: rgba(220,232,238,.7); }
+.mini .nd.folder.working .body { stroke: #e9a94b; }
+.mini .nd.dataset .body { fill: #e9e6df; stroke: none; }
+.mini .nd.dataset .band { fill: none; stroke: #2a2a2a; stroke-width: .8; }
+.proj { cursor: pointer; }
+
 /* agents */
 .ag { border-top: 1px solid var(--line); padding: 11px 16px 12px; }
 .ag .h { display: flex; gap: 8px; align-items: center; }
@@ -329,6 +353,7 @@ async function boot() {
 async function loadAll() {
   await loadOverview();
   if (C.view.kind === "aim") await loadProcess();
+  else if (C.view.kind === "folder") { renderCenter(); loadDir(C.view.id, "").catch(() => {}); }
   else { renderCenter(); loadHist(C.view.kind === "me" ? chat("me").agent : C.view.id).catch(() => {}); }
 }
 
@@ -341,12 +366,14 @@ function setView(kind, id, fromMap = false) {
   if (!fromMap) focusMap();
   renderAims(); renderAgents(); renderCenter(); renderMini();
   if (kind === "aim") loadProcess().catch(() => {});
-  if (kind !== "aim") loadHist(kind === "me" ? chat("me").agent : id).catch(() => {});
+  if (kind === "me" || kind === "agent") loadHist(kind === "me" ? chat("me").agent : id).catch(() => {});
+  if (kind === "folder") loadDir(id, "").catch(() => {});
 }
 function mapNodeOf(view) {
   if (!view) return null;
   if (view.kind === "aim") return "aim:" + view.id;
   if (view.kind === "me") return "you";
+  if (view.kind === "folder") return "fd:" + view.id;
   if (view.kind === "agent") {
     const a = (C.data?.agents || []).find((x) => x.name === view.id);
     const n = (C.graph?.nodes || []).find((x) => x.kind === "ai" && VENDOR_ADAPTER[x.vendor] === a?.adapter);
@@ -366,7 +393,7 @@ function renderMini() {
   const agents = (C.data.agents || []).filter((a) => a.name !== "?"), aims = C.data.aims || [];
   const live = new Set((C.live || []).filter((r) => r.running).map((r) => r.agent));
   const r1 = Math.min(W * .26, 70), r2 = Math.min(W * .45, 124);
-  const cur = C.view.kind === "me" ? "you" : C.view.kind === "agent" ? "ag:" + C.view.id : "aim:" + C.view.id;
+  const cur = C.view.kind === "me" ? "you" : C.view.kind === "agent" ? "ag:" + C.view.id : C.view.kind === "folder" ? "fd:" + C.view.id : "aim:" + C.view.id;
   const pos = (i, n, r, off = 0) => { const t = off + i / Math.max(1, n) * Math.PI * 2; return [cx + Math.cos(t) * r, cy + Math.sin(t) * r * SQ]; };
   const workingAims = new Set(aims.filter((a) => a.task?.working?.length).map((a) => a.id));
   let out = `<ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r1}" ry="${r1 * SQ}"/><ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r2}" ry="${r2 * SQ}"/>`;
@@ -378,13 +405,33 @@ function renderMini() {
     const q = a.quota || {}, rem = q.remaining != null ? Math.max(0, Math.min(1, q.remaining)) : null, R = 5, ra = R + 2.6, id = "ag:" + a.name;
     const arc = rem != null && rem > 0 ? (rem >= .999 ? `<circle class="rem" r="${ra}"/>` : (() => { const t = -Math.PI / 2 + rem * Math.PI * 2;
       return `<path class="rem" d="M 0 ${-ra} A ${ra} ${ra} 0 ${rem > .5 ? 1 : 0} 1 ${(ra * Math.cos(t)).toFixed(2)} ${(ra * Math.sin(t)).toFixed(2)}"/>`; })()) : "";
-    out += `<g class="nd ${a.enabled === false || a.available === false ? "off" : ""} ${live.has(a.name) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="agent:${esc(a.name)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
-      <title>${esc(a.name)}${live.has(a.name) ? " · 正在工作" : ""}</title><circle class="run" r="${R}"/><circle class="body" r="${R}"/>${arc}${cur === id ? `<circle class="cur" r="${R + 6}"/>` : ""}<text y="${R + 12}">${esc(a.name)}</text></g>`;
+    out += `<g class="nd model ${a.enabled === false || a.available === false ? "off" : ""} ${live.has(a.name) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="agent:${esc(a.name)}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
+      <title>模型 · ${esc(a.name)}${live.has(a.name) ? " · 正在工作" : ""}</title><circle class="run" r="${R}"/><polygon class="body" points="0,${-R - 1} ${R + 1},0 0,${R + 1} ${-R - 1},0"/>${arc}${cur === id ? `<circle class="cur" r="${R + 6}"/>` : ""}<text y="${R + 12}">${esc(a.name)}</text></g>`;
   }
   for (const [a, x, y] of A) {
     const id = "aim:" + a.id, short = a.text.length > 10 ? a.text.slice(0, 9) + "…" : a.text;
     out += `<g class="nd aim ${workingAims.has(a.id) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="aim:${a.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${esc(a.text)}</title><circle class="halo" r="12"/><circle class="run" r="7"/><circle class="body" r="7"/>${cur === id ? `<circle class="cur" r="15"/>` : ""}<text y="-17">${esc(short)}</text></g>`;
+  }
+  for (const [a, x, y] of A) {                                      // its folders (box with a tab) and datasets (drums), close by
+    const fs = a.projects || [], ds = (C.graph?.nodes || []).filter((n) => n.kind === "database" && n.aim === "aim:" + a.id);
+    const items = [...fs.map((p) => ["fd", p]), ...ds.map((d) => ["ds", d])], n = items.length;
+    items.forEach(([k, it], i) => {
+      const t = Math.PI * (.15 + .7 * (n === 1 ? .5 : i / (n - 1))), px = x + Math.cos(t) * 26, py = y + Math.sin(t) * 16;
+      if (k === "fd") {
+        const id = "fd:" + it.id;
+        out += `<g class="nd folder ${it.state === "running" ? "working" : ""} ${it.working ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="folder:${it.id}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})">
+          <title>文件夹 · ${esc(it.name)}</title><circle class="run" r="5"/><path class="body" d="M -6 -3 L -6 4 L 6 4 L 6 -3 L 0 -3 L -1.5 -5 L -6 -5 Z"/>${cur === id ? `<circle class="cur" r="10"/>` : ""}<text y="14">${esc(it.name.length > 8 ? it.name.slice(0, 7) + "…" : it.name)}</text></g>`;
+      } else {
+        out += `<g class="nd dataset" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><title>数据集 · ${esc(it.label)}</title>
+          <rect class="body" x="-4.5" y="-5" width="9" height="10" rx="4.5" ry="2.5"/><path class="band" d="M -4.5 -1 Q 0 1.5 4.5 -1 M -4.5 2 Q 0 4.5 4.5 2"/><text y="15">${esc(it.label.length > 8 ? it.label.slice(0, 7) + "…" : it.label)}</text></g>`;
+      }
+    });
+  }
+  for (const p of C.data.free_projects || []) {                     // free folders: near you
+    const i = (C.data.free_projects || []).indexOf(p), t = Math.PI * (.6 + i * .35), px = cx + Math.cos(t) * (r1 * .55), py = cy + Math.sin(t) * (r1 * .55) * SQ, id = "fd:" + p.id;
+    out += `<g class="nd folder ${cur === id ? "is-cur" : ""}" data-mini="folder:${p.id}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><title>自由文件夹 · ${esc(p.name)}</title>
+      <path class="body" d="M -6 -3 L -6 4 L 6 4 L 6 -3 L 0 -3 L -1.5 -5 L -6 -5 Z"/>${cur === id ? `<circle class="cur" r="10"/>` : ""}</g>`;
   }
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px"; svg.innerHTML = out;
 }
@@ -422,6 +469,7 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
   const go = () => { document.body.classList.remove("sky"); renderMini(); };
   if (d.kind === "aim" && d.aim_id) { setView("aim", d.aim_id, true); return go(); }
   if (d.kind === "user" || d.kind === "core") { setView("me", null, true); return go(); }
+  if (d.kind === "folder" && d.project_id) { setView("folder", d.project_id, true); return go(); }
   if (d.kind === "ai") {
     const a = (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor] && x.enabled !== false) || (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor]);
     if (a) { setView("agent", a.name, true); return go(); }
@@ -431,6 +479,7 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
 function renderCenter() {
   if (C.view.kind === "me") return renderMe();
   if (C.view.kind === "agent") return renderAgentView(C.view.id);
+  if (C.view.kind === "folder") return renderFolder(C.view.id);
   return renderProcess();
 }
 async function loadOverview() {
@@ -467,7 +516,7 @@ function runBtn(p, big) {
 function projRow(p) {
   const [zh, cls] = STATE[p.state] || STATE.idle;
   const note = p.state === "running" && p.phase_zh ? p.phase_zh : zh;
-  return `<div class="proj"><span class="dot ${p.working ? "on" : cls === "on" ? "ok" : ""}"></span>
+  return `<div class="proj" data-folder="${p.id}"><span class="dot ${p.working ? "on" : cls === "on" ? "ok" : ""}"></span>
     <div class="n">${esc(p.name)}<small>${esc(note)} · ${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</small></div>${runBtn(p)}</div>`;
 }
 function renderAims() {
@@ -540,7 +589,8 @@ function renderProcess() {
 /* ------------------------------------------------ 我 and each agent: a conversation, what they are doing, their past */
 
 function chat(key) {
-  const c = (C.chats[key] ||= { agent: key === "me" ? (store.get("pga_console_agent") || "auto") : key.slice(6), conv: null, log: [], project: null });
+  const c = (C.chats[key] ||= key.startsWith("folder:") ? { agent: store.get("pga_console_agent") || "claude", conv: null, log: [], project: key.slice(7) }
+    : { agent: key === "me" ? (store.get("pga_console_agent") || "auto") : key.slice(6), conv: null, log: [], project: null });
   if (!c.conv) c.conv = (c.agent === "auto" ? "cat:serious" : "agent:" + c.agent) + ":console-" + Math.random().toString(36).slice(2, 10);
   return c;
 }
@@ -552,7 +602,7 @@ function chatHtml(key) {
     <div class="talk" style="margin-top:12px"><textarea id="chatText" data-chatkey="${key}" placeholder="要它做什么，或问它什么（⌘/Ctrl + Enter 发送）">${esc(C.drafts["chat:" + key] || "")}</textarea>
     <div class="row"><span class="grow">${proj ? (proj.full_access ? `在「${esc(proj.name)}」里 · 完整权限：可以改文件、跑命令` : `在「${esc(proj.name)}」里 · 只读`) : "不在任何项目文件夹里"}</span>
       <select data-chatproj="${key}"><option value="">不选项目</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
-      ${key === "me" ? `<select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
+      ${key === "me" || key.startsWith("folder:") ? `<select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       <button class="ghost" data-chatnew="${key}" title="开始一段新对话">新对话</button>
       <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
 }
@@ -644,6 +694,54 @@ async function resumeConv(id, agent) {
     c.log = (r.messages || []).map((m) => m.role === "user" ? { role: "user", text: m.text } : { role: "agent", agent: m.agent, model: m.model, text: m.text, error: m.ok === false ? m.error : null });
     c.conv = id; if (key === "me") c.agent = agent; saveChats(); renderCenter();
   } catch (err) { toast("没能打开：" + err.message); }
+}
+
+/* ------------------------------------------------ a folder: what it serves, whether it is worked on, and what is inside */
+
+C.tree = {};
+function tree(pid) { return (C.tree[pid] ||= { dirs: {}, open: new Set([""]), file: null }); }
+async function loadDir(pid, path) {
+  const t = tree(pid);
+  try { t.dirs[path] = await api(`/v1/users/${C.uid}/projects/${pid}/tree?path=${encodeURIComponent(path)}`); }
+  catch (err) { t.dirs[path] = { error: err.message, entries: [] }; }
+  if (C.view.kind === "folder" && C.view.id === pid) renderFolder(pid);
+}
+async function toggleDir(pid, path) {
+  const t = tree(pid);
+  if (t.open.has(path) && path) { t.open.delete(path); return renderFolder(pid); }
+  t.open.add(path);
+  if (!t.dirs[path]) await loadDir(pid, path); else renderFolder(pid);
+}
+async function openFile(pid, path) {
+  const t = tree(pid); t.file = { path, loading: true }; renderFolder(pid);
+  try { t.file = await api(`/v1/users/${C.uid}/projects/${pid}/file?path=${encodeURIComponent(path)}`); }
+  catch (err) { t.file = { path, error: err.message }; }
+  if (C.view.kind === "folder" && C.view.id === pid) renderFolder(pid);
+}
+const kb = (n) => n == null ? "" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
+function dirHtml(pid, path) {
+  const t = tree(pid), d = t.dirs[path];
+  if (!d) return `<div class="dim">载入中…</div>`;
+  if (d.error) return `<div style="color:var(--bad)">${esc(d.error)}</div>`;
+  return d.entries.map((e) => e.dir
+    ? `<div class="row dir ${t.open.has(e.path) ? "open" : ""} ${e.hidden ? "hid" : ""} ${e.heavy ? "heavy" : ""}" data-tdir="${esc(e.path)}">${esc(e.name)}/</div>${t.open.has(e.path) ? `<div class="sub">${dirHtml(pid, e.path)}</div>` : ""}`
+    : `<div class="row file ${e.hidden ? "hid" : ""} ${t.file?.path === e.path ? "cur" : ""}" data-tfile="${esc(e.path)}">${esc(e.name)}<small>${kb(e.size)}</small></div>`).join("")
+    + (d.truncated ? `<div class="dim">（只显示前 500 项）</div>` : "") || `<div class="dim">（空文件夹）</div>`;
+}
+function renderFolder(pid) {
+  const p = allProjects().find((x) => x.id === pid);
+  if (!p) { $("#proc").innerHTML = `<div class="idle">没有这个文件夹。</div>`; return; }
+  const aim = (C.data?.aims || []).find((a) => a.id === p.aim_id), t = tree(pid), f = t.file;
+  const [zh] = STATE[p.state] || STATE.idle;
+  $("#proc").innerHTML = `<div class="selhead"><span class="k">文件夹</span><h1>${esc(p.name)}</h1>${p.aim_id ? runBtn(p, true) : ""}</div>
+    <div class="meta"><span class="mono">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</span><span>${p.full_access ? "完整权限：agent 可以改文件、跑命令" : "只读：agent 只能读"}</span></div>
+    <div class="meta">${aim ? `<span>服务于抱负 <b><a href="#" data-goaim="${aim.id}">${esc(aim.text)}</a></b></span><span>${esc(p.state === "running" && p.phase_zh ? p.phase_zh : zh)}</span>` : `<span>自由文件夹：不属于任何抱负（在完整星空 → 项目里选「属于」）</span>`}</div>
+    <h2>文件 <small>点文件夹展开，点文件查看（只读）</small></h2>
+    <div class="split"><div class="tree">${dirHtml(pid, "")}</div>
+      <div class="fview">${!f ? `<div class="dim" style="font-size:12.5px">在左边点一个文件。</div>` : f.loading ? `<div class="dim">载入中…</div>`
+        : f.error ? `<div style="color:var(--bad)">${esc(f.error)}</div>`
+        : `<span class="cap">${esc(f.path)} · ${kb(f.size)}${f.truncated ? " · 只显示前 200 KB" : ""}</span>${f.secret ? `<div class="dim" style="margin-top:6px">这个文件可能包含密钥或令牌，不在屏幕上显示。</div>` : f.binary ? `<div class="dim" style="margin-top:6px">二进制文件，不显示内容。</div>` : `<pre>${esc(f.text)}</pre>`}`}</div></div>
+    <h2>在这里让它做</h2>${chatHtml("folder:" + pid)}`;
 }
 
 function cpHtml(cp) {
@@ -760,6 +858,7 @@ document.addEventListener("click", (e) => {                          // the smal
   const g = e.target.closest?.("[data-mini]"); if (!g) return;
   const v = g.dataset.mini;
   if (v === "me") setView("me", null); else if (v.startsWith("agent:")) setView("agent", v.slice(6)); else if (v.startsWith("aim:")) setView("aim", v.slice(4));
+  else if (v.startsWith("folder:")) setView("folder", v.slice(7));
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(e.target.dataset.chatkey); }
@@ -777,7 +876,7 @@ document.addEventListener("change", async (e) => {
   }
 });
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("button, .aim[data-aim], .aim[data-me], .ag[data-ag]");
+  const t = e.target.closest("button, a[data-goaim], .proj[data-folder], .aim[data-aim], .aim[data-me], .ag[data-ag], .row[data-tdir], .row[data-tfile]");
   if (!t) return;
   try {
     if (t.dataset.run) {
@@ -793,10 +892,14 @@ document.addEventListener("click", async (e) => {
     }
     if (t.dataset.aim && !e.target.closest("button")) { setView("aim", t.dataset.aim); return; }
     if (t.dataset.me && !e.target.closest("button")) { setView("me", null); return; }
+    if (t.dataset.folder && !e.target.closest("button")) { setView("folder", t.dataset.folder); return; }
+    if (t.dataset.tdir != null) { await toggleDir(C.view.id, t.dataset.tdir); return; }
+    if (t.dataset.tfile != null) { await openFile(C.view.id, t.dataset.tfile); return; }
     if (t.dataset.ag && !e.target.closest("button")) { setView("agent", t.dataset.ag); return; }
     if (t.id === "toSky") { toSky(); return; }
     if (t.id === "toDesk") { toDesk(); return; }
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
+    if (t.dataset.goaim) { e.preventDefault(); setView("aim", t.dataset.goaim); return; }
     if (t.dataset.chatnew) { const c = chat(t.dataset.chatnew); c.log = []; c.conv = null; chat(t.dataset.chatnew); saveChats(); renderCenter(); return; }
     if (t.dataset.resume) { await resumeConv(t.dataset.resume, t.dataset.agent); return; }
     if (t.dataset.open) {

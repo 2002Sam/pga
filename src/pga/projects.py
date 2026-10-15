@@ -11,6 +11,7 @@ read back from the ledger.
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -170,3 +171,60 @@ def changed_files(folder: str, since: float, cap: int = 20000) -> list[str]:
             if len(out) >= 20 or seen >= cap:
                 break
     return sorted(out)[:20]
+
+
+# ---------------------------------------------------------------- looking inside (read-only)
+
+MAX_ENTRIES = 500
+MAX_FILE_BYTES = 200_000
+
+
+def _inside(p: Project, rel: str) -> Path:
+    """`rel` resolved inside the project's folder — never outside it, symlinks included."""
+    root = Path(p.path).resolve()
+    target = (root / (rel or "").lstrip("/")).resolve()
+    if target != root and root not in target.parents:
+        raise ProjectError("不在这个项目文件夹里")
+    if not target.exists():
+        raise ProjectError("找不到这个路径")
+    return target
+
+
+def list_dir(p: Project, rel: str = "") -> dict:
+    d = _inside(p, rel)
+    if not d.is_dir():
+        raise ProjectError("这不是一个文件夹")
+    root = Path(p.path).resolve()
+    out = []
+    try:
+        entries = sorted(d.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+    except OSError as exc:
+        raise ProjectError(f"读不了这个文件夹：{exc}") from exc
+    for e in entries[:MAX_ENTRIES]:
+        try:
+            st = e.stat()
+        except OSError:
+            continue
+        is_dir = e.is_dir()
+        out.append({"name": e.name, "path": str(e.relative_to(root)),
+                    "dir": is_dir, "size": None if is_dir else st.st_size, "mtime": st.st_mtime,
+                    "hidden": e.name.startswith("."), "heavy": is_dir and e.name in SKIP_DIRS})
+    return {"path": str(d.relative_to(root)) if d != root else "", "entries": out, "truncated": len(entries) > MAX_ENTRIES}
+
+
+SECRET_NAMES = re.compile(r"^(\.env(\..*)?|.*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*|credentials(\.json)?|\.netrc|\.npmrc|\.pypirc)$", re.I)
+
+
+def read_file(p: Project, rel: str) -> dict:
+    f = _inside(p, rel)
+    if not f.is_file():
+        raise ProjectError("这不是一个文件")
+    size = f.stat().st_size
+    if SECRET_NAMES.match(f.name):                      # keys and tokens are never shown on screen
+        return {"path": rel, "size": size, "binary": False, "secret": True, "text": None}
+    with open(f, "rb") as fh:
+        head = fh.read(MAX_FILE_BYTES)
+    if b"\0" in head[:8000]:
+        return {"path": rel, "size": size, "binary": True, "text": None}
+    return {"path": rel, "size": size, "binary": False, "truncated": size > MAX_FILE_BYTES,
+            "text": head.decode("utf-8", errors="replace")}

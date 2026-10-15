@@ -861,6 +861,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             add({"id": kid, "kind": b.kind, "label": b.title, "label_en": b.title_en, "description": b.description,
                  "aim": f"aim:{b.aim_id}" if b.aim_id in aim_ids else default_sun, "private": b.private,
                  "origin": b.origin.value, "body_id": str(b.id)})
+        # folders: a project folder serves a motivation (beside its sun) or stays free (near you)
+        from pga.projects import Projects
+        for p in Projects(rt.session).list(user_id):
+            t = perp.get(p.aim_id) if p.aim_id else None
+            add({"id": f"fd:{p.id}", "kind": "folder", "label": p.name, "path": p.path, "project_id": str(p.id),
+                 "aim": f"aim:{p.aim_id}" if p.aim_id in aim_ids else None, "full_access": p.full_access,
+                 "working": bool(t and t.project_id == p.id and t.status == "running")})
+            links.append({"source": f"aim:{p.aim_id}" if p.aim_id in aim_ids else "you", "target": f"fd:{p.id}", "kind": "folder"})
         for br in bodies.bridges(user_id):
             if br.a_ref in seen and br.b_ref in seen:
                 links.append({"source": br.a_ref, "target": br.b_ref, "kind": "bridge", "id": str(br.id), "note": br.note})
@@ -1788,6 +1796,26 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         try:
             ps = Projects(rt.session)
             ps.delete(ps.get(user_id, pid))
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/projects/{pid}/tree")
+    def projects_tree(user_id: uuid.UUID, pid: uuid.UUID, path: str = "", rt: Runtime = Depends(get_rt)):
+        """One level of the folder, for the folder tree (read-only)."""
+        from pga.projects import ProjectError, Projects, list_dir
+        user_or_404(rt, user_id)
+        try:
+            return list_dir(Projects(rt.session).get(user_id, pid), path)
+        except ProjectError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/projects/{pid}/file")
+    def projects_file(user_id: uuid.UUID, pid: uuid.UUID, path: str, rt: Runtime = Depends(get_rt)):
+        """A file in the folder, as text (read-only; large or binary files are described, not sent)."""
+        from pga.projects import ProjectError, Projects, read_file
+        user_or_404(rt, user_id)
+        try:
+            return read_file(Projects(rt.session).get(user_id, pid), path)
         except ProjectError as exc:
             raise HTTPException(404, str(exc)) from exc
 
