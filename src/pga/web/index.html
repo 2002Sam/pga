@@ -218,6 +218,12 @@ main { background: transparent; z-index: 1; }
   background: var(--tex), linear-gradient(160deg, #e2dccf, #c9c1b3); background-blend-mode: soft-light, normal; background-size: 360px, auto; box-shadow: 0 3px 10px rgba(0,0,0,.35); }
 .flipbtn:hover { filter: brightness(1.06); background: var(--tex), linear-gradient(160deg, #e9e3d6, #d0c8ba); background-blend-mode: soft-light, normal; background-size: 360px, auto; }
 .flipbtn b { font: 600 12px var(--serif-zh); font-style: normal; letter-spacing: 2px; margin-left: 5px; color: #a5301c; }
+/* the map inside the console: the sky alone */
+html.embed .app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; }
+html.embed .app > header, html.embed .ticker, html.embed .app > aside, html.embed .side, html.embed #dock, html.embed .edge, html.embed .hud,
+html.embed #feed, html.embed .state-pill, html.embed #agOverlay, html.embed #pop, html.embed #popLines, html.embed .mobile-tabs,
+html.embed #toast, html.embed #newVersion { display: none !important; }
+html.embed main { display: flex !important; grid-column: 1 !important; grid-row: 1 !important; }
 a.flipbtn { text-decoration: none; display: inline-flex; align-items: center; }
 
 /* ---------------------------------------------------------------- side panel */
@@ -1365,9 +1371,13 @@ if (AS_UID) {                                            // everything this tab 
   store.set = (k, v) => { mem[k] = v; };
   store.json = (k, d) => { try { return JSON.parse(store.get(k)) ?? d; } catch { return d; } };
 }
+// ?embed=map: only the sky, as the map inside the console (工作台). Calm: no auto-rotation, slow orbits; a click zooms in
+const EMBED = new URLSearchParams(location.search).get("embed") === "map";
+window.PGA_EMBED = EMBED;
+if (EMBED) { document.documentElement.classList.add("embed"); SET.autoRotate = false; }
 // the console (工作台) is where PGA opens now; the sky stays one click away (?sky keeps you here)
-if (!store.get("pga_console_v1")) { store.set("pga_console_v1", "1"); SET.start = "console"; store.set("pga_settings", JSON.stringify(SET)); }
-if (SET.start === "console" && !new URLSearchParams(location.search).has("sky")) location.replace("/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""));
+if (!EMBED && !store.get("pga_console_v1")) { store.set("pga_console_v1", "1"); SET.start = "console"; store.set("pga_settings", JSON.stringify(SET)); }
+if (!EMBED && SET.start === "console" && !new URLSearchParams(location.search).has("sky")) location.replace("/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""));
 if (AS_UID) document.addEventListener("DOMContentLoaded", () => { const a = document.getElementById("toConsole"); if (a) a.href = `/console?as=${encodeURIComponent(AS_UID)}`; });
 const S = { uid: AS_UID || store.get("pga_uid"), agent: store.get("pga_agent") || null, convs: store.json("pga_convs", {}),
   resps: [], notes: [], tab: store.get("pga_tab") || "notes", sending: false, series: null, pnow: null, health: null,
@@ -1485,7 +1495,7 @@ async function boot() {
   renderWho();
   await Promise.all([loadConversation(), loadNotes(), loadPressure(), loadGraph()]);
   renderSide();
-  if (SET.start === "agents") openStartView();
+  if (SET.start === "agents" && !EMBED) openStartView();
   watchVersion();
   setInterval(loadPressure, 4000);
   setInterval(loadGraph, 8000);
@@ -4936,7 +4946,7 @@ function placeAll(dt, motion) {
       if (!nodes.has(o.parent)) o.parent = "you";
       if (!done.has(o.parent)) continue;
       o.r += (o.tr - o.r) * Math.min(1, dt * 2.2);
-      o.ang += o.speed * dt * motion;
+      o.ang += o.speed * dt * motion * (window.PGA_EMBED ? .08 : 1);   // the map stays (almost) still
       const c = Math.cos(o.ang) * o.r, s = Math.sin(o.ang) * o.r;
       n.pos.set(c, s * Math.sin(o.incl), s * Math.cos(o.incl)).add(nodes.get(o.parent).pos);
       if (drag?.active && drag.n === n) { (n.home ||= new THREE.Vector3()).copy(n.pos); n.pos.copy(drag.pos); }
@@ -5212,6 +5222,7 @@ canvas.addEventListener("pointerup", (e) => {
   if (n) clickTimer = setTimeout(() => { clickTimer = null; select(n, "click"); }, 240);   // wait: it may become a double-click
   else {
     const p = planePoint(e); if (p) ripple(p, 2.5); window.dispatchEvent(new CustomEvent("pga:popclose"));
+    if (window.PGA_EMBED) { if (focusId || focusedId) embedSelect(null); return; }
     if (focusId || focusedId) { focusId = null; focusedId = null; flyT = 1; }               // zoomed in: back to the whole view
   }
 });
@@ -5220,6 +5231,7 @@ canvas.addEventListener("dblclick", (e) => {
   if (rooming()) return;
   clearTimeout(clickTimer); clickTimer = null;
   const n = pick(e);
+  if (window.PGA_EMBED) { embedSelect(n); return; }
   if (n) { select(n, "bars"); return; }                                    // double-click a body: fly there and show the bars
   window.dispatchEvent(new CustomEvent("pga:select", { detail: { kind: "user", id: "you", quiet: true } })); focusId = null; flyT = 1; focusedId = null; resetPan();
 });
@@ -5230,7 +5242,25 @@ canvas.addEventListener("contextmenu", (e) => {                          // righ
 });
 controls.addEventListener("start", () => { idleUntil = performance.now() + 9000; });
 let focusedId = null;                                                    // the body the last click flew to
+function tellConsole(n) {                                               // the map inside the console: what was clicked
+  if (!window.PGA_EMBED || window.parent === window) return;
+  const d = n ? n.d : null;
+  window.parent.postMessage({ type: "pga:select", id: n ? n.id : null, kind: d?.kind || null, label: d?.label || null,
+    aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null }, location.origin);
+}
+function embedSelect(n) {
+  focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan();
+  window.PGA_CALM?.(!!n);                                                // zoomed in: the rest of the sky steps back
+  if (n) { n.flash = 1; n.energy = 1; ripple(n.pos, n.d.kind === "aim" ? (systems.find((s) => s.id === n.id)?.R || 3) : 1.4); }
+  tellConsole(n);
+}
+window.addEventListener("message", (e) => {                               // the console asks the map to look at something
+  if (!window.PGA_EMBED || e.origin !== location.origin || e.data?.type !== "pga:focus") return;
+  const n = e.data.id ? nodes.get(e.data.id) : null;
+  focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan(); window.PGA_CALM?.(!!n);
+});
 function select(n, mode = "click") {
+  if (window.PGA_EMBED) { if (mode !== "edit") embedSelect(n); return; }
   if (mode === "click" && n.d.kind === "user") {                          // Earth (you): turn the world over to the agents and back
     n.flash = 1; ripple(n.pos, 2.4);
     window.dispatchEvent(new CustomEvent("pga:earth", { detail: { mode: MODE } }));
@@ -5450,7 +5480,8 @@ function frame(now) {
     flyT = Math.max(0, flyT - dt * .7);
     const narrow = Math.max(1, 1.2 / Math.min(1.2, camera.aspect));
     const sysR = fnode?.d.kind === "aim" ? systems.find((s) => s.id === fnode.id)?.R || 3 : 0;
-    const dist = (!fnode ? Math.max(14, boundR * 2.3) : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
+    const dist = (!fnode ? Math.max(14, boundR * 2.3) : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5
+      : window.PGA_EMBED && fnode.d.kind === "user" ? 7.5 : 3.4) * narrow;                      // the map: Earth with the moons round it
     camDir.subVectors(camera.position, controls.target).normalize();
     if (camDir.y < .38) { camDir.y = .48; camDir.normalize(); }
     v3.copy(target).addScaledVector(camDir, dist);

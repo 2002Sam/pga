@@ -54,9 +54,17 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .dot.ok { background: #cfcfcf; } .dot.bad { background: var(--bad); }
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
 
-main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 320px; min-height: 0; }
+main { display: grid; grid-template-columns: minmax(360px, 34vw) minmax(0, 1fr) 300px; min-height: 0; transition: grid-template-columns .4s ease; }
+main.big { grid-template-columns: 64vw minmax(0, 1fr) 0; }
+main.big #right { visibility: hidden; }
 main > section { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #222 transparent; }
-#left { border-right: 1px solid var(--line); padding: 14px 0; }
+#left { border-right: 1px solid var(--line); padding: 0; display: flex; flex-direction: column; overflow: hidden !important; }
+.map { position: relative; flex: 1 1 58%; min-height: 260px; border-bottom: 1px solid var(--line); background: #050505; }
+.map iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.maptools { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; z-index: 2; }
+.maptools button { background: rgba(5,5,5,.7); font-size: 12px; padding: 3px 9px; }
+.mapnote { position: absolute; left: 10px; top: 10px; right: 150px; z-index: 2; font-size: 11.5px; color: var(--muted); pointer-events: none; background: rgba(5,5,5,.6); padding: 3px 8px; justify-self: start; width: fit-content; max-width: calc(100% - 160px); }
+.list { flex: 0 1 42%; overflow-y: auto; padding: 12px 0; scrollbar-width: thin; scrollbar-color: #222 transparent; }
 #right { border-left: 1px solid var(--line); padding: 14px 0; }
 #center { padding: 18px 26px 40px; }
 .colh { display: flex; align-items: baseline; gap: 10px; padding: 0 16px 10px; }
@@ -155,6 +163,25 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .talk .ans { margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; border-left: 1px solid var(--line-3); padding-left: 10px; }
 .talk .row .grow { flex: 1; color: var(--muted); font-size: 11.5px; }
 
+/* a conversation (我, and each agent) */
+.chat { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.msg { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13.5px; line-height: 1.7; }
+.msg.me { color: rgba(232,232,232,.72); padding-left: 14px; position: relative; }
+.msg.me::before { content: "›"; position: absolute; left: 0; color: var(--gold); }
+.msg .who { display: block; font: var(--cap); letter-spacing: .14em; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
+.msg.err { color: var(--bad); }
+.msg pre { margin: 6px 0 0; padding: 8px 10px; border: 1px solid var(--gold-dim); max-height: 260px; overflow: auto; font: 11.5px/1.6 var(--mono); white-space: pre-wrap; color: #cfcfcf; }
+.msg pre .cursor::after { content: "▍"; color: var(--gold); animation: blink 1s infinite; }
+.hist { display: flex; flex-direction: column; gap: 2px; }
+.hist button { text-align: left; border: 0; border-left: 1px solid var(--line-2); padding: 4px 10px; white-space: normal; color: var(--muted); font-size: 12.5px; }
+.hist button:hover { color: var(--text); border-left-color: var(--gold); }
+.hist button small { color: var(--dim); margin-left: 6px; }
+.selhead { display: flex; gap: 14px; align-items: baseline; }
+.selhead h1 { flex: 1; font-size: 20px; font-weight: 400; margin: 0; line-height: 1.45; }
+.selhead .k { font: var(--cap); letter-spacing: .2em; color: var(--muted); }
+.ag { cursor: pointer; }
+.ag.sel { background: rgba(255,255,255,.035); box-shadow: inset 2px 0 0 var(--gold); }
+
 /* agents */
 .ag { border-top: 1px solid var(--line); padding: 11px 16px 12px; }
 .ag .h { display: flex; gap: 8px; align-items: center; }
@@ -172,8 +199,8 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 #toast.on { opacity: 1; transform: translateX(-50%); }
 
 /* narrower windows: agents fold under the process */
-@media (max-width: 1180px) { main { grid-template-columns: 270px minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
-@media (max-width: 760px) { main { grid-template-columns: 1fr; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
+@media (max-width: 1180px) { main { grid-template-columns: minmax(320px, 40vw) minmax(0, 1fr); } main.big { grid-template-columns: 70vw minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
+@media (max-width: 760px) { main, main.big { grid-template-columns: 1fr; } .map { min-height: 340px; } #left { overflow: visible !important; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
 </style>
 </head>
 <body>
@@ -185,8 +212,10 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
   </header>
   <main>
     <section id="left">
-      <div class="colh"><span class="cap">抱负 · 项目</span></div>
-      <div id="aims"></div>
+      <div class="map"><iframe id="map" title="星空地图"></iframe>
+        <div class="maptools"><button id="mapHome" title="回到整个星空">全景</button><button id="mapBig" title="把地图放大 / 缩回">放大</button></div>
+        <div class="mapnote" id="mapNote">点一颗星或一个太阳系：放大到它，右边跟着切换</div></div>
+      <div class="list"><div class="colh"><span class="cap">我 · 抱负 · 项目</span></div><div id="aims"></div></div>
     </section>
     <section id="center"><div id="proc"><div class="idle">正在载入…</div></div></section>
     <section id="right">
@@ -204,7 +233,12 @@ const AS_UID = new URLSearchParams(location.search).get("as");
 if (AS_UID) $("#toSky").href = `/?sky&as=${encodeURIComponent(AS_UID)}`;
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
-            cp: { option: 0, approve: null } };
+            cp: { option: 0, approve: null },
+            view: { kind: "aim", id: null }, graph: null, chats: {}, hist: {}, mapReady: false };
+try { C.chats = JSON.parse(store.get("pga_console_chats") || "{}") || {}; } catch { C.chats = {}; }
+const saveChats = () => { if (!AS_UID) { try { store.set("pga_console_chats", JSON.stringify(Object.fromEntries(Object.entries(C.chats).map(([k, v]) => [k, { ...v, log: (v.log || []).filter((m) => !m.pending).slice(-40) }])))); } catch {} } };
+// a body on the map ⇄ what the console shows. The planets of linked AIs carry their vendor; the pool agents their adapter.
+const VENDOR_ADAPTER = { claude_code: "claude_local", chatgpt: "codex_local", codex: "codex_local", hermes: "hermes_local", workbuddy: "codebuddy_local", codebuddy: "codebuddy_local", gemini: "gemini_local" };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"),
@@ -242,27 +276,86 @@ async function boot() {
   if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号：先打开一次 <a href="/?sky">星空</a>。</div>`; return; }
   try { const u = await api(`/v1/users/${C.uid}`); const into = u.preferences?.merged_into; if (into && into !== C.uid) { C.uid = into; if (!AS_UID) store.set("pga_uid", into); } }
   catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="/?sky">星空</a>。</div>`; return; } }
+  $("#map").src = `/?embed=map&as=${encodeURIComponent(C.uid)}`;
+  const v = AS_UID ? null : store.get("pga_console_view");
+  try { if (v) C.view = JSON.parse(v); } catch {}
+  if (C.view.kind === "aim") C.view.id = C.sel;
+  api(`/v1/users/${C.uid}/graph`).then((g) => { C.graph = g; }).catch(() => {});
   await loadAll();
   setInterval(() => loadOverview().catch(() => {}), 6000);
   setInterval(() => loadLive().catch(() => {}), 1500);
-  setInterval(() => { if (C.sel) loadProcess().catch(() => {}); }, 8000);
+  setInterval(() => { if (C.view.kind === "aim" && C.sel) loadProcess().catch(() => {}); }, 8000);
 }
-async function loadAll() { await loadOverview(); await loadProcess(); }
+async function loadAll() {
+  await loadOverview();
+  if (C.view.kind === "aim") await loadProcess();
+  else { renderCenter(); loadHist(C.view.kind === "me" ? chat("me").agent : C.view.id).catch(() => {}); }
+}
+
+/* ------------------------------------------------ what is selected: a motivation, 我, or an agent — map and panels together */
+
+function setView(kind, id, fromMap = false) {
+  C.view = { kind, id };
+  if (!AS_UID) store.set("pga_console_view", JSON.stringify(C.view));
+  if (kind === "aim") { C.sel = id; if (!AS_UID) store.set("pga_console_aim", id); C.proc = null; }
+  if (!fromMap) focusMap();
+  renderAims(); renderAgents(); renderCenter();
+  if (kind === "aim") loadProcess().catch(() => {});
+  if (kind !== "aim") loadHist(kind === "me" ? chat("me").agent : id).catch(() => {});
+}
+function mapNodeOf(view) {
+  if (!view) return null;
+  if (view.kind === "aim") return "aim:" + view.id;
+  if (view.kind === "me") return "you";
+  if (view.kind === "agent") {
+    const a = (C.data?.agents || []).find((x) => x.name === view.id);
+    const n = (C.graph?.nodes || []).find((x) => x.kind === "ai" && VENDOR_ADAPTER[x.vendor] === a?.adapter);
+    return n ? n.id : null;
+  }
+  return null;
+}
+function focusMap(id = mapNodeOf(C.view)) {
+  try { $("#map").contentWindow.postMessage({ type: "pga:focus", id }, location.origin); } catch {}
+  const label = !id ? null : C.view.kind === "me" ? "我" : C.view.kind === "agent" ? C.view.id : (C.data?.aims || []).find((a) => a.id === C.view.id)?.text;
+  $("#mapNote").textContent = id ? `已放大到：${label || id}（点空白处回到全景）` : "点一颗星或一个太阳系：放大到它，右边跟着切换";
+}
+window.addEventListener("message", (e) => {                    // the map: a body was clicked (or empty space: back to the whole sky)
+  if (e.origin !== location.origin || e.data?.type !== "pga:select") return;
+  const d = e.data;
+  $("#mapNote").textContent = d.id ? `已放大到：${d.label || d.id}（点空白处回到全景）` : "点一颗星或一个太阳系：放大到它，右边跟着切换";
+  if (!d.id) return;
+  if (d.kind === "aim" && d.aim_id) return setView("aim", d.aim_id, true);
+  if (d.kind === "user" || d.kind === "core") return setView("me", null, true);
+  if (d.kind === "ai") {
+    const a = (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor] && x.enabled !== false) || (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor]);
+    if (a) return setView("agent", a.name, true);
+    toast(`${d.label}：PGA 里还没有对应的 agent（在星空 → 设置 → 外部 Agent 里连接）`);
+  }
+});
+function renderCenter() {
+  if (C.view.kind === "me") return renderMe();
+  if (C.view.kind === "agent") return renderAgentView(C.view.id);
+  return renderProcess();
+}
 async function loadOverview() {
   C.data = await api(`/v1/users/${C.uid}/console`);
   C.live = C.data.live || [];
   const aims = C.data.aims || [];
   if (!C.sel || !aims.some((a) => a.id === C.sel)) C.sel = (aims.find((a) => a.task?.status === "running") || aims[0])?.id || null;
   renderAims(); renderAgents(); renderPulse();
+  if (C.view.kind !== "aim" && !document.activeElement?.matches?.("#proc textarea, #proc select") && !Object.values(C.chats).some((c) => c.sending)) renderCenter();
   $("#pUpdated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 async function loadLive() {
   C.live = await api("/v1/agents/live");
-  renderPulse(); renderLive(); renderAgentWork();
+  renderPulse(); renderAgentWork();
+  if (C.view.kind === "aim") renderLive(); else renderChatLive();
 }
 async function loadProcess() {
+  if (C.view.kind !== "aim") return;
   if (!C.sel) { renderProcess(); return; }
   try { C.proc = await api(`/v1/users/${C.uid}/console/aims/${C.sel}`); } catch (e) { C.proc = null; }
+  if (C.view.kind !== "aim") return;
   if (document.activeElement?.matches?.("#proc textarea, #proc input")) { renderLive(); return; }   // don't redraw under your typing
   renderProcess();
 }
@@ -284,10 +377,12 @@ function projRow(p) {
 function renderAims() {
   const d = C.data; if (!d) return;
   const aims = d.aims || [];
-  $("#aims").innerHTML = aims.map((a) => {
+  const working = (C.live || []).filter((r) => r.running && r.workflow === "ask").length;
+  $("#aims").innerHTML = `<div class="aim me ${C.view.kind === "me" ? "sel" : ""}" data-me="1"><div class="t">我</div>
+      <div class="st"><span class="dot ${working ? "on" : ""}"></span>直接让任何 agent 做短程的事${working ? ` · ${working} 个在做` : ""}</div></div>` + aims.map((a) => {
     const t = a.task; const [zh] = STATE[t?.status || "idle"] || STATE.idle;
     const live = t?.working?.length || 0;
-    return `<div class="aim ${a.id === C.sel ? "sel" : ""}" data-aim="${a.id}">
+    return `<div class="aim ${C.view.kind === "aim" && a.id === C.sel ? "sel" : ""}" data-aim="${a.id}">
       <div class="t">${esc(a.text)}</div>
       <div class="st"><span class="dot ${live ? "on" : t?.status === "running" ? "ok" : ""}"></span>${t ? `${esc(zh)} · ${esc(t.phase_zh || "")}` : "还没有开始"}${live ? ` · ${live} 个 agent 在做` : ""}</div>
       ${t ? `<div class="bar ${live ? "gold" : ""}" title="张力 ${(t.pressure ?? 0).toFixed(2)}"><i style="width:${Math.round((t.pressure ?? 0) * 100)}%"></i></div>` : ""}
@@ -346,6 +441,112 @@ function renderProcess() {
     <div class="tl">${(P.events || []).map(evHtml).join("") || `<div class="empty">还没有记录。</div>`}</div>`;
   renderLive();
 }
+/* ------------------------------------------------ 我 and each agent: a conversation, what they are doing, their past */
+
+function chat(key) {
+  const c = (C.chats[key] ||= { agent: key === "me" ? (store.get("pga_console_agent") || "auto") : key.slice(6), conv: null, log: [], project: null });
+  if (!c.conv) c.conv = (c.agent === "auto" ? "cat:serious" : "agent:" + c.agent) + ":console-" + Math.random().toString(36).slice(2, 10);
+  return c;
+}
+function allProjects() { return [...(C.data?.aims || []).flatMap((a) => a.projects), ...(C.data?.free_projects || [])]; }
+function chatHtml(key) {
+  const c = chat(key), agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
+  const proj = allProjects().find((p) => p.id === c.project);
+  return `<div class="chat" data-chat="${key}">${(c.log || []).map((m) => msgHtml(m, c)).join("") || `<div class="dim" style="font-size:12.5px">${key === "me" ? "选一个 agent（或「自动」让 PGA 选），说你要它做什么。" : `直接和 ${esc(c.agent)} 说。`}</div>`}</div>
+    <div class="talk" style="margin-top:12px"><textarea id="chatText" data-chatkey="${key}" placeholder="要它做什么，或问它什么（⌘/Ctrl + Enter 发送）">${esc(C.drafts["chat:" + key] || "")}</textarea>
+    <div class="row"><span class="grow">${proj ? (proj.full_access ? `在「${esc(proj.name)}」里 · 完整权限：可以改文件、跑命令` : `在「${esc(proj.name)}」里 · 只读`) : "不在任何项目文件夹里"}</span>
+      <select data-chatproj="${key}"><option value="">不选项目</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      ${key === "me" ? `<select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
+      <button class="ghost" data-chatnew="${key}" title="开始一段新对话">新对话</button>
+      <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
+}
+function msgHtml(m, c) {
+  if (m.role === "user") return `<div class="msg me">${esc(m.text)}</div>`;
+  if (m.pending) {
+    const run = (C.live || []).find((r) => r.running && (r.tags || {}).conversation === c.conv);
+    return `<div class="msg pending"><span class="who">${esc(run?.agent || m.agent || c.agent)} · 正在做 ${run ? esc(dur(run.elapsed_s)) : ""}</span>
+      <pre data-livechat="${esc(c.conv)}">${traceHtml(run?.text || "（正在启动…）")}<span class="cursor"></span></pre>
+      ${run ? `<button class="ghost" data-stoplive="${run.id}">停止</button>` : ""}</div>`;
+  }
+  return `<div class="msg ${m.error && !m.text ? "err" : ""}"><span class="who">${esc(m.agent || "")}${m.model ? " · " + esc(m.model) : ""}</span>${esc(m.text || m.error || "（没有文字输出）")}</div>`;
+}
+function renderChatLive() {
+  document.querySelectorAll("pre[data-livechat]").forEach((pre) => {
+    const run = (C.live || []).find((r) => r.running && (r.tags || {}).conversation === pre.dataset.livechat);
+    if (!run) return;
+    const atEnd = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 8;
+    pre.innerHTML = traceHtml(run.text || "（正在启动…）") + `<span class="cursor"></span>`;
+    if (atEnd) pre.scrollTop = pre.scrollHeight;
+  });
+  if (C.view.kind === "agent") {
+    const box = $("#agLive"); if (!box) return;
+    const runs = (C.live || []).filter((r) => r.running && r.agent === C.view.id && !document.querySelector(`pre[data-livechat="${CSS.escape((r.tags || {}).conversation || "-")}"]`));
+    box.innerHTML = runs.map((r) => `<div class="live"><div class="lh"><span class="dot on"></span><span class="who">${esc(aimText(r.tags) || r.workflow || "")}${r.step ? ` · ${esc(STEP[r.step] || r.step)}` : ""} · ${esc(dur(r.elapsed_s))}</span>
+      <button class="ghost" data-stoplive="${r.id}">停止</button></div><pre>${traceHtml(r.text || "（正在启动…）")}<span class="cursor"></span></pre></div>`).join("") || `<div class="idle">现在没有在做事。</div>`;
+  }
+}
+async function loadHist(agent) {
+  if (!agent || agent === "auto") { C.hist[agent || "auto"] = []; return; }
+  try { C.hist[agent] = await api(`/v1/users/${C.uid}/agents/conversations?card=${encodeURIComponent("agent:" + agent)}&limit=12`); } catch { C.hist[agent] = []; }
+  if (C.view.kind !== "aim") renderCenter();
+}
+function histHtml(agent) {
+  const list = C.hist[agent] || [];
+  return list.length ? `<div class="hist">${list.map((h) => `<button data-resume="${esc(h.id)}" data-agent="${esc(agent)}">${esc(h.title || "（无标题）")}<small>${esc(ago(h.updated_at))} · ${h.turns} 轮</small></button>`).join("")}</div>`
+    : `<div class="dim" style="font-size:12.5px">${agent === "auto" ? "选一个具体的 agent 才能看它的历史对话。" : "还没有对话。"}</div>`;
+}
+function keepDrafts() { const t = $("#chatText"); if (t) C.drafts["chat:" + t.dataset.chatkey] = t.value; }
+function renderMe() {
+  keepDrafts();
+  const c = chat("me"), runs = (C.live || []).filter((r) => r.running && r.workflow === "ask");
+  $("#proc").innerHTML = `<div class="selhead"><span class="k">我</span><h1>直接让 agent 做事</h1></div>
+    <div class="meta">短程的事：问一个问题、在一个项目文件夹里改点东西。选一个 agent，或让 PGA 自动选；长期的事交给左边的抱负。</div>
+    <h2>对话</h2>${chatHtml("me")}
+    <h2>${c.agent === "auto" ? "历史对话" : `和 ${esc(c.agent)} 的历史对话`} <small>点一条接着聊</small></h2>${histHtml(c.agent)}
+    <h2>别的对话里正在进行 <small>${runs.length} 个</small></h2>${runs.filter((r) => (r.tags || {}).conversation !== c.conv).map((r) => `<div class="live"><div class="lh"><span class="dot on"></span><span class="who"><b>${esc(r.agent)}</b> · ${esc(dur(r.elapsed_s))}</span><button class="ghost" data-stoplive="${r.id}">停止</button></div><pre>${traceHtml((r.text || "").slice(-1500))}</pre></div>`).join("") || `<div class="dim" style="font-size:12.5px">没有。</div>`}`;
+}
+function renderAgentView(name) {
+  keepDrafts();
+  const a = (C.data?.agents || []).find((x) => x.name === name);
+  if (!a) { $("#proc").innerHTML = `<div class="idle">没有这个 agent。</div>`; return; }
+  const q = a.quota || {}, work = agentWorking(name);
+  $("#proc").innerHTML = `<div class="selhead"><span class="k">AGENT</span><h1>${esc(a.name)}</h1>
+      <div style="display:flex;gap:8px">${work.length ? `<button data-agstop="${esc(a.name)}">停止当前工作</button>` : ""}<button class="ghost" data-agenable="${esc(a.name)}" data-on="${a.enabled === false ? 1 : 0}">${a.enabled === false ? "启用" : "停用"}</button></div></div>
+    <div class="meta"><span>${esc(a.role || a.adapter || "")}</span><span>状态 <b>${a.enabled === false ? "已停用" : work.length ? "工作中" : a.available === false ? "不可用" : "空闲"}</b></span>
+      ${q.remaining != null ? `<span>额度 <b>${Math.round(q.remaining * 100)}%</b></span>` : ""}${q.detail ? `<span>${esc(q.detail)}</span>` : ""}${q.resets_at ? `<span>${esc(until(q.resets_at))}重置</span>` : ""}
+      ${a.available === false && a.detail ? `<span style="color:var(--bad)">${esc(a.detail)}</span>` : ""}</div>
+    <h2>正在做 <small>它此刻在读什么、想什么</small></h2><div id="agLive"></div>
+    <h2>和它对话</h2>${chatHtml("agent:" + name)}
+    <h2>历史对话 <small>点一条接着聊</small></h2>${histHtml(name)}
+    ${a.last ? `<h2>上一次工作</h2><div class="meta"><span>${esc(ago(a.last.at))}</span><span>${esc(a.last.workflow)} · ${esc(STEP[a.last.step] || a.last.step)}</span><span>${esc(a.last.status)}</span><span>${esc(dur(a.last.duration_s))}</span></div>` : ""}`;
+  renderChatLive();
+}
+async function sendChat(key) {
+  const c = chat(key), box = $("#chatText");
+  const text = (box?.value || "").trim(); if (!text) { toast("先写下你要它做什么"); return; }
+  const proj = allProjects().find((p) => p.id === c.project);
+  if (proj?.full_access && !confirm(`${c.agent === "auto" ? "agent" : c.agent} 可以在「${proj.name}」里修改文件、执行命令。确定吗？`)) return;
+  const history = (c.log || []).filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
+  c.log.push({ role: "user", text }); const pend = { role: "agent", pending: true, agent: c.agent }; c.log.push(pend);
+  c.sending = true; C.drafts["chat:" + key] = ""; if (box) box.value = ""; renderCenter();
+  try {
+    const r = await api(`/v1/users/${C.uid}/agents/ask`, { body: { text, agent: c.agent, category: c.agent === "auto" ? "serious" : null, history,
+      conversation: c.conv, project_id: c.project || null } });
+    Object.assign(pend, { pending: false, agent: r.agent, text: r.text, error: r.error, model: r.model });
+  } catch (err) { Object.assign(pend, { pending: false, error: err.message }); }
+  finally { c.sending = false; saveChats(); }
+  if (C.view.kind !== "aim") renderCenter();
+}
+async function resumeConv(id, agent) {
+  const key = C.view.kind === "me" ? "me" : "agent:" + agent;
+  const c = chat(key);
+  try {
+    const r = await api(`/v1/users/${C.uid}/agents/conversation?id=${encodeURIComponent(id)}`);
+    c.log = (r.messages || []).map((m) => m.role === "user" ? { role: "user", text: m.text } : { role: "agent", agent: m.agent, model: m.model, text: m.text, error: m.ok === false ? m.error : null });
+    c.conv = id; if (key === "me") c.agent = agent; saveChats(); renderCenter();
+  } catch (err) { toast("没能打开：" + err.message); }
+}
+
 function cpHtml(cp) {
   const opts = cp.options || [], props = cp.proposals || [];
   if (C.cp.id !== cp.id) C.cp = { id: cp.id, option: opts.length ? 0 : null, approve: new Set(props.filter((p) => p.recommend).map((p) => p.code)) };
@@ -425,7 +626,7 @@ function renderAgents() {
     const q = a.quota || {}; const rem = q.remaining;
     const work = agentWorking(a.name);
     const state = a.enabled === false ? "已停用" : work.length ? `工作中 · ${work.length}` : a.available === false ? "不可用" : "空闲";
-    return `<div class="ag ${a.enabled === false ? "off" : ""}" data-ag="${esc(a.name)}">
+    return `<div class="ag ${a.enabled === false ? "off" : ""} ${C.view.kind === "agent" && C.view.id === a.name ? "sel" : ""}" data-ag="${esc(a.name)}">
       <div class="h"><span class="dot ${work.length ? "on" : a.enabled === false || a.available === false ? (a.available === false ? "bad" : "") : "ok"}"></span><b>${esc(a.name)}</b><span class="s">${esc(state)}</span></div>
       <div class="r">${esc(a.role || a.adapter || "")}${a.available === false && a.detail ? ` · ${esc(a.detail)}` : ""}</div>
       ${rem != null ? `<div class="q"><span>额度</span><div class="bar"><i style="width:${Math.round(Math.max(0, Math.min(1, rem)) * 100)}%"></i></div><span>${Math.round(rem * 100)}%</span></div>` : ""}
@@ -455,8 +656,14 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("keydown", (e) => {
+  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(e.target.dataset.chatkey); }
+});
 document.addEventListener("change", async (e) => {
   const t = e.target;
+  if (t.dataset.chatproj) { chat(t.dataset.chatproj).project = t.value || null; saveChats(); keepDrafts(); renderCenter(); return; }
+  if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value; c.conv = null; c.log = []; chat(t.dataset.chatagent);
+    if (!AS_UID) store.set("pga_console_agent", t.value); saveChats(); keepDrafts(); renderCenter(); loadHist(t.value); return; }
   if (t.name === "cpopt") C.cp.option = Number(t.value);
   if (t.dataset.cpp) { C.cp.approve = C.cp.approve || new Set(); t.checked ? C.cp.approve.add(t.dataset.cpp) : C.cp.approve.delete(t.dataset.cpp); }
   if (t.id === "cpEvery") {
@@ -465,7 +672,7 @@ document.addEventListener("change", async (e) => {
   }
 });
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("button, .aim[data-aim]");
+  const t = e.target.closest("button, .aim[data-aim], .aim[data-me], .ag[data-ag]");
   if (!t) return;
   try {
     if (t.dataset.run) {
@@ -479,7 +686,14 @@ document.addEventListener("click", async (e) => {
       } finally { C.busy.delete(t.dataset.run); }
       await loadAll(); return;
     }
-    if (t.dataset.aim && !e.target.closest("button")) { C.sel = t.dataset.aim; if (!AS_UID) store.set("pga_console_aim", C.sel); renderAims(); C.proc = null; renderProcess(); await loadProcess(); return; }
+    if (t.dataset.aim && !e.target.closest("button")) { setView("aim", t.dataset.aim); return; }
+    if (t.dataset.me && !e.target.closest("button")) { setView("me", null); return; }
+    if (t.dataset.ag && !e.target.closest("button")) { setView("agent", t.dataset.ag); return; }
+    if (t.id === "mapHome") { focusMap(null); return; }
+    if (t.id === "mapBig") { const m = $("main"); m.classList.toggle("big"); t.textContent = m.classList.contains("big") ? "缩回" : "放大"; return; }
+    if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
+    if (t.dataset.chatnew) { const c = chat(t.dataset.chatnew); c.log = []; c.conv = null; chat(t.dataset.chatnew); saveChats(); renderCenter(); return; }
+    if (t.dataset.resume) { await resumeConv(t.dataset.resume, t.dataset.agent); return; }
     if (t.dataset.open) {
       const id = t.dataset.open;
       if (C.open.has(id)) C.open.delete(id); else { C.open.add(id); if (!C.details[id]) { renderProcess(); C.details[id] = await api(`/v1/users/${C.uid}/console/runs/${id}`); } }
