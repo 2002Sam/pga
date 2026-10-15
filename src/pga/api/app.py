@@ -1740,6 +1740,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     def project_out(p) -> dict:
         return {"id": str(p.id), "name": p.name, "path": p.path, "notes": p.notes, "full_access": p.full_access,
+                "aim_id": str(p.aim_id) if p.aim_id else None, "aim": p.aim.text if p.aim is not None else None,
                 "created_at": p.created_at.isoformat(), "last_used_at": p.last_used_at.isoformat() if p.last_used_at else None}
 
     @app.get("/v1/users/{user_id}/projects")
@@ -1757,7 +1758,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(403, "a demo account cannot open folders on this machine")
         try:
             return project_out(Projects(rt.session).create(user_id, path=str(body.get("path") or ""), name=str(body.get("name") or ""),
-                                                           notes=str(body.get("notes") or ""), full_access=bool(body.get("full_access"))))
+                                                           notes=str(body.get("notes") or ""), full_access=bool(body.get("full_access")),
+                                                           aim_id=body.get("aim_id")))
         except ProjectError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -1767,10 +1769,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         user_or_404(rt, user_id)
         try:
             ps = Projects(rt.session)
+            extra = {"aim_id": body.get("aim_id"), "user_id": user_id} if "aim_id" in body else {}
             return project_out(ps.update(ps.get(user_id, pid), name=body.get("name"), notes=body.get("notes"),
-                                         full_access=body.get("full_access") if "full_access" in body else None))
+                                         full_access=body.get("full_access") if "full_access" in body else None, **extra))
         except ProjectError as exc:
-            raise HTTPException(404, str(exc)) from exc
+            raise HTTPException(422 if "抱负" in str(exc) else 404, str(exc)) from exc
 
     @app.delete("/v1/users/{user_id}/projects/{pid}", status_code=204)
     def projects_delete(user_id: uuid.UUID, pid: uuid.UUID, rt: Runtime = Depends(get_rt)):

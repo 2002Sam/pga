@@ -81,13 +81,15 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
 def _project_note(project, adapter_type: str) -> str:
     if adapter_type == "llm":
         return (f"\n\nThe user is asking about their project \"{project.name}\" ({project.path}). You cannot open its files; "
-                "answer from what they tell you and say what you would need to see.")
+                "answer from what they tell you and say what you would need to see."
+                + (f" The project serves their long-range aim: {project.aim.text_en}" if getattr(project, "aim", None) else ""))
     full = bool(project.full_access)
     return (f"\n\nYou are working in the user's project \"{project.name}\" at {project.path} (your working directory). "
             + ("You may run commands and edit files there. Work carefully, keep changes focused, and say exactly what you changed "
                "and how you checked it." if full else
                "You may read its files but not change them; if a change is needed, describe it precisely.")
-            + (f"\nThe user's notes about this project: {project.notes}" if project.notes else ""))
+            + (f"\nThe user's notes about this project: {project.notes}" if project.notes else "")
+            + (f"\nThis folder serves the user's long-range aim: {project.aim.text_en}" if getattr(project, "aim", None) else ""))
 
 
 def _reader_lang(user: "User | None") -> str:

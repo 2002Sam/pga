@@ -719,7 +719,8 @@ dialog.settings::backdrop { background: rgba(0,0,0,.75); }
 .ag-proj .pj .path { font-family: var(--mono); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin: 2px 0 4px; }
 .ag-proj .pj .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); }
 .ag-proj .pj .row label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; } .ag-proj .pj .row input { width: auto; accent-color: #e9a94b; }
-.ag-proj .pj .talkrow select { width: auto; font-size: 11.5px; padding: 1px 4px; } .ag-proj .pj .talkrow button { color: #f3d38a !important; }
+.ag-proj .pj .talkrow select { width: auto; font-size: 11.5px; padding: 1px 4px; }
+.ag-proj .aimrow { display: flex; gap: 8px; align-items: center; font-size: 11.5px; color: var(--muted); } .ag-proj .aimrow select { width: auto; max-width: 100%; font-size: 11.5px; padding: 1px 4px; } .ag-proj .pj .talkrow button { color: #f3d38a !important; }
 .ag-proj .pj .row button { border: 0; background: transparent; color: rgba(243,211,138,.85); cursor: pointer; padding: 0; font: inherit; }
 .ag-proj .act { margin: 6px 0 0 2px; font-size: 11.5px; color: rgba(214,224,229,.7); } .ag-proj .act div { padding: 3px 0; border-bottom: 1px dashed rgba(220,232,238,.08); }
 .ag-proj .act b { color: #f3d38a; font-weight: 500; } .ag-proj .act i { font-style: normal; color: var(--muted); }
@@ -1450,6 +1451,11 @@ async function boot() {
     $("#provider").textContent = S.health.llm_provider_name || names[S.health.llm_provider] || S.health.llm_provider;
   } catch { $("#provider").textContent = "服务未连接"; }
   if (S.uid) { try { S.user = await api(`/v1/users/${S.uid}`); } catch (e) { if (e.status === 404 || e.status === 422) S.uid = null; else return fail(e); } }
+  const into = S.user?.preferences?.merged_into;           // this browser's account was merged into another: follow it
+  if (into && into !== S.uid) {
+    if (AS_UID) { const q = new URLSearchParams(location.search); q.set("as", into); location.replace(`${location.pathname}?${q}`); return; }
+    store.set("pga_uid", into); location.reload(); return;
+  }
   if (!S.uid) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai";
     const u = await api("/v1/users", { body: { locale: "zh-CN", timezone: tz } });
@@ -2058,13 +2064,19 @@ function cardRoute() {
 /* ---- projects: folders any agent can work in, picked per conversation */
 const PROJ = { list: null, open: null, act: {}, choice: store.json("pga_card_project", {}) || {}, ok: {} };
 async function loadProjects() { try { PROJ.list = await api(`/v1/users/${S.uid}/projects`); } catch { PROJ.list = []; } renderProjects(); renderOpts(); refreshProjectPlanets(); }
+function projAimSelect(cur, attrs) {                     // which motivation a folder serves, or none (a free folder)
+  const short = (t) => (t.length > 22 ? t.slice(0, 21) + "…" : t);
+  return `<select ${attrs}><option value="">（自由文件夹 · 不属于任何抱负）</option>${(S.aims || []).map((a) =>
+    `<option value="${a.id}"${a.id === cur ? " selected" : ""}>☉ ${esc(short(a.text))}</option>`).join("")}${cur && !(S.aims || []).some((a) => a.id === cur) ? `<option value="${cur}" selected>☉ （当前抱负）</option>` : ""}</select>`;
+}
 function renderProjects() {
   const el = $("#agProj"); if (!el) return;
-  const list = PROJ.list || [];
+  const list = [...(PROJ.list || [])].sort((a, b) => (a.aim_id ? 0 : 1) - (b.aim_id ? 0 : 1));   // folders of a motivation first
   el.innerHTML = `<div class="ag-h">项目 <small>agent 可以进去工作的文件夹 · 和用哪个 agent 无关</small><button class="x" type="button" data-proj="close">✕</button></div>
     <div class="ag-sub">在任何对话的输入框下面选一个项目，用哪个 agent 都可以，随时换 agent 接着改。默认只能<b>读</b>项目里的文件；打开「完整权限」后（每次在对话里还要确认一次），agent 可以在里面<b>执行命令、修改文件</b>、使用你的 MCP，就像在终端里用它一样。</div>
     ${list.map((p) => `<div class="pj" data-pj="${p.id}"><div class="t">${esc(p.name)}${p.full_access ? `<span class="full">完整权限</span>` : ""}</div>
       <div class="path">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</div>
+      <div class="row aimrow">属于：${projAimSelect(p.aim_id, `data-proj="aim" data-id="${p.id}"`)}</div>
       <div class="row"><label><input type="checkbox" data-proj="full" data-id="${p.id}" ${p.full_access ? "checked" : ""}> 允许执行命令、修改文件</label>
         <button type="button" data-proj="act" data-id="${p.id}">${PROJ.open === p.id ? "收起记录" : "谁做过什么"}</button><button type="button" data-proj="del" data-id="${p.id}">移除</button>
         ${p.last_used_at ? `<span>上次 ${new Date(p.last_used_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>` : ""}</div>
@@ -2073,6 +2085,7 @@ function renderProjects() {
       ${PROJ.open === p.id ? `<div class="act">${(PROJ.act[p.id] || []).map((a) => `<div><i>${new Date(a.at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</i> <b>${esc(a.agent || "—")}</b>${a.model ? ` · ${esc(a.model)}` : ""}${a.full ? " · 完整" : " · 只读"} — ${esc(a.asked)}${(a.changed || []).length ? `<br><i>改了：${a.changed.map(esc).join("、")}</i>` : ""}</div>`).join("") || "还没有 agent 在这里工作过"}</div>` : ""}
     </div>`).join("") || `<div class="ag-sub">还没有项目。</div>`}
     <form class="add" id="projAdd"><input type="text" id="projPath" placeholder="文件夹路径，例如 ~/Documents/my-app" autocomplete="off"><input type="text" id="projName" placeholder="名字（可选）" autocomplete="off">
+      <div class="row aimrow">属于：${projAimSelect(null, `id="projAim"`)}</div>
       <label class="ag-tog"><input type="checkbox" id="projFull"><span>允许执行命令、修改文件<small>之后也可以随时打开或关闭</small></span></label>
       <button class="ag-btn" type="submit">＋ 添加项目</button></form>`;
 }
@@ -2620,6 +2633,11 @@ function bindAgentView() {
   $("#agProjBtn").onclick = () => { const el = $("#agProj"); el.classList.toggle("show"); if (el.classList.contains("show")) loadProjects(); };
   $("#agProj").addEventListener("click", (e) => { const t = e.target.closest("button[data-proj]"); if (t) projectAct(t).catch((err) => toast(err.message)); });
   $("#agProj").addEventListener("change", async (e) => {
+    const sel = e.target.closest('[data-proj="aim"]');
+    if (sel) {
+      try { await api(`/v1/users/${S.uid}/projects/${sel.dataset.id}`, { method: "PATCH", body: { aim_id: sel.value || null } }); toast(sel.value ? "这个文件夹现在服务于这个抱负" : "这个文件夹现在是自由文件夹"); } catch (err) { toast(err.message); }
+      return loadProjects();
+    }
     const t = e.target.closest('[data-proj="full"]'); if (!t) return;
     if (t.checked && !confirm("打开完整权限：在对话里选这个项目时，agent 可以在里面执行命令、修改文件（每次还会再确认一次）。")) { t.checked = false; return; }
     try { await api(`/v1/users/${S.uid}/projects/${t.dataset.id}`, { method: "PATCH", body: { full_access: t.checked } }); } catch (err) { toast(err.message); }
@@ -2628,7 +2646,7 @@ function bindAgentView() {
   $("#agProj").addEventListener("submit", async (e) => {
     if (e.target.id !== "projAdd") return; e.preventDefault();
     const path = $("#projPath").value.trim(); if (!path) return;
-    try { await api(`/v1/users/${S.uid}/projects`, { body: { path, name: $("#projName").value.trim(), full_access: $("#projFull").checked } }); toast("项目已添加：在对话的输入框下面选它"); await loadProjects(); }
+    try { await api(`/v1/users/${S.uid}/projects`, { body: { path, name: $("#projName").value.trim(), full_access: $("#projFull").checked, aim_id: $("#projAim")?.value || null } }); toast("项目已添加：在对话的输入框下面选它"); await loadProjects(); }
     catch (err) { toast("没能添加：" + err.message); }
   });
   $("#agProj").addEventListener("pointerdown", (e) => e.stopPropagation());

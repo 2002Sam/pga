@@ -133,7 +133,8 @@ class PerpetualTask(Base):
 
 
 class Project(Base):
-    """A folder you let agents work in — chosen per conversation, independent of which agent you use."""
+    """A folder agents work in. It belongs to a motivation (an aim) as one of its working folders, or stays free for
+    one-off tasks; chosen per conversation, independent of which agent you use."""
     __tablename__ = "projects"
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
@@ -141,10 +142,13 @@ class Project(Base):
     path: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     full_access: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)   # agents may run commands and edit files
+    aim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("aims.id", ondelete="SET NULL"))   # the motivation it serves (none: a free folder)
     created_at: Mapped[datetime] = _created()
     last_used_at: Mapped[datetime | None] = mapped_column(Tz())
 
     __table_args__ = (UniqueConstraint("user_id", "path", name="uq_projects_user_path"),)
+
+    aim: Mapped["Aim | None"] = relationship()
 
 
 class AimNote(Base):

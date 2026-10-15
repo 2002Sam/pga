@@ -1,6 +1,7 @@
 """Projects: folders you let agents work in, separate from which agent you use.
 
-A project is a name and a folder in your home directory. In any conversation you can pick a project, with any agent,
+A project is a name and a folder in your home directory. It may belong to one of your motivations (aims) as one of
+its working folders — agents working there are told which aim the work serves — or stay free for one-off tasks. In any conversation you can pick a project, with any agent,
 and switch agents whenever you like — the work stays in the project. By default an agent may only read a project;
 `full_access` (you turn it on, and confirm it in the conversation) lets it work like in your terminal: run commands,
 edit files, use your MCP tools (Claude Code / CodeBuddy accept edits and may run Bash; Codex runs in a workspace-write
@@ -16,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from pga.db.models import AgentRun, Project, User
+from pga.db.models import AgentRun, Aim, Project, User
 from pga.db.types import utcnow
 
 if TYPE_CHECKING:
@@ -77,23 +78,45 @@ class Projects:
             raise ProjectError("没有这个项目")
         return p
 
-    def create(self, user_id: uuid.UUID, *, path: str, name: str = "", notes: str = "", full_access: bool = False) -> Project:
+    def aim_for(self, user_id: uuid.UUID, aim_id) -> uuid.UUID | None:
+        """The motivation a folder serves: one of your aims, or None (a free folder for one-off tasks)."""
+        if aim_id in (None, "", "none"):
+            return None
+        try:
+            aid = aim_id if isinstance(aim_id, uuid.UUID) else uuid.UUID(str(aim_id))
+        except ValueError as exc:
+            raise ProjectError("没有这个抱负") from exc
+        aim = self.session.get(Aim, aid)
+        if aim is None or aim.user_id not in self.owners(user_id):
+            raise ProjectError("没有这个抱负")
+        return aim.id
+
+    def for_aim(self, user_id: uuid.UUID, aim_id: uuid.UUID) -> list[Project]:
+        return [p for p in self.list(user_id) if p.aim_id == aim_id]
+
+    def create(self, user_id: uuid.UUID, *, path: str, name: str = "", notes: str = "", full_access: bool = False,
+               aim_id=None) -> Project:
         folder = check_path(path)
         if self.session.scalar(select(Project).where(Project.user_id.in_(self.owners(user_id)), Project.path == str(folder))):
             raise ProjectError("这个文件夹已经是一个项目了")
         p = Project(user_id=user_id, name=(name or folder.name).strip()[:120], path=str(folder), notes=notes[:2000],
-                    full_access=bool(full_access), created_at=utcnow())
+                    full_access=bool(full_access), aim_id=self.aim_for(user_id, aim_id), created_at=utcnow())
         self.session.add(p)
         self.session.flush()
         return p
 
-    def update(self, p: Project, *, name: str | None = None, notes: str | None = None, full_access: bool | None = None) -> Project:
+    _KEEP = object()
+
+    def update(self, p: Project, *, name: str | None = None, notes: str | None = None, full_access: bool | None = None,
+               aim_id=_KEEP, user_id: uuid.UUID | None = None) -> Project:
         if name is not None and name.strip():
             p.name = name.strip()[:120]
         if notes is not None:
             p.notes = notes[:2000]
         if full_access is not None:
             p.full_access = bool(full_access)
+        if aim_id is not Projects._KEEP:
+            p.aim_id = self.aim_for(user_id or p.user_id, aim_id)
         self.session.flush()
         return p
 
