@@ -18,11 +18,14 @@ KEEP_S = 40                      # how long a finished run stays on the map
 MAX_TEXT = 12000
 
 
-def start(agent: str, *, category: str = "", workflow: str = "", step: str = "", prompt: str = "", task_kind: str = "") -> str:
+def start(agent: str, *, category: str = "", workflow: str = "", step: str = "", prompt: str = "", task_kind: str = "",
+          tags: dict | None = None) -> str:
+    """`tags` say what the run serves (aim, perpetual task, project, role) so the console can show it in place."""
     lid = uuid.uuid4().hex[:12]
     with _LOCK:
         _RUNS[lid] = {"id": lid, "agent": agent, "category": category, "workflow": workflow, "step": step, "task_kind": task_kind,
-                      "prompt": prompt[:300], "text": "", "tr": "", "started": time.time(), "finished": None, "ok": None, "error": None}
+                      "prompt": prompt[:300], "text": "", "tr": "", "started": time.time(), "finished": None, "ok": None, "error": None,
+                      "tags": dict(tags or {})}
         _prune()
     return lid
 
@@ -59,6 +62,14 @@ def stop(lid: str) -> bool:
             return False
         _STOP.add(lid)
         return True
+
+
+def stop_where(**match) -> list[str]:
+    """Stop every running answer whose agent / tags match (e.g. agent="claude", perpetual=<task id>)."""
+    with _LOCK:
+        ids = [r["id"] for r in _RUNS.values() if r["finished"] is None and all(
+            (r["agent"] if k == "agent" else (r.get("tags") or {}).get(k)) == v for k, v in match.items())]
+    return [lid for lid in ids if stop(lid)]
 
 
 def stopped(lid: str | None) -> bool:

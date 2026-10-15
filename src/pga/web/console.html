@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>PGA 工作台</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=3">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#050505">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* the same monochrome line-art language as the sky: black, white lines, one warm accent for "working" */
+:root {
+  --bg: #050505; --panel: #0a0a0a; --text: #e8e8e8; --muted: #8a8a8a; --dim: #555;
+  --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.2); --line-3: rgba(255,255,255,.42);
+  --gold: #e9a94b; --gold-dim: rgba(233,169,75,.35); --bad: #f08a7a;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --cap: 400 10px var(--mono);
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 13.5px/1.6 var(--font); -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line-2); background: transparent; padding: 4px 10px; white-space: nowrap; transition: border-color .15s, color .15s, background .15s; }
+button:hover { border-color: var(--line-3); }
+button.primary { border-color: var(--gold); color: var(--gold); }
+button.primary:hover { background: rgba(233,169,75,.1); }
+button.ghost { border-color: transparent; color: var(--muted); padding: 2px 6px; }
+button.ghost:hover { color: var(--text); border-color: var(--line-2); }
+button:disabled { opacity: .4; cursor: default; }
+a { color: inherit; }
+.cap { font: var(--cap); letter-spacing: .18em; text-transform: uppercase; color: var(--muted); }
+.muted { color: var(--muted); } .dim { color: var(--dim); }
+.mono { font-family: var(--mono); }
+
+/* layout */
+.app { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+header { display: flex; align-items: center; gap: 18px; padding: 10px 18px; border-bottom: 1px solid var(--line); }
+header .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+header .logo img { width: 22px; height: 22px; }
+header .logo b { font-weight: 500; letter-spacing: .35em; font-size: 13px; }
+header nav { display: flex; gap: 2px; }
+header nav a { text-decoration: none; padding: 4px 12px; border: 1px solid transparent; color: var(--muted); }
+header nav a.on { border-color: var(--line-2); color: var(--text); }
+header nav a:hover { color: var(--text); }
+header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center; color: var(--muted); font-size: 12px; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dim); vertical-align: 1px; }
+.dot.on { background: var(--gold); box-shadow: 0 0 0 0 var(--gold-dim); animation: beat 1.6s infinite; }
+.dot.ok { background: #cfcfcf; } .dot.bad { background: var(--bad); }
+@keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
+
+main { display: grid; grid-template-columns: 300px minmax(0, 1fr) 320px; min-height: 0; }
+main > section { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #222 transparent; }
+#left { border-right: 1px solid var(--line); padding: 14px 0; }
+#right { border-left: 1px solid var(--line); padding: 14px 0; }
+#center { padding: 18px 26px 40px; }
+.colh { display: flex; align-items: baseline; gap: 10px; padding: 0 16px 10px; }
+.colh .cap { flex: 1; }
+
+/* motivations → projects */
+.aim { border-top: 1px solid var(--line); padding: 12px 16px 10px; cursor: pointer; }
+.aim.sel { background: rgba(255,255,255,.035); box-shadow: inset 2px 0 0 var(--gold); }
+.aim .t { font-size: 13.5px; line-height: 1.5; }
+.aim .st { display: flex; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.aim .q { color: var(--gold); font-size: 11.5px; margin-top: 4px; }
+.bar { height: 2px; background: var(--line); position: relative; margin-top: 8px; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--text); }
+.bar.gold i { background: var(--gold); }
+.projs { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+.proj { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--line); font-size: 12.5px; }
+.proj .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj .n small { display: block; color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.proj .run { min-width: 64px; }
+.free .proj .run { color: var(--dim); }
+.empty { color: var(--dim); font-size: 12px; padding: 4px 0; }
+
+/* the process */
+.ph { display: flex; gap: 16px; align-items: flex-start; }
+.ph h1 { flex: 1; font-size: 20px; font-weight: 400; line-height: 1.45; margin: 0; }
+.ph .ctl { display: flex; gap: 8px; flex-direction: column; align-items: flex-end; }
+.bigrun { font-size: 14px; padding: 8px 18px; min-width: 120px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 12px 0 4px; font-size: 12.5px; color: var(--muted); }
+.meta b { color: var(--text); font-weight: 400; }
+.parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 14px 0 6px; }
+.parts .p .cap { letter-spacing: .1em; }
+.parts .p.top .cap { color: var(--gold); }
+h2 { font: var(--cap); letter-spacing: .22em; color: var(--muted); text-transform: uppercase; margin: 30px 0 10px; display: flex; gap: 10px; align-items: baseline; }
+h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-size: 11px; }
+
+.live { border: 1px solid var(--gold-dim); margin-bottom: 10px; }
+.live .lh { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.live .lh .who { flex: 1; }
+.live pre { margin: 0; padding: 10px 12px; max-height: 340px; overflow-y: auto; font: 12px/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8d8; }
+.live pre .tool { color: var(--muted); }
+.live pre .cursor::after { content: "▍"; color: var(--gold); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.idle { border: 1px dashed var(--line-2); padding: 14px; color: var(--muted); font-size: 12.5px; }
+
+.ask { border: 1px solid var(--line-2); padding: 12px; margin-bottom: 8px; }
+.ask .qt { margin-bottom: 8px; }
+.ask textarea { width: 100%; min-height: 54px; resize: vertical; background: transparent; border: 1px solid var(--line-2); padding: 6px 8px; outline: none; }
+.ask textarea:focus { border-color: var(--line-3); }
+.ask .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+.tl { position: relative; padding-left: 18px; }
+.tl::before { content: ""; position: absolute; left: 4px; top: 4px; bottom: 4px; width: 1px; background: var(--line-2); }
+.ev { position: relative; padding: 8px 0 12px; }
+.ev::before { content: ""; position: absolute; left: -18px; top: 15px; width: 9px; height: 9px; border: 1px solid var(--line-3); background: var(--bg); border-radius: 50%; }
+.ev.run::before { background: var(--text); border-color: var(--text); }
+.ev.q::before { border-color: var(--gold); }
+.ev.user::before { background: var(--gold); border-color: var(--gold); }
+.ev.bad::before { background: var(--bad); border-color: var(--bad); }
+.ev .h { display: flex; gap: 10px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.ev .h b { color: var(--text); font-weight: 500; }
+.ev .h .k { font: var(--cap); letter-spacing: .14em; }
+.ev .h time { margin-left: auto; color: var(--dim); font-size: 11px; white-space: nowrap; }
+.ev .b { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.65; }
+.ev .b.clamp { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.ev .more { margin-top: 6px; }
+.detail { margin-top: 10px; border-left: 1px solid var(--line-2); padding-left: 12px; }
+.detail .cap { margin: 12px 0 4px; display: block; }
+.detail pre { margin: 0; max-height: 380px; overflow: auto; font: 11.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #cfcfcf; }
+.detail details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+/* agents */
+.ag { border-top: 1px solid var(--line); padding: 11px 16px 12px; }
+.ag .h { display: flex; gap: 8px; align-items: center; }
+.ag .h b { font-weight: 500; }
+.ag .h .s { margin-left: auto; font-size: 11.5px; color: var(--muted); }
+.ag .r { font-size: 11.5px; color: var(--dim); margin-top: 2px; }
+.ag .q { display: flex; gap: 8px; align-items: center; margin-top: 7px; font-size: 11px; color: var(--muted); }
+.ag .q .bar { flex: 1; margin: 0; }
+.ag .w { margin-top: 8px; border-left: 1px solid var(--gold); padding: 2px 0 2px 9px; font-size: 12px; }
+.ag .w .tail { font: 11px/1.5 var(--mono); color: var(--muted); white-space: pre-wrap; max-height: 4.6em; overflow: hidden; margin-top: 3px; }
+.ag .acts { display: flex; gap: 6px; margin-top: 8px; }
+.ag.off { opacity: .5; }
+
+#toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px); opacity: 0; transition: .25s; background: #111; border: 1px solid var(--line-2); padding: 8px 16px; font-size: 12.5px; pointer-events: none; z-index: 9; }
+#toast.on { opacity: 1; transform: translateX(-50%); }
+
+/* narrower windows: agents fold under the process */
+@media (max-width: 1180px) { main { grid-template-columns: 270px minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
+@media (max-width: 760px) { main { grid-template-columns: 1fr; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <a class="logo" href="/console"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
+    <nav><a class="on" href="/console">工作台</a><a href="/?sky" id="toSky">星空</a></nav>
+    <div class="pulse"><span id="pWorking"><span class="dot"></span> —</span><span id="pTasks">—</span><span id="pUpdated" class="dim"></span></div>
+  </header>
+  <main>
+    <section id="left">
+      <div class="colh"><span class="cap">抱负 · 项目</span></div>
+      <div id="aims"></div>
+    </section>
+    <section id="center"><div id="proc"><div class="idle">正在载入…</div></div></section>
+    <section id="right">
+      <div class="colh"><span class="cap">Agents</span><span class="dim" id="agCount"></span></div>
+      <div id="agents"></div>
+    </section>
+  </main>
+</div>
+<div id="toast"></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const AS_UID = new URLSearchParams(location.search).get("as");
+if (AS_UID) $("#toSky").href = `/?sky&as=${encodeURIComponent(AS_UID)}`;
+const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
+            open: new Set(), details: {}, drafts: {}, busy: new Set() };
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"),
+    headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) { const e = new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText); e.status = res.status; throw e; }
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("on"), 3200); }
+function ago(iso) {
+  if (!iso) return ""; const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (d < 0) return "马上"; if (d < 60) return "刚刚"; if (d < 3600) return Math.floor(d / 60) + " 分钟前"; if (d < 86400) return Math.floor(d / 3600) + " 小时前";
+  return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+function until(iso) {
+  if (!iso) return ""; const d = (new Date(iso).getTime() - Date.now()) / 1000;
+  if (d <= 0) return "现在"; if (d < 60) return Math.ceil(d) + " 秒后"; if (d < 3600) return Math.ceil(d / 60) + " 分钟后";
+  return new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+const dur = (s) => s == null ? "" : s < 60 ? `${Math.round(s)} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${(s / 3600).toFixed(1)} 小时`;
+const STATE = { running: ["工作中", "on"], paused: ["已暂停", ""], stopped: ["已停止", ""], idle: ["未开始", ""] };
+const STEP = { think: "思考", investigate: "研究", evolve: "进化", reflect: "回顾" };
+const ROLE = { lead: "主导", researcher: "研究员", critic: "审阅", builder: "实现" };
+const KIND = { question: "提问", answer: "回答", insight: "发现", evolve: "进化", reflect: "回顾", correction: "你的指正" };
+
+/* ------------------------------------------------ data */
+
+async function boot() {
+  if (!C.uid) { try { const h = await api("/healthz"); C.uid = h.owner; } catch {} }
+  if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号：先打开一次 <a href="/?sky">星空</a>。</div>`; return; }
+  try { const u = await api(`/v1/users/${C.uid}`); const into = u.preferences?.merged_into; if (into && into !== C.uid) { C.uid = into; if (!AS_UID) store.set("pga_uid", into); } }
+  catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="/?sky">星空</a>。</div>`; return; } }
+  await loadAll();
+  setInterval(() => loadOverview().catch(() => {}), 6000);
+  setInterval(() => loadLive().catch(() => {}), 1500);
+  setInterval(() => { if (C.sel) loadProcess().catch(() => {}); }, 8000);
+}
+async function loadAll() { await loadOverview(); await loadProcess(); }
+async function loadOverview() {
+  C.data = await api(`/v1/users/${C.uid}/console`);
+  C.live = C.data.live || [];
+  const aims = C.data.aims || [];
+  if (!C.sel || !aims.some((a) => a.id === C.sel)) C.sel = (aims.find((a) => a.task?.status === "running") || aims[0])?.id || null;
+  renderAims(); renderAgents(); renderPulse();
+  $("#pUpdated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+async function loadLive() {
+  C.live = await api("/v1/agents/live");
+  renderPulse(); renderLive(); renderAgentWork();
+}
+async function loadProcess() {
+  if (!C.sel) { renderProcess(); return; }
+  try { C.proc = await api(`/v1/users/${C.uid}/console/aims/${C.sel}`); } catch (e) { C.proc = null; }
+  if (document.activeElement?.matches?.("#proc textarea")) { renderLive(); return; }   // don't redraw under your typing
+  renderProcess();
+}
+
+/* ------------------------------------------------ left: motivations → projects */
+
+function runBtn(p, big) {
+  const on = p.state === "running", busy = C.busy.has(p.id);
+  const label = busy ? "…" : on ? "⏸ 暂停" : "▶ 开始";
+  const title = !p.aim_id ? "先把这个文件夹挂到一个抱负下，才能开始" : on ? "暂停这个项目：正在做的事也会停下" : "开始：它的抱负在这个文件夹里不停地思考、提问、研究、进化";
+  return `<button class="run ${on ? "" : "primary"} ${big ? "bigrun" : ""}" data-run="${p.id}" data-act="${on ? "pause" : "start"}" title="${esc(title)}" ${busy || !p.aim_id ? "disabled" : ""}>${label}</button>`;
+}
+function projRow(p) {
+  const [zh, cls] = STATE[p.state] || STATE.idle;
+  const note = p.state === "running" && p.phase_zh ? p.phase_zh : zh;
+  return `<div class="proj"><span class="dot ${p.working ? "on" : cls === "on" ? "ok" : ""}"></span>
+    <div class="n">${esc(p.name)}<small>${esc(note)} · ${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</small></div>${runBtn(p)}</div>`;
+}
+function renderAims() {
+  const d = C.data; if (!d) return;
+  const aims = d.aims || [];
+  $("#aims").innerHTML = aims.map((a) => {
+    const t = a.task; const [zh] = STATE[t?.status || "idle"] || STATE.idle;
+    const live = t?.working?.length || 0;
+    return `<div class="aim ${a.id === C.sel ? "sel" : ""}" data-aim="${a.id}">
+      <div class="t">${esc(a.text)}</div>
+      <div class="st"><span class="dot ${live ? "on" : t?.status === "running" ? "ok" : ""}"></span>${t ? `${esc(zh)} · ${esc(t.phase_zh || "")}` : "还没有开始"}${live ? ` · ${live} 个 agent 在做` : ""}</div>
+      ${t ? `<div class="bar ${live ? "gold" : ""}" title="张力 ${(t.pressure ?? 0).toFixed(2)}"><i style="width:${Math.round((t.pressure ?? 0) * 100)}%"></i></div>` : ""}
+      ${a.open_questions ? `<div class="q">● ${a.open_questions} 个问题等你回答</div>` : ""}
+      <div class="projs">${a.projects.map(projRow).join("") || `<div class="empty">还没有项目文件夹（在星空 → 项目里把文件夹挂到这个抱负下）</div>`}</div>
+    </div>`;
+  }).join("") + (d.free_projects?.length ? `<div class="aim free"><div class="cap">自由文件夹</div><div class="projs">${d.free_projects.map(projRow).join("")}</div>
+      <div class="empty">不属于任何抱负的文件夹不能自己开始：在星空 → 项目里选「属于」。</div></div>` : "")
+    || `<div class="aim"><div class="empty">还没有抱负。先在 <a href="/?sky">星空</a> 写下一个长期抱负。</div></div>`;
+}
+
+/* ------------------------------------------------ center: the process */
+
+function projectOf(aim) {
+  if (!C.data || !aim) return null;
+  const a = (C.data.aims || []).find((x) => x.id === aim.id);
+  if (!a) return null;
+  return a.projects.find((p) => p.id === a.task?.project_id) || a.projects[0] || null;
+}
+function renderProcess() {
+  const el = $("#proc");
+  const P = C.proc;
+  if (!C.sel || !P) { el.innerHTML = `<div class="idle">在左边选一个抱负。</div>`; return; }
+  const t = P.task, a = (C.data?.aims || []).find((x) => x.id === C.sel);
+  const proj = projectOf(P.aim);
+  const parts = t?.parts || {};
+  const top = Object.keys(STEP).reduce((m, k) => ((parts[k] ?? -1) > (parts[m] ?? -1) ? k : m), "think");
+  const qs = P.for_you || [];
+  // keep what you were typing across refreshes
+  el.querySelectorAll("textarea[data-q]").forEach((x) => { C.drafts[x.dataset.q] = x.value; });
+  el.innerHTML = `
+    <div class="ph"><h1>${esc(P.aim.text)}</h1>
+      <div class="ctl">${proj ? runBtn(proj, true) : `<span class="muted" style="font-size:12px">先给这个抱负挂一个项目文件夹</span>`}
+        ${proj ? `<span class="dim" style="font-size:11.5px">在 ${esc(proj.name)} 里</span>` : ""}</div></div>
+    ${t ? `<div class="meta"><span>状态 <b>${esc((STATE[t.status] || STATE.idle)[0])}</b></span><span>现在 <b>${esc(t.phase_zh)}</b></span>
+      <span>已运行 <b>${t.cycles}</b> 轮</span><span>张力 <b>${(t.pressure ?? 0).toFixed(2)}</b></span>
+      ${t.status === "running" && t.next_at && new Date(t.next_at) > Date.now() ? `<span>下一步 <b>${esc(until(t.next_at))}</b></span>` : ""}
+      ${a?.stats ? `<span>工作 <b>${dur(a.stats.work_s)}</b> · 休息 <b>${dur(a.stats.rest_s)}</b></span>` : ""}</div>
+      ${t.phase_note ? `<div class="muted" style="font-size:12.5px">${esc(t.phase_note)}</div>` : ""}
+      <div class="parts">${Object.entries(STEP).map(([k, zh]) => `<div class="p ${k === top ? "top" : ""}"><span class="cap">${zh} ${(parts[k] ?? 0).toFixed(2)}</span>
+        <div class="bar ${k === top ? "gold" : ""}"><i style="width:${Math.round(Math.min(1, parts[k] ?? 0) * 100)}%"></i></div></div>`).join("")}</div>
+      <div class="dim" style="font-size:11.5px">哪一种压力最大，下一轮就做哪一种：思考 = 提出新问题，研究 = 回答问题，进化 = 改进代码，回顾 = 整理反思。</div>`
+      : `<div class="meta">还没有开始。${proj ? "按右上角 ▶ 开始，它就会在这个文件夹里不停地思考、提问、研究和进化。" : ""}</div>`}
+    <h2>正在进行 <small>agent 此刻在读什么、想什么</small></h2><div id="liveBox"></div>
+    ${qs.length ? `<h2>等你回答 <small>只有你能决定的问题</small></h2>${qs.map((q) => `<div class="ask"><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
+      <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
+      <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}` : ""}
+    <h2>自我对话 <small>它问了自己什么、谁回答、谁审阅、得出了什么</small></h2>
+    <div class="tl">${(P.events || []).map(evHtml).join("") || `<div class="empty">还没有记录。</div>`}</div>`;
+  renderLive();
+}
+function evHtml(e) {
+  const at = `<time title="${esc(new Date(e.at).toLocaleString("zh-CN"))}">${esc(ago(e.at))}</time>`;
+  if (e.type === "run") {
+    const open = C.open.has(e.id), d = C.details[e.id];
+    return `<div class="ev run ${e.status !== "SUCCEEDED" ? "bad" : ""}">
+      <div class="h"><span class="k">${esc(STEP[e.step] || e.step_zh || e.step)}</span><b>${esc(e.agent)}</b>${e.role ? `<span>${esc(ROLE[e.role] || e.role)}</span>` : ""}<span>${esc(dur(e.duration_s))}</span>${e.status !== "SUCCEEDED" ? `<span style="color:var(--bad)">${esc(e.status)}</span>` : ""}${at}</div>
+      <div class="b ${open ? "" : "clamp"}">${esc(e.error && !e.summary ? e.error : e.summary)}</div>
+      <div class="more"><button class="ghost" data-open="${e.id}">${open ? "收起过程" : e.has_trace ? "看完整过程（读了什么、怎么想的）" : "看完整提示和回答"}</button></div>
+      ${open ? `<div class="detail">${d ? detailHtml(d) : `<span class="dim">载入中…</span>`}</div>` : ""}</div>`;
+  }
+  const user = e.kind === "correction" || (e.kind === "question" && e.status === "for_you");
+  const by = e.agent ? `<b>${esc(e.agent)}</b>${e.role ? `<span>${esc(ROLE[e.role] || e.role)}</span>` : ""}` : e.kind === "correction" ? "<b>你</b>" : "";
+  const st = e.kind === "question" ? { open: "待研究", for_you: "等你回答", answered: "已回答", dropped: "已放下" }[e.status] || e.status : "";
+  return `<div class="ev ${e.kind === "question" ? "q" : ""} ${user ? "user" : ""}">
+    <div class="h"><span class="k">${esc(KIND[e.kind] || e.kind)}${e.data?.code ? " " + esc(e.data.code) : ""}</span>${by}${st ? `<span>${esc(st)}</span>` : ""}${at}</div>
+    <div class="b">${esc(e.text)}</div>${e.data?.why ? `<div class="dim" style="font-size:12px;margin-top:3px">为什么问：${esc(e.data.why)}</div>` : ""}</div>`;
+}
+function detailHtml(d) {
+  return `${d.trace ? `<span class="cap">过程 · 它读了什么、做了什么</span><pre>${traceHtml(d.trace)}</pre>` : ""}
+    <span class="cap">回答</span><pre>${esc(d.answer || d.output || d.error || "")}</pre>
+    <details><summary>发给它的完整提示（${(d.prompt || "").length} 字）</summary><pre>${esc(d.prompt || "")}</pre></details>`;
+}
+const traceHtml = (txt) => esc(txt).split("\n").map((l) => /^\s*(→|⚙|\$|›)/.test(l) ? `<span class="tool">${l}</span>` : l).join("\n");
+
+function renderLive() {
+  const box = $("#liveBox"); if (!box || !C.proc) return;
+  const tid = C.proc.task?.id;
+  const runs = (C.live || []).filter((r) => r.running && tid && (r.tags || {}).perpetual === tid);
+  if (!runs.length) {
+    const t = C.proc.task;
+    box.innerHTML = `<div class="idle">${!t ? "还没有开始。" : t.status !== "running" ? "已暂停：按 ▶ 开始继续。" :
+      `此刻没有 agent 在做事 — ${esc(t.phase_zh)}${t.next_at && new Date(t.next_at) > Date.now() ? `，${esc(until(t.next_at))}继续` : ""}。`}</div>`;
+    return;
+  }
+  // update in place so scrolling inside a stream is not lost
+  const keep = {}; box.querySelectorAll("pre[data-lid]").forEach((p) => { keep[p.dataset.lid] = { top: p.scrollTop, atEnd: p.scrollTop + p.clientHeight >= p.scrollHeight - 8 }; });
+  box.innerHTML = runs.map((r) => `<div class="live"><div class="lh"><span class="dot on"></span><span class="who"><b>${esc(r.agent)}</b>
+      ${r.tags?.role ? ` · ${esc(ROLE[r.tags.role] || r.tags.role)}` : ""} · ${esc(STEP[r.step] || r.step)} · ${esc(dur(r.elapsed_s))}</span>
+      <button class="ghost" data-stoplive="${r.id}">停止</button></div>
+    <pre data-lid="${r.id}">${traceHtml(r.text || "（正在启动…）")}<span class="cursor"></span></pre></div>`).join("");
+  box.querySelectorAll("pre[data-lid]").forEach((p) => { const k = keep[p.dataset.lid]; p.scrollTop = !k || k.atEnd ? p.scrollHeight : k.top; });
+}
+
+/* ------------------------------------------------ right: agents */
+
+function aimText(tags) {
+  const a = (C.data?.aims || []).find((x) => x.id === tags?.aim || x.task?.id === tags?.perpetual);
+  return a ? a.text : tags?.conversation ? "对话" : "";
+}
+function agentWorking(name) { return (C.live || []).filter((r) => r.running && r.agent === name); }
+function renderAgents() {
+  const list = (C.data?.agents || []).filter((a) => a.name !== "?");
+  $("#agCount").textContent = list.length ? `${list.filter((a) => agentWorking(a.name).length).length} / ${list.length} 在工作` : "";
+  $("#agents").innerHTML = list.map((a) => {
+    const q = a.quota || {}; const rem = q.remaining;
+    const work = agentWorking(a.name);
+    const state = a.enabled === false ? "已停用" : work.length ? `工作中 · ${work.length}` : a.available === false ? "不可用" : "空闲";
+    return `<div class="ag ${a.enabled === false ? "off" : ""}" data-ag="${esc(a.name)}">
+      <div class="h"><span class="dot ${work.length ? "on" : a.enabled === false || a.available === false ? (a.available === false ? "bad" : "") : "ok"}"></span><b>${esc(a.name)}</b><span class="s">${esc(state)}</span></div>
+      <div class="r">${esc(a.role || a.adapter || "")}${a.available === false && a.detail ? ` · ${esc(a.detail)}` : ""}</div>
+      ${rem != null ? `<div class="q"><span>额度</span><div class="bar"><i style="width:${Math.round(Math.max(0, Math.min(1, rem)) * 100)}%"></i></div><span>${Math.round(rem * 100)}%</span></div>` : ""}
+      ${q.detail ? `<div class="r">${esc(q.detail)}${q.resets_at ? ` · ${esc(until(q.resets_at))}重置` : ""}</div>` : ""}
+      <div class="wbox"></div>
+      <div class="acts">${work.length ? `<button data-agstop="${esc(a.name)}">停止当前工作</button>` : ""}
+        <button class="ghost" data-agenable="${esc(a.name)}" data-on="${a.enabled === false ? 1 : 0}">${a.enabled === false ? "启用" : "停用"}</button></div>
+    </div>`;
+  }).join("") || `<div class="ag"><div class="empty">没有 agent。</div></div>`;
+  renderAgentWork();
+}
+function renderAgentWork() {
+  document.querySelectorAll(".ag[data-ag]").forEach((el) => {
+    const work = agentWorking(el.dataset.ag), box = el.querySelector(".wbox"); if (!box) return;
+    box.innerHTML = work.map((r) => `<div class="w">${esc(aimText(r.tags) || r.workflow || "")}${r.step ? ` · ${esc(STEP[r.step] || r.step)}` : ""} · ${esc(dur(r.elapsed_s))}
+      <div class="tail">${esc((r.text || "").slice(-260))}</div></div>`).join("");
+    const s = el.querySelector(".h .s"); if (s && !el.classList.contains("off")) s.textContent = work.length ? `工作中 · ${work.length}` : s.textContent.startsWith("工作中") ? "空闲" : s.textContent;
+  });
+}
+function renderPulse() {
+  const n = (C.live || []).filter((r) => r.running).length;
+  $("#pWorking").innerHTML = `<span class="dot ${n ? "on" : ""}"></span> ${n ? `${n} 个 agent 正在工作` : "没有 agent 在工作"}`;
+  const aims = C.data?.aims || [];
+  const running = aims.filter((a) => a.task?.status === "running").length;
+  $("#pTasks").textContent = `${running} / ${aims.length} 个抱负在进行`;
+}
+
+/* ------------------------------------------------ controls */
+
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("button, .aim[data-aim]");
+  if (!t) return;
+  try {
+    if (t.dataset.run) {
+      e.stopPropagation();
+      const act = t.dataset.act;
+      if (act === "pause" && !confirm("暂停这个项目？正在进行的那一步也会停下（已经说过的会保留）。")) return;
+      C.busy.add(t.dataset.run); renderAims(); renderProcess();
+      try {
+        const r = await api(`/v1/users/${C.uid}/projects/${t.dataset.run}/run`, { body: { action: act } });
+        toast(act === "start" ? "已开始：它会在这个文件夹里不停地思考和工作" : `已暂停${r.stopped?.length ? `，停下了 ${r.stopped.length} 个正在进行的步骤` : ""}`);
+      } finally { C.busy.delete(t.dataset.run); }
+      await loadAll(); return;
+    }
+    if (t.dataset.aim && !e.target.closest("button")) { C.sel = t.dataset.aim; if (!AS_UID) store.set("pga_console_aim", C.sel); renderAims(); C.proc = null; renderProcess(); await loadProcess(); return; }
+    if (t.dataset.open) {
+      const id = t.dataset.open;
+      if (C.open.has(id)) C.open.delete(id); else { C.open.add(id); if (!C.details[id]) { renderProcess(); C.details[id] = await api(`/v1/users/${C.uid}/console/runs/${id}`); } }
+      renderProcess(); return;
+    }
+    if (t.dataset.stoplive) { await api(`/v1/agents/live/${t.dataset.stoplive}/stop`, { body: {} }); toast("已让它停下"); return; }
+    if (t.dataset.agstop) { const r = await api(`/v1/agents/${encodeURIComponent(t.dataset.agstop)}/stop`, { body: {} }); toast(r.stopped.length ? `停下了 ${r.stopped.length} 个正在进行的工作` : "它现在没有在工作"); return; }
+    if (t.dataset.agenable) {
+      const on = t.dataset.on === "1";
+      if (!on && !confirm(`停用 ${t.dataset.agenable}？它正在做的事会停下，之后不会再给它派活，直到你重新启用。`)) return;
+      await api(`/v1/agents/${encodeURIComponent(t.dataset.agenable)}/enabled`, { body: { enabled: on } });
+      toast(on ? "已启用" : "已停用"); await loadOverview(); return;
+    }
+    if (t.dataset.answer || t.dataset.drop) {
+      const id = t.dataset.answer || t.dataset.drop;
+      const text = t.dataset.answer ? ($(`textarea[data-q="${CSS.escape(id)}"]`)?.value || "").trim() : "";
+      if (t.dataset.answer && !text) { toast("先写下你的回答"); return; }
+      await api(`/v1/aims/${C.sel}/perpetual/answer`, { body: t.dataset.answer ? { note_id: id, text } : { note_id: id, drop: true } });
+      delete C.drafts[id]; toast(t.dataset.answer ? "已回答：之后的每一轮都会读到" : "已放下这个问题"); await loadAll(); return;
+    }
+  } catch (err) { toast("没能完成：" + err.message); }
+});
+
+boot();
+</script>
+</body>
+</html>

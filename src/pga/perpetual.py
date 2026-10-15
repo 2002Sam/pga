@@ -313,7 +313,8 @@ class Perpetual:
         st = self.pool._call(agent, self.pool._task(agent, prompt, system=system, kind="perpetual", workspace=ws, permissions="read_only",
                                                     timeout_s=None, want_json=True,
                                                     meta={"category": ROLES[role]["category"], "workflow": "perpetual",
-                                                          "task_kind": f"perpetual:{step}",
+                                                          "task_kind": f"perpetual:{step}", "aim": str(aim.id),
+                                                          "perpetual": str(t.id), "role": role,
                                                           **({"project": {"id": str(proj.id), "name": proj.name, "path": proj.path}} if proj else {})}), step)
         ok = bool(st.result.ok and st.result.text.strip())
         res = PoolResult(ok, st.result.text if ok else "", "perpetual", "single",

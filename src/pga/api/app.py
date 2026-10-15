@@ -137,6 +137,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def web_app() -> FileResponse:
         return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html")
 
+    @app.get("/console", include_in_schema=False)
+    def web_console() -> FileResponse:
+        """工作台: motivations → projects → the agents' process, with controls."""
+        return FileResponse(Path(__file__).resolve().parent.parent / "web" / "console.html")
+
     WEB = Path(__file__).resolve().parent.parent / "web"
 
     @app.get("/v1/version", include_in_schema=False)
@@ -2051,6 +2056,63 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return perpetual_view(rt, aim)
 
     _ = FactType  # re-exported for OpenAPI enum docs
+    # ---------------------------------------------------------------- the console (工作台)
+
+    def console_err(exc: Exception) -> HTTPException:
+        return HTTPException(422 if "抱负" in str(exc) or "action" in str(exc) else 404, str(exc))
+
+    @app.get("/v1/users/{user_id}/console")
+    def console_overview(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Motivations with their project folders and what each is doing, every agent, and what is running now."""
+        from pga.console import Console
+        return Console(rt).overview(user_or_404(rt, user_id))
+
+    @app.get("/v1/users/{user_id}/console/aims/{aim_id}")
+    def console_process(user_id: uuid.UUID, aim_id: uuid.UUID, limit: int = Query(60, le=200), rt: Runtime = Depends(get_rt)):
+        """One motivation's process: who is working now, and its self-dialogue (questions, answers, reviews, reflections)."""
+        from pga.console import Console, ConsoleError
+        try:
+            return Console(rt).process(user_or_404(rt, user_id), aim_id, limit)
+        except ConsoleError as exc:
+            raise console_err(exc) from exc
+
+    @app.get("/v1/users/{user_id}/console/runs/{run_id}")
+    def console_run(user_id: uuid.UUID, run_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """One step in full: the prompt, the answer, and the trace (files it read, commands, its thinking)."""
+        from pga.console import Console, ConsoleError
+        try:
+            return Console(rt).run_detail(user_or_404(rt, user_id), run_id)
+        except ConsoleError as exc:
+            raise console_err(exc) from exc
+
+    @app.post("/v1/users/{user_id}/projects/{pid}/run")
+    def console_project_run(user_id: uuid.UUID, pid: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """▶ start / ⏸ pause the work on a project (its motivation's perpetual task, in this folder)."""
+        from pga.console import Console, ConsoleError
+        from pga.projects import ProjectError
+        u = user_or_404(rt, user_id)
+        if (u.preferences or {}).get("demo"):
+            raise HTTPException(403, "a demo account cannot run perpetual tasks")
+        try:
+            return Console(rt).project_run(u, pid, str(body.get("action") or ""))
+        except (ConsoleError, ProjectError) as exc:
+            raise console_err(exc) from exc
+
+    @app.post("/v1/agents/{name}/enabled")
+    def console_agent_enabled(name: str, body: dict, rt: Runtime = Depends(get_rt)):
+        """Switch an agent off (what it is doing stops; nothing new is sent to it) or back on."""
+        from pga.console import Console, ConsoleError
+        try:
+            return Console(rt).set_agent_enabled(name, bool(body.get("enabled")))
+        except ConsoleError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.post("/v1/agents/{name}/stop")
+    def console_agent_stop(name: str):
+        """Stop everything this agent is doing right now (it stays switched on)."""
+        from pga.console import stop_agent
+        return {"stopped": stop_agent(name)}
+
     return app
 
 

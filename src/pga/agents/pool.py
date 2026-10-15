@@ -338,8 +338,12 @@ class AgentPool:
         from pga.agents import live
         a = self.cfg["agents"][name]
         started = utcnow()
+        proj = task.meta.get("project") if isinstance(task.meta.get("project"), dict) else {}
+        tags = {k: str(task.meta[k]) for k in ("aim", "perpetual", "role", "conversation") if task.meta.get(k)}
+        if proj.get("id"):
+            tags["project"] = str(proj["id"])
         lid = live.start(name, category=task.meta.get("category") or task.kind, workflow=task.meta.get("workflow", ""), step=step,
-                         prompt=task.prompt, task_kind=task.meta.get("task_kind", ""))
+                         prompt=task.prompt, task_kind=task.meta.get("task_kind", ""), tags=tags)
         task.meta["live_id"] = lid
         from pga.agents.base import PGA_MARK
         if self.adapters[name].type not in ("llm", "http") and not task.prompt.startswith(PGA_MARK):   # only agents that keep transcripts
@@ -351,6 +355,11 @@ class AgentPool:
                 res = self.adapters[name].run(task)
         finally:
             r = locals().get("res")
+            trace = live.text(lid)
+            if r is not None and trace.strip() and trace.strip() != (r.text or "").strip():
+                r.data = {**(r.data or {}), "trace": trace[-20000:]}     # how it got there: files read, commands, thinking
+            if r is not None:
+                r.data = {**(r.data or {}), "live_id": lid}
             live.finish(lid, bool(r and r.ok), text=r.text if r else None, error=r.error if r else "interrupted")
         return Step(step=step, task=task, result=res, attempt=attempt, started=started, finished=utcnow())
 
