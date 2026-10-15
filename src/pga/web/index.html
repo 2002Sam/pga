@@ -5245,8 +5245,9 @@ let focusedId = null;                                                    // the 
 function tellConsole(n) {                                               // the map inside the console: what was clicked
   if (!window.PGA_EMBED || window.parent === window) return;
   const d = n ? n.d : null;
+  const at = n ? window.PGA_BODY?.(n.id) : null;                         // where it is on screen: the wave breaks out from there
   window.parent.postMessage({ type: "pga:select", id: n ? n.id : null, kind: d?.kind || null, label: d?.label || null,
-    aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null }, location.origin);
+    aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null, x: at?.x, y: at?.y }, location.origin);
 }
 function embedSelect(n) {
   focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan();
