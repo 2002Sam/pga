@@ -55,12 +55,18 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
 
 .stage { position: relative; min-height: 0; overflow: hidden; }
-main { position: absolute; inset: 0; display: grid; grid-template-columns: 300px minmax(0, 1fr) 300px; min-height: 0; background: var(--bg); z-index: 2;
-  --x: 50%; --y: 50%; clip-path: circle(150vmax at var(--x) var(--y)); transition: clip-path 1s cubic-bezier(.65,.05,.25,1); }
-body.sky main { clip-path: circle(0px at var(--x) var(--y)); pointer-events: none; }
-#sky { position: absolute; inset: 0; z-index: 1; background: #050505; transition: opacity .5s ease .55s, transform 1.1s cubic-bezier(.3,.6,.2,1); }
-body:not(.sky) #sky { opacity: 0; pointer-events: none; transform: scale(1.06); }
-body.sky #sky { transition: opacity .35s ease, transform .9s cubic-bezier(.3,.6,.2,1); }
+/* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
+   and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
+main { position: absolute; inset: 0; display: grid; grid-template-columns: 300px 280px minmax(0, 1fr); min-height: 0; z-index: 2; background: transparent;
+  pointer-events: none; transition: opacity .6s ease .35s; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
+main > section { pointer-events: auto; }
+body.sky main { opacity: 0; transition: opacity .25s ease; }
+body.sky main > section { pointer-events: none; }
+.planetzone { pointer-events: none; }
+#sky { position: absolute; inset: 0; z-index: 1; background: #050505; }
+#lead { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; overflow: visible; opacity: 0; transition: opacity .9s ease .5s; }
+body:not(.sky) #lead { opacity: 1; }
+#lead line { stroke: rgba(233,169,75,.5); stroke-width: 1; } #lead circle { fill: #e9a94b; opacity: .8; }
 #sky iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
 .skyhint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 2; font-size: 12px; color: var(--muted); pointer-events: none;
   background: rgba(5,5,5,.55); padding: 4px 12px; letter-spacing: .04em; }
@@ -68,15 +74,12 @@ body:not(.sky) .skyhint { opacity: 0; }
 .skytools { position: absolute; right: 14px; top: 12px; z-index: 2; display: flex; gap: 6px; }
 .skytools button { background: rgba(5,5,5,.7); font-size: 12px; }
 body:not(.sky) .skytools { display: none; }
-/* the wave: rings break out from the body you clicked */
-.wave { position: absolute; z-index: 3; left: var(--x); top: var(--y); width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%;
-  border: 1.5px solid var(--gold); pointer-events: none; opacity: 0; }
-.wave.go { animation: wave 1.15s cubic-bezier(.2,.6,.2,1); }
-.wave.w2.go { animation-delay: .12s; border-color: rgba(233,169,75,.55); }
-.wave.w3.go { animation-delay: .24s; border-color: rgba(255,255,255,.35); }
-@keyframes wave { 0% { opacity: .95; transform: scale(1); } 70% { opacity: .5; } 100% { opacity: 0; transform: scale(260); } }
+
 main > section { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #222 transparent; }
-#left { border-right: 1px solid var(--line); padding: 0; display: flex; flex-direction: column; overflow: hidden !important; }
+#left { padding: 0; display: flex; flex-direction: column; overflow: hidden !important; background: linear-gradient(90deg, rgba(5,5,5,.7), rgba(5,5,5,.35) 80%, transparent); }
+#center { background: linear-gradient(90deg, transparent, rgba(5,5,5,.55) 90px, rgba(5,5,5,.72)); padding-left: 60px !important; }
+.mini { border-bottom: 0 !important; }
+.aim, .ag { border-top-color: rgba(255,255,255,.06) !important; }
 /* the small disc, like the dispatch constellation's: everything, flattened; click to move between bodies */
 .mini { flex: none; border-bottom: 1px solid var(--line); padding: 10px 10px 6px; }
 .mini .hh { display: flex; align-items: baseline; gap: 10px; padding: 0 6px 4px; }
@@ -235,8 +238,8 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 #toast.on { opacity: 1; transform: translateX(-50%); }
 
 /* narrower windows: agents fold under the process */
-@media (max-width: 1180px) { main { grid-template-columns: 280px minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
-@media (max-width: 760px) { main { grid-template-columns: 1fr; } #left { overflow: visible !important; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
+@media (max-width: 1180px) { main { grid-template-columns: 260px 200px minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
+@media (max-width: 900px) { main { grid-template-columns: 1fr; background: rgba(5,5,5,.85); } .planetzone { display: none; } #center { padding-left: 16px !important; } #left { overflow: visible !important; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
 </style>
 </head>
 <body class="sky">
@@ -250,17 +253,14 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
   <div id="sky"><iframe id="map" title="星空"></iframe>
     <div class="skytools"><button id="toDesk" title="直接进工作台">工作台 →</button></div>
     <div class="skyhint" id="mapNote">点一颗星球、一个太阳系或「我」（地球）：进入它的工作台</div></div>
-  <div class="wave w1"></div><div class="wave w2"></div><div class="wave w3"></div>
+  <svg id="lead" aria-hidden="true"><line/><circle r="2.5"/></svg>
   <main>
     <section id="left">
       <div class="mini"><div class="hh"><span class="cap">星图</span><button class="ghost" id="toSky" title="回到星空（也可以按 Esc）">⟲ 星空</button></div><svg id="miniSvg"></svg></div>
       <div class="list"><div class="colh"><span class="cap">我 · 抱负 · 项目</span></div><div id="aims"></div></div>
     </section>
+    <div class="planetzone"></div>
     <section id="center"><div id="proc"><div class="idle">正在载入…</div></div></section>
-    <section id="right">
-      <div class="colh"><span class="cap">Agents</span><span class="dim" id="agCount"></span></div>
-      <div id="agents"></div>
-    </section>
   </main>
   </div>
 </div>
@@ -388,33 +388,38 @@ function renderMini() {
   }
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px"; svg.innerHTML = out;
 }
-/* the sky ⇄ the workbench: a wave breaks out from the body you click and the workbench rises with it */
-function waveAt(x, y) {
-  const st = $(".stage");
-  st.style.setProperty("--x", x + "px"); st.style.setProperty("--y", y + "px");
-  $("main").style.setProperty("--x", x + "px"); $("main").style.setProperty("--y", y + "px");
-  document.querySelectorAll(".wave").forEach((w) => { w.style.left = x + "px"; w.style.top = y + "px"; w.classList.remove("go"); void w.offsetWidth; w.classList.add("go"); });
-}
-function toDesk(x, y) {
-  const r = $(".stage").getBoundingClientRect();
-  waveAt(x ?? r.width / 2, y ?? r.height / 2);
-  setTimeout(() => document.body.classList.remove("sky"), 180);       // the zoom starts, then the wave carries the workbench in
+/* the sky ⇄ the workbench, the way a planet is talked to in the dispatch constellation: the view glides to the body,
+   everything else fades, and the workbench appears beside it, tied to it by a fine gold line */
+function toDesk() {
+  if (C.view && !document.body.classList.contains("sky")) return;
+  focusMap();                                                        // glide to it (also when entered from 工作台 →)
+  document.body.classList.remove("sky");
   renderMini();
 }
 function toSky() {
-  const c = $("#miniSvg .is-cur"), st = $(".stage").getBoundingClientRect();
-  const b = c ? c.getBoundingClientRect() : null;
-  waveAt(b ? b.left + b.width / 2 - st.left : 150, b ? b.top + b.height / 2 - st.top : 120);
   document.body.classList.add("sky");
   focusMap(null);                                                    // back to the whole, calm sky
 }
+function leadLine() {                                               // the fine gold line from the planet to its words
+  requestAnimationFrame(leadLine);
+  const svg = $("#lead"); if (!svg || document.body.classList.contains("sky")) return;
+  let b = null;
+  try { b = $("#map").contentWindow.PGA_BODY?.(mapNodeOf(C.view)); } catch {}
+  const l = svg.querySelector("line"), c = svg.querySelector("circle"), cen = $("#center").getBoundingClientRect(), st = $(".stage").getBoundingClientRect();
+  if (!b || !b.visible || innerWidth <= 900) { svg.style.visibility = "hidden"; return; }
+  const x0 = b.x + b.r + 7, x1 = cen.left - st.left + 40, y = b.y;
+  svg.style.visibility = x1 - x0 > 8 ? "visible" : "hidden";
+  l.setAttribute("x1", x0.toFixed(1)); l.setAttribute("y1", y.toFixed(1)); l.setAttribute("x2", x1.toFixed(1)); l.setAttribute("y2", y.toFixed(1));
+  c.setAttribute("cx", x0.toFixed(1)); c.setAttribute("cy", y.toFixed(1));
+}
+requestAnimationFrame(leadLine);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !document.body.classList.contains("sky") && !e.target.closest?.("textarea, input")) toSky(); });
 
 window.addEventListener("message", (e) => {                    // the sky: a body was clicked (or empty space: back to the whole sky)
   if (e.origin !== location.origin || e.data?.type !== "pga:select") return;
   const d = e.data;
-  if (!d.id) return;
-  const go = () => toDesk(d.x, d.y);
+  if (!d.id) { if (!document.body.classList.contains("sky")) toSky(); return; }   // empty space: back to the whole sky
+  const go = () => { document.body.classList.remove("sky"); renderMini(); };
   if (d.kind === "aim" && d.aim_id) { setView("aim", d.aim_id, true); return go(); }
   if (d.kind === "user" || d.kind === "core") { setView("me", null, true); return go(); }
   if (d.kind === "ai") {
@@ -594,8 +599,11 @@ function renderMe() {
     <div class="meta">短程的事：问一个问题、在一个项目文件夹里改点东西。选一个 agent，或让 PGA 自动选；长期的事交给左边的抱负。</div>
     <h2>对话</h2>${chatHtml("me")}
     <h2>${c.agent === "auto" ? "历史对话" : `和 ${esc(c.agent)} 的历史对话`} <small>点一条接着聊</small></h2>${histHtml(c.agent)}
+    <h2>所有 agent <small id="agCount"></small></h2><div id="agents" style="margin:0 -16px"></div>
     <h2>别的对话里正在进行 <small>${runs.length} 个</small></h2>${runs.filter((r) => (r.tags || {}).conversation !== c.conv).map((r) => `<div class="live"><div class="lh"><span class="dot on"></span><span class="who"><b>${esc(r.agent)}</b> · ${esc(dur(r.elapsed_s))}</span><button class="ghost" data-stoplive="${r.id}">停止</button></div><pre>${traceHtml((r.text || "").slice(-1500))}</pre></div>`).join("") || `<div class="dim" style="font-size:12.5px">没有。</div>`}`;
+  renderAgents();
 }
+
 function renderAgentView(name) {
   keepDrafts();
   const a = (C.data?.agents || []).find((x) => x.name === name);
@@ -711,8 +719,9 @@ function aimText(tags) {
 }
 function agentWorking(name) { return (C.live || []).filter((r) => r.running && r.agent === name); }
 function renderAgents() {
+  if (!$("#agents")) { renderAgentWork(); return; }                // the agents list lives in the 我 panel
   const list = (C.data?.agents || []).filter((a) => a.name !== "?");
-  $("#agCount").textContent = list.length ? `${list.filter((a) => agentWorking(a.name).length).length} / ${list.length} 在工作` : "";
+  if ($("#agCount")) $("#agCount").textContent = list.length ? `${list.filter((a) => agentWorking(a.name).length).length} / ${list.length} 在工作` : "";
   $("#agents").innerHTML = list.map((a) => {
     const q = a.quota || {}; const rem = q.remaining;
     const work = agentWorking(a.name);

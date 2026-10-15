@@ -1875,6 +1875,7 @@ function closeTalkSettings(quick) {
 }
 // talking to a body: history on the left, the body, then the conversation — the scene keeps the body at `xp`
 window.PGA_TALK_LAYOUT = (W) => { const histW = W >= 980 ? Math.min(320, W * .23) : 0; return { histW, xp: histW ? histW + 105 : W * .26 }; };
+if (EMBED) window.PGA_TALK_LAYOUT = (W) => (W >= 900 ? { histW: 300, xp: 300 + 140 } : { histW: 0, xp: W * .26 });   // the console: its column, then the planet
 const HIST = { card: null, list: [], busy: false };
 async function loadHist() {
   if (!CARD.kind || !S.uid) return;
@@ -5249,16 +5250,19 @@ function tellConsole(n) {                                               // the m
   window.parent.postMessage({ type: "pga:select", id: n ? n.id : null, kind: d?.kind || null, label: d?.label || null,
     aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null, x: at?.x, y: at?.y }, location.origin);
 }
+function embedLook(n) {                                                  // exactly like talking to a planet: the view glides to it, the rest fades
+  TALK = n ? n.id : null; focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan();
+  window.PGA_CALM?.(!!n);
+  document.getElementById("app")?.classList.toggle("talking", !!n);
+}
 function embedSelect(n) {
-  focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan();
-  window.PGA_CALM?.(!!n);                                                // zoomed in: the rest of the sky steps back
+  embedLook(n);
   if (n) { n.flash = 1; n.energy = 1; ripple(n.pos, n.d.kind === "aim" ? (systems.find((s) => s.id === n.id)?.R || 3) : 1.4); }
   tellConsole(n);
 }
 window.addEventListener("message", (e) => {                               // the console asks the map to look at something
   if (!window.PGA_EMBED || e.origin !== location.origin || e.data?.type !== "pga:focus") return;
-  const n = e.data.id ? nodes.get(e.data.id) : null;
-  focusedId = n ? n.id : null; focusId = n ? n.id : null; flyT = 1; resetPan(); window.PGA_CALM?.(!!n);
+  embedLook(e.data.id ? nodes.get(e.data.id) || null : null);
 });
 function select(n, mode = "click") {
   if (window.PGA_EMBED) { if (mode !== "edit") embedSelect(n); return; }
@@ -5428,7 +5432,7 @@ function frame(now) {
   linkMat.uniforms.uFoc.value = PEEK ? 0 : CALM;
   { const d = camera.position.distanceTo(controls.target); uFog.value.set(d * .7, d * 1.75, PEEK ? 0 : CALM); }   // far things fade, near ones stay
   { const w = mainEl.clientWidth, L = window.PGA_TALK_LAYOUT?.(w) || { xp: w * .32 };   // history | planet | the words
-    const goal = TALK && MODE === "agents" && w > 720 ? Math.max(0, w / 2 - L.xp) : 0;
+    const goal = TALK && (MODE === "agents" || window.PGA_EMBED) && w > 720 ? Math.max(0, w / 2 - L.xp) : 0;
     if (Math.abs(goal - talkShift) > .5) { talkShift += (goal - talkShift) * Math.min(1, dt * 2.4); frameView(); } else if (talkShift !== goal) { talkShift = goal; frameView(); } }
   placeAll(dt, motion);
   for (const n of nodes.values()) if (n.reflow) {                          // a sun on the move: the streamlines follow it
@@ -5481,8 +5485,8 @@ function frame(now) {
     flyT = Math.max(0, flyT - dt * .7);
     const narrow = Math.max(1, 1.2 / Math.min(1.2, camera.aspect));
     const sysR = fnode?.d.kind === "aim" ? systems.find((s) => s.id === fnode.id)?.R || 3 : 0;
-    const dist = (!fnode ? Math.max(14, boundR * 2.3) : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5
-      : window.PGA_EMBED && fnode.d.kind === "user" ? 7.5 : 3.4) * narrow;                      // the map: Earth with the moons round it
+    const dist = (!fnode ? Math.max(14, boundR * 2.3) : window.PGA_EMBED && fnode.d.kind === "aim" ? sysR * 3.3
+      : window.PGA_EMBED && fnode.d.kind === "user" ? 8 : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
     camDir.subVectors(camera.position, controls.target).normalize();
     if (camDir.y < .38) { camDir.y = .48; camDir.normalize(); }
     v3.copy(target).addScaledVector(camDir, dist);
@@ -5501,7 +5505,7 @@ function frame(now) {
     const wv = n.wv ?? 1;
     if (wv < 1) { n.group.position.y += (1 - wv) * .9; n.group.rotation.x = -(1 - wv) * Math.PI * .5; } else if (n.group.rotation.x) n.group.rotation.x = 0;
     const near = Math.min(1, Math.max(0, (uFog.value.y - camera.position.distanceTo(n.pos)) / (uFog.value.y - uFog.value.x)));
-    const tkGoal = TALK && MODE === "agents" && !PEEK ? (n.id === TALK ? 1 : RUNNING.has(n.id) ? .8 : (n.id === "you" ? .07 : .03) + .16 * near) : 1;   // the others: faint, fainter the farther away
+    const tkGoal = TALK && (MODE === "agents" || window.PGA_EMBED) && !PEEK ? (n.id === TALK ? 1 : RUNNING.has(n.id) ? .8 : (n.id === "you" ? .07 : .03) + .16 * near) : 1;   // the others: faint, fainter the farther away
     n.tk = (n.tk ?? 1) + (tkGoal - (n.tk ?? 1)) * Math.min(1, dt * 2.6);
     const s = n.r * appear * (1 + n.energy * .15) * (st.selected === n.id ? 1.12 : 1) * Math.max(.001, wv) * (.62 + .38 * n.tk);
     n.mesh.scale.setScalar(s);
