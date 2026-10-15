@@ -264,6 +264,35 @@ def _plan_layers(rt: "Runtime", user: User, now: datetime) -> list[dict]:
             for ref in rt.layers.due(user.id, now, lp.builds_per_heartbeat)]
 
 
+@handler("dataset.compile")
+def _dataset_compile(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """Rebuild one curated dataset (用户, 世界, or a motivation's knowledge) as one document, then its pyramid."""
+    from pga.db.models import Body
+    from pga.knowledge.datasets import Datasets
+
+    b = rt.session.get(Body, uuid.UUID(str(job.payload.get("body"))))
+    if b is None:
+        raise Permanent("dataset is gone")
+    out = Datasets(rt).compile(_user(rt, job), b, now)
+    if out.status == "deferred":
+        raise Defer(_defer_default(now), out.note)
+    return {"dataset": str(out.body_id), "system": out.system, "status": out.status, "words": out.words, "note": out.note}
+
+
+@register_planner
+def _plan_datasets(rt: "Runtime", user: User, now: datetime) -> list[dict]:
+    """The 用户 and 世界 datasets always exist; any dataset with something new is rebuilt (bounded by EVERY)."""
+    from sqlalchemy import select
+
+    from pga.db.models import Aim
+    from pga.knowledge.datasets import Datasets
+
+    if not rt.policy.layers.background or rt.session.scalar(select(Aim.id).where(Aim.user_id == user.id).limit(1)) is None:
+        return []                                                   # an account with no motivation has nothing to curate
+    return [{"kind": "dataset.compile", "key": f"dataset:{b.id}", "payload": {"body": str(b.id)}, "priority": 170}
+            for b in Datasets(rt).due(user, now)[:3]]
+
+
 @handler("skill.evaluate")
 def _skill_eval(rt: "Runtime", job: Job, now: datetime) -> dict:
     from pga.db.models import Skill

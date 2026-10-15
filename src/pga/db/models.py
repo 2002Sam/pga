@@ -184,6 +184,9 @@ class Body(Base):
     description_en: Mapped[str] = mapped_column(Text, default="", nullable=False)
     private: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     origin: Mapped[Origin] = mapped_column(enum_col(Origin, "origin"), nullable=False)   # USER, or AGENT when auto-created
+    # a dataset PGA keeps itself: "user" (who you are), "world" (what is happening), "aim" (what a motivation learned)
+    system: Mapped[str | None] = mapped_column(String(16))
+    compiled_at: Mapped[datetime | None] = mapped_column(Tz())               # when its full text was last rebuilt
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_bodies_user_aim", "user_id", "aim_id"),)

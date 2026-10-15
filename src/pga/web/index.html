@@ -224,8 +224,6 @@ html.embed .app > header, html.embed .ticker, html.embed .app > aside, html.embe
 html.embed #feed, html.embed .state-pill, html.embed #agOverlay, html.embed #pop, html.embed #popLines, html.embed .mobile-tabs,
 html.embed #toast, html.embed #newVersion { display: none !important; }
 html.embed main { display: flex !important; grid-column: 1 !important; grid-row: 1 !important; }
-.nlabel.layerlbl { font-size: 10.5px; letter-spacing: .14em; color: rgba(214,224,229,.42) !important; text-align: center; pointer-events: none; }
-.nlabel.layerlbl i { display: block; font-style: normal; font-size: 8.5px; letter-spacing: .3em; color: rgba(233,169,75,.55); }
 a.flipbtn { text-decoration: none; display: inline-flex; align-items: center; }
 
 /* ---------------------------------------------------------------- side panel */
@@ -4607,13 +4605,11 @@ const DRUM_BANDS = (() => { const p = []; for (const y of [-.22, .22]) for (let 
   p.push(new THREE.Vector3(Math.cos(a) * 1.01, y, Math.sin(a) * 1.01), new THREE.Vector3(Math.cos(b) * 1.01, y, Math.sin(b) * 1.01)); } return new THREE.BufferGeometry().setFromPoints(p); })();
 const DASH = (() => { const p = []; for (let i = 0; i < 48; i++) { const a = i / 48 * TAU, b = (i + .55) / 48 * TAU; p.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), new THREE.Vector3(Math.cos(b), 0, Math.sin(b))); } return new THREE.BufferGeometry().setFromPoints(p); })();
 const CRYSTAL = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1, 0));
-// the console's map is stacked in three layers: goals above, conversations and work in the middle, assets and knowledge below
-const LAYER_GAP = 3.4;
-const LAYER_OF = { aim: 0, user: 0, conv: 1, agent: 1, slot: 1, belief: 1, folder: 2, database: 2, skill: 2, knowledge: 2, evidence: 2, source: 2 };
-const LAYERS = [["目标层", "GOALS"], ["对话与任务层", "CONVERSATIONS · WORK"], ["资产与知识层", "ASSETS · KNOWLEDGE"]];
-const layerY = (d) => (1 - (LAYER_OF[d.kind] ?? 1)) * LAYER_GAP;     // 0 → +gap, 1 → 0, 2 → −gap
-const layerDecor = new THREE.Group(); layerDecor.visible = false;
-const layerLabels = LAYERS.map(([zh, en]) => { const el = document.createElement("div"); el.className = "nlabel layerlbl"; el.innerHTML = `<i>${en}</i>${zh}`; el.style.display = "none"; return el; });
+// the console's map shows one layer at a time: 目标与对话 (goals, conversations, the work), 知识 (curated datasets), 技能 (skills).
+// You and the goals stay in every layer as the anchors; folders are not drawn — the console links them from its dropdowns.
+const MAP_LAYERS = { talk: ["aim", "user", "conv", "agent", "belief", "evidence", "source"], knowledge: ["aim", "user", "database"], skill: ["aim", "user", "skill"] };
+let MAP_LAYER = (() => { try { return MAP_LAYERS[localStorage.getItem("pga_map_layer")] ? localStorage.getItem("pga_map_layer") : "talk"; } catch { return "talk"; } })();
+const inMapLayer = (d) => !EMBED || MAP_LAYERS[MAP_LAYER].includes(d.kind);
 const SHARED = new Set([CIRCLE, CIRCLE_XY, ARC_XY, DASH, CRYSTAL, CARD_EDGES, OCTA_EDGES, FOLDER_EDGES, TAB_EDGES, DRUM_BANDS, ...Object.values(GEO)]);
 // a circle that shivers: radial standing waves plus a fine tremor; amplitude grows with the system's excitation
 function shiverMat(opacity, { amp = .006, xy = false, color = INK.hi } = {}) {
@@ -4932,26 +4928,6 @@ function layoutAgents(all) {                                   // the other side
   for (const id of Object.keys(PINS)) if (nodes.has(id)) fieldCovers(nodes.get(id).fixed);
   clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines();
 }
-function buildLayerDecor() {                              // a faint ring per layer, the same size, stacked
-  if (!window.PGA_EMBED) return;
-  clearGroup(layerDecor); if (!layerDecor.parent) world.add(layerDecor);
-  if (!layerLabels[0].parentNode) layerLabels.forEach((el) => labelsEl.appendChild(el));
-  const R = Math.max(6, boundR * .92);
-  LAYERS.forEach((_, i) => {
-    const y = (1 - i) * LAYER_GAP;
-    [[1, .2], [1.012, .08]].forEach(([k, op]) => { const l = new THREE.Line(CIRCLE, shiverMat(op, { amp: .004 })); l.scale.setScalar(R * k); l.position.set(boundC.x, y, boundC.z); layerDecor.add(l); });
-  });
-  layerDecor.visible = true;
-}
-function placeLayerLabels() {
-  if (!window.PGA_EMBED || !layerDecor.visible) return;
-  const r = mainEl.getBoundingClientRect(), R = Math.max(6, boundR * .92);
-  LAYERS.forEach((_, i) => {
-    const v = new THREE.Vector3(boundC.x - R * .72, (1 - i) * LAYER_GAP, boundC.z + R * .72).project(camera), el = layerLabels[i];
-    el.style.display = v.z < 1 ? "" : "none";
-    el.style.transform = `translate(${((v.x + 1) / 2 * r.width).toFixed(0)}px, ${((1 - v.y) / 2 * r.height).toFixed(0)}px) translate(-50%, -50%)`;
-  });
-}
 function layoutOrbits() {
   const all = [...nodes.values()], by = (k) => all.filter((n) => n.d.kind === k);
   if (MODE === "agents") return layoutAgents(all);
@@ -4962,7 +4938,10 @@ function layoutOrbits() {
   ais.forEach((n, i) => setOrbit(n, "you", 1.8 + i * .6, (hash(n.id, 2) - .5) * .2, .8));
   const free = by("folder").filter((n) => !n.d.aim || !nodes.has(n.d.aim));      // folders that serve no motivation stay near you
   free.forEach((n, i) => { setOrbit(n, "you", (ais.length ? 1.8 + ais.length * .6 : 1.6) + .4, .05, .5); if (!n.placed) { n.orbit.ang = i / Math.max(1, free.length) * TAU; n.placed = true; } });
-  const earthZone = (ais.length ? 1.8 + ais.length * .6 : 1.6) + (free.length ? 1.9 : 1.2);
+  const mine = by("database").filter((n) => !n.d.aim || !nodes.has(n.d.aim));       // 用户 and 世界: your own knowledge, beside you
+  const mineR = (ais.length ? 1.8 + ais.length * .6 : 1.6) + (free.length ? .4 : 0) + .9;
+  mine.forEach((n, i) => { setOrbit(n, "you", mineR, .05, .4); if (!n.placed) { n.orbit.ang = Math.PI * .75 + i / Math.max(1, mine.length) * TAU; n.placed = true; } });
+  const earthZone = Math.max((ais.length ? 1.8 + ais.length * .6 : 1.6) + (free.length ? 1.9 : 1.2), mine.length ? mineR + 1.2 : 0);
   const suns = by("aim").sort((a, b) => (a.d.position ?? 0) - (b.d.position ?? 0));
   systems = suns.map((s) => {
     const planets = by("agent").filter((n) => !isMoonAgent(n) && n.d.aim === s.id).sort((a, b) => (b.d.tension || 0) - (a.d.tension || 0) || a.id.localeCompare(b.id));
@@ -5008,7 +4987,7 @@ function layoutOrbits() {
   const pts = [new THREE.Vector3(), ...systems.map((s) => nodes.get(s.id).fixed)];
   boundC.set(0, 0, 0); pts.forEach((p) => boundC.add(p)); boundC.divideScalar(pts.length);
   boundR = Math.max(earthZone + 1, ...systems.map((s) => nodes.get(s.id).fixed.distanceTo(boundC) + s.R + .8), ...pinnedPts.map((p) => Math.hypot(p.x - boundC.x, p.z - boundC.z) + 2.6));
-  clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines(); buildLayerDecor();
+  clearGroup(scenery); placeAll(0, 0); buildSystemDecor(); buildFieldLines();
 }
 const _v = new THREE.Vector3();
 function placeAll(dt, motion) {
@@ -5036,7 +5015,6 @@ function placeAll(dt, motion) {
       done.add(n.id);
     }
   }
-  if (window.PGA_EMBED) for (const n of nodes.values()) if (!(drag?.active && drag.n === n)) n.pos.y = layerY(n.d);   // stacked layers
 }
 
 /* ------------------------------------------------ links: strings between bodies; activity plucks them */
@@ -5092,8 +5070,7 @@ let layoutKey = "";
 function syncGraph() {
   const g = MODE === "agents" ? AGENT_GRAPH : ST().graph; if (!g) return;
   const set = ST().settings;
-  const wanted = g.nodes.filter((d) => set.showEvidence || d.kind !== "evidence");
-  if (MODE === "galaxy") for (let i = 0; i < (g.free_slots || 0); i++) wanted.push({ id: `slot:${i}`, kind: "slot", label: "+ 新 agent" });
+  const wanted = g.nodes.filter((d) => (set.showEvidence || d.kind !== "evidence") && inMapLayer(d));
   const ids = new Set(wanted.map((d) => d.id));
   for (const n of [...nodes.values()]) if (!ids.has(n.id)) removeNode(n);
   const order = { user: 0, core: 1, aim: 2, agent: 3, slot: 4, database: 5, skill: 6, ai: 7, source: 8, belief: 9, evidence: 10 };
@@ -5348,6 +5325,10 @@ window.addEventListener("message", (e) => {                               // the
   if (e.data?.type === "pga:graph") window.dispatchEvent(new CustomEvent("pga:state"));
 });
 window.addEventListener("message", (e) => {                               // the console asks the map to look at something
+  if (window.PGA_EMBED && e.origin === location.origin && e.data?.type === "pga:layer" && MAP_LAYERS[e.data.layer]) {
+    MAP_LAYER = e.data.layer; try { localStorage.setItem("pga_map_layer", MAP_LAYER); } catch {}
+    syncGraph(); return;
+  }
   if (!window.PGA_EMBED || e.origin !== location.origin || e.data?.type !== "pga:focus") return;
   embedLook(e.data.id ? nodes.get(e.data.id) || null : null);
 });
@@ -5385,7 +5366,7 @@ function showTip(n, e) {
   if (["aim", "user", "agent", "slot", "ai", "core"].includes(n.d.kind) && ST().settings.labelsAlways) { tipEl.style.opacity = 0; return; }
   if (DRAGGABLE.has(n.d.kind)) n = Object.assign({}, n, { d: Object.assign({}, n.d, { label: n.d.label + "  ·  拖到另一颗星上可连接 · 右键看详情" }) });
   const r = mainEl.getBoundingClientRect(), d = n.d;
-  const KIND = { aim: "黑洞 · 动机（长期目标）", user: "地球 · 你", core: "月亮 · 总助理", agent: "行星 · AGENT", belief: "卫星 · 判断 " + (d.type || ""), evidence: "卫星 · 证据", source: "卫星 · 信息源", slot: "空轨道", ai: "八面体 · 模型 · " + (d.vendor || ""), database: "圆柱 · 数据集", skill: "晶体 · 技能", knowledge: "知识 · " + (d.code ? d.code + " 的回答" : "发现"), conv: (d.id?.startsWith("cq:") ? "问题 · agent 之间的对话" : "对话 · " + (d.agent || "")) + (d.turns ? ` · ${d.turns} 轮` : ""), folder: "文件夹 · 项目" + (d.path ? " · " + d.path.replace(/^\/Users\/[^/]+/, "~") : "") };
+  const KIND = { aim: "黑洞 · 动机（长期目标）", user: "地球 · 你", core: "月亮 · 总助理", agent: "行星 · AGENT", belief: "卫星 · 判断 " + (d.type || ""), evidence: "卫星 · 证据", source: "卫星 · 信息源", slot: "空轨道", ai: "八面体 · 模型 · " + (d.vendor || ""), database: { user: "用户知识库 · 你是谁", world: "世界知识库 · 正在发生什么", aim: "抱负知识库 · 整理好的发现" }[d.system] || "圆柱 · 数据集", skill: "晶体 · 技能", knowledge: "知识 · " + (d.code ? d.code + " 的回答" : "发现"), conv: (d.id?.startsWith("cq:") ? "问题 · agent 之间的对话" : "对话 · " + (d.agent || "")) + (d.turns ? ` · ${d.turns} 轮` : ""), folder: "文件夹 · 项目" + (d.path ? " · " + d.path.replace(/^\/Users\/[^/]+/, "~") : "") };
   const extra = d.kind === "agent" ? ` · 张力 ${(d.tension || 0).toFixed(2)}` : d.kind === "belief" ? ` · ${Math.round((d.confidence || 0) * 100)}%` : "";
   tipEl.innerHTML = `<b>${escapeHTML(KIND[d.kind] || d.kind)}${extra}</b>${escapeHTML(d.kind === "slot" ? "点击添加一个新的长期 agent" : d.label)}`;
   tipEl.style.opacity = 1;
@@ -5589,7 +5570,7 @@ function frame(now) {
     const narrow = Math.max(1, 1.2 / Math.min(1.2, camera.aspect));
     const sysR = fnode?.d.kind === "aim" ? systems.find((s) => s.id === fnode.id)?.R || 3 : 0;
     const dist = (!fnode ? Math.max(14, boundR * 2.3) : window.PGA_EMBED && fnode.d.kind === "aim" ? sysR * 3.3
-      : window.PGA_EMBED && fnode.d.kind === "user" ? 8 : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
+      : window.PGA_EMBED && fnode.d.kind === "user" ? 8 : window.PGA_EMBED && ["database", "skill"].includes(fnode.d.kind) ? 7 : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
     camDir.subVectors(camera.position, controls.target).normalize();
     const minY = window.PGA_EMBED ? .62 : .38;                             // the map: high, yet tilted enough to see the layers apart
     if (camDir.y < minY) { camDir.y = minY + .1; camDir.normalize(); }
@@ -5598,7 +5579,6 @@ function frame(now) {
   }
   controls.autoRotate = set.autoRotate && motion > 0 && now > idleUntil;
   if (!INTRO) controls.update();
-  placeLayerLabels();
 
   const r = mainEl.getBoundingClientRect(), labelsAlways = set.labelsAlways;
   const pxPer = (p) => r.height / (2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.distanceTo(p));

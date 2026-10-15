@@ -75,6 +75,11 @@ body:not(.sky) #lead { opacity: 1; }
 .skyhint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 2; font-size: 12px; color: var(--muted); pointer-events: none;
   background: rgba(5,5,5,.55); padding: 4px 12px; letter-spacing: .04em; }
 body:not(.sky) .skyhint { opacity: 0; }
+.layers { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 3; display: flex; gap: 0; border: 1px solid var(--line-2); background: rgba(5,5,5,.72); }
+.layers button { border: 0; background: transparent; font-size: 12px; padding: 5px 12px; color: var(--muted); }
+.layers button.on { color: var(--gold, #e9a94b); background: rgba(233,169,75,.1); }
+body:not(.sky) #layerSw { display: none; }
+.layers.mini-l { position: static; transform: none; border: 0; background: none; } .layers.mini-l button { padding: 2px 6px; font-size: 11px; }
 .skytools { position: absolute; right: 14px; top: 12px; z-index: 2; display: flex; gap: 6px; }
 .skytools button { background: rgba(5,5,5,.7); font-size: 12px; }
 body:not(.sky) .skytools { display: none; }
@@ -329,6 +334,9 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 /* narrower windows: agents fold under the process */
 @media (max-width: 1180px) { main { grid-template-columns: 260px 200px minmax(0, 1fr); } }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; background: rgba(5,5,5,.85); } .planetzone { display: none; } #center { padding-left: 16px !important; } #left { overflow: visible !important; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
+.fpick select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 2px 6px; margin-left: 4px; max-width: 220px; }
+.pyr { margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); background: rgba(10,12,14,.6); }
+.pyr .cap { display: block; margin-bottom: 6px; } .pyr .g { font-size: 16px; } .pyr .b { line-height: 1.7; }
 </style>
 </head>
 <body class="sky">
@@ -340,12 +348,13 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
   </header>
   <div class="stage">
   <div id="sky"><iframe id="map" title="星空"></iframe>
+    <div class="layers" id="layerSw" title="地图每次只显示一层"></div>
     <div class="skytools"><button id="toDesk" title="直接进工作台">工作台 →</button></div>
     <div class="skyhint" id="mapNote">点一颗星球、一个太阳系或「我」（地球）：进入它的工作台</div></div>
   <svg id="lead" aria-hidden="true"><line/><circle r="2.5"/></svg>
   <main>
     <section id="left">
-      <div class="mini"><div class="hh"><span class="cap">星图</span><button class="ghost" id="toSky" title="回到星空（也可以按 Esc）">⟲ 星空</button></div><svg id="miniSvg"></svg></div>
+      <div class="mini"><div class="hh"><span class="cap">星图</span><span class="layers mini-l" id="layerSw2"></span><button class="ghost" id="toSky" title="回到星空（也可以按 Esc）">⟲ 星空</button></div><svg id="miniSvg"></svg></div>
       <div class="list"><div class="colh"><span class="cap">我 · 抱负 · 项目</span></div><div id="aims"></div></div>
     </section>
     <div class="planetzone"></div>
@@ -360,10 +369,12 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const AS_UID = new URLSearchParams(location.search).get("as");
 if (AS_UID) $("#toFull").href = `/?sky&as=${encodeURIComponent(AS_UID)}`;
+const SYS_ZH = { user: "用户知识库", world: "世界知识库", aim: "抱负知识库" };
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
             cp: { option: 0, approve: null },
             view: { kind: "aim", id: null }, graph: null, chats: {}, hist: {}, mapReady: false };
+C.docs = {};
 try { C.chats = JSON.parse(store.get("pga_console_chats") || "{}") || {}; } catch { C.chats = {}; }
 const saveChats = () => { if (!AS_UID) { try { store.set("pga_console_chats", JSON.stringify(Object.fromEntries(Object.entries(C.chats).map(([k, v]) => [k, { ...v, log: (v.log || []).filter((m) => !m.pending).slice(-40) }])))); } catch {} } };
 // a body on the map ⇄ what the console shows. The planets of linked AIs carry their vendor; the pool agents their adapter.
@@ -406,6 +417,7 @@ async function boot() {
   try { const u = await api(`/v1/users/${C.uid}`); const into = u.preferences?.merged_into; if (into && into !== C.uid) { C.uid = into; if (!AS_UID) store.set("pga_uid", into); } }
   catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="/?sky">星空</a>。</div>`; return; } }
   $("#map").src = `/?embed=map&as=${encodeURIComponent(C.uid)}`;
+  renderLayers();
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
   if (C.view.kind === "aim") C.view.id = C.sel;
@@ -420,6 +432,7 @@ async function loadAll() {
   await loadOverview();
   if (C.view.kind === "aim") await loadProcess();
   else if (C.view.kind === "folder") { renderCenter(); loadDir(C.view.id, "").catch(() => {}); }
+  else if (C.view.kind === "dataset") { renderCenter(); loadDataset(C.view.id).catch(() => {}); }
   else { renderCenter(); loadHist(C.view.kind === "me" ? chat("me").agent : C.view.id).catch(() => {}); }
 }
 
@@ -434,18 +447,34 @@ function setView(kind, id, fromMap = false) {
   if (kind === "aim") loadProcess().catch(() => {});
   if (kind === "me" || kind === "agent") loadHist(kind === "me" ? chat("me").agent : id).catch(() => {});
   if (kind === "folder") loadDir(id, "").catch(() => {});
+  if (kind === "dataset") { const n = (C.graph?.nodes || []).find((x) => x.body_id === id); setLayer(n?.kind === "skill" ? "skill" : "knowledge"); }
+  else if (kind === "aim" || kind === "me") { /* goals and you are in every layer */ }
+  if (kind === "dataset") loadDataset(id).catch((err) => { C.docs[id] = { error: err.message }; renderCenter(); });
 }
 function mapNodeOf(view) {
   if (!view) return null;
   if (view.kind === "aim") return "aim:" + view.id;
   if (view.kind === "me") return "you";
   if (view.kind === "folder") return "fd:" + view.id;
+  if (view.kind === "dataset") return "k:" + view.id;
   if (view.kind === "agent") {
     const a = (C.data?.agents || []).find((x) => x.name === view.id);
     const n = (C.graph?.nodes || []).find((x) => x.kind === "ai" && VENDOR_ADAPTER[x.vendor] === a?.adapter);
     return n ? n.id : null;
   }
   return null;
+}
+/* the map shows one layer at a time; folders are not a layer — they are picked from the dropdowns */
+const MAP_LAYERS = [["talk", "目标与对话"], ["knowledge", "知识"], ["skill", "技能"]];
+C.layer = (() => { const v = store.get("pga_map_layer"); return MAP_LAYERS.some(([k]) => k === v) ? v : "talk"; })();
+function setLayer(k) {
+  if (C.layer === k) return; C.layer = k; store.set("pga_map_layer", k); renderLayers();
+  try { $("#map").contentWindow.postMessage({ type: "pga:layer", layer: k }, location.origin); } catch {}
+  setTimeout(() => focusMap(), 120);                                   // keep looking at what you are on, once it is drawn
+}
+function renderLayers() {
+  const h = MAP_LAYERS.map(([k, zh]) => `<button class="${k === C.layer ? "on" : ""}" data-layer="${k}">${zh}</button>`).join("");
+  ["#layerSw", "#layerSw2"].forEach((s) => { const el = $(s); if (el) el.innerHTML = h; });
 }
 function focusMap(id = mapNodeOf(C.view)) {
   try { $("#map").contentWindow.postMessage({ type: "pga:focus", id }, location.origin); } catch {}
@@ -459,7 +488,7 @@ function renderMini() {
   const agents = (C.data.agents || []).filter((a) => a.name !== "?"), aims = C.data.aims || [];
   const live = new Set((C.live || []).filter((r) => r.running).map((r) => r.agent));
   const r1 = Math.min(W * .26, 70), r2 = Math.min(W * .45, 124);
-  const cur = C.view.kind === "me" ? "you" : C.view.kind === "agent" ? "ag:" + C.view.id : C.view.kind === "folder" ? "fd:" + C.view.id : "aim:" + C.view.id;
+  const cur = C.view.kind === "me" ? "you" : C.view.kind === "agent" ? "ag:" + C.view.id : C.view.kind === "folder" ? "fd:" + C.view.id : C.view.kind === "dataset" ? "k:" + C.view.id : "aim:" + C.view.id;
   const pos = (i, n, r, off = 0) => { const t = off + i / Math.max(1, n) * Math.PI * 2; return [cx + Math.cos(t) * r, cy + Math.sin(t) * r * SQ]; };
   const workingAims = new Set(aims.filter((a) => a.task?.working?.length).map((a) => a.id));
   let out = `<ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r1}" ry="${r1 * SQ}"/><ellipse class="orb" cx="${cx}" cy="${cy}" rx="${r2}" ry="${r2 * SQ}"/>`;
@@ -472,26 +501,14 @@ function renderMini() {
     out += `<g class="nd aim ${workingAims.has(a.id) ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="aim:${a.id}" transform="translate(${x.toFixed(1)},${y.toFixed(1)})">
       <title>${esc(a.text)}</title><circle class="halo" r="12"/><circle class="run" r="7"/><circle class="body" r="7"/>${cur === id ? `<circle class="cur" r="15"/>` : ""}<text y="-17">${esc(short)}</text></g>`;
   }
-  for (const [a, x, y] of A) {                                      // its folders (box with a tab) and datasets (drums), close by
-    const fs = a.projects || [], ds = (C.graph?.nodes || []).filter((n) => n.kind === "database" && n.aim === "aim:" + a.id);
-    const items = [...fs.map((p) => ["fd", p]), ...ds.map((d) => ["ds", d])], n = items.length;
-    items.forEach(([k, it], i) => {
-      const t = Math.PI * (.15 + .7 * (n === 1 ? .5 : i / (n - 1))), px = x + Math.cos(t) * 26, py = y + Math.sin(t) * 16;
-      if (k === "fd") {
-        const id = "fd:" + it.id;
-        out += `<g class="nd folder ${it.state === "running" ? "working" : ""} ${it.working ? "running" : ""} ${cur === id ? "is-cur" : ""}" data-mini="folder:${it.id}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})">
-          <title>文件夹 · ${esc(it.name)}</title><circle class="run" r="5"/><path class="body" d="M -6 -3 L -6 4 L 6 4 L 6 -3 L 0 -3 L -1.5 -5 L -6 -5 Z"/>${cur === id ? `<circle class="cur" r="10"/>` : ""}<text y="14">${esc(it.name.length > 8 ? it.name.slice(0, 7) + "…" : it.name)}</text></g>`;
-      } else {
-        out += `<g class="nd dataset" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><title>数据集 · ${esc(it.label)}</title>
-          <rect class="body" x="-4.5" y="-5" width="9" height="10" rx="4.5" ry="2.5"/><path class="band" d="M -4.5 -1 Q 0 1.5 4.5 -1 M -4.5 2 Q 0 4.5 4.5 2"/><text y="15">${esc(it.label.length > 8 ? it.label.slice(0, 7) + "…" : it.label)}</text></g>`;
-      }
-    });
+  const drum = (d, px, py, cls = "") => `<g class="nd dataset ${cls} ${cur === "k:" + d.body_id ? "is-cur" : ""}" data-mini="dataset:${d.body_id}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><title>${esc(SYS_ZH[d.system] || "数据集")} · ${esc(d.label)}</title>
+    <rect class="body" x="-4.5" y="-5" width="9" height="10" rx="4.5" ry="2.5"/><path class="band" d="M -4.5 -1 Q 0 1.5 4.5 -1 M -4.5 2 Q 0 4.5 4.5 2"/>${cur === "k:" + d.body_id ? `<circle class="cur" r="10"/>` : ""}<text y="15">${esc(d.label.length > 8 ? d.label.slice(0, 7) + "…" : d.label)}</text></g>`;
+  for (const [a, x, y] of A) {                                      // its knowledge (drums), close by; folders are picked, not drawn
+    const ds = (C.graph?.nodes || []).filter((n) => n.kind === "database" && n.aim === "aim:" + a.id), n = ds.length;
+    ds.forEach((d, i) => { const t = Math.PI * (.15 + .7 * (n === 1 ? .5 : i / (n - 1))); out += drum(d, x + Math.cos(t) * 26, y + Math.sin(t) * 16); });
   }
-  for (const p of C.data.free_projects || []) {                     // free folders: near you
-    const i = (C.data.free_projects || []).indexOf(p), t = Math.PI * (.6 + i * .35), px = cx + Math.cos(t) * (r1 * .55), py = cy + Math.sin(t) * (r1 * .55) * SQ, id = "fd:" + p.id;
-    out += `<g class="nd folder ${cur === id ? "is-cur" : ""}" data-mini="folder:${p.id}" transform="translate(${px.toFixed(1)},${py.toFixed(1)})"><title>自由文件夹 · ${esc(p.name)}</title>
-      <path class="body" d="M -6 -3 L -6 4 L 6 4 L 6 -3 L 0 -3 L -1.5 -5 L -6 -5 Z"/>${cur === id ? `<circle class="cur" r="10"/>` : ""}</g>`;
-  }
+  const mine = (C.graph?.nodes || []).filter((n) => n.kind === "database" && (n.system === "user" || n.system === "world"));
+  mine.forEach((d, i) => { out += drum(d, cx + (i ? 1 : -1) * r1 * .62, cy + r1 * .62 * SQ * .2, "sys"); });   // 用户 and 世界, beside 我
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.style.height = H + "px"; svg.innerHTML = out;
 }
 /* the sky ⇄ the workbench, the way a planet is talked to in the dispatch constellation: the view glides to the body,
@@ -529,6 +546,7 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
   if (d.kind === "aim" && d.aim_id) { setView("aim", d.aim_id, true); return go(); }
   if (d.kind === "user" || d.kind === "core") { setView("me", null, true); return go(); }
   if (d.kind === "folder" && d.project_id) { setView("folder", d.project_id, true); return go(); }
+  if ((d.kind === "database" || d.kind === "skill") && d.body_id) { setView("dataset", d.body_id, true); return go(); }
   if (d.kind === "conv" && d.id.startsWith("cq:") && d.parent?.startsWith("aim:")) { setView("aim", d.parent.slice(4), true); return go(); }
   if (d.kind === "knowledge" && d.aim?.startsWith("aim:")) { setView("aim", d.aim.slice(4), true); return go(); }
   if (d.kind === "conv" && d.conversation) {                     // a conversation of yours: open it with its agent
@@ -546,6 +564,7 @@ function renderCenter() {
   if (C.view.kind === "me") return renderMe();
   if (C.view.kind === "agent") return renderAgentView(C.view.id);
   if (C.view.kind === "folder") return renderFolder(C.view.id);
+  if (C.view.kind === "dataset") return renderDataset(C.view.id);
   return renderProcess();
 }
 async function loadOverview() {
@@ -639,6 +658,13 @@ function projectOf(aim) {
   if (!a) return null;
   return a.projects.find((p) => p.id === a.task?.project_id) || a.projects[0] || null;
 }
+/* folders are not drawn on the map: a motivation picks the one it works in here, a conversation picks its own below */
+function folderPick(a, proj) {
+  const mine = new Set((a?.projects || []).map((p) => p.id));
+  return `<select data-aimfolder="${a?.id || ""}"><option value="">${proj ? "—" : "选一个文件夹"}</option>${allProjects().map((p) => {
+    const other = p.aim_id && p.aim_id !== a?.id && !mine.has(p.id);
+    return `<option value="${p.id}" ${p.id === proj?.id ? "selected" : ""} ${other ? "disabled" : ""}>${esc(p.name)}${other ? "（属于另一个抱负）" : ""}</option>`; }).join("")}</select>`;
+}
 function renderProcess() {
   const el = $("#proc");
   const P = C.proc;
@@ -646,7 +672,7 @@ function renderProcess() {
   const t = P.task, a = (C.data?.aims || []).find((x) => x.id === C.sel);
   const proj = projectOf(P.aim);
   const key = "aim:" + C.sel, c = chat(key);
-  if (proj && !c.project) c.project = proj.id;
+  if (proj && c.project === null && !c.projectSet) c.project = proj.id;
   // keep what you were typing, where you had scrolled, and which drawers were open
   el.querySelectorAll("textarea[data-q]").forEach((x) => { C.drafts[x.dataset.q] = x.value; });
   if ($("#cpText") && C.cp.id) C.drafts["cp:" + C.cp.id] = $("#cpText").value;
@@ -658,7 +684,7 @@ function renderProcess() {
       <div class="ctl">${proj ? runBtn(proj, true) : `<span class="muted" style="font-size:12px">先给这个抱负挂一个项目文件夹</span>`}</div></div>
     <div class="meta">${t ? `<span>${esc((STATE[t.status] || STATE.idle)[0])} · <b>${esc(t.phase_zh)}</b></span><span>已运行 <b>${t.cycles}</b> 轮</span>
       <span>张力 <b>${(t.pressure ?? 0).toFixed(2)}</b></span>${t.status === "running" && t.next_at && new Date(t.next_at) > Date.now() ? `<span>下一步 ${esc(until(t.next_at))}</span>` : ""}` : `<span>还没有开始${proj ? "：按 ▶ 开始" : ""}</span>`}
-      ${proj ? `<span>在 <a href="#" data-gofolder="${proj.id}">${esc(proj.name)}</a> 里</span>` : ""}
+      <span class="fpick">工作文件夹 ${folderPick(a, proj)}${proj ? ` <a href="#" data-gofolder="${proj.id}" title="打开文件树">打开</a>` : ""}</span>
       ${t ? `<span class="modechip" data-fold="settings" title="驱动模式和高级设置">${esc(lv?.[1] || "")} · 设置 ${C.folds.has("settings") ? "▴" : "▾"}</span>` : ""}</div>
     ${t ? prefBar() : ""}
     ${t && C.folds.has("settings") ? settingsHtml(t) : ""}
@@ -685,8 +711,10 @@ function streamHtml(P, c) {
 }
 function composerHtml(key, proj, t) {
   const c = chat(key), agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
+  const cproj = allProjects().find((p) => p.id === c.project);
   return `<div class="composer"><textarea id="chatText" data-chatkey="${key}" rows="2" placeholder="${t?.autonomy === "driven" ? "用户驱动：说你要它做什么" : "对这个抱负的 agent 说话：提要求、给方向、问问题（⌘/Ctrl + Enter 发送）"}">${esc(C.drafts["chat:" + key] || "")}</textarea>
-    <div class="row"><span class="grow">${proj ? (proj.full_access ? `在「${esc(proj.name)}」里 · 完整权限` : `在「${esc(proj.name)}」里 · 只读`) : ""}</span>
+    <div class="row"><span class="grow">${cproj ? (cproj.full_access ? `在「${esc(cproj.name)}」里 · 完整权限` : `在「${esc(cproj.name)}」里 · 只读`) : "这段对话不进任何文件夹"}</span>
+      <select data-chatproj="${key}" title="这段对话在哪个文件夹里工作"><option value="">不用文件夹</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
       <select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动（按分配）</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
 }
@@ -880,6 +908,24 @@ function dirHtml(pid, path) {
     : `<div class="row file ${e.hidden ? "hid" : ""} ${t.file?.path === e.path ? "cur" : ""}" data-tfile="${esc(e.path)}"><i class="ico" style="background:${EXT_COLOR[extOf(e.name)] || "#5a5a5a"}"></i>${esc(e.name)}<small>${kb(e.size)}</small></div>`).join("")
     + (d.truncated ? `<div class="dim">（只显示前 500 项）</div>` : "") || `<div class="dim">（空文件夹）</div>`;
 }
+/* a dataset: one curated document, read as a pyramid — its title, its summary, then (unfolded) the whole text */
+async function loadDataset(id) { C.docs[id] = await api(`/v1/bodies/${id}/document`); if (C.view.kind === "dataset" && C.view.id === id) renderCenter(); }
+function renderDataset(id) {
+  const n = (C.graph?.nodes || []).find((x) => x.body_id === id), d = C.docs[id];
+  const title = d?.title || n?.label || "数据集", sys = d?.system || n?.system;
+  // bold next to Chinese punctuation (**“…”**) is not bold to CommonMark: mark it up before parsing
+  const md = (t) => window.marked && window.DOMPurify ? `<div class="md">${DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>")))}</div>` : `<div class="b" style="white-space:pre-wrap">${esc(t || "")}</div>`;
+  $("#proc").innerHTML = `<div class="selhead"><span class="k">${esc(SYS_ZH[sys] || (n?.kind === "skill" ? "技能" : "数据集"))}</span><h1>${esc(title)}</h1>
+      ${sys ? `<button class="ghost" data-compile="${id}" ${C.compiling === id ? "disabled" : ""}>${C.compiling === id ? "整理中…" : "现在重新整理"}</button>` : ""}</div>
+    <div class="meta">${d?.compiled_at ? `<span>上次整理 ${esc(ago(d.compiled_at))}</span><span>${d.words} 词</span>` : sys ? `<span>还没有整理过：PGA 会在后台整理，也可以现在整理</span>` : ""}
+      ${sys === "world" ? `<span>来源：微博、知乎、百度、头条、澎湃、华尔街见闻、财联社、B 站、Hacker News、GitHub Trending</span>` : ""}
+      ${sys === "user" ? `<span>来源：你告诉 PGA 的情况、你的抱负、你的回答和指正、你和 agent 的对话</span>` : ""}</div>
+    ${!d ? `<div class="idle">载入中…</div>` : d.error ? `<div style="color:var(--bad)">${esc(d.error)}</div>` : `
+    <div class="pyr"><span class="cap">一 · 标题</span><div class="g">${esc(d.gist || title)}</div></div>
+    <div class="pyr"><span class="cap">二 · 概要</span>${d.summary ? `<div class="b">${esc(d.summary)}</div>` : `<div class="dim">${d.compiled_at ? "概要还在生成。" : "整理之后出现。"}</div>`}</div>
+    <div class="pyr"><span class="cap" data-fold="doc:${id}" style="cursor:pointer">三 · 全文 ${C.folds.has("doc:" + id) ? "▴" : "▾"}</span>
+      ${C.folds.has("doc:" + id) ? (d.full ? md(d.full) : `<div class="dim">还没有全文。</div>`) : ""}</div>`}`;
+}
 function renderFolder(pid) {
   const p = allProjects().find((x) => x.id === pid);
   if (!p) { $("#proc").innerHTML = `<div class="idle">没有这个文件夹。</div>`; return; }
@@ -1049,11 +1095,14 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("click", (e) => {                          // which layer the map shows
+  const b = e.target.closest?.("[data-layer]"); if (b) setLayer(b.dataset.layer);
+});
 document.addEventListener("click", (e) => {                          // the small disc: move between bodies inside the workbench
   const g = e.target.closest?.("[data-mini]"); if (!g) return;
   const v = g.dataset.mini;
   if (v === "me") setView("me", null); else if (v.startsWith("agent:")) setView("agent", v.slice(6)); else if (v.startsWith("aim:")) setView("aim", v.slice(4));
-  else if (v.startsWith("folder:")) setView("folder", v.slice(7));
+  else if (v.startsWith("folder:")) setView("folder", v.slice(7)); else if (v.startsWith("dataset:")) setView("dataset", v.slice(8));
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(e.target.dataset.chatkey); }
@@ -1062,10 +1111,21 @@ document.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.dataset.w) { const v = Number(t.value); saveAlloc({ [t.dataset.w]: v, preset: "custom" }); return; }
   if (t.dataset.pref) { saveAlloc({ prefs: { [t.dataset.pref]: Number(t.value) } }); return; }
-  if (t.dataset.chatproj) { chat(t.dataset.chatproj).project = t.value || null; saveChats(); keepDrafts(); renderCenter(); return; }
+  if (t.dataset.chatproj) { const c = chat(t.dataset.chatproj); c.project = t.value || null; c.projectSet = true; saveChats(); keepDrafts(); renderCenter(); return; }
   if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value;
     if (t.dataset.chatagent === "me") { c.conv = null; c.log = []; chat(t.dataset.chatagent); }      // a new agent for 我: a new conversation
     if (!AS_UID) store.set("pga_console_agent", t.value); saveChats(); keepDrafts(); renderCenter(); loadHist(t.value); return; }
+  if (t.dataset.aimfolder !== undefined && t.matches("select[data-aimfolder]")) {
+    const aim = t.dataset.aimfolder, pid = t.value; if (!aim || !pid) return;
+    const a = (C.data?.aims || []).find((x) => x.id === aim);
+    try {
+      if (a?.task) await api(`/v1/aims/${aim}/perpetual`, { method: "PATCH", body: { project_id: pid } });
+      else await api(`/v1/users/${C.uid}/projects/${pid}`, { method: "PATCH", body: { aim_id: aim } });
+      const c = chat("aim:" + aim); if (!c.projectSet) c.project = pid;
+      toast("这个抱负之后在这个文件夹里工作"); await loadAll();
+    } catch (err) { toast(err.message); renderCenter(); }
+    return;
+  }
   if (t.name === "cpopt") C.cp.option = Number(t.value);
   if (t.dataset.cpp) { C.cp.approve = C.cp.approve || new Set(); t.checked ? C.cp.approve.add(t.dataset.cpp) : C.cp.approve.delete(t.dataset.cpp); }
   if (t.id === "cpEvery") {
@@ -1099,7 +1159,15 @@ document.addEventListener("click", async (e) => {
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
     if (t.dataset.arole) { C.alloc.role = t.dataset.arole; await loadAlloc(true); return; }
     if (t.dataset.preset) { saveAlloc({ ...PRESETS[t.dataset.preset][1], preset: t.dataset.preset }); toast(`已切换为「${PRESETS[t.dataset.preset][0]}」`); return; }
-    if (t.dataset.fold) { C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderProcess(); if (C.folds.has("settings")) loadAlloc(true); return; }
+    if (t.dataset.fold) { C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderCenter(); if (C.view.kind === "aim" && C.folds.has("settings")) loadAlloc(true); return; }
+    if (t.dataset.compile) {
+      const id = t.dataset.compile; C.compiling = id; renderCenter();
+      try { const r = await api(`/v1/bodies/${id}/compile`, { method: "POST" });
+        toast(r.status === "compiled" ? `已整理（${r.words} 词）` : r.status === "deferred" ? "现在没有额度，稍后后台会整理" : `没有整理成：${r.note || r.status}`);
+        await loadDataset(id); } catch (err) { toast(err.message); }
+      finally { C.compiling = null; renderCenter(); }
+      return;
+    }
     if (t.dataset.gofolder) { e.preventDefault(); setView("folder", t.dataset.gofolder); return; }
     if (t.dataset.goaim) { e.preventDefault(); setView("aim", t.dataset.goaim); return; }
     if (t.dataset.chatnew) { const c = chat(t.dataset.chatnew); c.log = []; c.conv = null; chat(t.dataset.chatnew); saveChats(); renderCenter(); return; }

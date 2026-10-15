@@ -112,16 +112,7 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
             if parent_q:
                 links.append({"source": qid, "target": parent_q, "kind": "rel", "rel": "depends_on"})
         added_q.append({"id": qid, "code": d.get("code")})
-    # knowledge: what the agents found out — each answer an object derived from its question
-    for n in rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind.in_(["answer", "insight"]),
-                                                      AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None))
-                                .order_by(AimNote.created_at.desc()).limit(18)):
-        d = n.data or {}
-        kid = f"kn:{n.id}"
-        add({"id": kid, "kind": "knowledge", "label": n.text[:90], "aim": f"aim:{n.aim_id}", "code": d.get("code"),
-             "note": str(n.id), "proposal": d.get("proposal")})
-        src = next((x["id"] for x in added_q if x.get("code") and x.get("code") == d.get("code")), None)
-        links.append({"source": kid, "target": src or f"aim:{n.aim_id}", "kind": "rel", "rel": "derived_from" if src else "relates"})
+    # what the agents found out is not drawn piece by piece: it is curated into the motivation's knowledge dataset
 
 
 def create_app(session_factory: sessionmaker[Session] | None = None,
@@ -352,7 +343,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def body_out(b) -> dict:
         return {"id": b.id, "ref": f"k:{b.id}", "kind": b.kind, "title": b.title, "title_en": b.title_en,
                 "description": b.description, "aim_id": b.aim_id, "private": b.private, "origin": b.origin.value,
-                "created_at": b.created_at}
+                "system": b.system, "compiled_at": b.compiled_at, "created_at": b.created_at}
 
     def bridge_out(br) -> dict:
         return {"id": br.id, "a": br.a_ref, "b": br.b_ref, "note": br.note, "kind": br.kind, "created_at": br.created_at}
@@ -399,7 +390,34 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         b = rt.session.get(Body, body_id)
         if b is None:
             raise HTTPException(404, "body not found")
+        if b.system in ("user", "world"):
+            raise HTTPException(409, "用户和世界知识库一直存在，不能删除")
         BodyService(rt).delete(b)
+
+    @app.get("/v1/bodies/{body_id}/document")
+    def body_document(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """A dataset as its pyramid: title, summary and the full text."""
+        from pga.db.models import Body
+        b = rt.session.get(Body, body_id)
+        if b is None:
+            raise HTTPException(404, "body not found")
+        lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
+        return {"id": b.id, "title": b.title, "system": b.system, "compiled_at": b.compiled_at,
+                "gist": lv[1].text if 1 in lv else b.title, "summary": lv[2].text if 2 in lv else None,
+                "full": b.description, "words": len((b.description_en or "").split())}
+
+    @app.post("/v1/bodies/{body_id}/compile")
+    def compile_body(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Rebuild a curated dataset now (you asked), instead of waiting for its turn."""
+        from pga.db.models import Body
+        from pga.knowledge.datasets import Datasets
+        b = rt.session.get(Body, body_id)
+        if b is None or not b.system:
+            raise HTTPException(404, "not a curated dataset")
+        u = user_or_404(rt, b.user_id)
+        with rt.billing(user_ctx(u)):
+            out = Datasets(rt).compile(u, b)
+        return {"status": out.status, "words": out.words, "note": out.note}
 
     @app.post("/v1/aims/{aim_id}/expand")
     def expand_aim(aim_id: uuid.UUID, per_kind: int = Query(5, ge=1, le=8), rt: Runtime = Depends(get_rt)):
@@ -923,12 +941,19 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             links.append({"source": aid, "target": "you", "kind": "ai"})
         _conversation_planets(rt, u, add, links, nodes, aim_ids, now)
 
+        from pga.knowledge.datasets import Datasets
+        Datasets(rt).ensure(u, now)                              # 用户 and 世界 always exist
         bodies = BodyService(rt)
         for b in bodies.list(user_id):
             kid = f"k:{b.id}"
-            add({"id": kid, "kind": b.kind, "label": b.title, "label_en": b.title_en, "description": b.description,
-                 "aim": f"aim:{b.aim_id}" if b.aim_id in aim_ids else default_sun, "private": b.private,
+            home = "you" if b.system in ("user", "world") else f"aim:{b.aim_id}" if b.aim_id in aim_ids else default_sun
+            add({"id": kid, "kind": b.kind, "label": b.title, "label_en": b.title_en,
+                 "description": b.description[:240] if b.system else b.description,
+                 "aim": None if home == "you" else home, "private": b.private, "system": b.system,
+                 "compiled_at": b.compiled_at.isoformat() if b.compiled_at else None,
                  "origin": b.origin.value, "body_id": str(b.id)})
+            if b.system:                                         # who it describes / what it was compiled from
+                links.append({"source": kid, "target": home, "kind": "rel", "rel": "derived_from" if b.system == "aim" else "relates"})
         # folders: a project folder serves a motivation (beside its sun) or stays free (near you)
         from pga.projects import Projects
         for p in Projects(rt.session).list(user_id):
@@ -2111,6 +2136,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if t is None:
             raise HTTPException(404, "this aim is not a perpetual task")
         eng = Perpetual(rt)
+        if body.get("project_id"):                            # the folder it works in (chosen from the motivation's dropdown)
+            from pga.projects import ProjectError, Projects
+            try:
+                proj = Projects(rt.session).get(aim.user_id, uuid.UUID(str(body["project_id"])))
+            except (ProjectError, ValueError) as exc:
+                raise HTTPException(404, str(exc)) from exc
+            if proj.aim_id not in (None, aim.id):
+                raise HTTPException(409, "这个文件夹属于另一个抱负")
+            proj.aim_id, t.project_id = aim.id, proj.id
         if body.get("status"):
             try:
                 eng.set_status(t, str(body["status"]))
