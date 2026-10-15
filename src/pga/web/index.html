@@ -1372,13 +1372,21 @@ if (AS_UID) {                                            // everything this tab 
   store.json = (k, d) => { try { return JSON.parse(store.get(k)) ?? d; } catch { return d; } };
 }
 // ?embed=map: only the sky, as the map inside the console (工作台). Calm: no auto-rotation, slow orbits; a click zooms in
-const EMBED = new URLSearchParams(location.search).get("embed") === "map";
+// Inside the console (工作台) the sky switches live between the map (embed) and the full sky with all its panels:
+// one page, one sky. Opened on its own, it goes to the console (?sky opens the full sky there).
+let EMBED = new URLSearchParams(location.search).get("embed") === "map";
+const ROTATE0 = SET.autoRotate;
 window.PGA_EMBED = EMBED;
 if (EMBED) { document.documentElement.classList.add("embed"); SET.autoRotate = false; }
-// the console (工作台) is where PGA opens now; the sky stays one click away (?sky keeps you here)
-if (!EMBED && !store.get("pga_console_v1")) { store.set("pga_console_v1", "1"); SET.start = "console"; store.set("pga_settings", JSON.stringify(SET)); }
-if (!EMBED && SET.start === "console" && !new URLSearchParams(location.search).has("sky")) location.replace("/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""));
-if (AS_UID) document.addEventListener("DOMContentLoaded", () => { const a = document.getElementById("toConsole"); if (a) a.href = `/console?as=${encodeURIComponent(AS_UID)}`; });
+const IN_CONSOLE = window.parent !== window;
+if (!IN_CONSOLE) {
+  const q = new URLSearchParams(); if (AS_UID) q.set("as", AS_UID); if (new URLSearchParams(location.search).has("sky")) q.set("full", "1");
+  location.replace("/console" + (q.toString() ? "?" + q : ""));
+}
+document.addEventListener("click", (e) => {                       // 工作台: the console turns back to its own view (no page load)
+  const a = e.target.closest?.("#toConsole"); if (!a || !IN_CONSOLE) return;
+  e.preventDefault(); window.parent.postMessage({ type: "pga:desk" }, location.origin);
+});
 const S = { uid: AS_UID || store.get("pga_uid"), agent: store.get("pga_agent") || null, convs: store.json("pga_convs", {}),
   resps: [], notes: [], tab: store.get("pga_tab") || "notes", sending: false, series: null, pnow: null, health: null,
   lastEventAt: null, collapsed: store.get("pga_dock") === "min" };
@@ -1875,7 +1883,8 @@ function closeTalkSettings(quick) {
 }
 // talking to a body: history on the left, the body, then the conversation — the scene keeps the body at `xp`
 window.PGA_TALK_LAYOUT = (W) => { const histW = W >= 980 ? Math.min(320, W * .23) : 0; return { histW, xp: histW ? histW + 105 : W * .26 }; };
-if (EMBED) window.PGA_TALK_LAYOUT = (W) => (W >= 900 ? { histW: 300, xp: 300 + 140 } : { histW: 0, xp: W * .26 });   // the console: its column, then the planet
+const TALK_LAYOUT_SKY = window.PGA_TALK_LAYOUT, TALK_LAYOUT_MAP = (W) => (W >= 900 ? { histW: 300, xp: 300 + 140 } : { histW: 0, xp: W * .26 });   // the console: its column, then the planet
+if (EMBED) window.PGA_TALK_LAYOUT = TALK_LAYOUT_MAP;
 const HIST = { card: null, list: [], busy: false };
 async function loadHist() {
   if (!CARD.kind || !S.uid) return;
@@ -5313,6 +5322,20 @@ function embedLook(n) {                                                  // exac
   window.PGA_CALM?.(!!n);
   document.getElementById("app")?.classList.toggle("talking", !!n);
 }
+window.PGA_SET_EMBED = (on) => {                                        // the console: map ⇄ full sky, in place
+  on = !!on; if (EMBED === on) return;
+  embedLook(null);
+  EMBED = on; window.PGA_EMBED = on;
+  document.documentElement.classList.toggle("embed", on);
+  SET.autoRotate = on ? false : ROTATE0;
+  window.PGA_TALK_LAYOUT = on ? TALK_LAYOUT_MAP : TALK_LAYOUT_SKY;
+  controls.maxPolarAngle = on ? 1.0 : 1.36;
+  layoutKey = ""; loadGraph();                                           // the map leaves the models out; the full sky has them
+  window.dispatchEvent(new Event("resize"));
+};
+window.addEventListener("message", (e) => {
+  if (e.origin === location.origin && e.data?.type === "pga:mode") window.PGA_SET_EMBED(e.data.embed);
+});
 function embedSelect(n) {
   embedLook(n);
   if (n) { n.flash = 1; n.energy = 1; ripple(n.pos, n.d.kind === "aim" ? (systems.find((s) => s.id === n.id)?.R || 3) : 1.4); }

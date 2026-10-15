@@ -58,6 +58,8 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .dot.ok { background: #cfcfcf; } .dot.bad { background: var(--bad); }
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
 
+body.full .app { grid-template-rows: minmax(0, 1fr); }
+body.full .app > header, body.full main, body.full #lead, body.full .skyhint, body.full .skytools, body.full #layerSw { display: none !important; }
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
@@ -343,7 +345,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 <div class="app">
   <header>
     <a class="logo" href="/console"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a class="on" href="/console">工作台</a><a href="/?sky" id="toFull" title="原来的完整星空（带所有面板）">完整星空</a></nav>
+    <nav><a class="on" href="/console" id="toDeskTab">工作台</a><a href="/console?full=1" id="toFull" title="同一片星空，带上所有面板：压力曲线、agent 网络、通知、信息源、预算、设置、Agent 星图">完整星空</a></nav>
     <div class="pulse"><span id="pWorking"><span class="dot"></span> —</span><span id="pTasks">—</span><span id="pUpdated" class="dim"></span></div>
   </header>
   <div class="stage">
@@ -368,13 +370,23 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const AS_UID = new URLSearchParams(location.search).get("as");
-if (AS_UID) $("#toFull").href = `/?sky&as=${encodeURIComponent(AS_UID)}`;
+if (AS_UID) { $("#toFull").href = `/console?full=1&as=${encodeURIComponent(AS_UID)}`; $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`; }
 const SYS_ZH = { user: "用户知识库", world: "世界知识库", aim: "抱负知识库" };
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
             cp: { option: 0, approve: null },
             view: { kind: "aim", id: null }, graph: null, chats: {}, hist: {}, mapReady: false };
 C.docs = {};
+C.full = new URLSearchParams(location.search).get("full") === "1";
+function setFull(on) {                                                // 工作台 ⇄ 完整星空: the same sky, no page load
+  on = !!on; if (C.full === on) return;
+  C.full = on; document.body.classList.toggle("full", on);
+  $("#toFull").classList.toggle("on", on); $("#toDeskTab").classList.toggle("on", !on);
+  const q = new URLSearchParams(location.search); on ? q.set("full", "1") : q.delete("full");
+  history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
+  try { $("#map").contentWindow.postMessage({ type: "pga:mode", embed: !on }, location.origin); } catch {}
+  if (!on) { document.body.classList.add("sky"); setTimeout(() => { try { $("#map").contentWindow.postMessage({ type: "pga:layer", layer: C.layer }, location.origin); } catch {} focusMap(null); }, 300); }
+}
 try { C.chats = JSON.parse(store.get("pga_console_chats") || "{}") || {}; } catch { C.chats = {}; }
 const saveChats = () => { if (!AS_UID) { try { store.set("pga_console_chats", JSON.stringify(Object.fromEntries(Object.entries(C.chats).map(([k, v]) => [k, { ...v, log: (v.log || []).filter((m) => !m.pending).slice(-40) }])))); } catch {} } };
 // a body on the map ⇄ what the console shows. The planets of linked AIs carry their vendor; the pool agents their adapter.
@@ -413,10 +425,17 @@ const KIND = { question: "提问", answer: "回答", insight: "发现", evolve: 
 
 async function boot() {
   if (!C.uid) { try { const h = await api("/healthz"); C.uid = h.owner; } catch {} }
-  if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号：先打开一次 <a href="/?sky">星空</a>。</div>`; return; }
+  if (!C.uid && !AS_UID) {                                         // first visit: make the account here (the sky used to)
+    try { const u = await api("/v1/users", { body: { locale: "zh-CN", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai" } }); C.uid = u.id; store.set("pga_uid", u.id); } catch {}
+  }
+  if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号：先打开一次 <a href="#" data-full="1">星空</a>。</div>`; return; }
   try { const u = await api(`/v1/users/${C.uid}`); const into = u.preferences?.merged_into; if (into && into !== C.uid) { C.uid = into; if (!AS_UID) store.set("pga_uid", into); } }
-  catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="/?sky">星空</a>。</div>`; return; } }
-  $("#map").src = `/?embed=map&as=${encodeURIComponent(C.uid)}`;
+  catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="#" data-full="1">星空</a>。</div>`; return; } }
+  // one sky for both: the map of the workbench, or (完整星空) the full sky with all its panels, switched in place
+  if (!AS_UID) store.set("pga_uid", C.uid);
+  const q = new URLSearchParams(); if (!C.full) q.set("embed", "map"); if (AS_UID) q.set("as", AS_UID);
+  $("#map").src = "/?" + q;
+  document.body.classList.toggle("full", C.full); $("#toFull").classList.toggle("on", C.full); $("#toDeskTab").classList.toggle("on", !C.full);
   renderLayers();
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
@@ -647,7 +666,7 @@ function renderAims() {
     </div>`;
   }).join("") + (d.free_projects?.length ? `<div class="aim free"><div class="cap">自由文件夹</div><div class="projs">${d.free_projects.map(projRow).join("")}</div>
       <div class="empty">不属于任何抱负的文件夹不能自己开始：在星空 → 项目里选「属于」。</div></div>` : "")
-    || `<div class="aim"><div class="empty">还没有抱负。先在 <a href="/?sky">星空</a> 写下一个长期抱负。</div></div>`;
+    || `<div class="aim"><div class="empty">还没有抱负。先在 <a href="#" data-full="1">星空</a> 写下一个长期抱负。</div></div>`;
 }
 
 /* ------------------------------------------------ center: the process */
@@ -1095,6 +1114,11 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("click", (e) => {                          // the two tabs, and links that open the full sky
+  const a = e.target.closest?.("#toFull, #toDeskTab, [data-full]"); if (!a) return;
+  e.preventDefault(); setFull(a.id === "toFull" || !!a.dataset.full);
+});
+window.addEventListener("message", (e) => { if (e.origin === location.origin && e.data?.type === "pga:desk") setFull(false); });
 document.addEventListener("click", (e) => {                          // which layer the map shows
   const b = e.target.closest?.("[data-layer]"); if (b) setLayer(b.dataset.layer);
 });
