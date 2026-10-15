@@ -2026,8 +2026,41 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 new["max_rest_ratio"] = max(0.0, min(0.1, float(new["max_rest_ratio"])))     # never more than 10%
             if "reserve" in new:
                 new["reserve"] = max(0.0, min(0.9, float(new["reserve"])))
+            if "autonomy" in new:
+                from pga.perpetual import AUTONOMY
+                if new["autonomy"] not in AUTONOMY:
+                    raise HTTPException(422, f"autonomy is one of {list(AUTONOMY)}")
+                t.next_at = utcnow()                      # a new level takes effect at the next step
+            if "checkpoint_every" in new:
+                new["checkpoint_every"] = max(1, min(50, int(new["checkpoint_every"])))
             t.settings = {**(t.settings or {}), **new}
         rt.session.flush()
+        return perpetual_view(rt, aim)
+
+    @app.post("/v1/aims/{aim_id}/perpetual/checkpoint")
+    def perpetual_checkpoint(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Your decision at a checkpoint: continue (approving proposals), adjust (your words become guidance) or stop."""
+        from pga.db.models import AimNote, PerpetualTask
+        from pga.perpetual import Perpetual
+        aim = aim_or_404(rt, aim_id)
+        u = user_or_404(rt, aim.user_id)
+        t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
+        try:
+            n = rt.session.get(AimNote, uuid.UUID(str(body.get("note_id"))))
+        except ValueError:
+            n = None
+        if t is None or n is None or n.aim_id != aim.id:
+            raise HTTPException(404, "checkpoint not found")
+        text = str(body.get("text") or "").strip()[:4000]
+        option = body.get("option")
+        try:
+            Perpetual(rt).resolve_checkpoint(t, n, str(body.get("decision") or ""), text=text,
+                                             text_en=canonical(rt, u, text)[0] if text else "",
+                                             approve=[str(c) for c in body.get("approve") or []][:20],
+                                             option=int(option) if option is not None else None)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        relayer(rt, u, f"aim:{aim.id}")
         return perpetual_view(rt, aim)
 
     @app.post("/v1/aims/{aim_id}/perpetual/answer")

@@ -153,6 +153,10 @@ def _r0_forward(rt: "Runtime", job: Job, now: datetime) -> dict:
     d = r0_forward(rt, user, now)
     out = {"decision": d.decision, "fallback": d.fallback}
     if d.decision == "SELF_IMPROVE":
+        from pga.perpetual import self_autonomy
+        mode = self_autonomy(rt, user.id)
+        if mode != "free":                                # PGA's own motivation is not fully free: you decide first
+            return {**out, "round": None, "why": f"PGA 自身的抱负是「{mode}」级别：改进等检查点上你批准后再做"}
         svc = EvolutionService(rt)
         why = svc.can_start(user.id, now)
         if why:

@@ -97,7 +97,7 @@ def setup(rt, user, cfg, repo, tmp_path, monkeypatch):
     rt.session.flush()
     coding = CodingAgent(repo=repo, root=tmp_path / "wt", run_cli=stacking_cli, run_tests=lambda p: SuiteResult(passed=10, ok=True))
     eng = Perpetual(rt, AgentPool(rt, cfg), coding=coding)
-    t = eng.create(user, aim, proj)
+    t = eng.create(user, aim, proj, settings={"autonomy": "free", "auto_promote": False})   # the tests below drive it freely
     return eng, t, aim, coding
 
 
@@ -259,3 +259,59 @@ def test_a_busy_agent_is_passed_over_for_a_free_one(rt, user, setup):
         assert other and other != first
     finally:
         s.release()
+
+
+# ---------------------------------------------------------------- how free it is: free · checkpoint · driven
+
+
+def test_driven_does_nothing_on_its_own(rt, user, setup):
+    eng, t, aim, _ = setup
+    t.settings = {**t.settings, "autonomy": "driven"}
+    out = eng.cycle(t)
+    assert out["action"] == "driven" and t.cycles == 0 and t.phase == "driven"
+    assert eng.backlog_for(t) == []
+
+
+def test_checkpoint_stops_reports_and_waits_for_your_decision(rt, user, setup):
+    from pga.perpetual import approved
+    eng, t, aim, _ = setup
+    t.settings = {**t.settings, "autonomy": "checkpoint", "checkpoint_every": 2, "evolve": True}
+    eng.cycle(t)
+    eng.cycle(t)                                                                # two cycles of thinking …
+    assert eng.since_checkpoint(t) == 2 and eng.pending_checkpoint(t) is None
+    out = eng.cycle(t)                                                          # … then it stops and reports
+    cp = eng.pending_checkpoint(t)
+    assert out["action"] == "checkpoint" and cp is not None and cp.data["summary"] and t.phase == "checkpoint"
+    cycles = t.cycles
+    assert eng.cycle(t)["action"] == "checkpoint" and t.cycles == cycles        # nothing more until you decide
+    props = eng.backlog(t.user_id)
+    assert all(not approved(p) for p in props) and eng.backlog_for(t) == []    # nothing gets implemented unapproved
+    codes = [p.code for p in props][:1]
+    eng.resolve_checkpoint(t, cp, "adjust", text="先关注提问质量", text_en="Focus on question quality first", approve=codes)
+    assert cp.status == "adjusted" and eng.pending_checkpoint(t) is None and eng.since_checkpoint(t) == 0
+    assert [p.code for p in eng.backlog_for(t)] == codes                       # only what you approved may be built
+    assert "Focus on question quality" in eng.team.context(aim)               # your words guide every next step
+    eng.cycle(t)
+    assert t.cycles == cycles + 1
+
+
+def test_stopping_at_a_checkpoint_pauses_and_a_stale_checkpoint_cannot_be_reused(rt, user, setup):
+    import pytest as _pt
+    eng, t, aim, _ = setup
+    t.settings = {**t.settings, "autonomy": "checkpoint", "checkpoint_every": 1}
+    eng.cycle(t)
+    eng.cycle(t)
+    cp = eng.pending_checkpoint(t)
+    eng.resolve_checkpoint(t, cp, "stop")
+    assert t.status == "paused" and cp.status == "stopped"
+    with _pt.raises(ValueError):
+        eng.resolve_checkpoint(t, cp, "continue")
+
+
+def test_r0_waits_for_you_unless_pgas_own_motivation_is_free(rt, user, setup, repo, monkeypatch):
+    from pga.perpetual import self_autonomy
+    monkeypatch.setattr("pga.evolution.coding.REPO", repo)                       # "PGA's own repository" in this test
+    eng, t, aim, _ = setup
+    assert self_autonomy(rt, user.id) == "free"
+    t.settings = {**t.settings, "autonomy": "checkpoint"}
+    assert self_autonomy(rt, user.id) == "checkpoint"

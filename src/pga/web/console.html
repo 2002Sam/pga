@@ -127,6 +127,34 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .detail pre { margin: 0; max-height: 380px; overflow: auto; font: 11.5px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #cfcfcf; }
 .detail details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 10px; }
 
+/* how free it is */
+.levels { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line-2); margin: 16px 0 6px; }
+.levels button { border: 0; border-right: 1px solid var(--line-2); text-align: left; padding: 9px 12px; white-space: normal; line-height: 1.45; }
+.levels button:last-child { border-right: 0; }
+.levels button b { display: block; font-weight: 500; font-size: 13px; }
+.levels button span { color: var(--muted); font-size: 11.5px; }
+.levels button.on { background: rgba(233,169,75,.08); box-shadow: inset 0 -2px 0 var(--gold); }
+.levels button.on b { color: var(--gold); }
+.lvlrow { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--muted); }
+.lvlrow input { width: 52px; background: transparent; border: 1px solid var(--line-2); padding: 1px 6px; }
+
+/* checkpoint */
+.cp { border: 1px solid var(--gold); padding: 14px 16px; margin: 6px 0 4px; }
+.cp .cap { color: var(--gold); }
+.cp p { margin: 6px 0 10px; white-space: pre-wrap; }
+.cp .opt { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.cp .opt small { display: block; color: var(--muted); }
+.cp .prop { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 12.5px; }
+.cp .prop .rec { color: var(--gold); font-size: 11px; }
+.cp textarea, .talk textarea { width: 100%; min-height: 54px; resize: vertical; background: transparent; border: 1px solid var(--line-2); padding: 6px 8px; outline: none; margin-top: 8px; }
+.cp .row, .talk .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; align-items: center; }
+
+/* talk to it (user-driven work, and quick asks at any level) */
+.talk { border: 1px solid var(--line-2); padding: 12px; }
+.talk select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; }
+.talk .ans { margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; border-left: 1px solid var(--line-3); padding-left: 10px; }
+.talk .row .grow { flex: 1; color: var(--muted); font-size: 11.5px; }
+
 /* agents */
 .ag { border-top: 1px solid var(--line); padding: 11px 16px 12px; }
 .ag .h { display: flex; gap: 8px; align-items: center; }
@@ -175,7 +203,8 @@ const store = { get(k) { try { return localStorage.getItem(k); } catch { return 
 const AS_UID = new URLSearchParams(location.search).get("as");
 if (AS_UID) $("#toSky").href = `/?sky&as=${encodeURIComponent(AS_UID)}`;
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
-            open: new Set(), details: {}, drafts: {}, busy: new Set() };
+            open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
+            cp: { option: 0, approve: null } };
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"),
@@ -198,9 +227,13 @@ function until(iso) {
 }
 const dur = (s) => s == null ? "" : s < 60 ? `${Math.round(s)} 秒` : s < 3600 ? `${Math.floor(s / 60)} 分 ${Math.round(s % 60)} 秒` : `${(s / 3600).toFixed(1)} 小时`;
 const STATE = { running: ["工作中", "on"], paused: ["已暂停", ""], stopped: ["已停止", ""], idle: ["未开始", ""] };
-const STEP = { think: "思考", investigate: "研究", evolve: "进化", reflect: "回顾" };
+const STEP = { think: "思考", investigate: "研究", evolve: "进化", reflect: "回顾", checkpoint: "检查点", review: "审核", ask: "对话" };
+const PARTS = { think: "思考", investigate: "研究", evolve: "进化", reflect: "回顾" };   // the four pulls
+const LEVELS = [["free", "完全自由", "自己思考、研究、改代码、自我评测；验证过的改进自动上线（先灰度，变差自动回滚）"],
+                ["checkpoint", "检查点", "想一段时间后停下来，把发现、整体思路和选项交给你；你同意了才动手"],
+                ["driven", "用户驱动", "不自己行动；你在下面提要求，它按你的要求回答或修改"]];
 const ROLE = { lead: "主导", researcher: "研究员", critic: "审阅", builder: "实现" };
-const KIND = { question: "提问", answer: "回答", insight: "发现", evolve: "进化", reflect: "回顾", correction: "你的指正" };
+const KIND = { question: "提问", answer: "回答", insight: "发现", evolve: "进化", reflect: "回顾", correction: "你的指正", checkpoint: "检查点" };
 
 /* ------------------------------------------------ data */
 
@@ -230,7 +263,7 @@ async function loadLive() {
 async function loadProcess() {
   if (!C.sel) { renderProcess(); return; }
   try { C.proc = await api(`/v1/users/${C.uid}/console/aims/${C.sel}`); } catch (e) { C.proc = null; }
-  if (document.activeElement?.matches?.("#proc textarea")) { renderLive(); return; }   // don't redraw under your typing
+  if (document.activeElement?.matches?.("#proc textarea, #proc input")) { renderLive(); return; }   // don't redraw under your typing
   renderProcess();
 }
 
@@ -258,6 +291,7 @@ function renderAims() {
       <div class="t">${esc(a.text)}</div>
       <div class="st"><span class="dot ${live ? "on" : t?.status === "running" ? "ok" : ""}"></span>${t ? `${esc(zh)} · ${esc(t.phase_zh || "")}` : "还没有开始"}${live ? ` · ${live} 个 agent 在做` : ""}</div>
       ${t ? `<div class="bar ${live ? "gold" : ""}" title="张力 ${(t.pressure ?? 0).toFixed(2)}"><i style="width:${Math.round((t.pressure ?? 0) * 100)}%"></i></div>` : ""}
+      ${t?.checkpoint_pending ? `<div class="q">● 检查点等你看</div>` : ""}
       ${a.open_questions ? `<div class="q">● ${a.open_questions} 个问题等你回答</div>` : ""}
       <div class="projs">${a.projects.map(projRow).join("") || `<div class="empty">还没有项目文件夹（在星空 → 项目里把文件夹挂到这个抱负下）</div>`}</div>
     </div>`;
@@ -281,10 +315,12 @@ function renderProcess() {
   const t = P.task, a = (C.data?.aims || []).find((x) => x.id === C.sel);
   const proj = projectOf(P.aim);
   const parts = t?.parts || {};
-  const top = Object.keys(STEP).reduce((m, k) => ((parts[k] ?? -1) > (parts[m] ?? -1) ? k : m), "think");
+  const top = Object.keys(PARTS).reduce((m, k) => ((parts[k] ?? -1) > (parts[m] ?? -1) ? k : m), "think");
   const qs = P.for_you || [];
   // keep what you were typing across refreshes
   el.querySelectorAll("textarea[data-q]").forEach((x) => { C.drafts[x.dataset.q] = x.value; });
+  if ($("#cpText") && C.cp.id) C.drafts["cp:" + C.cp.id] = $("#cpText").value;
+  if ($("#talkText")) C.drafts.talk = $("#talkText").value;
   el.innerHTML = `
     <div class="ph"><h1>${esc(P.aim.text)}</h1>
       <div class="ctl">${proj ? runBtn(proj, true) : `<span class="muted" style="font-size:12px">先给这个抱负挂一个项目文件夹</span>`}
@@ -294,17 +330,42 @@ function renderProcess() {
       ${t.status === "running" && t.next_at && new Date(t.next_at) > Date.now() ? `<span>下一步 <b>${esc(until(t.next_at))}</b></span>` : ""}
       ${a?.stats ? `<span>工作 <b>${dur(a.stats.work_s)}</b> · 休息 <b>${dur(a.stats.rest_s)}</b></span>` : ""}</div>
       ${t.phase_note ? `<div class="muted" style="font-size:12.5px">${esc(t.phase_note)}</div>` : ""}
-      <div class="parts">${Object.entries(STEP).map(([k, zh]) => `<div class="p ${k === top ? "top" : ""}"><span class="cap">${zh} ${(parts[k] ?? 0).toFixed(2)}</span>
+      <div class="parts">${Object.entries(PARTS).map(([k, zh]) => `<div class="p ${k === top ? "top" : ""}"><span class="cap">${zh} ${(parts[k] ?? 0).toFixed(2)}</span>
         <div class="bar ${k === top ? "gold" : ""}"><i style="width:${Math.round(Math.min(1, parts[k] ?? 0) * 100)}%"></i></div></div>`).join("")}</div>
       <div class="dim" style="font-size:11.5px">哪一种压力最大，下一轮就做哪一种：思考 = 提出新问题，研究 = 回答问题，进化 = 改进代码，回顾 = 整理反思。</div>`
       : `<div class="meta">还没有开始。${proj ? "按右上角 ▶ 开始，它就会在这个文件夹里不停地思考、提问、研究和进化。" : ""}</div>`}
+    ${t ? `<div class="levels">${LEVELS.map(([k, zh, d]) => `<button data-level="${k}" class="${(t.autonomy || "checkpoint") === k ? "on" : ""}"><b>${zh}</b><span>${d}</span></button>`).join("")}</div>
+      ${(t.autonomy || "checkpoint") === "checkpoint" ? `<div class="lvlrow">每思考 <input type="number" min="1" max="50" id="cpEvery" value="${t.checkpoint_every || 6}"> 轮停下来给你看一次 · 距上次检查点已 ${t.since_checkpoint ?? 0} 轮</div>` : ""}` : ""}
+    ${P.checkpoint ? cpHtml(P.checkpoint) : ""}
     <h2>正在进行 <small>agent 此刻在读什么、想什么</small></h2><div id="liveBox"></div>
+    <h2>让它做 <small>${t?.autonomy === "driven" ? "用户驱动：它只按你的要求工作" : "随时直接交代一件事，任何级别都可以"}</small></h2>${talkHtml(proj)}
     ${qs.length ? `<h2>等你回答 <small>只有你能决定的问题</small></h2>${qs.map((q) => `<div class="ask"><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
       <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
       <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}` : ""}
     <h2>自我对话 <small>它问了自己什么、谁回答、谁审阅、得出了什么</small></h2>
     <div class="tl">${(P.events || []).map(evHtml).join("") || `<div class="empty">还没有记录。</div>`}</div>`;
   renderLive();
+}
+function cpHtml(cp) {
+  const opts = cp.options || [], props = cp.proposals || [];
+  if (C.cp.id !== cp.id) C.cp = { id: cp.id, option: opts.length ? 0 : null, approve: new Set(props.filter((p) => p.recommend).map((p) => p.code)) };
+  return `<h2>检查点 <small>它停下来了：这是它的发现和打算，你决定下一步</small></h2><div class="cp">
+    <span class="cap">它发现了什么</span><p>${esc(cp.summary)}</p>
+    ${cp.direction ? `<span class="cap">接下来的整体思路</span><p>${esc(cp.direction)}</p>` : ""}
+    ${cp.question ? `<span class="cap">最想请你判断</span><p>${esc(cp.question)}</p>` : ""}
+    ${opts.length ? `<span class="cap">怎么走</span>${opts.map((o, i) => `<label class="opt"><input type="radio" name="cpopt" value="${i}" ${C.cp.option === i ? "checked" : ""}><span>${esc(o.label)}${i === 0 ? " <span class='dim'>（它的建议）</span>" : ""}<small>${esc(o.detail)}</small></span></label>`).join("")}` : ""}
+    ${props.length ? `<span class="cap" style="display:block;margin-top:10px">要动手实现的改进（勾选才会做）</span>${props.map((p) => `<label class="prop"><input type="checkbox" data-cpp="${esc(p.code)}" ${C.cp.approve.has(p.code) ? "checked" : ""}><span><b>${esc(p.code)}</b> ${esc(p.title)}${p.recommend ? ` <span class="rec">建议做</span>` : ""}<small class="dim" style="display:block">${esc(p.why || p.change)}</small></span></label>`).join("")}` : ""}
+    <textarea id="cpText" placeholder="可选：你的看法或修正，会成为之后每一轮的指导">${esc(C.drafts["cp:" + cp.id] || "")}</textarea>
+    <div class="row"><button class="ghost" data-cp="stop">停下</button><button data-cp="adjust">按我的意见调整后继续</button><button class="primary" data-cp="continue">同意，继续</button></div></div>`;
+}
+function talkHtml(proj) {
+  const agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
+  const last = C.talk.last && C.talk.last.aim === C.sel ? C.talk.last : null;
+  return `<div class="talk"><textarea id="talkText" placeholder="${proj ? `在「${esc(proj.name)}」里要它做什么，或问它什么` : "问它什么"}">${esc(C.drafts.talk || "")}</textarea>
+    <div class="row"><span class="grow">${proj ? `${proj.full_access ? "完整权限：它可以改文件、跑命令" : "只读：它可以读这个文件夹，不会改动（在星空 → 项目里可以开完整权限）"}` : ""}</span>
+      <select id="talkAgent">${agents.map((a) => `<option ${a.name === C.talk.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+      <button class="primary" data-talk="1" ${C.talk.sending ? "disabled" : ""}>${C.talk.sending ? "进行中…" : "发送"}</button></div>
+    ${last ? `<div class="ans"><span class="cap">${esc(last.agent || "")} 的回答</span>\n${esc(last.text || last.error || "")}</div>` : ""}</div>`;
 }
 function evHtml(e) {
   const at = `<time title="${esc(new Date(e.at).toLocaleString("zh-CN"))}">${esc(ago(e.at))}</time>`;
@@ -333,10 +394,11 @@ const traceHtml = (txt) => esc(txt).split("\n").map((l) => /^\s*(→|⚙|\$|›)
 function renderLive() {
   const box = $("#liveBox"); if (!box || !C.proc) return;
   const tid = C.proc.task?.id;
-  const runs = (C.live || []).filter((r) => r.running && tid && (r.tags || {}).perpetual === tid);
+  const pid = projectOf(C.proc.aim)?.id;
+  const runs = (C.live || []).filter((r) => r.running && ((tid && (r.tags || {}).perpetual === tid) || (pid && (r.tags || {}).project === pid && r.workflow === "ask")));
   if (!runs.length) {
     const t = C.proc.task;
-    box.innerHTML = `<div class="idle">${!t ? "还没有开始。" : t.status !== "running" ? "已暂停：按 ▶ 开始继续。" :
+    box.innerHTML = `<div class="idle">${!t ? "还没有开始。" : t.status !== "running" ? "已暂停：按 ▶ 开始继续。" : t.phase === "checkpoint" ? "停在检查点：等你在上面做决定。" : t.phase === "driven" ? "用户驱动：等你在下面提要求。" :
       `此刻没有 agent 在做事 — ${esc(t.phase_zh)}${t.next_at && new Date(t.next_at) > Date.now() ? `，${esc(until(t.next_at))}继续` : ""}。`}</div>`;
     return;
   }
@@ -393,6 +455,15 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.name === "cpopt") C.cp.option = Number(t.value);
+  if (t.dataset.cpp) { C.cp.approve = C.cp.approve || new Set(); t.checked ? C.cp.approve.add(t.dataset.cpp) : C.cp.approve.delete(t.dataset.cpp); }
+  if (t.id === "cpEvery") {
+    try { await api(`/v1/aims/${C.sel}/perpetual`, { method: "PATCH", body: { settings: { checkpoint_every: Number(t.value) } } }); toast("已更新"); await loadProcess(); }
+    catch (err) { toast(err.message); }
+  }
+});
 document.addEventListener("click", async (e) => {
   const t = e.target.closest("button, .aim[data-aim]");
   if (!t) return;
@@ -412,6 +483,36 @@ document.addEventListener("click", async (e) => {
     if (t.dataset.open) {
       const id = t.dataset.open;
       if (C.open.has(id)) C.open.delete(id); else { C.open.add(id); if (!C.details[id]) { renderProcess(); C.details[id] = await api(`/v1/users/${C.uid}/console/runs/${id}`); } }
+      renderProcess(); return;
+    }
+    if (t.dataset.level) {
+      const lv = t.dataset.level;
+      if (lv === "free" && !confirm("完全自由：它会自己改代码、自己评测，验证通过的改进会自动上线（先灰度，变差自动回滚）。确定吗？")) return;
+      await api(`/v1/aims/${C.sel}/perpetual`, { method: "PATCH", body: { settings: { autonomy: lv } } });
+      toast(`已切换为「${LEVELS.find((x) => x[0] === lv)[1]}」`); await loadAll(); return;
+    }
+    if (t.dataset.cp) {
+      const cp = C.proc?.checkpoint; if (!cp) return;
+      const text = ($("#cpText")?.value || "").trim();
+      if (t.dataset.cp === "adjust" && !text) { toast("先写下你的意见"); $("#cpText")?.focus(); return; }
+      if (t.dataset.cp === "stop" && !confirm("停下：这个抱负会暂停，直到你按 ▶ 开始。")) return;
+      await api(`/v1/aims/${C.sel}/perpetual/checkpoint`, { body: { note_id: cp.id, decision: t.dataset.cp, text,
+        option: C.cp.option, approve: [...(C.cp.approve || [])] } });
+      delete C.drafts["cp:" + cp.id];
+      toast({ continue: "已同意，继续", adjust: "已按你的意见调整", stop: "已停下" }[t.dataset.cp]); await loadAll(); return;
+    }
+    if (t.dataset.talk) {
+      const text = ($("#talkText")?.value || "").trim(); if (!text) { toast("先写下你要它做什么"); return; }
+      const agent = $("#talkAgent")?.value; const proj = projectOf(C.proc?.aim);
+      if (proj?.full_access && !confirm(`${agent} 可以在「${proj.name}」里修改文件、执行命令。确定吗？`)) return;
+      C.talk.agent = agent; if (!AS_UID) store.set("pga_console_agent", agent);
+      C.talk.sending = true; C.drafts.talk = ""; renderProcess();
+      const aim = C.sel;
+      try {
+        const r = await api(`/v1/users/${C.uid}/agents/ask`, { body: { text, agent, project_id: proj?.id, category: "serious" } });
+        C.talk.last = { aim, agent: r.agent, text: r.text, error: r.error };
+      } catch (err) { C.talk.last = { aim, agent, error: err.message }; }
+      finally { C.talk.sending = false; }
       renderProcess(); return;
     }
     if (t.dataset.stoplive) { await api(`/v1/agents/live/${t.dataset.stoplive}/stop`, { body: {} }); toast("已让它停下"); return; }

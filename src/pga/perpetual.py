@@ -23,6 +23,15 @@ Pressure (张力) is the core: every channel has a pull between 0 and 1 —
 — and stagnation (time since the last real progress) adds to all of them. The pressure never falls below a floor
 while the task runs: for a perpetual task, working is the normal state.
 
+How much it may do on its own is your choice, per motivation (`autonomy`):
+
+    free         完全自由   it thinks, answers, evolves and checks itself without stopping; verified code changes are
+                            promoted on their own (as a canary that rolls back by itself if things get worse)
+    checkpoint   检查点     it thinks and investigates for `checkpoint_every` cycles, then stops and reports what it
+                            learned, its overall direction and the next steps as options. Nothing is implemented until
+                            you approve; you continue, adjust (your words become guidance) or stop. (default)
+    driven       用户驱动   it does nothing on its own; it works when you ask (the conversation in the console)
+
 Rest is bounded: the task rests only when the pressure is below the rest line, and its total rest (including the
 short breath between cycles and any back-off after an error) stays under `max_rest_ratio` (10%) of its working
 time. It stops only when the agents' quota is used up — every agent it may use is exhausted or below the reserve
@@ -70,12 +79,18 @@ DEFAULTS: dict[str, Any] = {
     "rest_max_s": 900,          # …for at most this long at a time
     "error_backoff_s": 30,
     "quota_recheck_s": 1800,    # when a reset time is unknown
+    "autonomy": "checkpoint",   # free | checkpoint | driven — how much it may do before you look
+    "checkpoint_every": 6,      # checkpoint: cycles of thinking before it reports to you and waits
+    "auto_promote": True,       # free: verified changes go live on their own (canary, rolls back on regression)
 }
+AUTONOMY = ("free", "checkpoint", "driven")
+AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
 FLOOR = 0.2
 PAID = {"llm", "http"}          # billed per call; the subscriptions (Claude Code, Codex/ChatGPT, Hermes, CodeBuddy) have quotas
 CHANNELS = ("think", "investigate", "evolve", "reflect")
 PHASE_ZH = {"think": "思考：提出问题", "investigate": "研究：回答问题", "evolve": "进化：审核并实现改进", "reflect": "回顾：整理和反思",
-            "rest": "休息", "quota": "等额度重置", "error": "出错后稍等", "starting": "启动中", "paused": "已暂停", "stopped": "已停止"}
+            "rest": "休息", "quota": "等额度重置", "error": "出错后稍等", "starting": "启动中", "paused": "已暂停", "stopped": "已停止",
+            "checkpoint": "检查点：等你看", "driven": "用户驱动：等你的要求", "promote": "推广已验证的改进"}
 PROTECTED_NOTE = ("permissions, the user's aims/motivation, safety policy, spending or publishing authority, migrations, "
                   "the evolution loop itself (src/pga/evolution/), src/pga/policy.yaml, src/pga/config.py, tests/conftest.py")
 
@@ -110,6 +125,17 @@ Scores 0.0–1.0 (implementation_cost and regression_risk: higher = worse).
 Reply with JSON only: {{"reviews": [{{"id": "P01", "scores": {{"goal_alignment": 0.0, "evidence_strength": 0.0, "expected_gain": 0.0,
 "implementation_cost": 0.0, "regression_risk": 0.0, "reversibility": 0.0}}, "objections": ["..."], "critical": false}}]}}"""
 
+CHECKPOINT = """You are {role} on a long-running task for the user's motivation. The team has been thinking on its own for a
+while; now it stops and reports to the user, who decides whether the direction is right before anything is done.
+Read the board below (questions, answers, insights, proposals since the last checkpoint). Write in {lang}:
+- "summary": what the team found out (≤150 words, concrete, cite question codes like Q12)
+- "direction": the overall approach it would take next and why (≤100 words)
+- "proposals": for each pending proposal listed, whether you recommend implementing it now
+- "options": 2–4 concrete ways forward the user can pick from (the first one = your recommendation)
+- "question": the one thing you most need the user to judge (or empty)
+Reply with JSON only: {{"summary": "...", "direction": "...", "proposals": [{{"code": "P07", "recommend": true, "why": "..."}}],
+"options": [{{"label": "≤12 words", "detail": "≤40 words"}}], "question": ""}}"""
+
 REFLECT = """You are {role} on a perpetual task. Look back over the board: what has the team learned, what changed, which
 open questions are stale or answered already (drop them), which matter most now (re-prioritise), and is there one thing
 only the user can decide? Write "summary" and "ask_user" in {lang}; ask_user may be empty.
@@ -121,6 +147,21 @@ def _cjk_grams(t: str) -> set[str]:
     words = set(re.findall(r"[a-z0-9]{3,}", t))
     han = re.sub(r"[^一-鿿]", "", t)
     return words | {han[i:i + 2] for i in range(len(han) - 1)}
+
+
+def self_autonomy(rt: "Runtime", user_id: uuid.UUID) -> str:
+    """How free PGA's own motivation is (the perpetual task working in PGA's repository); checkpoint when there is none."""
+    eng = Perpetual(rt)
+    for t in rt.session.scalars(select(PerpetualTask).where(PerpetualTask.user_id == user_id)):
+        if eng.self_project(t):
+            mode = eng.cfg(t)["autonomy"]
+            return mode if mode in AUTONOMY else "checkpoint"
+    return "checkpoint"
+
+
+def approved(p: ImprovementProposal) -> bool:
+    """You approved this proposal at a checkpoint."""
+    return any(isinstance(e, dict) and e.get("approved_by") == "user" for e in (p.evidence or []))
 
 
 def alike(a: str, b: str) -> bool:
@@ -220,6 +261,14 @@ class Perpetual:
                                                                      ImprovementProposal.status.in_(["NEW", "DEFERRED"]))
                                    .order_by(ImprovementProposal.value.desc(), ImprovementProposal.created_at)))
 
+    def backlog_for(self, t: PerpetualTask) -> list[ImprovementProposal]:
+        """What it may implement now: everything when it is free; with checkpoints only what you approved."""
+        mode = self.cfg(t)["autonomy"]
+        if mode == "driven":
+            return []
+        items = self.backlog(t.user_id)
+        return items if mode == "free" else [p for p in items if approved(p)]
+
     def _evo(self):
         from pga.evolution import EvolutionService
         return EvolutionService(self.rt, coding=self.coding) if self.coding else EvolutionService(self.rt)
@@ -237,7 +286,7 @@ class Perpetual:
                  "reflect": min(0.9, 0.7 * self._since_reflect(t) / max(1, int(c["reflect_every"])))}
         blocked = ""
         if c["evolve"] and self.self_project(t):
-            backlog = self.backlog(t.user_id)
+            backlog = self.backlog_for(t)
             line = self._evo().line(t.user_id)
             r0 = r0_state(self.rt, t.user_id).tension
             if open_round(self.rt, t.user_id):
@@ -351,6 +400,19 @@ class Perpetual:
         if m["pressure"] < c["rest_line"] and allowance >= 30:
             d = min(allowance, c["rest_max_s"])
             return self._wait(t, "rest", f"张力 {m['pressure']:.2f} 低于休息线 {c['rest_line']}：休息 {d:.0f} 秒", d, now, m)
+        mode = c["autonomy"] if c["autonomy"] in AUTONOMY else "checkpoint"
+        if mode == "driven":                                  # works only when you ask
+            return self._wait(t, "driven", "用户驱动：只在你提出要求时工作", c["quota_recheck_s"], now, m, pause=True)
+        if mode == "checkpoint":
+            pending = self.pending_checkpoint(t)
+            if pending is not None:
+                return self._wait(t, "checkpoint", "检查点：等你看过它的思路，再决定继续、调整还是停下", c["quota_recheck_s"], now, m, pause=True)
+            if self.since_checkpoint(t) >= max(1, int(c["checkpoint_every"])):
+                return self._checkpoint(t, aim, now, m)
+        if mode == "free" and c["auto_promote"]:
+            done = self._auto_promote(t, aim, now)
+            if done:
+                return done
         action = m["choice"]
         role = {"think": "lead", "investigate": "researcher", "evolve": "critic", "reflect": "critic"}[action]
         if action == "investigate" and t.cycles % 3 == 2:
@@ -561,7 +623,7 @@ class Perpetual:
         from pga.evolution.motivation import open_round
         if open_round(self.rt, t.user_id):
             return {"ok": True, "summary": "已有一轮进化在进行"}
-        slate = self.backlog(t.user_id)[:3]
+        slate = self.backlog_for(t)[:3]
         if not slate:
             return {"ok": True, "summary": "没有待实现的改进"}
         listing = "\n\n".join(f"{p.code}: {p.title}\nchange: {p.change}\nfiles: {', '.join(p.files) or '?'}\nexpected gain: {p.expected_gain}\n"
@@ -627,6 +689,129 @@ class Perpetual:
             self._add_questions(t, aim, [{"q": ask, "kind": "user", "priority": 0.8, "why": "回顾时发现只有你能决定"}], agent, role, later)
         return {"ok": True, "summary": f"回顾：{summary[:80]}" + (f"；放下 {', '.join(dropped)}" if dropped else "")}
 
+    # -------------------------------------------------------------- checkpoints (autonomy: checkpoint)
+
+    def pending_checkpoint(self, t: PerpetualTask) -> AimNote | None:
+        return self.s.scalar(select(AimNote).where(AimNote.aim_id == t.aim_id, AimNote.kind == "checkpoint",
+                                                   AimNote.status == "pending").order_by(AimNote.created_at.desc()).limit(1))
+
+    def since_checkpoint(self, t: PerpetualTask) -> int:
+        """Working cycles since the last checkpoint (or since it started)."""
+        n = 0
+        for e in t.ledger or []:
+            if e.get("action") in ("checkpoint", "checkpoint_ok"):
+                break
+            if e.get("action") in CHANNELS:
+                n += 1
+        return n
+
+    def _checkpoint(self, t: PerpetualTask, aim: Aim, now: datetime, m: dict) -> dict:
+        """Stop, report what it thought and where it would go next, and wait for you."""
+        c = self.cfg(t)
+        self.cfg_paid = bool(c["use_paid"])
+        agent, _reset = self.pick(aim, "lead", float(c["reserve"]), now)
+        since = None
+        for e in t.ledger or []:
+            if e.get("action") in ("checkpoint", "checkpoint_ok"):
+                since = e.get("at")
+                break
+        q = select(AimNote).where(AimNote.aim_id == t.aim_id, AimNote.kind.in_(["question", "answer", "insight", "evolve", "reflect"]))
+        if since:
+            q = q.where(AimNote.created_at > datetime.fromisoformat(since))
+        recent = list(self.s.scalars(q.order_by(AimNote.created_at.desc()).limit(40)))
+        pending = [p for p in self.backlog(t.user_id) if not approved(p)][:8]
+        board = "\n".join(f"[{n.kind}{' ' + str((n.data or {}).get('code')) if (n.data or {}).get('code') else ''}] {n.text[:500]}"
+                          for n in reversed(recent))
+        props = "\n".join(f"{p.code}: {p.title} — {p.change[:300]}" for p in pending) or "(none)"
+        d: dict = {}
+        if agent is not None:
+            system = CHECKPOINT.format(role=self._role_en("lead"), lang=self._lang(t))
+            text, _err = self._ask(t, aim, "lead", agent, self.context(t, aim, answers=2)
+                                   + f"\n\n<board_since_last_checkpoint>\n{board}\n</board_since_last_checkpoint>"
+                                   + f"\n\n<pending_proposals>\n{props}\n</pending_proposals>\nReport to the user.", system, "checkpoint")
+            d = self._json(text)
+        summary = str(d.get("summary") or "").strip()
+        if not summary:                                      # no model: a plain account from the ledger, so the stop still holds
+            done = [e for e in (t.ledger or []) if e.get("action") in CHANNELS][: max(1, int(c["checkpoint_every"]))]
+            summary = "；".join(f"{PHASE_ZH.get(e['action'], e['action'])}：{e.get('result', '')}" for e in reversed(done))[:1200] or "（没有可汇报的内容）"
+        options = [{"label": str(o.get("label") or "")[:80], "detail": str(o.get("detail") or "")[:300]}
+                   for o in (d.get("options") or []) if isinstance(o, dict) and o.get("label")][:4]
+        recs = {str((x or {}).get("code") or "").upper(): {"recommend": bool((x or {}).get("recommend")), "why": str((x or {}).get("why") or "")[:300]}
+                for x in (d.get("proposals") or []) if isinstance(x, dict)}
+        data = {"summary": summary, "direction": str(d.get("direction") or "")[:1200], "question": str(d.get("question") or "")[:600],
+                "options": options, "agent": agent, "cycles": t.cycles,
+                "proposals": [{"code": p.code, "title": p.title, "change": p.change[:400], "risk": p.risk[:200],
+                               **recs.get(p.code, {"recommend": False, "why": ""})} for p in pending]}
+        self.team._note(aim, "checkpoint", summary, role="lead", agent=agent, status="pending", now=now, data=data)
+        self._tell_checkpoint(t, aim, summary, now)
+        return self._wait(t, "checkpoint", "检查点：等你看过它的思路，再决定继续、调整还是停下", c["quota_recheck_s"], now, m, pause=True) | {
+            "action": "checkpoint", "summary": summary[:200]}
+
+    def _tell_checkpoint(self, t: PerpetualTask, aim: Aim, summary: str, now: datetime) -> None:
+        from pga.notify import Proposal
+        user = self.s.get(User, t.user_id)
+        try:
+            self.rt.notify.propose(user, Proposal(kind=CommKind.QUESTION, reasons=[NotifyReason.DECISION_REQUIRED],
+                                                  title_en=f"Checkpoint: is this the right direction? ({aim.text_en[:60]})",
+                                                  body_en=summary[:600], dedupe_key=f"perpetual-checkpoint:{t.id}:{t.cycles}"), now)
+        except Exception as exc:  # noqa: BLE001 - the checkpoint stays on the board either way
+            log.info("could not notify: %s", exc)
+
+    def resolve_checkpoint(self, t: PerpetualTask, note: AimNote, decision: str, *, text: str = "", text_en: str = "",
+                           approve: list[str] | None = None, option: int | None = None, now: datetime | None = None) -> AimNote:
+        """continue (with the proposals you approve) · adjust (your words become guidance, then continue) · stop."""
+        now = now or utcnow()
+        if note.kind != "checkpoint" or note.status != "pending" or note.aim_id != t.aim_id:
+            raise ValueError("this checkpoint is not waiting for you")
+        if decision not in ("continue", "adjust", "stop"):
+            raise ValueError("decision is continue, adjust or stop")
+        aim = self.s.get(Aim, t.aim_id)
+        data = dict(note.data or {})
+        picked = (data.get("options") or [])[option] if option is not None and 0 <= option < len(data.get("options") or []) else None
+        codes = {c.upper() for c in (approve or [])}
+        for p in self.backlog(t.user_id):
+            if p.code in codes:
+                p.evidence = list(p.evidence or []) + [{"approved_by": "user", "at": now.isoformat(), "checkpoint": str(note.id)}]
+        guidance = " ".join(x for x in [f"（检查点：选了「{picked['label']}」）" if picked else "", text] if x).strip()
+        guidance_en = " ".join(x for x in [f"(Checkpoint: the user chose \"{picked['label']}\")" if picked else "", text_en] if x).strip()
+        if guidance:
+            self.team.add_correction(aim, guidance, guidance_en or guidance, now)
+        note.status = {"continue": "approved", "adjust": "adjusted", "stop": "stopped"}[decision]
+        note.data = {**data, "decision": decision, "approved": sorted(codes), "picked": picked, "decided_at": now.isoformat()}
+        self._ledger(t, {"at": now.isoformat(), "action": "checkpoint_ok", "ok": True, "seconds": 0, "pressure": t.pressure,
+                         "parts": t.parts or {}, "result": f"你：{note.status}" + (f"，批准 {', '.join(sorted(codes))}" if codes else "")})
+        if decision == "stop":
+            self.set_status(t, "paused", now)
+        else:
+            t.next_at = now
+            if t.status == "running":
+                t.phase, t.phase_note, t.phase_since = "starting", "", now
+        self.s.flush()
+        return note
+
+    # -------------------------------------------------------------- free: verified changes go live on their own
+
+    def _auto_promote(self, t: PerpetualTask, aim: Aim, now: datetime) -> dict | None:
+        if not self.self_project(t) or not self.cfg(t)["evolve"]:
+            return None
+        evo = self._evo()
+        line = evo.line(t.user_id)
+        if not line:
+            return None
+        top = line[-1]
+        try:
+            v = evo.promote(top, now)
+        except Exception as exc:  # noqa: BLE001 - e.g. the per-round limit: leave it for the user
+            log.info("auto-promote skipped: %s", exc)
+            return None
+        msg = f"完全自由：自动推广了 {v.label}（已通过完整测试；先作为 canary 运行，变差会自动回滚；重启 PGA 后生效）"
+        self.team._note(aim, "evolve", msg, role="lead", agent=None, now=now, data={"version": str(v.id), "auto": True, "perpetual": str(t.id)})
+        self._ledger(t, {"at": now.isoformat(), "action": "promote", "ok": True, "seconds": 0, "pressure": t.pressure,
+                         "parts": t.parts or {}, "result": msg[:200]})
+        t.phase, t.phase_note, t.phase_since, t.next_at, t.updated_at = "promote", msg[:300], now, now, now
+        self.s.flush()
+        return {"action": "promote", "ok": True, "summary": msg}
+
     # -------------------------------------------------------------- your answer
 
     def answer(self, t: PerpetualTask, note: AimNote, text: str, text_en: str, now: datetime | None = None) -> AimNote:
@@ -667,7 +852,9 @@ class Perpetual:
                 "project": {"id": str(p.id), "name": p.name, "path": p.path} if p else None, "settings": c,
                 "evolves": bool(c["evolve"] and self.self_project(t)), "line": line,
                 "round": {"id": str(rnd.id), "phase": rnd.phase, "trigger": rnd.trigger, "log": (rnd.log or [])[-4:]} if rnd and self.self_project(t) else None,
-                "ledger": (t.ledger or [])[:20], "created_at": t.created_at.isoformat()}
+                "ledger": (t.ledger or [])[:20], "created_at": t.created_at.isoformat(),
+                "autonomy": c["autonomy"], "autonomy_zh": AUTONOMY_ZH.get(c["autonomy"], c["autonomy"]),
+                "since_checkpoint": self.since_checkpoint(t)}
 
 
 class PerpetualRunner:

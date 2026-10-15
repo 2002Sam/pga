@@ -24,7 +24,7 @@ from pga.db.types import utcnow
 if TYPE_CHECKING:
     from pga.runtime import Runtime
 
-NOTE_KINDS = ("question", "answer", "insight", "evolve", "reflect", "correction")
+NOTE_KINDS = ("question", "answer", "insight", "evolve", "reflect", "correction", "checkpoint")
 
 
 class ConsoleError(ValueError):
@@ -77,7 +77,10 @@ class Console:
             if t is None:
                 return None
             working = [r for r in running if r["running"] and (r.get("tags") or {}).get("perpetual") == str(t.id)]
+            cfg = eng.cfg(t)
             return {"id": str(t.id), "status": t.status, "phase": t.phase, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
+                    "autonomy": cfg["autonomy"], "checkpoint_every": cfg["checkpoint_every"],
+                    "since_checkpoint": eng.since_checkpoint(t), "checkpoint_pending": eng.pending_checkpoint(t) is not None,
                     "phase_note": t.phase_note, "pressure": t.pressure, "parts": t.parts or {}, "cycles": t.cycles,
                     "next_at": _iso(t.next_at), "phase_since": _iso(t.phase_since),
                     "project_id": str(t.project_id) if t.project_id else None,
@@ -133,7 +136,7 @@ class Console:
     def process(self, user: User, aim_id: uuid.UUID, limit: int = 60) -> dict:
         """The self-dialogue: cycles, the questions it asked, who answered and reviewed, each with its trace."""
         from pga.agents import live
-        from pga.perpetual import PHASE_ZH
+        from pga.perpetual import PHASE_ZH, Perpetual
 
         aim = self.s.get(Aim, aim_id)
         if aim is None or aim.user_id != user.id:
@@ -163,11 +166,16 @@ class Console:
                            "role": n.role, "agent": n.agent, "text": n.text[:1500], "data": n.data or {}})
         events.sort(key=lambda e: e["at"] or "", reverse=True)
         working = [r for r in live.snapshot() if t is not None and (r.get("tags") or {}).get("perpetual") == str(t.id)]
+        eng = Perpetual(self.rt) if t is not None else None
+        cp = eng.pending_checkpoint(t) if eng else None
+        cfg = eng.cfg(t) if eng else {}
         return {"aim": {"id": str(aim.id), "text": aim.text}, "task": None if t is None else {
                     "id": str(t.id), "status": t.status, "phase": t.phase, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
                     "phase_note": t.phase_note, "pressure": t.pressure, "parts": t.parts or {}, "cycles": t.cycles,
                     "next_at": _iso(t.next_at), "ledger": (t.ledger or [])[:30],
-                    "project_id": str(t.project_id) if t.project_id else None},
+                    "project_id": str(t.project_id) if t.project_id else None, "autonomy": cfg.get("autonomy"),
+                    "checkpoint_every": cfg.get("checkpoint_every"), "since_checkpoint": eng.since_checkpoint(t)},
+                "checkpoint": None if cp is None else {"id": str(cp.id), "at": _iso(cp.created_at), "agent": cp.agent, **(cp.data or {})},
                 "live": working, "events": events[: limit * 2],
                 "for_you": [{"id": str(n.id), "text": n.text, "agent": n.agent, "role": n.role, "data": n.data or {},
                              "at": _iso(n.created_at)}
