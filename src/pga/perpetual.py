@@ -357,10 +357,15 @@ class Perpetual:
         self.cfg_paid = bool(c["use_paid"])
         agent, reset = self.pick(aim, role, float(c["reserve"]), now)
         if agent is None:
-            until = reset if reset and reset > now else now + timedelta(seconds=c["quota_recheck_s"])
+            # look again after quota_recheck_s even when a reset is days away: another agent may free up (a 5-hour
+            # window resets, a new account or token is added) long before the earliest known reset
+            recheck = now + timedelta(seconds=c["quota_recheck_s"])
+            until = min(reset, recheck) if reset and reset > now else recheck
             d = (until - now).total_seconds()
-            return self._wait(t, "quota", "所有可用 agent 的额度都用完了（或只剩给你保留的部分）：等到 "
-                              + until.astimezone().strftime("%m-%d %H:%M") + " 重置", d, now, m, pause=True)
+            note = "所有可用 agent 的额度都用完了（或只剩给你保留的部分）"
+            note += (f"：最早 {reset.astimezone().strftime('%m-%d %H:%M')} 重置，" if reset and reset > now else "：")
+            note += f"{until.astimezone().strftime('%H:%M')} 再查一次"
+            return self._wait(t, "quota", note, d, now, m, pause=True)
         self._phase(t, action, f"{PHASE_ZH[action]} · {agent}", now)
         started = time.monotonic()
         try:

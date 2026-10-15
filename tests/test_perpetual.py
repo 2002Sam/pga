@@ -160,7 +160,7 @@ def test_evolution_stacks_on_the_line_and_promotion_brings_the_line(rt, user, se
     assert line[0].status == "SUPERSEDED" and top.status == "CANARY"
 
 
-def test_rest_stays_under_ten_percent_and_quota_pauses_until_reset(rt, user, setup):
+def test_rest_stays_under_ten_percent_and_quota_pauses_then_rechecks(rt, user, setup):
     eng, t, aim, _ = setup
     t.settings = {**t.settings, "evolve": False}
     for _ in range(5):
@@ -171,8 +171,15 @@ def test_rest_stays_under_ten_percent_and_quota_pauses_until_reset(rt, user, set
     t.next_at = None
     out = eng.cycle(t)
     assert out["action"] == "quota" and t.phase == "quota"
-    assert abs((t.next_at - reset).total_seconds()) < 5 and t.pause_s > 7000
+    # a reset hours away is not slept through: it looks again after quota_recheck_s (another agent may free up)
+    recheck = eng.cfg(t)["quota_recheck_s"]
+    assert abs((t.next_at - datetime.now(timezone.utc)).total_seconds() - recheck) < 5 and t.pause_s >= recheck - 5
     assert t.rest_s <= 0.1 * t.work_s + 1e-9                                    # waiting for quota is not rest
+    soon = datetime.now(timezone.utc) + timedelta(minutes=10)                   # a reset sooner than that: wait just for it
+    eng.router.quota = lambda name: Quota(remaining=0.05, resets_at=soon.isoformat(), exhausted=False)
+    t.next_at = None
+    eng.cycle(t)
+    assert abs((t.next_at - soon).total_seconds()) < 5
 
 
 def test_you_answer_its_question_and_the_answer_becomes_guidance(rt, user, setup):
