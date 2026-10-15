@@ -35,7 +35,11 @@ if TYPE_CHECKING:
     from pga.db.models import Aim, PerpetualTask
 
 DEFAULT_ALLOC = {"w_perf": 1.0, "w_pref": 1.0, "w_balance": 1.0, "w_cost": 0.4, "w_speed": 0.3,
-                 "temperature": 0.35, "parallel": 1, "prefs": {}}
+                 "temperature": 0.35, "parallel": 1, "prefs": {}, "preset": "balanced"}
+# the three you pick on the main panel; anything else you set by hand is "custom"
+PRESETS = {"performance": {"w_perf": 2.5, "w_pref": 1.0, "w_balance": 0.5, "w_cost": 0.0, "w_speed": 0.3, "temperature": 0.25},
+           "balanced": {"w_perf": 1.0, "w_pref": 1.0, "w_balance": 1.0, "w_cost": 0.4, "w_speed": 0.3, "temperature": 0.35},
+           "economy": {"w_perf": 0.6, "w_pref": 1.0, "w_balance": 2.0, "w_cost": 2.0, "w_speed": 0.2, "temperature": 0.5}}
 WEIGHTS = ("w_perf", "w_pref", "w_balance", "w_cost", "w_speed")
 LIMITS = {**{w: (0.0, 3.0) for w in WEIGHTS}, "temperature": (0.05, 2.0), "parallel": (1, 4)}
 
@@ -49,6 +53,7 @@ def clean(alloc: dict | None) -> dict:
         except (TypeError, ValueError):
             a[k] = DEFAULT_ALLOC[k]
     a["parallel"] = int(a["parallel"])
+    a["preset"] = a.get("preset") if a.get("preset") in (*PRESETS, "custom") else "custom"
     a["prefs"] = {str(n): max(0.0, min(1.0, float(v))) for n, v in (a.get("prefs") or {}).items()
                   if isinstance(v, (int, float))}
     return a

@@ -57,6 +57,55 @@ log = logging.getLogger("pga.api")
 RuntimeFactory = Callable[[Session], Runtime]
 
 
+VENDOR_ADAPTER = {"claude_code": "claude_local", "chatgpt": "codex_local", "codex": "codex_local", "hermes": "hermes_local",
+                  "workbuddy": "codebuddy_local", "codebuddy": "codebuddy_local", "gemini": "gemini_local"}
+
+
+def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
+    """Each conversation is a small planet: your recent talks orbit the model you talked to; the questions a
+    motivation's agents are discussing orbit its black hole, tied to the agents that asked and answered them."""
+    from datetime import timedelta as _td
+
+    from pga.db.models import AgentRun, AimNote
+    try:
+        from pga.agents.pool import load as _load_pool
+        adapters = {n: (a or {}).get("adapter") for n, a in (_load_pool().get("agents") or {}).items()}
+    except Exception:  # noqa: BLE001 - no pool config: no planets for it
+        adapters = {}
+    model_node = {}                                              # pool agent → the octahedron of the model it runs
+    for n in nodes:
+        if n.get("kind") == "ai":
+            for name, ad in adapters.items():
+                if VENDOR_ADAPTER.get(n.get("vendor")) == ad:
+                    model_node.setdefault(name, n["id"])
+    since = now - _td(hours=48)
+    convs: dict[str, dict] = {}
+    for r in rt.session.scalars(select(AgentRun).where(AgentRun.user_id == u.id, AgentRun.parent_id.is_(None),
+                                                       AgentRun.workflow == "ask", AgentRun.started_at >= since)
+                                .order_by(AgentRun.started_at.desc()).limit(200)):
+        cid = (r.data or {}).get("conversation") or f"run:{r.id}"
+        c = convs.setdefault(cid, {"agent": (r.data or {}).get("agent") or r.agent, "title": " ".join((r.prompt or "").split())[:60],
+                                   "turns": 0, "at": r.started_at})
+        c["turns"] += 1
+        c["title"] = " ".join((r.prompt or "").split())[:60] or c["title"]       # the first thing you said
+    for cid, c in list(convs.items())[:14]:
+        parent = model_node.get(c["agent"], "you")
+        add({"id": f"cv:{cid}"[:180], "kind": "conv", "label": c["title"] or "对话", "agent": c["agent"], "parent": parent,
+             "conversation": cid, "turns": c["turns"], "at": c["at"].isoformat()})
+        links.append({"source": parent, "target": f"cv:{cid}"[:180], "kind": "conv"})
+    for q in rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind == "question",
+                                                      AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None),
+                                                      (AimNote.status.in_(["open", "for_you"])) | (AimNote.created_at >= since))
+                                .order_by(AimNote.created_at.desc()).limit(24)):
+        d = q.data or {}
+        qid = f"cq:{q.id}"
+        add({"id": qid, "kind": "conv", "label": f"{d.get('code') or ''} {q.text}"[:80], "parent": f"aim:{q.aim_id}",
+             "code": d.get("code"), "status": q.status, "agent": q.agent, "answered_by": d.get("answered_by"), "question": str(q.id)})
+        for who in {q.agent, d.get("answered_by")} - {None}:     # the agents who asked and answered it
+            if who in model_node:
+                links.append({"source": model_node[who], "target": qid, "kind": "talk"})
+
+
 def create_app(session_factory: sessionmaker[Session] | None = None,
                runtime_factory: RuntimeFactory | None = None) -> FastAPI:
     make_runtime = runtime_factory or (lambda s: Runtime(s))
@@ -854,6 +903,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             add({"id": aid, "kind": "ai", "label": a.name, "vendor": a.vendor, "usage": a.usage,
                  "conversations": a.conversation_count, "headline": summ.get("headline") if isinstance(summ, dict) else None})
             links.append({"source": aid, "target": "you", "kind": "ai"})
+        _conversation_planets(rt, u, add, links, nodes, aim_ids, now)
 
         bodies = BodyService(rt)
         for b in bodies.list(user_id):

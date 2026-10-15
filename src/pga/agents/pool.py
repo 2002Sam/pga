@@ -339,7 +339,7 @@ class AgentPool:
         a = self.cfg["agents"][name]
         started = utcnow()
         proj = task.meta.get("project") if isinstance(task.meta.get("project"), dict) else {}
-        tags = {k: str(task.meta[k]) for k in ("aim", "perpetual", "role", "conversation") if task.meta.get(k)}
+        tags = {k: str(task.meta[k]) for k in ("aim", "perpetual", "role", "conversation", "question") if task.meta.get(k)}
         if proj.get("id"):
             tags["project"] = str(proj["id"])
         lid = live.start(name, category=task.meta.get("category") or task.kind, workflow=task.meta.get("workflow", ""), step=step,

@@ -61,7 +61,7 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
-main { position: absolute; inset: 0; display: grid; grid-template-columns: 300px 280px minmax(0, 1fr); min-height: 0; z-index: 2; background: transparent;
+main { position: absolute; inset: 0; display: grid; grid-template-columns: 300px 280px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); min-height: 0; z-index: 2; background: transparent;
   pointer-events: none; transition: opacity .6s ease .35s; text-shadow: 0 0 8px rgba(3,5,8,.95), 0 0 2px rgba(3,5,8,.9), 0 0 18px rgba(3,5,8,.7); }
 main > section { pointer-events: auto; }
 body.sky main { opacity: 0; transition: opacity .25s ease; }
@@ -250,6 +250,31 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .mini .nd.dataset .band { fill: none; stroke: #2a2a2a; stroke-width: .8; }
 .proj { cursor: pointer; }
 
+/* the motivation panel: conversation first, input always there */
+.prefbar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 12px 0 4px; }
+.presets { display: flex; gap: 0; border: 1px solid var(--line-2); }
+.presets button { border: 0; border-right: 1px solid var(--line-2); padding: 5px 14px; font-size: 12.5px; background: rgba(10,12,14,.5); }
+.presets button:last-child { border-right: 0; }
+.presets button.on { color: var(--gold); background: rgba(233,169,75,.1); box-shadow: inset 0 -2px 0 var(--gold); }
+.prefs { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.prefs label { display: flex; flex-direction: column; font-size: 11.5px; color: var(--muted); min-width: 92px; }
+.prefs label span { display: flex; justify-content: space-between; gap: 8px; } .prefs label b { color: var(--gold); font-weight: 400; font-family: var(--mono); }
+.prefs input { width: 92px; accent-color: var(--gold); }
+.modechip { cursor: pointer; border: 1px solid var(--line-2); padding: 0 8px; color: var(--muted); font-size: 11.5px; }
+.modechip:hover { color: var(--text); border-color: var(--line-3); }
+.settings { border: 1px solid var(--line-2); padding: 12px 14px; margin: 10px 0; background: rgba(10,12,14,.55); backdrop-filter: blur(6px); }
+.settings .levels { margin-top: 6px; }
+.stream { margin-top: 18px; }
+.stream .tl { padding-bottom: 6px; }
+.ev.you::before { background: var(--gold); border-color: var(--gold); }
+.ev.you .b { color: #f3e3c3; }
+.composer { position: sticky; bottom: 0; z-index: 5; margin: 10px -4px 0; padding: 14px 4px 14px; background: linear-gradient(transparent, rgba(5,5,5,.88) 22px, rgba(5,5,5,.94)); }
+.composer textarea { width: 100%; min-height: 52px; max-height: 180px; resize: vertical; background: rgba(12,14,16,.85); border: 1px solid var(--line-2); padding: 8px 10px; outline: none; }
+.composer textarea:focus { border-color: var(--gold-dim); }
+.composer .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; } .composer .grow { flex: 1; color: var(--muted); font-size: 11.5px; }
+.composer select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; }
+#proc .talk:has(#chatText) { position: sticky; bottom: 0; z-index: 5; background: rgba(8,9,11,.94); box-shadow: 0 -14px 24px rgba(5,5,5,.85); }
+
 /* sharing the work out among agents */
 .alloc { border: 1px solid var(--line-2); padding: 14px 16px; background: rgba(10,12,14,.55); backdrop-filter: blur(6px); }
 .alloc .formula { font: 12px/1.7 var(--mono); color: #cfcfcf; background: rgba(255,255,255,.03); border-left: 2px solid var(--gold); padding: 6px 10px; margin-bottom: 12px; white-space: pre-wrap; }
@@ -302,7 +327,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 #toast.on { opacity: 1; transform: translateX(-50%); }
 
 /* narrower windows: agents fold under the process */
-@media (max-width: 1180px) { main { grid-template-columns: 260px 200px minmax(0, 1fr); } #right { grid-column: 2; border-left: 0; border-top: 1px solid var(--line); } main { grid-auto-rows: min-content; overflow-y: auto; } main > section { overflow: visible; } }
+@media (max-width: 1180px) { main { grid-template-columns: 260px 200px minmax(0, 1fr); } }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; background: rgba(5,5,5,.85); } .planetzone { display: none; } #center { padding-left: 16px !important; } #left { overflow: visible !important; } #left, #right { border: 0; border-top: 1px solid var(--line); } #right { grid-column: 1; } #center { padding: 16px; } .parts { grid-template-columns: repeat(2, 1fr); } header { flex-wrap: wrap; } }
 </style>
 </head>
@@ -384,7 +409,8 @@ async function boot() {
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
   if (C.view.kind === "aim") C.view.id = C.sel;
-  api(`/v1/users/${C.uid}/graph`).then((g) => { C.graph = g; }).catch(() => {});
+  const loadGraph = () => api(`/v1/users/${C.uid}/graph`).then((g) => { C.graph = g; renderMini(); }).catch(() => {});
+  loadGraph(); setInterval(loadGraph, 30000);
   await loadAll();
   setInterval(() => loadOverview().catch(() => {}), 6000);
   setInterval(() => loadLive().catch(() => {}), 1500);
@@ -510,6 +536,12 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
   if (d.kind === "aim" && d.aim_id) { setView("aim", d.aim_id, true); return go(); }
   if (d.kind === "user" || d.kind === "core") { setView("me", null, true); return go(); }
   if (d.kind === "folder" && d.project_id) { setView("folder", d.project_id, true); return go(); }
+  if (d.kind === "conv" && d.id.startsWith("cq:") && d.parent?.startsWith("aim:")) { setView("aim", d.parent.slice(4), true); return go(); }
+  if (d.kind === "conv" && d.conversation) {                     // a conversation of yours: open it with its agent
+    const ag = (C.data?.agents || []).find((x) => x.name === d.agent)?.name;
+    if (ag) { setView("agent", ag, true); resumeConv(d.conversation, ag); return go(); }
+    setView("me", null, true); return go();
+  }
   if (d.kind === "ai") {
     const a = (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor] && x.enabled !== false) || (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor]);
     if (a) { setView("agent", a.name, true); return go(); }
@@ -531,8 +563,31 @@ async function loadOverview() {
   if (C.view.kind !== "aim" && !document.activeElement?.matches?.("#proc textarea, #proc select") && !Object.values(C.chats).some((c) => c.sending)) renderCenter();
   $("#pUpdated").textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+/* the map shows the work: the models and conversations at work ripple; beads run between agents and what they discuss */
+let tellN = 0;
+function tellMap() {
+  const g = C.graph?.nodes || [], has = (id) => g.some((n) => n.id === id);
+  const ids = new Set(), pairs = [];
+  for (const r of (C.live || []).filter((x) => x.running)) {
+    const m = mapNodeOf({ kind: "agent", id: r.agent }), tg = r.tags || {};
+    if (m) ids.add(m);
+    if (tg.conversation && has("cv:" + tg.conversation)) { ids.add("cv:" + tg.conversation); if (m) pairs.push([m, "cv:" + tg.conversation]); }
+    if (tg.question) {
+      const qid = "cq:" + tg.question; ids.add(qid); if (m) pairs.push([m, qid]);
+      const q = g.find((n) => n.id === qid), asker = q?.agent && mapNodeOf({ kind: "agent", id: q.agent });
+      if (asker && asker !== m) pairs.push([qid, asker]);                       // the answer goes back to who asked
+    } else if (tg.aim && m) pairs.push([m, "aim:" + tg.aim]);
+    if (tg.perpetual && tg.aim) ids.add("aim:" + tg.aim);
+  }
+  try {
+    const w = $("#map").contentWindow;
+    w.postMessage({ type: "pga:running", ids: [...ids] }, location.origin);
+    if (tellN++ % 2 === 0 && pairs.length) w.postMessage({ type: "pga:pulse", pairs }, location.origin);
+  } catch {}
+}
 async function loadLive() {
   C.live = await api("/v1/agents/live");
+  tellMap();
   renderPulse(); renderAgentWork(); renderMini();
   if (C.view.kind === "aim") renderLive(); else renderChatLive();
 }
@@ -594,44 +649,75 @@ function renderProcess() {
   if (!C.sel || !P) { el.innerHTML = `<div class="idle">在左边选一个抱负。</div>`; return; }
   const t = P.task, a = (C.data?.aims || []).find((x) => x.id === C.sel);
   const proj = projectOf(P.aim);
-  const parts = t?.parts || {};
-  const top = Object.keys(PARTS).reduce((m, k) => ((parts[k] ?? -1) > (parts[m] ?? -1) ? k : m), "think");
-  const qs = P.for_you || [];
-  // keep what you were typing across refreshes
+  const key = "aim:" + C.sel, c = chat(key);
+  if (proj && !c.project) c.project = proj.id;
+  // keep what you were typing, where you had scrolled, and which drawers were open
   el.querySelectorAll("textarea[data-q]").forEach((x) => { C.drafts[x.dataset.q] = x.value; });
   if ($("#cpText") && C.cp.id) C.drafts["cp:" + C.cp.id] = $("#cpText").value;
-  if ($("#talkText")) C.drafts.talk = $("#talkText").value;
+  keepDrafts();
+  const sc = $("#center"), atEnd = !sc || sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 40;
+  const lv = LEVELS.find(([k]) => k === (t?.autonomy || "checkpoint"));
   el.innerHTML = `
     <div class="ph"><h1>${esc(P.aim.text)}</h1>
-      <div class="ctl">${proj ? runBtn(proj, true) : `<span class="muted" style="font-size:12px">先给这个抱负挂一个项目文件夹</span>`}
-        ${proj ? `<span class="dim" style="font-size:11.5px">在 ${esc(proj.name)} 里</span>` : ""}</div></div>
-    ${t ? `<div class="meta"><span>状态 <b>${esc((STATE[t.status] || STATE.idle)[0])}</b></span><span>现在 <b>${esc(t.phase_zh)}</b></span>
-      <span>已运行 <b>${t.cycles}</b> 轮</span><span>张力 <b>${(t.pressure ?? 0).toFixed(2)}</b></span>
-      ${t.status === "running" && t.next_at && new Date(t.next_at) > Date.now() ? `<span>下一步 <b>${esc(until(t.next_at))}</b></span>` : ""}
-      ${a?.stats ? `<span>工作 <b>${dur(a.stats.work_s)}</b> · 休息 <b>${dur(a.stats.rest_s)}</b></span>` : ""}</div>
-      ${t.phase_note ? `<div class="muted" style="font-size:12.5px">${esc(t.phase_note)}</div>` : ""}
-      <div class="parts">${Object.entries(PARTS).map(([k, zh]) => `<div class="p ${k === top ? "top" : ""}"><span class="cap">${zh} ${(parts[k] ?? 0).toFixed(2)}</span>
-        <div class="bar ${k === top ? "gold" : ""}"><i style="width:${Math.round(Math.min(1, parts[k] ?? 0) * 100)}%"></i></div></div>`).join("")}</div>
-      <div class="dim" style="font-size:11.5px">哪一种压力最大，下一轮就做哪一种：思考 = 提出新问题，研究 = 回答问题，进化 = 改进代码，回顾 = 整理反思。</div>`
-      : `<div class="meta">还没有开始。${proj ? "按右上角 ▶ 开始，它就会在这个文件夹里不停地思考、提问、研究和进化。" : ""}</div>`}
-    ${t ? `<div class="levels">${LEVELS.map(([k, zh, d]) => `<button data-level="${k}" class="${(t.autonomy || "checkpoint") === k ? "on" : ""}"><b>${zh}</b><span>${d}</span></button>`).join("")}</div>
-      ${(t.autonomy || "checkpoint") === "checkpoint" ? `<div class="lvlrow">每思考 <input type="number" min="1" max="50" id="cpEvery" value="${t.checkpoint_every || 6}"> 轮停下来给你看一次 · 距上次检查点已 ${t.since_checkpoint ?? 0} 轮</div>` : ""}` : ""}
-    ${P.checkpoint ? cpHtml(P.checkpoint) : ""}
-    ${t ? `<h2>多 agent 分配 <small>按你的权重给每个 agent 打分，按份额派活；可以并行</small></h2><div id="allocBox">${allocHtml()}</div>` : ""}
-    <h2>正在进行 <small>agent 此刻在读什么、想什么</small></h2><div id="liveBox"></div>
-    <h2>让它做 <small>${t?.autonomy === "driven" ? "用户驱动：它只按你的要求工作" : "随时直接交代一件事，任何级别都可以"}</small></h2>${talkHtml(proj)}
-    ${qs.length ? `<h2>等你回答 <small>只有你能决定的问题</small></h2>${qs.map((q) => `<div class="ask"><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
-      <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
-      <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}` : ""}
-    <h2>自我对话 <small>它问了自己什么、谁回答、谁审阅、得出了什么</small></h2>
-    <div class="tl">${(P.events || []).map(evHtml).join("") || `<div class="empty">还没有记录。</div>`}</div>`;
+      <div class="ctl">${proj ? runBtn(proj, true) : `<span class="muted" style="font-size:12px">先给这个抱负挂一个项目文件夹</span>`}</div></div>
+    <div class="meta">${t ? `<span>${esc((STATE[t.status] || STATE.idle)[0])} · <b>${esc(t.phase_zh)}</b></span><span>已运行 <b>${t.cycles}</b> 轮</span>
+      <span>张力 <b>${(t.pressure ?? 0).toFixed(2)}</b></span>${t.status === "running" && t.next_at && new Date(t.next_at) > Date.now() ? `<span>下一步 ${esc(until(t.next_at))}</span>` : ""}` : `<span>还没有开始${proj ? "：按 ▶ 开始" : ""}</span>`}
+      ${proj ? `<span>在 <a href="#" data-gofolder="${proj.id}">${esc(proj.name)}</a> 里</span>` : ""}
+      ${t ? `<span class="modechip" data-fold="settings" title="驱动模式和高级设置">${esc(lv?.[1] || "")} · 设置 ${C.folds.has("settings") ? "▴" : "▾"}</span>` : ""}</div>
+    ${t ? prefBar() : ""}
+    ${t && C.folds.has("settings") ? settingsHtml(t) : ""}
+    <div class="stream">${streamHtml(P, c)}
+      ${P.checkpoint ? cpHtml(P.checkpoint) : ""}
+      ${(P.for_you || []).map((q) => `<div class="ask"><span class="cap">只有你能回答</span><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
+        <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
+        <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}
+      <div id="liveBox"></div></div>
+    ${composerHtml(key, proj, t)}`;
   renderLive();
+  if (atEnd && sc) sc.scrollTop = sc.scrollHeight;                     // follow the conversation as it grows
   loadAlloc();
 }
+C.folds = new Set();
+/* the conversation: the agents' self-dialogue and yours, oldest first, the input box always at the bottom */
+function streamHtml(P, c) {
+  const items = [...(P.events || []).map((e) => ({ at: e.at, html: evHtml(e) })),
+    ...(c.log || []).filter((m) => !m.pending).map((m) => ({ at: m.at || "", html: m.role === "user" ? `<div class="ev you"><div class="h"><b>你</b>${m.at ? `<time>${esc(ago(m.at))}</time>` : ""}</div><div class="b">${esc(m.text)}</div></div>`
+      : `<div class="ev run ${m.error && !m.text ? "bad" : ""}"><div class="h"><span class="k">对话</span><b>${esc(m.agent || "")}</b>${m.model ? `<span>${esc(m.model)}</span>` : ""}${m.at ? `<time>${esc(ago(m.at))}</time>` : ""}</div><div class="b">${esc(m.text || m.error || "（没有文字输出）")}</div></div>` }))];
+  items.sort((x, y) => (x.at || "").localeCompare(y.at || ""));
+  const pend = (c.log || []).filter((m) => m.pending).map((m) => msgHtml(m, c)).join("");
+  return `<div class="tl">${items.map((x) => x.html).join("") || `<div class="empty">还没有对话。</div>`}</div>${pend}`;
+}
+function composerHtml(key, proj, t) {
+  const c = chat(key), agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
+  return `<div class="composer"><textarea id="chatText" data-chatkey="${key}" rows="2" placeholder="${t?.autonomy === "driven" ? "用户驱动：说你要它做什么" : "对这个抱负的 agent 说话：提要求、给方向、问问题（⌘/Ctrl + Enter 发送）"}">${esc(C.drafts["chat:" + key] || "")}</textarea>
+    <div class="row"><span class="grow">${proj ? (proj.full_access ? `在「${esc(proj.name)}」里 · 完整权限` : `在「${esc(proj.name)}」里 · 只读`) : ""}</span>
+      <select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动（按分配）</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+      <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
+}
+/* allocation on the main panel: three presets and your preference per agent; the weights live in 设置 */
+const PRESETS = { performance: ["最高性能", { w_perf: 2.5, w_pref: 1, w_balance: .5, w_cost: 0, w_speed: .3, temperature: .25 }],
+                  balanced: ["均衡模式", { w_perf: 1, w_pref: 1, w_balance: 1, w_cost: .4, w_speed: .3, temperature: .35 }],
+                  economy: ["省钱模式", { w_perf: .6, w_pref: 1, w_balance: 2, w_cost: 2, w_speed: .2, temperature: .5 }] };
+function prefBar() {
+  const d = C.alloc.data, s = d.settings || {}, cur = s.preset || "balanced";
+  const rows = (d.rows || []).filter((r) => r.usable);
+  return `<div class="prefbar"><div class="presets">${Object.entries(PRESETS).map(([k, [zh]]) => `<button class="${k === cur ? "on" : ""}" data-preset="${k}">${zh}</button>`).join("")}
+      ${cur === "custom" ? `<span class="dim" style="font-size:11.5px">自定义权重（在设置里）</span>` : ""}</div>
+    <div class="prefs">${rows.map((r) => `<label title="${esc(r.agent)}：拖动设置你对它的偏好；目标份额 ${Math.round(r.share * 100)}%"><span>${esc(r.agent)}<b>${Math.round(r.share * 100)}%</b></span>
+      <input type="range" min="0" max="1" step="0.1" value="${r.parts.preference}" data-pref="${esc(r.agent)}" ${r.pinned ? "disabled" : ""}></label>`).join("") || `<span class="dim" style="font-size:12px">载入中…</span>`}</div></div>`;
+}
+function settingsHtml(t) {
+  return `<div class="settings">
+    <span class="cap">驱动模式</span>
+    <div class="levels">${LEVELS.map(([k, zh, d]) => `<button data-level="${k}" class="${(t.autonomy || "checkpoint") === k ? "on" : ""}"><b>${zh}</b><span>${d}</span></button>`).join("")}</div>
+    ${(t.autonomy || "checkpoint") === "checkpoint" ? `<div class="lvlrow">每思考 <input type="number" min="1" max="50" id="cpEvery" value="${t.checkpoint_every || 6}"> 轮停下来给你看一次 · 距上次检查点已 ${t.since_checkpoint ?? 0} 轮</div>` : ""}
+    <span class="cap" style="display:block;margin-top:16px">多 agent 分配 · 高级权重</span><div id="allocBox">${allocHtml()}</div></div>`;
+}
+
 /* ------------------------------------------------ 我 and each agent: a conversation, what they are doing, their past */
 
 function chat(key) {
-  const c = (C.chats[key] ||= key.startsWith("folder:") ? { agent: store.get("pga_console_agent") || "claude", conv: null, log: [], project: key.slice(7) }
+  const c = (C.chats[key] ||= key.startsWith("aim:") ? { agent: "auto", conv: null, log: [], project: null } : key.startsWith("folder:") ? { agent: store.get("pga_console_agent") || "claude", conv: null, log: [], project: key.slice(7) }
     : { agent: key === "me" ? (store.get("pga_console_agent") || "auto") : key.slice(6), conv: null, log: [], project: null });
   if (!c.conv) c.conv = (c.agent === "auto" ? "cat:serious" : "agent:" + c.agent) + ":console-" + Math.random().toString(36).slice(2, 10);
   return c;
@@ -718,12 +804,13 @@ async function sendChat(key) {
   const proj = allProjects().find((p) => p.id === c.project);
   if (proj?.full_access && !confirm(`${c.agent === "auto" ? "agent" : c.agent} 可以在「${proj.name}」里修改文件、执行命令。确定吗？`)) return;
   const history = (c.log || []).filter((m) => !m.pending).slice(-6).map((m) => ({ role: m.role === "user" ? "user" : "assistant", text: m.text || "" }));
-  c.log.push({ role: "user", text }); const pend = { role: "agent", pending: true, agent: c.agent }; c.log.push(pend);
+  const at = new Date().toISOString();
+  c.log.push({ role: "user", text, at }); const pend = { role: "agent", pending: true, agent: c.agent, at }; c.log.push(pend);
   c.sending = true; C.drafts["chat:" + key] = ""; if (box) box.value = ""; renderCenter();
   try {
     const r = await api(`/v1/users/${C.uid}/agents/ask`, { body: { text, agent: c.agent, category: c.agent === "auto" ? "serious" : null, history,
       conversation: c.conv, project_id: c.project || null } });
-    Object.assign(pend, { pending: false, agent: r.agent, text: r.text, error: r.error, model: r.model });
+    Object.assign(pend, { pending: false, agent: r.agent, text: r.text, error: r.error, model: r.model, at: new Date().toISOString() });
   } catch (err) { Object.assign(pend, { pending: false, error: err.message }); }
   finally { c.sending = false; saveChats(); }
   if (C.view.kind !== "aim") renderCenter();
@@ -824,7 +911,10 @@ async function loadAlloc(force) {
   try { C.alloc.data = { ...(await api(`/v1/aims/${C.sel}/allocation?role=${C.alloc.role}`)), aim: C.sel }; C.alloc.t = Date.now(); } catch { C.alloc.data = {}; }
   renderAlloc();
 }
-function renderAlloc() { const b = $("#allocBox"); if (b && !b.contains(document.activeElement)) b.innerHTML = allocHtml(); }
+function renderAlloc() {
+  const b = $("#allocBox"); if (b && !b.contains(document.activeElement)) b.innerHTML = allocHtml();
+  const p = $(".prefbar"); if (p && !p.contains(document.activeElement)) p.outerHTML = prefBar();
+}
 function allocHtml() {
   const d = C.alloc.data; if (!d.settings || d.aim !== C.sel) return `<div class="idle">载入中…</div>`;
   const s = d.settings, act = d.actual || {};
@@ -901,10 +991,11 @@ function renderLive() {
   const box = $("#liveBox"); if (!box || !C.proc) return;
   const tid = C.proc.task?.id;
   const pid = projectOf(C.proc.aim)?.id;
-  const runs = (C.live || []).filter((r) => r.running && ((tid && (r.tags || {}).perpetual === tid) || (pid && (r.tags || {}).project === pid && r.workflow === "ask")));
+  const own = C.chats["aim:" + C.sel]?.conv;
+  const runs = (C.live || []).filter((r) => r.running && ((tid && (r.tags || {}).perpetual === tid) || (pid && (r.tags || {}).project === pid && r.workflow === "ask" && (r.tags || {}).conversation !== own)));
   if (!runs.length) {
     const t = C.proc.task;
-    box.innerHTML = `<div class="idle">${!t ? "还没有开始。" : t.status !== "running" ? "已暂停：按 ▶ 开始继续。" : t.phase === "checkpoint" ? "停在检查点：等你在上面做决定。" : t.phase === "driven" ? "用户驱动：等你在下面提要求。" :
+    box.innerHTML = `<div class="idle" style="margin-top:8px">${!t ? "还没有开始。" : t.status !== "running" ? "已暂停：按 ▶ 开始继续。" : t.phase === "checkpoint" ? "停在检查点：等你在上面做决定。" : t.phase === "driven" ? "用户驱动：等你在下面提要求。" :
       `此刻没有 agent 在做事 — ${esc(t.phase_zh)}${t.next_at && new Date(t.next_at) > Date.now() ? `，${esc(until(t.next_at))}继续` : ""}。`}</div>`;
     return;
   }
@@ -973,10 +1064,11 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
-  if (t.dataset.w) { const v = Number(t.value); saveAlloc({ [t.dataset.w]: v }); return; }
+  if (t.dataset.w) { const v = Number(t.value); saveAlloc({ [t.dataset.w]: v, preset: "custom" }); return; }
   if (t.dataset.pref) { saveAlloc({ prefs: { [t.dataset.pref]: Number(t.value) } }); return; }
   if (t.dataset.chatproj) { chat(t.dataset.chatproj).project = t.value || null; saveChats(); keepDrafts(); renderCenter(); return; }
-  if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value; c.conv = null; c.log = []; chat(t.dataset.chatagent);
+  if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value;
+    if (t.dataset.chatagent === "me") { c.conv = null; c.log = []; chat(t.dataset.chatagent); }      // a new agent for 我: a new conversation
     if (!AS_UID) store.set("pga_console_agent", t.value); saveChats(); keepDrafts(); renderCenter(); loadHist(t.value); return; }
   if (t.name === "cpopt") C.cp.option = Number(t.value);
   if (t.dataset.cpp) { C.cp.approve = C.cp.approve || new Set(); t.checked ? C.cp.approve.add(t.dataset.cpp) : C.cp.approve.delete(t.dataset.cpp); }
@@ -986,7 +1078,7 @@ document.addEventListener("change", async (e) => {
   }
 });
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("button, a[data-goaim], .proj[data-folder], .aim[data-aim], .aim[data-me], .ag[data-ag], .row[data-tdir], .row[data-tfile]");
+  const t = e.target.closest("button, [data-fold], a[data-gofolder], a[data-goaim], .proj[data-folder], .aim[data-aim], .aim[data-me], .ag[data-ag], .row[data-tdir], .row[data-tfile]");
   if (!t) return;
   try {
     if (t.dataset.run) {
@@ -1010,6 +1102,9 @@ document.addEventListener("click", async (e) => {
     if (t.id === "toDesk") { toDesk(); return; }
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
     if (t.dataset.arole) { C.alloc.role = t.dataset.arole; await loadAlloc(true); return; }
+    if (t.dataset.preset) { saveAlloc({ ...PRESETS[t.dataset.preset][1], preset: t.dataset.preset }); toast(`已切换为「${PRESETS[t.dataset.preset][0]}」`); return; }
+    if (t.dataset.fold) { C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderProcess(); if (C.folds.has("settings")) loadAlloc(true); return; }
+    if (t.dataset.gofolder) { e.preventDefault(); setView("folder", t.dataset.gofolder); return; }
     if (t.dataset.goaim) { e.preventDefault(); setView("aim", t.dataset.goaim); return; }
     if (t.dataset.chatnew) { const c = chat(t.dataset.chatnew); c.log = []; c.conv = null; chat(t.dataset.chatnew); saveChats(); renderCenter(); return; }
     if (t.dataset.resume) { await resumeConv(t.dataset.resume, t.dataset.agent); return; }

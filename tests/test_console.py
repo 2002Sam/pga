@@ -89,3 +89,19 @@ def test_console_api_and_page(session_factory, policy, provider, backend, user, 
         lid = live.start("anyone")
         assert c.post("/v1/agents/anyone/stop").json()["stopped"] == [lid]
         live.finish(lid, False)
+
+
+def test_conversations_become_planets_tied_to_the_agents_that_talk(rt, user, setup):
+    from datetime import datetime, timezone
+
+    from pga.api.app import _conversation_planets
+    from pga.db.models import AimNote
+
+    eng, t, aim, _ = setup
+    rt.session.add(AimNote(user_id=user.id, aim_id=aim.id, kind="question", text="Is the cache stale?", status="answered",
+                           agent="gpt", data={"code": "Q1", "answered_by": "claudeish"}, created_at=datetime.now(timezone.utc)))
+    rt.session.flush()
+    nodes, links, added = [{"id": "ai:x", "kind": "ai", "vendor": "chatgpt"}], [], []
+    _conversation_planets(rt, user, added.append, links, nodes, {aim.id}, datetime.now(timezone.utc))
+    q = next(n for n in added if n["id"].startswith("cq:"))
+    assert q["kind"] == "conv" and q["parent"] == f"aim:{aim.id}" and q["code"] == "Q1"

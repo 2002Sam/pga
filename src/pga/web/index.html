@@ -4576,7 +4576,7 @@ function radiusOf(d) {
     case "agent": return 0.26 + Math.min(1, d.tension || 0) * 0.2;
     case "ai": return 0.15 + Math.min(0.12, Math.log10(1 + (d.conversations || 0)) * 0.05);
     case "belief": return 0.06 + (d.confidence || 0.5) * 0.04;
-    case "evidence": return 0.04; case "source": return 0.05;
+    case "evidence": return 0.04; case "source": return 0.05; case "conv": return 0.07;
     case "database": return 0.2; case "skill": return 0.18; case "folder": return 0.2;
 
     default: return 0.08;
@@ -4628,7 +4628,7 @@ function bodyMaterial(d) {                                   // dark bodies draw
           float warm = smoothstep(.2, .9, dot(normalize(vN), normalize(vec3(-1., .4, .3)))) * ring;
           gl_FragColor = vec4(mix(uC, vec3(.91, .66, .3), warm * .85) * ring * 1.15 + vec3(uFlash * .2) * ring, 1.); }` });
   }
-  const filled = d.kind === "evidence" || d.kind === "source" || d.kind === "core";
+  const filled = d.kind === "evidence" || d.kind === "source" || d.kind === "core" || d.kind === "conv";
   return new THREE.ShaderMaterial({ uniforms: { uC: { value: new THREE.Color(inkOf(d)) }, uFill: { value: new THREE.Color(filled ? (d.kind === "core" ? "#9a9a9a" : "#4a4a4a") : "#030303") }, uFlash: { value: 0 }, uRim: { value: d.kind === "aim" ? 1.3 : 1 }, uOp: { value: 1 } },
     transparent: true,
     vertexShader: VS_WORLD, fragmentShader: `uniform vec3 uC, uFill; uniform float uFlash, uRim, uOp; varying vec3 vN; varying vec3 vW;
@@ -4818,7 +4818,7 @@ function makeNode(d) {
     n.mesh = new THREE.Mesh(GEO.dataset, bodyMaterial(d));
     n.mesh.add(new THREE.LineSegments(DRUM_BANDS, new THREE.LineBasicMaterial({ color: "#2a2a2a", transparent: true, opacity: .8 })));
   }
-  else n.mesh = new THREE.Mesh(d.kind === "source" ? GEO.box : d.kind === "belief" || d.kind === "evidence" || d.kind === "core" ? GEO.small : GEO.sphere, bodyMaterial(d));
+  else n.mesh = new THREE.Mesh(d.kind === "source" ? GEO.box : d.kind === "belief" || d.kind === "evidence" || d.kind === "core" || d.kind === "conv" ? GEO.small : GEO.sphere, bodyMaterial(d));
   n.mesh.userData.node = n; group.add(n.mesh); pickables.push(n.mesh);
   if (d.kind === "aim") {                                  // two shivering rings that always face you
     n.circles = [[1.12, .55, INK.hi], [1.4, .2, INK.hi]].map(([k, op, c]) => { const l = new THREE.Line(CIRCLE_XY, shiverMat(op, { amp: .012, xy: true, color: c })); l.userData.k = k; group.add(l); return l; });
@@ -4842,7 +4842,7 @@ function makeNode(d) {
   }
   n.ringed = ringOf(d);
   if (n.ringed) { n.lock = n.ringed === "solid" ? new THREE.Line(CIRCLE, shiverMat(.75, { amp: .01, color: GOLD })) : new THREE.LineSegments(DASH, shiverMat(.75, { amp: .01, color: GOLD })); n.lock.userData.k = 1.75; group.add(n.lock); }
-  if (["agent", "slot", "ai", "core", "belief"].includes(d.kind)) { n.orbitLine = new THREE.Line(CIRCLE, shiverMat(.14, { amp: .004 })); world.add(n.orbitLine); }
+  if (["agent", "slot", "ai", "core", "belief", "conv"].includes(d.kind)) { n.orbitLine = new THREE.Line(CIRCLE, shiverMat(.14, { amp: .004 })); world.add(n.orbitLine); }
   if (["aim", "user", "agent", "slot", "ai", "core", "database", "skill", "folder"].includes(d.kind)) {
     n.label = document.createElement("div"); n.label.className = "nlabel " + (d.kind === "aim" ? "sun" : d.kind); labelsEl.appendChild(n.label);
   }
@@ -4945,6 +4945,12 @@ function layoutOrbits() {
   });
   by("agent").filter(isMoonAgent).forEach((n, i) => setOrbit(n, n.d.parent, 2.0 + (i % 2) * .45, .2));
   const count = new Map(), next = (key) => { const k = count.get(key) || 0; count.set(key, k + 1); return k; };
+  for (const n of by("conv")) {                              // conversations: small planets round the model (yours) or the black hole (the agents')
+    const p = nodes.has(n.d.parent) ? n.d.parent : "you", k = next("c" + p), sun = p.startsWith("aim:");
+    const sys = sun ? systems.find((s) => s.id === p) : null;
+    setOrbit(n, p, sun ? Math.min(3.4, (sys?.R || 4.4) * .62) + (k % 4) * .24 : (p === "you" ? 1.15 : .48) + (k % 4) * .1, (hash(n.id, 7) - .5) * .3, sun ? .45 : .9);
+    if (!n.placed) { n.orbit.ang = hash(n.id, 8) * TAU; n.placed = true; }
+  }
   for (const n of by("belief")) { const p = nodes.has(n.d.agent) ? n.d.agent : "you", k = next("b" + p); setOrbit(n, p, .72 + (k % 3) * .2, (hash(n.id, 5) - .5) * .5); }
   for (const n of by("evidence")) { const p = nodes.has(n.d.agent) ? n.d.agent : "you", k = next("e" + p); setOrbit(n, p, 1.22 + (k % 4) * .07, (hash(n.id, 6) - .5) * .25, .8); }
   for (const n of by("source")) {
@@ -5275,6 +5281,7 @@ function tellConsole(n) {                                               // the m
   const at = n ? window.PGA_BODY?.(n.id) : null;                         // where it is on screen: the wave breaks out from there
   window.parent.postMessage({ type: "pga:select", id: n ? n.id : null, kind: d?.kind || null, label: d?.label || null,
     aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null, project_id: d?.project_id || null,
+    conversation: d?.conversation || null, parent: d?.parent || null,
     x: at?.x, y: at?.y }, location.origin);
 }
 function embedLook(n) {                                                  // exactly like talking to a planet: the view glides to it, the rest fades
@@ -5287,6 +5294,12 @@ function embedSelect(n) {
   if (n) { n.flash = 1; n.energy = 1; ripple(n.pos, n.d.kind === "aim" ? (systems.find((s) => s.id === n.id)?.R || 3) : 1.4); }
   tellConsole(n);
 }
+window.addEventListener("message", (e) => {                               // the console: what is running, who talks to whom
+  if (!window.PGA_EMBED || e.origin !== location.origin) return;
+  if (e.data?.type === "pga:running") window.PGA_RUNNING?.((e.data.ids || []).filter((id) => nodes.has(id)));
+  if (e.data?.type === "pga:pulse") for (const [a, b] of e.data.pairs || []) pulse(a, b, { size: .06, dur: 1.1 });
+  if (e.data?.type === "pga:graph") window.dispatchEvent(new CustomEvent("pga:state"));
+});
 window.addEventListener("message", (e) => {                               // the console asks the map to look at something
   if (!window.PGA_EMBED || e.origin !== location.origin || e.data?.type !== "pga:focus") return;
   embedLook(e.data.id ? nodes.get(e.data.id) || null : null);
@@ -5325,7 +5338,7 @@ function showTip(n, e) {
   if (["aim", "user", "agent", "slot", "ai", "core"].includes(n.d.kind) && ST().settings.labelsAlways) { tipEl.style.opacity = 0; return; }
   if (DRAGGABLE.has(n.d.kind)) n = Object.assign({}, n, { d: Object.assign({}, n.d, { label: n.d.label + "  ·  拖到另一颗星上可连接 · 右键看详情" }) });
   const r = mainEl.getBoundingClientRect(), d = n.d;
-  const KIND = { aim: "黑洞 · 动机（长期目标）", user: "地球 · 你", core: "月亮 · 总助理", agent: "行星 · AGENT", belief: "卫星 · 判断 " + (d.type || ""), evidence: "卫星 · 证据", source: "卫星 · 信息源", slot: "空轨道", ai: "八面体 · 模型 · " + (d.vendor || ""), database: "圆柱 · 数据集", skill: "晶体 · 技能", folder: "文件夹 · 项目" + (d.path ? " · " + d.path.replace(/^\/Users\/[^/]+/, "~") : "") };
+  const KIND = { aim: "黑洞 · 动机（长期目标）", user: "地球 · 你", core: "月亮 · 总助理", agent: "行星 · AGENT", belief: "卫星 · 判断 " + (d.type || ""), evidence: "卫星 · 证据", source: "卫星 · 信息源", slot: "空轨道", ai: "八面体 · 模型 · " + (d.vendor || ""), database: "圆柱 · 数据集", skill: "晶体 · 技能", conv: (d.id?.startsWith("cq:") ? "问题 · agent 之间的对话" : "对话 · " + (d.agent || "")) + (d.turns ? ` · ${d.turns} 轮` : ""), folder: "文件夹 · 项目" + (d.path ? " · " + d.path.replace(/^\/Users\/[^/]+/, "~") : "") };
   const extra = d.kind === "agent" ? ` · 张力 ${(d.tension || 0).toFixed(2)}` : d.kind === "belief" ? ` · ${Math.round((d.confidence || 0) * 100)}%` : "";
   tipEl.innerHTML = `<b>${escapeHTML(KIND[d.kind] || d.kind)}${extra}</b>${escapeHTML(d.kind === "slot" ? "点击添加一个新的长期 agent" : d.label)}`;
   tipEl.style.opacity = 1;
@@ -5335,6 +5348,10 @@ function showTip(n, e) {
 
 /* ------------------------------------------------ reactions to the page */
 let focusId = null, flyT = 1, lastSelected;
+// the map's opening: seen from the side and far away the flat sky is a short line of tiny dots; the camera pulls
+// in along the plane, then swings up to look down on it from high above
+let INTRO = window.PGA_EMBED ? { t0: null, dur: 4.6, el: 1.08, az: Math.PI * .22 } : null;
+if (INTRO) controls.maxPolarAngle = Math.PI / 2;
 const _aim = new THREE.Vector3();
 window.PGA_FOCUS = () => focusId;                                         // which body the camera is on (null = the whole view)
 const ORIGIN = new THREE.Vector3(), EARTH_FILL_W = new THREE.Color("#e9e6df"), EARTH_RIM_W = new THREE.Color("#ffffff");
@@ -5507,20 +5524,33 @@ function frame(now) {
   if (st.selected !== lastSelected) { lastSelected = st.selected; if (st.selected && nodes.has(st.selected)) focusId = st.selected; else if (focusId && nodes.get(focusId)?.d.kind === "agent") focusId = null; flyT = 1; }
   const fnode = focusId && !FLIP ? nodes.get(focusId) : null;
   const target = _aim.copy(FLIP ? ORIGIN : fnode ? fnode.pos : boundC).add(PAN);
-  controls.target.lerp(target, .07);
-  if (flyT > 0) {
+  if (INTRO && nodes.size > 2) {                                           // the opening shot
+    INTRO.t0 ??= now;
+    const t = Math.min(1, (now - INTRO.t0) / 1000 / INTRO.dur), ease = (x) => x * x * (3 - 2 * x);
+    const pull = ease(Math.min(1, t / .6)), lift = ease(Math.max(0, Math.min(1, (t - .38) / .62)));
+    const R1 = Math.max(14, boundR * 2.3) * Math.max(1, 1.2 / Math.min(1.2, camera.aspect)), R0 = R1 * 5.5;
+    const r0 = R0 + (R1 - R0) * pull, el = .025 + (INTRO.el - .025) * lift, az = INTRO.az;
+    controls.target.copy(target);
+    camera.position.set(target.x + Math.cos(el) * Math.cos(az) * r0, target.y + Math.sin(el) * r0, target.z + Math.cos(el) * Math.sin(az) * r0);
+    labelsEl.style.opacity = String(Math.max(0, (t - .7) / .3));          // names appear once it has turned up
+    if (t >= 1) { INTRO = null; flyT = 0; labelsEl.style.opacity = ""; controls.maxPolarAngle = window.PGA_EMBED ? 1.0 : 1.36; }
+    camera.lookAt(target); controls.update();
+  }
+  if (!INTRO) controls.target.lerp(target, .07);
+  if (!INTRO && flyT > 0) {
     flyT = Math.max(0, flyT - dt * .7);
     const narrow = Math.max(1, 1.2 / Math.min(1.2, camera.aspect));
     const sysR = fnode?.d.kind === "aim" ? systems.find((s) => s.id === fnode.id)?.R || 3 : 0;
     const dist = (!fnode ? Math.max(14, boundR * 2.3) : window.PGA_EMBED && fnode.d.kind === "aim" ? sysR * 3.3
       : window.PGA_EMBED && fnode.d.kind === "user" ? 8 : fnode.id === TALK ? 10.5 : fnode.d.kind === "aim" ? sysR * 2.9 : fnode.d.kind === "agent" ? 6.5 : 3.4) * narrow;
     camDir.subVectors(camera.position, controls.target).normalize();
-    if (camDir.y < .38) { camDir.y = .48; camDir.normalize(); }
+    const minY = window.PGA_EMBED ? .82 : .38;                             // the map keeps a high, top-down view
+    if (camDir.y < minY) { camDir.y = minY + .1; camDir.normalize(); }
     v3.copy(target).addScaledVector(camDir, dist);
     camera.position.lerp(v3, .05);
   }
   controls.autoRotate = set.autoRotate && motion > 0 && now > idleUntil;
-  controls.update();
+  if (!INTRO) controls.update();
 
   const r = mainEl.getBoundingClientRect(), labelsAlways = set.labelsAlways;
   const pxPer = (p) => r.height / (2 * Math.tan(camera.fov * Math.PI / 360) * camera.position.distanceTo(p));

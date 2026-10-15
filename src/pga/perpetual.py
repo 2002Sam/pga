@@ -353,7 +353,8 @@ class Perpetual:
             return waiting, None
         return None, (min(resets) if resets else None)
 
-    def _task_for(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str):
+    def _task_for(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str,
+                  question: AimNote | None = None):
         """The agent task for one step (DB reads only; safe to build before running steps in parallel)."""
         from pga.teams import ROLES
         proj = self.project(t)
@@ -363,7 +364,7 @@ class Perpetual:
                                timeout_s=None, want_json=True,
                                meta={"category": ROLES[role]["category"], "workflow": "perpetual",
                                      "task_kind": f"perpetual:{step}", "aim": str(aim.id),
-                                     "perpetual": str(t.id), "role": role,
+                                     "perpetual": str(t.id), "role": role, **({"question": str(question.id)} if question else {}),
                                      **({"project": {"id": str(proj.id), "name": proj.name, "path": proj.path}} if proj else {})})
 
     def _ask(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str) -> tuple[str, str | None]:
@@ -594,7 +595,9 @@ class Perpetual:
             return {"ok": True, "summary": "没有待回答的问题"}
         q = qs[0]
         system, prompt = self._investigate_prompt(t, aim, role, agent, q)
-        text, err = self._ask(t, aim, role, agent, prompt, system, "investigate")
+        t0 = utcnow()
+        st = self.pool._call(agent, self._task_for(t, aim, role, agent, prompt, system, "investigate", q), "investigate")
+        text, err = self._record_step(t, aim, role, agent, st, prompt, "investigate", t0)
         return self._apply_answer(t, aim, role, agent, q, text, err)
 
     def _investigate_prompt(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote) -> tuple[str, str]:
@@ -614,7 +617,7 @@ class Perpetual:
         jobs = []
         for q, ag in zip(qs, agents):
             system, prompt = self._investigate_prompt(t, aim, role, ag, q)
-            jobs.append((q, ag, prompt, self._task_for(t, aim, role, ag, prompt, system, "investigate")))
+            jobs.append((q, ag, prompt, self._task_for(t, aim, role, ag, prompt, system, "investigate", q)))
         t0 = utcnow()
         threaded = [j for j in jobs if self.pool.adapters[j[1]].type not in PAID]     # PGA's own model shares this session
         with ThreadPoolExecutor(max_workers=max(1, len(threaded))) as ex:
