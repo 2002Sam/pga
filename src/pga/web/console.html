@@ -11,6 +11,10 @@
 <meta name="theme-color" content="#050505">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/vs2015.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <style>
 /* the same monochrome line-art language as the sky: black, white lines, one warm accent for "working" */
 :root {
@@ -136,10 +140,11 @@ main > section { min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollb
 .parts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 14px 0 6px; }
 .parts .p .cap { letter-spacing: .1em; }
 .parts .p.top .cap { color: var(--gold); }
-h2 { font: var(--cap); letter-spacing: .22em; color: var(--muted); text-transform: uppercase; margin: 30px 0 10px; display: flex; gap: 10px; align-items: baseline; }
+h2 { font: 500 10.5px var(--mono); letter-spacing: .24em; color: rgba(233,169,75,.85); text-transform: uppercase; margin: 34px 0 12px; display: flex; gap: 10px; align-items: baseline;
+  padding-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.06); }
 h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-size: 11px; }
 
-.live { border: 1px solid var(--gold-dim); margin-bottom: 10px; }
+.live { border: 1px solid var(--gold-dim); margin-bottom: 10px; background: rgba(10,12,14,.6); backdrop-filter: blur(6px); box-shadow: 0 0 0 1px rgba(233,169,75,.05), 0 8px 30px rgba(0,0,0,.35); }
 .live .lh { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .live .lh .who { flex: 1; }
 .live pre { margin: 0; padding: 10px 12px; max-height: 340px; overflow-y: auto; font: 12px/1.65 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; color: #d8d8d8; }
@@ -175,7 +180,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .detail details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 10px; }
 
 /* how free it is */
-.levels { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line-2); margin: 16px 0 6px; }
+.levels { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line-2); margin: 16px 0 6px; background: rgba(10,12,14,.5); backdrop-filter: blur(6px); }
 .levels button { border: 0; border-right: 1px solid var(--line-2); text-align: left; padding: 9px 12px; white-space: normal; line-height: 1.45; }
 .levels button:last-child { border-right: 0; }
 .levels button b { display: block; font-weight: 500; font-size: 13px; }
@@ -197,7 +202,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .cp .row, .talk .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; align-items: center; }
 
 /* talk to it (user-driven work, and quick asks at any level) */
-.talk { border: 1px solid var(--line-2); padding: 12px; }
+.talk { border: 1px solid var(--line-2); padding: 12px; background: rgba(10,12,14,.55); backdrop-filter: blur(6px); }
 .talk select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; }
 .talk .ans { margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; border-left: 1px solid var(--line-3); padding-left: 10px; }
 .talk .row .grow { flex: 1; color: var(--muted); font-size: 11.5px; }
@@ -244,6 +249,41 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 .mini .nd.dataset .body { fill: #e9e6df; stroke: none; }
 .mini .nd.dataset .band { fill: none; stroke: #2a2a2a; stroke-width: .8; }
 .proj { cursor: pointer; }
+
+/* sharing the work out among agents */
+.alloc { border: 1px solid var(--line-2); padding: 14px 16px; background: rgba(10,12,14,.55); backdrop-filter: blur(6px); }
+.alloc .formula { font: 12px/1.7 var(--mono); color: #cfcfcf; background: rgba(255,255,255,.03); border-left: 2px solid var(--gold); padding: 6px 10px; margin-bottom: 12px; white-space: pre-wrap; }
+.alloc .weights { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; margin-bottom: 12px; }
+.alloc label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.alloc label b { color: var(--text); font-weight: 500; font-family: var(--mono); font-size: 11.5px; }
+.alloc input[type=range] { width: 100%; accent-color: var(--gold); }
+.alloc .roles { display: flex; gap: 4px; margin: 4px 0 8px; flex-wrap: wrap; }
+.alloc .roles button.on { border-color: var(--gold); color: var(--gold); }
+.atab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.atab th { font: var(--cap); letter-spacing: .12em; color: var(--muted); text-align: left; padding: 6px 6px; border-bottom: 1px solid var(--line-2); font-weight: 400; }
+.atab td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.atab td.num { font-family: var(--mono); font-size: 11.5px; color: #d0d0d0; }
+.atab tr.off td { color: var(--dim); }
+.atab .sb { display: flex; align-items: center; gap: 6px; min-width: 76px; }
+.awrap { overflow-x: auto; }
+.atab .sb .bar { flex: 1; margin: 0; height: 4px; } .atab .sb .bar.act i { background: #8ab4f8; }
+.atab input[type=range] { width: 64px; accent-color: var(--gold); }
+.atab td:first-child { max-width: 150px; }
+
+/* code and documents in a folder */
+.fview pre.code { padding: 0; border: 1px solid var(--line-2); background: #1e1e1e; }
+.fview pre.code code { display: block; padding: 10px 0; counter-reset: ln; font: 12px/1.6 var(--mono); }
+.fview pre.code .ln { display: block; padding: 0 12px 0 0; }
+.fview pre.code .ln::before { counter-increment: ln; content: counter(ln); display: inline-block; width: 3.2em; padding-right: 1em; text-align: right; color: #6e7681; user-select: none; }
+.md { border: 1px solid var(--line-2); background: rgba(14,16,18,.85); padding: 18px 22px; max-height: 64vh; overflow: auto; font-size: 14px; line-height: 1.75; color: #e6e6e6; text-shadow: none; }
+.md h1, .md h2, .md h3 { font-weight: 500; letter-spacing: .01em; text-transform: none; font-family: var(--font); color: #fff; margin: 1.2em 0 .5em; display: block; }
+.md h1 { font-size: 22px; border-bottom: 1px solid var(--line-2); padding-bottom: 6px; } .md h2 { font-size: 18px; } .md h3 { font-size: 15.5px; }
+.md code { font: 12.5px var(--mono); background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 3px; color: #ce9178; }
+.md pre { background: #1e1e1e; border: 1px solid var(--line-2); padding: 10px 12px; overflow: auto; }
+.md pre code { background: none; padding: 0; color: inherit; }
+.md table { border-collapse: collapse; margin: 10px 0; } .md td, .md th { border: 1px solid var(--line-2); padding: 4px 9px; }
+.md a { color: #8ab4f8; } .md blockquote { border-left: 3px solid var(--gold); margin: 8px 0; padding: 2px 12px; color: var(--muted); }
+.tree .ico { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; flex: none; position: relative; top: -1px; }
 
 /* agents */
 .ag { border-top: 1px solid var(--line); padding: 11px 16px 12px; }
@@ -577,6 +617,7 @@ function renderProcess() {
     ${t ? `<div class="levels">${LEVELS.map(([k, zh, d]) => `<button data-level="${k}" class="${(t.autonomy || "checkpoint") === k ? "on" : ""}"><b>${zh}</b><span>${d}</span></button>`).join("")}</div>
       ${(t.autonomy || "checkpoint") === "checkpoint" ? `<div class="lvlrow">每思考 <input type="number" min="1" max="50" id="cpEvery" value="${t.checkpoint_every || 6}"> 轮停下来给你看一次 · 距上次检查点已 ${t.since_checkpoint ?? 0} 轮</div>` : ""}` : ""}
     ${P.checkpoint ? cpHtml(P.checkpoint) : ""}
+    ${t ? `<h2>多 agent 分配 <small>按你的权重给每个 agent 打分，按份额派活；可以并行</small></h2><div id="allocBox">${allocHtml()}</div>` : ""}
     <h2>正在进行 <small>agent 此刻在读什么、想什么</small></h2><div id="liveBox"></div>
     <h2>让它做 <small>${t?.autonomy === "driven" ? "用户驱动：它只按你的要求工作" : "随时直接交代一件事，任何级别都可以"}</small></h2>${talkHtml(proj)}
     ${qs.length ? `<h2>等你回答 <small>只有你能决定的问题</small></h2>${qs.map((q) => `<div class="ask"><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
@@ -585,6 +626,7 @@ function renderProcess() {
     <h2>自我对话 <small>它问了自己什么、谁回答、谁审阅、得出了什么</small></h2>
     <div class="tl">${(P.events || []).map(evHtml).join("") || `<div class="empty">还没有记录。</div>`}</div>`;
   renderLive();
+  loadAlloc();
 }
 /* ------------------------------------------------ 我 and each agent: a conversation, what they are doing, their past */
 
@@ -718,6 +760,33 @@ async function openFile(pid, path) {
   catch (err) { t.file = { path, error: err.message }; }
   if (C.view.kind === "folder" && C.view.id === pid) renderFolder(pid);
 }
+/* code in VS Code's dark colours with line numbers; Markdown rendered as a clean document */
+const LANG = { py: "python", js: "javascript", mjs: "javascript", ts: "typescript", tsx: "typescript", jsx: "javascript", json: "json", yaml: "yaml", yml: "yaml",
+  toml: "ini", ini: "ini", cfg: "ini", sh: "bash", zsh: "bash", bash: "bash", html: "xml", xml: "xml", svg: "xml", css: "css", scss: "scss", sql: "sql",
+  md: "markdown", rs: "rust", go: "go", java: "java", c: "c", h: "c", cpp: "cpp", hpp: "cpp", cu: "cpp", rb: "ruby", php: "php", swift: "swift", kt: "kotlin",
+  tex: "latex", r: "r", lua: "lua", dockerfile: "dockerfile", mako: "xml", txt: "plaintext", ipynb: "json" };
+const EXT_COLOR = { py: "#3572A5", js: "#f1e05a", ts: "#3178c6", tsx: "#3178c6", jsx: "#f1e05a", json: "#cbcb41", yaml: "#cb171e", yml: "#cb171e", toml: "#9c4221",
+  md: "#519aba", html: "#e34c26", css: "#563d7c", sh: "#89e051", sql: "#e38c00", rs: "#dea584", go: "#00ADD8", ipynb: "#DA5B0B", tex: "#3D6117", txt: "#8a8a8a",
+  ini: "#d1dbe0", cfg: "#d1dbe0", lock: "#8a8a8a", png: "#a074c4", jpg: "#a074c4", svg: "#ffb13b", pdf: "#e2574c" };
+const extOf = (path) => { const n = path.split("/").pop().toLowerCase(); return n === "dockerfile" ? "dockerfile" : n.includes(".") ? n.split(".").pop() : ""; };
+function fileBody(f) {
+  const ext = extOf(f.path);
+  if (ext === "md" && window.marked && window.DOMPurify) {
+    return `<div class="md">${DOMPurify.sanitize(marked.parse(f.text || ""))}</div>`;
+  }
+  let html = esc(f.text || "");
+  if (window.hljs) {
+    try { html = LANG[ext] && hljs.getLanguage(LANG[ext]) ? hljs.highlight(f.text || "", { language: LANG[ext] }).value : hljs.highlightAuto((f.text || "").slice(0, 60000)).value; } catch {}
+  }
+  // one span per line, so the line numbers line up even when a highlight runs over several lines
+  const lines = html.split("\n"), out = []; let open = [];
+  for (const l of lines) {
+    out.push(`<span class="ln">${open.join("")}${l}${"</span>".repeat(open.length)}</span>`);
+    const tags = l.match(/<span[^>]*>|<\/span>/g) || [];
+    for (const tg of tags) { if (tg === "</span>") open.pop(); else open.push(tg); }
+  }
+  return `<pre class="code hljs"><code>${out.join("")}</code></pre>`;
+}
 const kb = (n) => n == null ? "" : n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(1) + " MB";
 function dirHtml(pid, path) {
   const t = tree(pid), d = t.dirs[path];
@@ -725,7 +794,7 @@ function dirHtml(pid, path) {
   if (d.error) return `<div style="color:var(--bad)">${esc(d.error)}</div>`;
   return d.entries.map((e) => e.dir
     ? `<div class="row dir ${t.open.has(e.path) ? "open" : ""} ${e.hidden ? "hid" : ""} ${e.heavy ? "heavy" : ""}" data-tdir="${esc(e.path)}">${esc(e.name)}/</div>${t.open.has(e.path) ? `<div class="sub">${dirHtml(pid, e.path)}</div>` : ""}`
-    : `<div class="row file ${e.hidden ? "hid" : ""} ${t.file?.path === e.path ? "cur" : ""}" data-tfile="${esc(e.path)}">${esc(e.name)}<small>${kb(e.size)}</small></div>`).join("")
+    : `<div class="row file ${e.hidden ? "hid" : ""} ${t.file?.path === e.path ? "cur" : ""}" data-tfile="${esc(e.path)}"><i class="ico" style="background:${EXT_COLOR[extOf(e.name)] || "#5a5a5a"}"></i>${esc(e.name)}<small>${kb(e.size)}</small></div>`).join("")
     + (d.truncated ? `<div class="dim">（只显示前 500 项）</div>` : "") || `<div class="dim">（空文件夹）</div>`;
 }
 function renderFolder(pid) {
@@ -740,8 +809,47 @@ function renderFolder(pid) {
     <div class="split"><div class="tree">${dirHtml(pid, "")}</div>
       <div class="fview">${!f ? `<div class="dim" style="font-size:12.5px">在左边点一个文件。</div>` : f.loading ? `<div class="dim">载入中…</div>`
         : f.error ? `<div style="color:var(--bad)">${esc(f.error)}</div>`
-        : `<span class="cap">${esc(f.path)} · ${kb(f.size)}${f.truncated ? " · 只显示前 200 KB" : ""}</span>${f.secret ? `<div class="dim" style="margin-top:6px">这个文件可能包含密钥或令牌，不在屏幕上显示。</div>` : f.binary ? `<div class="dim" style="margin-top:6px">二进制文件，不显示内容。</div>` : `<pre>${esc(f.text)}</pre>`}`}</div></div>
+        : `<span class="cap">${esc(f.path)} · ${kb(f.size)}${f.truncated ? " · 只显示前 200 KB" : ""}</span>${f.secret ? `<div class="dim" style="margin-top:6px">这个文件可能包含密钥或令牌，不在屏幕上显示。</div>` : f.binary ? `<div class="dim" style="margin-top:6px">二进制文件，不显示内容。</div>` : fileBody(f)}`}</div></div>
     <h2>在这里让它做</h2>${chatHtml("folder:" + pid)}`;
+}
+
+/* ------------------------------------------------ 多 agent 分配: your weights → each agent's score → its share of the work */
+
+C.alloc = { role: "researcher", data: {}, t: 0 };
+const WL = [["w_perf", "性能", "质量评分 + 最近成功率"], ["w_pref", "偏好", "你对每个 agent 的偏好"], ["w_balance", "余额", "剩余额度"],
+            ["w_cost", "成本（扣分）", "越贵扣得越多"], ["w_speed", "速度", "越快加分越多"]];
+async function loadAlloc(force) {
+  if (C.view.kind !== "aim" || !C.sel || !C.proc?.task) return;
+  if (!force && Date.now() - C.alloc.t < 20000 && C.alloc.data.aim === C.sel && C.alloc.data.role === C.alloc.role) return renderAlloc();
+  try { C.alloc.data = { ...(await api(`/v1/aims/${C.sel}/allocation?role=${C.alloc.role}`)), aim: C.sel }; C.alloc.t = Date.now(); } catch { C.alloc.data = {}; }
+  renderAlloc();
+}
+function renderAlloc() { const b = $("#allocBox"); if (b && !b.contains(document.activeElement)) b.innerHTML = allocHtml(); }
+function allocHtml() {
+  const d = C.alloc.data; if (!d.settings || d.aim !== C.sel) return `<div class="idle">载入中…</div>`;
+  const s = d.settings, act = d.actual || {};
+  return `<div class="alloc">
+    <div class="formula">得分 = ${s.w_perf.toFixed(1)}·性能 + ${s.w_pref.toFixed(1)}·偏好 + ${s.w_balance.toFixed(1)}·余额 − ${s.w_cost.toFixed(1)}·成本 + ${s.w_speed.toFixed(1)}·速度
+份额 = softmax(得分 ÷ 温度 ${s.temperature.toFixed(2)})　·　每一步按份额抽一个 agent；研究时同时派 ${s.parallel} 个</div>
+    <div class="weights">${WL.map(([k, zh, tip]) => `<label title="${tip}">${zh} <b>${s[k].toFixed(1)}</b><input type="range" min="0" max="3" step="0.1" value="${s[k]}" data-w="${k}"></label>`).join("")}
+      <label title="低 = 集中给最好的；高 = 分散给更多 agent">温度 · 集中↔分散 <b>${s.temperature.toFixed(2)}</b><input type="range" min="0.05" max="2" step="0.05" value="${s.temperature}" data-w="temperature"></label>
+      <label title="多维的任务：同时研究几个问题，每个交给不同的 agent">并行 agent 数 <b>${s.parallel}</b><input type="range" min="1" max="4" step="1" value="${s.parallel}" data-w="parallel"></label></div>
+    <div class="roles">${Object.entries(d.roles || {}).map(([k, zh]) => `<button class="ghost ${k === d.role ? "on" : ""}" data-arole="${k}">${esc(zh)}</button>`).join("")}</div>
+    <div class="awrap"><table class="atab"><tr><th>agent</th><th>性能</th><th>偏好</th><th>余额</th><th>得分</th><th>目标份额</th><th>过去 24 小时实际</th></tr>
+    ${(d.rows || []).map((r) => `<tr class="${r.usable ? "" : "off"}" title="${esc(r.why_not || "")}"><td>${esc(r.agent)}${r.pinned ? " <span class='dim'>（团队指定）</span>" : ""}${r.busy ? " <span class='dim'>忙</span>" : ""}${r.usable ? "" : `<div class="dim" style="font-size:11px">${esc(r.why_not)}</div>`}</td>
+      <td class="num">${r.parts.performance.toFixed(2)}${r.seen ? `<span class="dim"> /${r.seen}</span>` : ""}</td>
+      <td><input type="range" min="0" max="1" step="0.1" value="${r.parts.preference}" data-pref="${esc(r.agent)}" ${r.pinned ? "disabled" : ""}></td>
+      <td class="num">${Math.round(r.parts.balance * 100)}%</td><td class="num">${r.score.toFixed(2)}</td>
+      <td><div class="sb"><div class="bar gold"><i style="width:${Math.round(r.share * 100)}%"></i></div><span class="num">${Math.round(r.share * 100)}%</span></div></td>
+      <td><div class="sb"><div class="bar act"><i style="width:${Math.round((act[r.agent] || 0) * 100)}%"></i></div><span class="num">${Math.round((act[r.agent] || 0) * 100)}%</span></div></td></tr>`).join("")}</table></div></div>`;
+}
+let allocTimer = null;
+function saveAlloc(patch) {
+  clearTimeout(allocTimer);
+  allocTimer = setTimeout(async () => {
+    try { await api(`/v1/aims/${C.sel}/perpetual`, { method: "PATCH", body: { settings: { alloc: patch } } }); } catch (err) { toast(err.message); }
+    document.activeElement?.blur?.(); await loadAlloc(true);
+  }, 350);
 }
 
 function cpHtml(cp) {
@@ -865,6 +973,8 @@ document.addEventListener("keydown", (e) => {
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
+  if (t.dataset.w) { const v = Number(t.value); saveAlloc({ [t.dataset.w]: v }); return; }
+  if (t.dataset.pref) { saveAlloc({ prefs: { [t.dataset.pref]: Number(t.value) } }); return; }
   if (t.dataset.chatproj) { chat(t.dataset.chatproj).project = t.value || null; saveChats(); keepDrafts(); renderCenter(); return; }
   if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value; c.conv = null; c.log = []; chat(t.dataset.chatagent);
     if (!AS_UID) store.set("pga_console_agent", t.value); saveChats(); keepDrafts(); renderCenter(); loadHist(t.value); return; }
@@ -899,6 +1009,7 @@ document.addEventListener("click", async (e) => {
     if (t.id === "toSky") { toSky(); return; }
     if (t.id === "toDesk") { toDesk(); return; }
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
+    if (t.dataset.arole) { C.alloc.role = t.dataset.arole; await loadAlloc(true); return; }
     if (t.dataset.goaim) { e.preventDefault(); setView("aim", t.dataset.goaim); return; }
     if (t.dataset.chatnew) { const c = chat(t.dataset.chatnew); c.log = []; c.conv = null; chat(t.dataset.chatnew); saveChats(); renderCenter(); return; }
     if (t.dataset.resume) { await resumeConv(t.dataset.resume, t.dataset.agent); return; }

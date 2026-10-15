@@ -24,7 +24,10 @@ AGENT = r'''
 import json, pathlib, re, sys
 text = sys.stdin.read()
 counter = pathlib.Path(__file__).with_name("n.txt")
-n = int(counter.read_text()) + 1 if counter.exists() else 1
+try:                                     # agents may run in parallel: a half-written counter is just a restart
+    n = int(counter.read_text()) + 1
+except (OSError, ValueError):
+    n = 1
 counter.write_text(str(n))
 topics = ["去重阈值 0.5 太低会重复研究吗", "研究冷却时间多久合适", "通知每天发几次才不打扰", "翻译缓存命中率怎样",
           "给用户预留多少额度", "调度先后次序对不对", "失败以后该不该重试", "图谱什么时候刷新"]
@@ -315,3 +318,38 @@ def test_r0_waits_for_you_unless_pgas_own_motivation_is_free(rt, user, setup, re
     assert self_autonomy(rt, user.id) == "free"
     t.settings = {**t.settings, "autonomy": "checkpoint"}
     assert self_autonomy(rt, user.id) == "checkpoint"
+
+
+# ---------------------------------------------------------------- sharing the work out among agents
+
+
+def test_allocation_formula_follows_your_weights_and_preferences(rt, user, setup):
+    from pga.allocation import Allocation, clean, softmax
+    eng, t, aim, _ = setup
+    al = Allocation(eng)
+    t.settings = {**t.settings, "alloc": {"prefs": {"gpt": 1.0, "claudeish": 0.0}, "w_pref": 3.0, "temperature": .2}}
+    rows = {r["agent"]: r for r in al.table(t, aim, "researcher", "investigate")}
+    assert rows["gpt"]["share"] > rows["claudeish"]["share"] and abs(sum(r["share"] for r in rows.values()) - 1) < 1e-6
+    t.settings = {**t.settings, "alloc": {"prefs": {"gpt": 0.0, "claudeish": 1.0}, "w_pref": 3.0, "temperature": .2}}
+    al = Allocation(eng)
+    rows = {r["agent"]: r for r in al.table(t, aim, "researcher", "investigate")}
+    assert rows["claudeish"]["share"] > rows["gpt"]["share"]
+    assert clean({"parallel": 9, "w_perf": -1, "bogus": 1}) == {**clean({}), "parallel": 4, "w_perf": 0.0}
+    assert softmax([1, 1], 1) == [.5, .5]
+
+
+def test_parallel_research_answers_several_questions_with_different_agents(rt, user, setup):
+    eng, t, aim, _ = setup
+    eng.cycle(t)                                                                # think: questions to answer
+    eng._add_questions(t, aim, [{"q": "Is the cache TTL too short for the dedupe index?", "why": "w", "kind": "code", "priority": .7}],
+                       "gpt", "lead", datetime.now(timezone.utc))
+    answered = lambda: len(eng.questions(t, ("answered",)))  # noqa: E731
+    before = answered()
+    assert len(eng.questions(t)) >= 2
+    t.settings = {**t.settings, "alloc": {"parallel": 2}}
+    t.next_at = None
+    out = eng.cycle(t)
+    assert out["action"] == "investigate" and out["ok"], out
+    assert len(set(out["agents"])) == 2 and answered() == before + 2              # two answered at once, by two agents
+    assert "office" not in out["agents"]                                          # only agents that can research
+    assert t.ledger[0]["agents"] == out["agents"]

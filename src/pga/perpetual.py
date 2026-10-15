@@ -43,6 +43,7 @@ you allow them (`use_paid`), so running without end never runs up a bill.
 from __future__ import annotations
 
 import logging
+import random
 import re
 import subprocess
 import threading
@@ -82,6 +83,7 @@ DEFAULTS: dict[str, Any] = {
     "autonomy": "checkpoint",   # free | checkpoint | driven — how much it may do before you look
     "checkpoint_every": 6,      # checkpoint: cycles of thinking before it reports to you and waits
     "auto_promote": True,       # free: verified changes go live on their own (canary, rolls back on regression)
+    "alloc": {},                # how the work is shared among agents (pga.allocation): your weights, preferences, parallelism
 }
 AUTONOMY = ("free", "checkpoint", "driven")
 AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
@@ -351,20 +353,28 @@ class Perpetual:
             return waiting, None
         return None, (min(resets) if resets else None)
 
-    def _ask(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str) -> tuple[str, str | None]:
-        from pga.agents.pool import PoolResult
+    def _task_for(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str):
+        """The agent task for one step (DB reads only; safe to build before running steps in parallel)."""
         from pga.teams import ROLES
-        user = self.s.get(User, t.user_id)
         proj = self.project(t)
         ad = self.pool.adapters[agent]
         ws = proj.path if proj and ad.type != "llm" else self.pool._workspace(t.id, "perpetual", f"{role}-{agent}")
+        return self.pool._task(agent, prompt, system=system, kind="perpetual", workspace=ws, permissions="read_only",
+                               timeout_s=None, want_json=True,
+                               meta={"category": ROLES[role]["category"], "workflow": "perpetual",
+                                     "task_kind": f"perpetual:{step}", "aim": str(aim.id),
+                                     "perpetual": str(t.id), "role": role,
+                                     **({"project": {"id": str(proj.id), "name": proj.name, "path": proj.path}} if proj else {})})
+
+    def _ask(self, t: PerpetualTask, aim: Aim, role: str, agent: str, prompt: str, system: str, step: str) -> tuple[str, str | None]:
         t0 = utcnow()
-        st = self.pool._call(agent, self.pool._task(agent, prompt, system=system, kind="perpetual", workspace=ws, permissions="read_only",
-                                                    timeout_s=None, want_json=True,
-                                                    meta={"category": ROLES[role]["category"], "workflow": "perpetual",
-                                                          "task_kind": f"perpetual:{step}", "aim": str(aim.id),
-                                                          "perpetual": str(t.id), "role": role,
-                                                          **({"project": {"id": str(proj.id), "name": proj.name, "path": proj.path}} if proj else {})}), step)
+        st = self.pool._call(agent, self._task_for(t, aim, role, agent, prompt, system, step), step)
+        return self._record_step(t, aim, role, agent, st, prompt, step, t0)
+
+    def _record_step(self, t: PerpetualTask, aim: Aim, role: str, agent: str, st, prompt: str, step: str, t0: datetime) -> tuple[str, str | None]:
+        from pga.agents.pool import PoolResult
+        user = self.s.get(User, t.user_id)
+        proj = self.project(t)
         ok = bool(st.result.ok and st.result.text.strip())
         res = PoolResult(ok, st.result.text if ok else "", "perpetual", "single",
                          {"agent": agent, "role": role, "aim": str(aim.id), "step": step, "perpetual": str(t.id),
@@ -429,17 +439,27 @@ class Perpetual:
             note += (f"：最早 {reset.astimezone().strftime('%m-%d %H:%M')} 重置，" if reset and reset > now else "：")
             note += f"{until.astimezone().strftime('%H:%M')} 再查一次"
             return self._wait(t, "quota", note, d, now, m, pause=True)
-        self._phase(t, action, f"{PHASE_ZH[action]} · {agent}", now)
+        from pga.allocation import Allocation
+        alloc = Allocation(self)
+        a = alloc.settings(t)
+        rows = alloc.table(t, aim, role, action, now)
+        k = min(a["parallel"], max(1, len(self.questions(t)))) if action == "investigate" else 1
+        drawn = alloc.draw(rows, k, random.Random(f"{t.id}:{t.cycles}"))      # by your weights; reproducible per cycle
+        agents = drawn or [agent]
+        agent = agents[0]
+        self._phase(t, action, f"{PHASE_ZH[action]} · {'、'.join(agents)}", now)
         started = time.monotonic()
         try:
-            out = getattr(self, "_" + action)(t, aim, role, agent, now)
+            out = (self._investigate_many(t, aim, role, agents, now) if len(agents) > 1
+                   else getattr(self, "_" + action)(t, aim, role, agent, now))
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not end a perpetual task
             log.exception("perpetual cycle failed")
             out = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
         spent = time.monotonic() - started
         t.work_s += spent
         t.cycles += 1
-        self._ledger(t, {"at": now.isoformat(), "action": action, "agent": agent, "seconds": round(spent, 1), "pressure": m["pressure"],
+        self._ledger(t, {"at": now.isoformat(), "action": action, "agent": agent, "agents": out.get("agents") or [agent],
+                         "seconds": round(spent, 1), "pressure": m["pressure"],
                          "parts": m["parts"], "ok": bool(out.get("ok")), "result": str(out.get("summary") or out.get("error") or "")[:200]})
         end = utcnow()
         if not out.get("ok"):
@@ -573,12 +593,48 @@ class Perpetual:
         if not qs:
             return {"ok": True, "summary": "没有待回答的问题"}
         q = qs[0]
+        system, prompt = self._investigate_prompt(t, aim, role, agent, q)
+        text, err = self._ask(t, aim, role, agent, prompt, system, "investigate")
+        return self._apply_answer(t, aim, role, agent, q, text, err)
+
+    def _investigate_prompt(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote) -> tuple[str, str]:
         code = (q.data or {}).get("code")
         evolve = self.cfg(t)["evolve"] and self.self_project(t)
         system = INVESTIGATE.format(role=self._role_en(role), where=self._where(t, agent), lang=self._lang(t),
                                     proposal_rule=PROPOSAL_RULE if evolve else NO_PROPOSAL_RULE)
-        text, err = self._ask(t, aim, role, agent, self.context(t, aim) + f"\n\n<question code=\"{code}\">\n{q.text}\n"
-                              f"(why it matters: {(q.data or {}).get('why', '')})\n</question>\nAnswer it.", system, "investigate")
+        return system, (self.context(t, aim) + f"\n\n<question code=\"{code}\">\n{q.text}\n"
+                        f"(why it matters: {(q.data or {}).get('why', '')})\n</question>\nAnswer it.")
+
+    def _investigate_many(self, t: PerpetualTask, aim: Aim, role: str, agents: list[str], now: datetime) -> dict:
+        """Several open questions at once, one agent each (fan-out), then each answer folded back in (in order)."""
+        from concurrent.futures import ThreadPoolExecutor
+        qs = sorted(self.questions(t), key=lambda q: (-clamp01((q.data or {}).get("priority"), .5), q.created_at))[:len(agents)]
+        if not qs:
+            return {"ok": True, "summary": "没有待回答的问题"}
+        jobs = []
+        for q, ag in zip(qs, agents):
+            system, prompt = self._investigate_prompt(t, aim, role, ag, q)
+            jobs.append((q, ag, prompt, self._task_for(t, aim, role, ag, prompt, system, "investigate")))
+        t0 = utcnow()
+        threaded = [j for j in jobs if self.pool.adapters[j[1]].type not in PAID]     # PGA's own model shares this session
+        with ThreadPoolExecutor(max_workers=max(1, len(threaded))) as ex:
+            futs = {id(j): ex.submit(self.pool._call, j[1], j[3], "investigate") for j in threaded}
+            steps = {k: f.result() for k, f in futs.items()}
+        for j in jobs:
+            if id(j) not in steps:
+                steps[id(j)] = self.pool._call(j[1], j[3], "investigate")
+        outs = []
+        for j in jobs:
+            q, ag, prompt, _task = j
+            text, err = self._record_step(t, aim, role, ag, steps[id(j)], prompt, "investigate", t0)
+            outs.append((ag, self._apply_answer(t, aim, role, ag, q, text, err)))
+        return {"ok": any(o["ok"] for _, o in outs), "agents": [ag for ag, _ in outs],
+                "summary": "并行研究：" + "；".join(f"{ag} {o.get('summary') or o.get('error') or ''}" for ag, o in outs),
+                "error": None if any(o["ok"] for _, o in outs) else "; ".join(str(o.get("error")) for _, o in outs)}
+
+    def _apply_answer(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote, text: str, err: str | None) -> dict:
+        code = (q.data or {}).get("code")
+        evolve = self.cfg(t)["evolve"] and self.self_project(t)
         d = self._json(text)
         ans = str(d.get("answer") or "").strip()
         if not ans:

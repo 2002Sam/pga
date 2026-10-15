@@ -2059,11 +2059,35 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 if new["autonomy"] not in AUTONOMY:
                     raise HTTPException(422, f"autonomy is one of {list(AUTONOMY)}")
                 t.next_at = utcnow()                      # a new level takes effect at the next step
+            if "alloc" in new:                                # your allocation weights: merged, then kept within bounds
+                from pga.allocation import clean
+                old = (t.settings or {}).get("alloc") or {}
+                inc = new["alloc"] if isinstance(new["alloc"], dict) else {}
+                new["alloc"] = clean({**old, **inc, "prefs": {**(old.get("prefs") or {}), **(inc.get("prefs") or {})}})
             if "checkpoint_every" in new:
                 new["checkpoint_every"] = max(1, min(50, int(new["checkpoint_every"])))
             t.settings = {**(t.settings or {}), **new}
         rt.session.flush()
         return perpetual_view(rt, aim)
+
+    @app.get("/v1/aims/{aim_id}/allocation")
+    def perpetual_allocation(aim_id: uuid.UUID, role: str = "researcher", rt: Runtime = Depends(get_rt)):
+        """How this motivation shares its work out: your weights, every agent's parts, score and target share,
+        and how the work really went over the last 24 hours."""
+        from pga.allocation import Allocation
+        from pga.db.models import PerpetualTask
+        from pga.perpetual import Perpetual
+        from pga.teams import ROLES
+        aim = aim_or_404(rt, aim_id)
+        t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
+        if t is None:
+            raise HTTPException(404, "this aim is not a perpetual task")
+        if role not in ROLES:
+            raise HTTPException(422, f"role is one of {list(ROLES)}")
+        al = Allocation(Perpetual(rt))
+        step = {"lead": "think", "researcher": "investigate", "critic": "reflect"}.get(role, "investigate")
+        return {"settings": al.settings(t), "role": role, "rows": al.table(t, aim, role, step), "actual": al.actual(t),
+                "roles": {k: v["label"] for k, v in ROLES.items()}}
 
     @app.post("/v1/aims/{aim_id}/perpetual/checkpoint")
     def perpetual_checkpoint(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
