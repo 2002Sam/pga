@@ -84,6 +84,8 @@ DEFAULTS: dict[str, Any] = {
     "checkpoint_every": 6,      # checkpoint: cycles of thinking before it reports to you and waits
     "auto_promote": True,       # free: verified changes go live on their own (canary, rolls back on regression)
     "alloc": {},                # how the work is shared among agents (pga.allocation): your weights, preferences, parallelism
+    "focus_node": None,         # 思考树: the branch you asked it to continue (pga.tree)
+    "focus_since": None,
     "samples": 3,               # 多次生成: answers per question (different agents, lightly disturbed prompts), then folded together
     "perturb": 0.5,             # how much the prompts are disturbed (0 = never, ≥0.5 two stances, ≥0.7 also drops a context section)
 }
@@ -510,6 +512,9 @@ class Perpetual:
 
     def context(self, t: PerpetualTask, aim: Aim, *, answers: int = 6) -> str:
         parts = [self.team.context(aim)]
+        if (t.settings or {}).get("focus_node"):              # you picked a branch of the thought tree to continue
+            from pga.tree import ThoughtTree
+            parts.append(ThoughtTree(self.rt).focus_context(aim, t.settings["focus_node"]))
         p = self.project(t)
         if p:
             parts.append(snapshot(p.path))

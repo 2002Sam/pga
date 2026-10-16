@@ -293,6 +293,47 @@ def _plan_datasets(rt: "Runtime", user: User, now: datetime) -> list[dict]:
             for b in Datasets(rt).due(user, now)[:3]]
 
 
+@handler("tree.curate")
+def _tree_curate(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """Place the motivation's new dialogue into its thought tree (a few windows per job)."""
+    from pga.db.models import Aim
+    from pga.tree import ThoughtTree, TreeDeferred
+
+    aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
+    if aim is None:
+        raise Permanent("motivation is gone")
+    try:
+        def grown() -> None:                               # each window shows on the tree right away
+            rt.workflow.heartbeat_lease(job)
+            rt.session.commit()
+        return ThoughtTree(rt).curate(_user(rt, job), aim, now, windows=int(job.payload.get("windows") or 3), after_window=grown)
+    except TreeDeferred as exc:
+        raise Defer(_defer_default(now), str(exc)) from exc
+
+
+@register_planner
+def _plan_tree(rt: "Runtime", user: User, now: datetime) -> list[dict]:
+    """A motivation's tree grows when enough new dialogue has piled up (or some has waited for hours)."""
+    from sqlalchemy import func, select
+
+    from pga.db.models import Aim, AimNote
+    from pga.tree import TURNS, ThoughtTree
+
+    if not rt.policy.layers.background:
+        return []
+    tree, out = ThoughtTree(rt), []
+    for aim in rt.session.scalars(select(Aim).where(Aim.user_id == user.id)):
+        n = tree.pending_count(aim)
+        if not n:
+            continue
+        since = tree.placed_until(aim.id)
+        oldest = rt.session.scalar(select(func.min(AimNote.created_at)).where(
+            AimNote.aim_id == aim.id, AimNote.kind.in_(TURNS), *( [AimNote.created_at > since] if since else [])))
+        if n >= 25 or (oldest and now - oldest > timedelta(hours=6)):
+            out.append({"kind": "tree.curate", "key": f"tree:{aim.id}", "payload": {"aim": str(aim.id), "windows": 3}, "priority": 165})
+    return out
+
+
 @handler("skill.evaluate")
 def _skill_eval(rt: "Runtime", job: Job, now: datetime) -> dict:
     from pga.db.models import Skill

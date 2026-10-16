@@ -5307,6 +5307,7 @@ function tellConsole(n) {                                               // the m
   window.parent.postMessage({ type: "pga:select", id: n ? n.id : null, kind: d?.kind || null, label: d?.label || null,
     aim_id: d?.aim_id || null, vendor: d?.vendor || null, agent: d?.agent || null, project_id: d?.project_id || null,
     conversation: d?.conversation || null, parent: d?.parent || null, aim: d?.aim || null, code: d?.code || null,
+    body_id: d?.body_id || null, system: d?.system || null, question: d?.question || null,
     x: at?.x, y: at?.y }, location.origin);
 }
 function embedLook(n) {                                                  // exactly like talking to a planet: the view glides to it, the rest fades

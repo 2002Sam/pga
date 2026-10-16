@@ -62,6 +62,51 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .smp { margin-top: 8px; border-top: 1px dashed var(--line-2); padding-top: 6px; }
 .smp .one { margin: 8px 0 0 10px; padding-left: 10px; border-left: 1px solid var(--line-2); } .smp .one .h { display: flex; gap: 10px; font-size: 11.5px; color: var(--muted); }
 .smp .one .b { font-size: 12.5px; white-space: pre-wrap; } .smp .idea { margin: 4px 0; color: var(--gold, #e9a94b); font-size: 12.5px; }
+.aimtabs { display: flex; gap: 0; margin: 14px 0 6px; border-bottom: 1px solid var(--line); }
+.aimtabs button { border: 0; border-bottom: 2px solid transparent; padding: 6px 14px; color: var(--muted); }
+.aimtabs button.on { color: var(--text); border-bottom-color: var(--gold); }
+.treehead { display: flex; gap: 14px; align-items: center; margin: 8px 0; font-size: 12.5px; color: var(--muted); flex-wrap: wrap; }
+.treehead span:first-child { flex: 1; } .gold { color: var(--gold); }
+.tree-empty { padding: 30px 0; color: var(--muted); }
+.treewrap { position: relative; height: min(64vh, 640px); overflow: auto; margin: 0 -10px; border: 1px solid var(--line);
+  background: radial-gradient(ellipse at 50% 100%, rgba(233,169,75,.09), transparent 62%), linear-gradient(rgba(6,7,9,.86), rgba(6,7,9,.93)); }
+.treewrap svg { display: block; margin: 0 auto; }
+.treewrap .root { fill: none; stroke: rgba(233,169,75,.25); stroke-width: 1.1; stroke-linecap: round; }
+.treewrap .br { fill: none; stroke: rgba(222,230,234,.42); stroke-linecap: round; }
+.treewrap .br.mine { stroke: rgba(150,214,160,.7); } .treewrap .br.focus { stroke: rgba(233,169,75,.9); filter: drop-shadow(0 0 4px rgba(233,169,75,.5)); }
+.treewrap .grow { stroke-dasharray: 1; stroke-dashoffset: 1; animation: grow .9s cubic-bezier(.3,.6,.3,1) forwards; }
+@keyframes grow { to { stroke-dashoffset: 0; } }
+.treewrap .twig { fill: none; stroke: rgba(222,230,234,.26); stroke-width: .8; } .treewrap .twigend { fill: rgba(222,230,234,.45); }
+.treewrap .bud { fill: rgba(5,5,5,.8); stroke: var(--gold); stroke-width: 1; cursor: pointer; } .treewrap .bud:hover, .treewrap .bud.on { fill: var(--gold); }
+.treewrap .pop { opacity: 0; animation: pop .55s ease forwards; transform-box: fill-box; transform-origin: center; }
+@keyframes pop { from { opacity: 0; } to { opacity: 1; } }
+.treewrap .tn { cursor: pointer; } .treewrap .tn .halo { fill: transparent; }
+.treewrap .tn .body { fill: #0b0d10; stroke: rgba(232,236,238,.85); stroke-width: 1.3; transition: fill .2s; }
+.treewrap .tn.user .body { stroke: rgba(150,214,160,.95); } .treewrap .tn.focus .body { stroke: var(--gold); }
+.treewrap .tn:hover .body { fill: #1b2026; } .treewrap .tn.sel .body { fill: var(--gold); stroke: var(--gold); }
+.treewrap .tn.sel .halo { fill: rgba(233,169,75,.14); }
+.treewrap .tn .open { fill: var(--gold); }
+.treewrap .tn.tip .halo { fill: rgba(233,169,75,.1); animation: tip 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes tip { 0%, 100% { transform: scale(.8); opacity: .3; } 50% { transform: scale(1.35); opacity: 1; } }
+.treewrap .seedbody { fill: #000; stroke: var(--gold); stroke-width: 1.5; }
+.treewrap text { font: 12px var(--font); fill: rgba(232,236,238,.82); paint-order: stroke; stroke: rgba(5,6,8,.92); stroke-width: 4px; stroke-linejoin: round; cursor: pointer; }
+.treewrap text.user { fill: rgba(170,224,178,.95); } .treewrap text.sel { fill: var(--gold); }
+.treewrap text .tm { font: 10px var(--mono); fill: rgba(160,168,172,.7); }
+.treewrap .rootlbl { font-size: 12.5px; fill: var(--gold); cursor: default; }
+.tnp { margin-top: 14px; } .tnp .crumb { font-size: 11.5px; color: var(--muted); } .tnp .crumb a { color: var(--muted); }
+.tnp .tnh { display: flex; gap: 10px; align-items: baseline; margin: 4px 0 2px; } .tnp .tnh h2 { margin: 0; font-size: 17px; font-weight: 400; }
+.tnp .tnh .k { font: var(--cap); color: var(--gold); letter-spacing: .12em; }
+.tnp .shift { margin: 8px 0; color: rgba(233,169,75,.85); font-size: 12.5px; } .tnp .sum { line-height: 1.75; }
+.tnp .keys { margin: 8px 0; padding-left: 18px; } .tnp .keys li { margin: 3px 0; }
+.tnp .buds { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; font-size: 12.5px; } .tnp .buds a { color: var(--gold); text-decoration: none; }
+.tnp .gitbox { margin: 12px 0; padding: 10px 12px; border: 1px solid var(--line); font-size: 12.5px; } .tnp .gitbox a { color: #9cc3e6; }
+.tnp .gc { margin: 3px 0; } .tnp .gf { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11.5px; }
+.tnp h3 { font-size: 13px; font-weight: 400; color: var(--muted); margin: 16px 0 6px; }
+.tcont { position: sticky; bottom: 0; z-index: 4; margin-top: 12px; padding: 12px 0 14px; background: rgba(7,8,10,.97); box-shadow: 0 -16px 22px rgba(5,5,5,.9); }
+.tnp .tnh h2 { letter-spacing: normal; text-transform: none; color: var(--text); font-family: var(--font); }
+.tcont textarea { width: 100%; min-height: 56px; resize: vertical; background: rgba(12,14,16,.85); border: 1px solid var(--line-2); padding: 8px 10px; outline: none; }
+.tcont textarea:focus { border-color: var(--gold-dim); } .tcont .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; } .tcont .grow { flex: 1; }
+.tcont select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; }
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
@@ -597,7 +642,7 @@ async function loadLive() {
 async function loadProcess() {
   if (C.view.kind !== "aim") return;
   if (!C.sel) { renderProcess(); return; }
-  try { C.proc = await api(`/v1/users/${C.uid}/console/aims/${C.sel}`); } catch (e) { C.proc = null; }
+  try { [C.proc] = await Promise.all([api(`/v1/users/${C.uid}/console/aims/${C.sel}`), loadTree(C.sel)]); } catch (e) { C.proc = null; }
   if (C.view.kind !== "aim") return;
   if (document.activeElement?.matches?.("#proc textarea, #proc input")) { renderLive(); return; }   // don't redraw under your typing
   renderProcess();
@@ -653,6 +698,182 @@ function folderPick(a, proj) {
     const other = p.aim_id && p.aim_id !== a?.id && !mine.has(p.id);
     return `<option value="${p.id}" ${p.id === proj?.id ? "selected" : ""} ${other ? "disabled" : ""}>${esc(p.name)}${other ? "（属于另一个抱负）" : ""}</option>`; }).join("")}</select>`;
 }
+/* ------------------------------------------------ the thought tree (思考树)
+   The motivation is the root, at the bottom; the dialogue grows upward in nodes, one line of thought each. A node that
+   continues its parent grows straight on (the trunk); one that splits off grows in a lane of its own (a branch). Sampled
+   answers are twigs, ideas only one sample had are buds. Pick any node or bud and continue from it. */
+C.trees = {}; C.tnode = {}; C.treeSel = {}; C.treeSeen = {}; C.treeScroll = {};
+C.aimTab = store.get("pga_aim_tab") || "tree";
+const TROW = 50;
+async function loadTree(aim = C.sel) {
+  if (!aim) return;
+  try { C.trees[aim] = await api(`/v1/aims/${aim}/tree`); } catch { C.trees[aim] ||= { nodes: [], failed: true }; }
+}
+async function loadNode(id) {
+  try { C.tnode[id] = await api(`/v1/thought-nodes/${id}`); } catch (e) { C.tnode[id] = { error: e.message }; }
+  if (C.view.kind === "aim" && C.aimTab === "tree") renderTreePanel();
+}
+function treeLayout(T, W) {
+  const list = (T?.nodes || []).filter((n) => n.kind !== "bud").sort((a, b) => a.seq - b.seq).map((n, i) => ({ ...n, row: i }));
+  const by = new Map(list.map((n) => [n.id, n]));
+  const pid = (n) => (n.parent && by.has(n.parent) ? n.parent : "root");
+  const kids = new Map(); for (const n of list) { const p = pid(n); if (!kids.has(p)) kids.set(p, []); kids.get(p).push(n); }
+  const lane = new Map([["root", 0]]), depth = new Map([["root", 0]]), busy = new Map([[0, (kids.get("root") || [])[0]?.row ?? -1]]);
+  for (const n of list) {
+    const p = pid(n), pl = lane.get(p) ?? 0;
+    let l = pl;
+    if ((kids.get(p) || [])[0] !== n) {                              // a branch: the nearest lane that is free from here on
+      for (let k = 1; k < 60; k++) { const c = n.row % 2 ? [pl + k, pl - k] : [pl - k, pl + k]; const f = c.find((x) => (busy.get(x) ?? -2) < n.row); if (f !== undefined) { l = f; break; } }
+    }
+    lane.set(n.id, l); depth.set(n.id, (depth.get(p) || 0) + 1);
+    const fk = (kids.get(n.id) || [])[0];
+    busy.set(l, Math.max(busy.get(l) ?? -2, n.row, fk ? fk.row : n.row));
+  }
+  const maxL = Math.max(1, ...[...lane.values()].map(Math.abs)), gap = Math.max(26, Math.min(62, (W / 2 - 170) / maxL));
+  const H = (list.length + 1) * TROW + 150, cx = W / 2, y0 = H - 120;
+  for (const n of list) { n.lane = lane.get(n.id); n.depth = depth.get(n.id); n.x = cx + n.lane * gap; n.y = y0 - (n.row + 1) * TROW; n.p = pid(n); }
+  return { list, by, kids, H, W, cx, y0, maxDepth: Math.max(1, ...[...depth.values()]) };
+}
+function onFocusPath(T, id) {
+  const f = T?.focus; if (!f) return false;
+  const by = new Map((T.nodes || []).map((n) => [n.id, n])); let n = by.get(f);
+  for (let i = 0; n && i < 200; i++) { if (n.id === id) return true; n = by.get(n.parent); }
+  return false;
+}
+function treeHtml(T) {
+  if (!T) return `<div class="tree-empty dim">载入思考树…</div>`;
+  const nodes = (T.nodes || []).filter((n) => n.kind !== "bud");
+  const head = `<div class="treehead"><span>${nodes.length ? `${nodes.length} 个节点` : "还没有长出节点"}${T.pending ? ` · 还有 <b>${T.pending}</b> 轮对话没长进树里` : ""}${T.focus ? ` · <span class="gold">PGA 正沿着金色的分支想</span>` : ""}</span>
+    ${T.pending ? `<button class="ghost" data-tcurate="1" ${C.curating === C.sel ? "disabled" : ""}>${C.curating === C.sel ? "整理中…" : "现在整理"}</button>` : ""}
+    ${T.repo ? `<a class="dim" href="${esc(T.repo)}" target="_blank" rel="noopener">⎇ ${esc(T.repo.replace("https://github.com/", ""))}</a>` : ""}</div>`;
+  if (!nodes.length) return head + `<div class="tree-empty">这个抱负的对话还没有被整理成树。${T.pending ? "点「现在整理」：整理者会读完它们，在注意力转向的地方切出节点。" : ""}</div>`;
+  return head + `<div class="treewrap" id="treeWrap"><svg id="treeSvg"></svg></div><div id="treePanel"></div>`;
+}
+function drawTree() {
+  const svg = $("#treeSvg"), T = C.trees[C.sel]; if (!svg || !T) return;
+  const W = Math.max(520, $("#treeWrap").clientWidth), L = treeLayout(T, W);
+  const seen = (C.treeSeen[C.sel] ||= new Set()), first = !seen.size, sel = C.treeSel[C.sel] || {};
+  let fresh = 0;
+  const delay = (n) => (seen.has(n.id) ? null : (first ? n.row * 45 : (fresh++) * 160));
+  const P = (n) => (n.p === "root" ? { x: L.cx, y: L.y0 } : L.by.get(n.p));
+  let roots = "", edges = "", twigs = "", dots = "", labels = "";
+  for (let i = 0; i < 7; i++) {                                      // the roots, under the ground line
+    const a = -1 + i / 3, len = 34 + (i % 3) * 16;
+    roots += `<path class="root" d="M ${L.cx} ${L.y0} C ${L.cx + a * 18} ${L.y0 + 22}, ${L.cx + a * 46} ${L.y0 + len * .6}, ${L.cx + a * 70} ${L.y0 + len}"/>`;
+  }
+  for (const n of L.list) {
+    const p = P(n), w = Math.max(1.1, 6.4 - n.depth * .42), d = delay(n), focus = onFocusPath(T, n.id), mine = n.kind === "user";
+    let path;
+    if (n.p !== "root" && L.by.get(n.p)?.lane === n.lane || (n.p === "root" && n.lane === 0)) {
+      const wob = ((n.row * 37) % 7 - 3) * 1.6;                     // straight on: the trunk, with a little life in it
+      path = `M ${p.x} ${p.y} C ${p.x + wob} ${p.y - (p.y - n.y) * .35}, ${n.x - wob} ${n.y + (p.y - n.y) * .35}, ${n.x} ${n.y}`;
+    } else if (p.y - n.y <= TROW * 1.2) {
+      path = `M ${p.x} ${p.y} C ${p.x} ${p.y - TROW * .55}, ${n.x} ${n.y + TROW * .5}, ${n.x} ${n.y}`;
+    } else {                                                         // a branch: out of the parent, then up its own lane
+      const out = p.y - TROW * .95;
+      path = `M ${p.x} ${p.y} C ${p.x} ${p.y - TROW * .5}, ${n.x} ${p.y - TROW * .45}, ${n.x} ${out} L ${n.x} ${n.y}`;
+    }
+    edges += `<path class="br ${focus ? "focus" : ""} ${mine ? "mine" : ""} ${d !== null ? "grow" : ""}" d="${path}" pathLength="1" style="stroke-width:${w.toFixed(2)}${d !== null ? `;animation-delay:${d}ms` : ""}"/>`;
+    const side = n.lane >= 0 ? -1 : 1;                               // twigs and buds on the side away from the label
+    if (n.sampled) {
+      const k = Math.min(5, Math.max(2, Math.round(n.samples / Math.max(1, n.sampled)))), span = .5 + (n.spread || .3) * 1.3;
+      for (let j = 0; j < k; j++) {
+        const ang = -Math.PI / 2 + side * (.35 + span * j / Math.max(1, k - 1)), len = 11 + (j % 2) * 5;
+        const ex = n.x + Math.cos(ang) * len, ey = n.y + Math.sin(ang) * len;
+        twigs += `<path class="twig ${d !== null ? "grow" : ""}" pathLength="1" d="M ${n.x} ${n.y} Q ${(n.x + ex) / 2 + side * 3} ${(n.y + ey) / 2 - 3}, ${ex} ${ey}" style="${d !== null ? `animation-delay:${d + 350}ms` : ""}"/><circle class="twigend" cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="1.3"/>`;
+      }
+    }
+    (n.buds || []).slice(-3).forEach((b, j) => {
+      const bx = n.x + side * (16 + j * 11), by2 = n.y + 10 - j * 4, on = sel.id === n.id && sel.bud === j + Math.max(0, (n.buds || []).length - 3);
+      twigs += `<path class="twig" d="M ${n.x} ${n.y} Q ${n.x + side * 8} ${n.y + 8}, ${bx} ${by2}"/>
+        <ellipse class="bud ${on ? "on" : ""} ${d !== null ? "pop" : ""}" data-tbud="${n.id}|${j + Math.max(0, (n.buds || []).length - 3)}" cx="${bx.toFixed(1)}" cy="${by2.toFixed(1)}" rx="3.6" ry="2.3" transform="rotate(${side * -30} ${bx.toFixed(1)} ${by2.toFixed(1)})" style="${d !== null ? `animation-delay:${d + 500}ms` : ""}"><title>灵感：${esc(b.idea)}</title></ellipse>`;
+    });
+    const r = Math.max(4, Math.min(11, 3.4 + Math.sqrt(n.turns || 1) * .62));
+    dots += `<g class="tn ${n.kind} ${n.tip ? "tip" : ""} ${sel.id === n.id && sel.bud == null ? "sel" : ""} ${focus ? "focus" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" style="${d !== null ? `animation-delay:${d + 280}ms` : ""}">
+      <circle class="halo" r="${(r + 7).toFixed(1)}"/><circle class="body" r="${r.toFixed(1)}"/>${n.open ? `<circle class="open" r="${Math.min(2.6, r - 1.5).toFixed(1)}"/>` : ""}<title>${esc(n.title)}</title></g>`;
+    const right = n.lane >= 0, lx = n.x + (right ? r + 9 : -(r + 9)), short = n.title.length > 22 ? n.title.slice(0, 21) + "…" : n.title;
+    const meta = [n.codes?.length ? n.codes.join("–") : "", `${n.turns} 轮`, n.samples ? `${n.samples} 次生成` : "", n.git?.commits ? `⎇ ${n.git.commits}` : ""].filter(Boolean).join(" · ");
+    labels += `<text class="tl ${n.kind} ${sel.id === n.id ? "sel" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" x="${lx.toFixed(1)}" y="${(n.y - 1).toFixed(1)}" text-anchor="${right ? "start" : "end"}" style="${d !== null ? `animation-delay:${d + 320}ms` : ""}">${esc(short)}<tspan class="tm" x="${lx.toFixed(1)}" dy="13">${esc(meta)}</tspan></text>`;
+  }
+  const aimText = C.proc?.aim?.text || T.aim?.text || "", short = aimText.length > 26 ? aimText.slice(0, 25) + "…" : aimText;
+  svg.setAttribute("viewBox", `0 0 ${L.W} ${L.H}`); svg.setAttribute("width", L.W); svg.setAttribute("height", L.H);
+  svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="#e9a94b" stop-opacity=".55"/><stop offset="1" stop-color="#e9a94b" stop-opacity="0"/></radialGradient>
+      <linearGradient id="ground" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
+    <line x1="${L.cx - 230}" x2="${L.cx + 230}" y1="${L.y0 + 4}" y2="${L.y0 + 4}" stroke="url(#ground)"/>
+    <g class="roots">${roots}</g><g>${edges}</g><g>${twigs}</g>
+    <g class="seed" data-tnode=""><circle r="26" cx="${L.cx}" cy="${L.y0}" fill="url(#seedGlow)"/><circle class="seedbody" r="9" cx="${L.cx}" cy="${L.y0}"/></g>
+    <text class="rootlbl" x="${L.cx}" y="${L.y0 + 74}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L.cx}" dy="14">根 · 这个抱负</tspan></text>
+    <g>${dots}</g><g>${labels}</g>`;
+  L.list.forEach((n) => seen.add(n.id));
+  const wrap = $("#treeWrap");
+  if (C.treeScroll[C.sel] != null) wrap.scrollTop = C.treeScroll[C.sel];
+  else { const s = L.list.find((n) => n.id === sel.id) || L.list[L.list.length - 1]; wrap.scrollTop = Math.max(0, (s?.y ?? 0) - wrap.clientHeight * .35); }
+  wrap.onscroll = () => { C.treeScroll[C.sel] = wrap.scrollTop; };
+}
+function afterTree() {
+  const T = C.trees[C.sel]; if (!T) { loadTree().then(() => { if (C.view.kind === "aim" && C.aimTab === "tree") renderProcess(); }); return; }
+  drawTree();
+  const nodes = (T.nodes || []).filter((n) => n.kind !== "bud");
+  const sel = C.treeSel[C.sel];
+  if ((!sel || !nodes.some((n) => n.id === sel.id)) && nodes.length) {
+    const tip = nodes.find((n) => n.tip) || nodes[nodes.length - 1];
+    C.treeSel[C.sel] = { id: tip.id, bud: null };
+  }
+  renderTreePanel();
+}
+function selectTreeNode(id, bud = null) {
+  C.treeSel[C.sel] = { id, bud };
+  drawTree(); renderTreePanel();
+  if (!C.tnode[id]) loadNode(id);
+}
+function renderTreePanel() {
+  const box = $("#treePanel"); if (!box) return;
+  const tx = $("#tnText"); if (tx) C.drafts["tn:" + tx.dataset.node] = tx.value;
+  const T = C.trees[C.sel], sel = C.treeSel[C.sel]; if (!sel || !T) { box.innerHTML = ""; return; }
+  const n = (T.nodes || []).find((x) => x.id === sel.id); if (!n) { box.innerHTML = ""; return; }
+  const d = C.tnode[n.id];
+  if (!d) loadNode(n.id);
+  const bud = sel.bud != null ? (n.buds || [])[sel.bud] : null, focused = T.focus === n.id;
+  const agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
+  const span = n.first_at ? `${new Date(n.first_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} – ${new Date(n.last_at).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "";
+  const g = d?.git || {};
+  const showAll = C.folds.has("tn:" + n.id), notes = d?.notes || [], shown = showAll ? notes : notes.slice(-6);
+  box.innerHTML = `<div class="tnp">
+    <div class="crumb">${(d?.path || [n]).map((x, i, arr) => i < arr.length - 1 ? `<a href="#" data-tgo="${x.id}">${esc(x.title.length > 14 ? x.title.slice(0, 13) + "…" : x.title)}</a>` : "").filter(Boolean).join(" › ")}${(d?.path || []).length > 1 ? " ›" : ""}</div>
+    <div class="tnh"><span class="k">${n.kind === "user" ? "你的分支" : bud ? "灵感" : "节点"}</span><h2>${esc(bud ? bud.idea : n.title)}</h2></div>
+    ${bud ? `<div class="dim" style="font-size:12.5px">这个想法只出现在一部分样本里，还没有人沿它想下去。在下面写点什么，它就长成一条分支。</div>` : `
+    <div class="meta"><span>${esc(span)}</span><span>${n.turns} 轮</span>${n.codes?.length ? `<span>${esc(n.codes.join("–"))}</span>` : ""}${n.open ? `<span class="gold">${n.open} 个问题还开着</span>` : ""}
+      ${n.samples ? `<span>${n.samples} 次生成 · 分歧 ${(n.spread ?? 0).toFixed(2)}</span>` : ""}${n.proposals?.length ? `<span>改进 ${esc(n.proposals.join("、"))}</span>` : ""}${n.mode === "rule" ? `<span class="dim">（按停顿切的，整理者还没读过）</span>` : ""}</div>
+    ${n.shift ? `<div class="shift">↱ ${esc(n.shift)}</div>` : ""}
+    ${n.summary ? `<div class="sum">${esc(n.summary)}</div>` : ""}
+    ${n.key_thoughts?.length ? `<ul class="keys">${n.key_thoughts.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
+    ${(n.buds || []).length ? `<div class="buds">${n.buds.map((b, i) => `<a href="#" data-tbud="${n.id}|${i}">✦ ${esc(b.idea)}</a>`).join("")}</div>` : ""}
+    ${g.repo ? `<div class="gitbox"><span class="cap">代码 · 这段思考期间</span>
+      ${g.head_url ? `<div>当时的代码：<a href="${esc(g.head_url)}" target="_blank" rel="noopener" class="mono">${esc(g.head)}</a></div>` : ""}
+      ${(g.commits || []).map((c) => `<div class="gc"><a class="mono" href="${esc(c.url || "#")}" target="_blank" rel="noopener">${esc(c.sha.slice(0, 7))}</a> ${esc(c.subject)}</div>`).join("") || `<div class="dim">这段时间没有新的提交。</div>`}
+      ${(g.files || []).length ? `<div class="gf">${g.files.map((f) => `<a class="mono" href="${esc(f.url || "#")}" target="_blank" rel="noopener" title="被引用 ${f.refs} 次">${esc(f.path)}</a>`).join("")}</div>` : ""}</div>` : ""}
+    <h3>这一段的对话 <small>${notes.length ? `${notes.length}${d?.hidden ? ` + 更早的 ${d.hidden}` : ""} 条` : ""}</small> ${notes.length > 6 ? `<a href="#" data-fold="tn:${n.id}" style="font-size:12px">${showAll ? "只看最后几条" : "看全部"}</a>` : ""}</h3>
+    <div class="tl tnotes">${d ? (d.error ? `<div class="dim">${esc(d.error)}</div>` : shown.map((x) => evHtml({ type: "note", ...x })).join("")) : `<div class="dim">载入中…</div>`}</div>`}
+    <div class="tcont"><textarea id="tnText" data-node="${n.id}" placeholder="${bud ? "沿这个灵感，你想问什么、往哪儿想？" : n.kind === "user" ? "接着你的这条分支说…" : "从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）"}">${esc(C.drafts["tn:" + n.id] || "")}</textarea>
+      <div class="row"><label class="dim" style="font-size:12px"><input type="checkbox" id="tnFocus" ${C.tfocusDefault ? "checked" : ""}> 之后让 PGA 沿这条分支想</label><span class="grow"></span>
+        <select id="tnAgent"><option value="auto">自动</option>${agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
+        <button class="primary" data-tcont="${n.id}" data-bud="${sel.bud ?? ""}" ${C.tsending ? "disabled" : ""}>${C.tsending ? "思考中…" : bud ? "长出分支" : "继续"}</button></div>
+      <div class="row" style="margin-top:6px">${focused ? `<span class="gold" style="font-size:12px">PGA 正沿着这条分支想</span><button class="ghost" data-tfocus="">取消</button>` : `<button class="ghost" data-tfocus="${n.id}" title="长期任务之后提问时，会优先沿这条分支想下去">让 PGA 沿这里想</button>`}</div></div>
+  </div>`;
+}
+async function treeContinue(id, budIdx) {
+  const box = $("#tnText"), text = (box?.value || "").trim(); if (!text) { toast("先写下你要从这里问什么"); return; }
+  const T = C.trees[C.sel], n = (T?.nodes || []).find((x) => x.id === id), bud = budIdx !== "" && budIdx != null ? (n?.buds || [])[Number(budIdx)]?.idea : null;
+  C.tsending = true; C.drafts["tn:" + id] = text; renderTreePanel();
+  try {
+    const r = await api(`/v1/thought-nodes/${id}/continue`, { body: { text, agent: $("#tnAgent")?.value || "auto", focus: !!$("#tnFocus")?.checked, bud } });
+    C.drafts["tn:" + id] = ""; delete C.tnode[r.node.id];
+    if (r.reply?.error && !r.reply?.text) toast(r.reply.error);
+    await loadTree(); C.treeSel[C.sel] = { id: r.node.id, bud: null }; C.treeScroll[C.sel] = null;
+    renderProcess(); loadNode(r.node.id);
+  } catch (err) { toast(err.message); }
+  finally { C.tsending = false; renderTreePanel(); }
+}
 function renderProcess() {
   const el = $("#proc");
   const P = C.proc;
@@ -676,16 +897,24 @@ function renderProcess() {
       ${t ? `<span class="modechip" data-fold="settings" title="驱动模式和高级设置">${esc(lv?.[1] || "")} · 设置 ${C.folds.has("settings") ? "▴" : "▾"}</span>` : ""}</div>
     ${t ? prefBar() : ""}
     ${t && C.folds.has("settings") ? settingsHtml(t) : ""}
+    <div class="aimtabs"><button class="${C.aimTab === "tree" ? "on" : ""}" data-aimtab="tree">思考树</button><button class="${C.aimTab === "stream" ? "on" : ""}" data-aimtab="stream">对话流</button></div>
+    ${C.aimTab === "tree" ? `${P.checkpoint ? cpHtml(P.checkpoint) : ""}${forYouHtml(P)}${treeHtml(C.trees[C.sel])}` : `
     <div class="stream">${streamHtml(P, c)}
       ${P.checkpoint ? cpHtml(P.checkpoint) : ""}
       ${(P.for_you || []).map((q) => `<div class="ask"><span class="cap">只有你能回答</span><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
         <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
         <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}
       <div id="liveBox"></div></div>
-    ${composerHtml(key, proj, t)}`;
+    ${composerHtml(key, proj, t)}`}`;
+  if (C.aimTab === "tree") { afterTree(); loadAlloc(); return; }
   renderLive();
   if (atEnd && sc) sc.scrollTop = sc.scrollHeight;                     // follow the conversation as it grows
   loadAlloc();
+}
+function forYouHtml(P) {
+  return (P.for_you || []).map((q) => `<div class="ask"><span class="cap">只有你能回答</span><div class="qt">${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px;margin:-4px 0 8px">为什么问你：${esc(q.data.why)}</div>` : ""}
+    <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到">${esc(C.drafts[q.id] || "")}</textarea>
+    <div class="row"><button class="ghost" data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("");
 }
 C.folds = new Set();
 /* the conversation: the agents' self-dialogue and yours, oldest first, the input box always at the bottom */
@@ -1097,6 +1326,12 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("click", (e) => {                          // the thought tree: a node, a bud, the path
+  const g = e.target.closest?.("[data-tnode], [data-tbud], [data-tgo]"); if (!g || !$("#proc")?.contains(g)) return;
+  e.preventDefault();
+  if (g.dataset.tbud) { const [id, i] = g.dataset.tbud.split("|"); selectTreeNode(id, Number(i)); return; }
+  const id = g.dataset.tnode ?? g.dataset.tgo; if (id) selectTreeNode(id);
+});
 document.addEventListener("click", (e) => {                          // the small disc: move between bodies inside the workbench
   const g = e.target.closest?.("[data-mini]"); if (!g) return;
   const v = g.dataset.mini;
@@ -1105,6 +1340,7 @@ document.addEventListener("click", (e) => {                          // the smal
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendChat(e.target.dataset.chatkey); }
+  if (e.target.id === "tnText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); const b = $("[data-tcont]"); if (b) treeContinue(b.dataset.tcont, b.dataset.bud); }
 });
 document.addEventListener("change", async (e) => {
   const t = e.target;
@@ -1163,6 +1399,7 @@ document.addEventListener("click", async (e) => {
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
     if (t.dataset.arole) { C.alloc.role = t.dataset.arole; await loadAlloc(true); return; }
     if (t.dataset.preset) { saveAlloc({ ...PRESETS[t.dataset.preset][1], preset: t.dataset.preset }); toast(`已切换为「${PRESETS[t.dataset.preset][0]}」`); return; }
+    if (t.dataset.fold?.startsWith("tn:")) { e.preventDefault(); C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderTreePanel(); return; }
     if (t.dataset.fold) { e.preventDefault(); C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderCenter(); if (C.view.kind === "aim" && C.folds.has("settings")) loadAlloc(true); return; }
     if (t.dataset.newaim) {
       const text = (prompt("新的长期抱负：你想让 PGA 一直朝什么方向努力？") || "").trim(); if (!text) return;
@@ -1180,6 +1417,20 @@ document.addEventListener("click", async (e) => {
       const on = t.dataset.on === "1", p = allProjects().find((x) => x.id === t.dataset.access);
       if (on && !confirm(`给「${p?.name || "这个文件夹"}」开完整权限：agent 可以在里面改文件、跑命令。确定吗？`)) return;
       try { await api(`/v1/users/${C.uid}/projects/${t.dataset.access}`, { method: "PATCH", body: { full_access: on } }); await loadAll(); toast(on ? "已开完整权限" : "已改成只读"); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+    if (t.dataset.aimtab) { C.aimTab = t.dataset.aimtab; store.set("pga_aim_tab", C.aimTab); renderProcess(); return; }
+    if (t.dataset.tcurate) {
+      C.curating = C.sel; renderProcess();
+      try { const r = await api(`/v1/aims/${C.sel}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理：${r.pending} 轮对话，节点会一段一段长出来`); }
+      catch (err) { toast(err.message); }
+      setTimeout(() => { C.curating = null; loadProcess(); }, 4000);
+      return;
+    }
+    if (t.dataset.tcont) { treeContinue(t.dataset.tcont, t.dataset.bud); return; }
+    if (t.dataset.tfocus !== undefined && t.matches("button[data-tfocus]")) {
+      try { await api(`/v1/aims/${C.sel}/tree/focus`, { body: { node_id: t.dataset.tfocus || null } }); toast(t.dataset.tfocus ? "之后 PGA 会沿这条分支想" : "已取消"); await loadTree(); renderProcess(); }
       catch (err) { toast(err.message); }
       return;
     }

@@ -132,6 +132,32 @@ class PerpetualTask(Base):
     updated_at: Mapped[datetime | None] = mapped_column(Tz())
 
 
+class ThoughtNode(Base):
+    """One node of a motivation's thought tree (思考树): a stretch of the self-dialogue with one line of thought, cut where
+    attention turned (tree.py). The root is the motivation itself (parent_id None). Branches are lines of thought that
+    split off; a bud is an idea not yet followed."""
+    __tablename__ = "thought_nodes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    aim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aims.id", ondelete="CASCADE"), nullable=False)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("thought_nodes.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(16), default="segment", nullable=False)     # segment | user | bud
+    seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)                 # growth order within the tree
+    title: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    shift: Mapped[str] = mapped_column(Text, default="", nullable=False)                 # why attention turned here
+    key_thoughts: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    note_ids: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)  # aim_notes in this stretch
+    first_at: Mapped[datetime | None] = mapped_column(Tz())
+    last_at: Mapped[datetime | None] = mapped_column(Tz())
+    git: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)  # commits, files, links
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+
+    __table_args__ = (Index("ix_thought_nodes_aim_seq", "aim_id", "seq"),)
+
+
 class Project(Base):
     """A folder agents work in. It belongs to a motivation (an aim) as one of its working folders, or stays free for
     one-off tasks; chosen per conversation, independent of which agent you use."""

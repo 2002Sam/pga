@@ -2189,6 +2189,87 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         rt.session.flush()
         return perpetual_view(rt, aim)
 
+    # ---------------------------------------------------------------- the thought tree (思考树)
+
+    def tree_node_or_404(rt, node_id: uuid.UUID):
+        from pga.db.models import ThoughtNode
+        n = rt.session.get(ThoughtNode, node_id)
+        if n is None:
+            raise HTTPException(404, "node not found")
+        return n
+
+    @app.get("/v1/aims/{aim_id}/tree")
+    def tree_view(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """A motivation's thought tree: its dialogue cut into nodes, with branches, twigs (samples) and buds (ideas)."""
+        from pga.tree import ThoughtTree
+        return ThoughtTree(rt).out(aim_or_404(rt, aim_id))
+
+    @app.post("/v1/aims/{aim_id}/tree/curate", status_code=202)
+    def tree_curate(aim_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
+        """Grow the tree now: the curator places the pending dialogue, in the background."""
+        from pga.tree import ThoughtTree
+        aim = aim_or_404(rt, aim_id)
+        windows = max(1, min(30, int((body or {}).get("windows") or 20)))
+        rt.workflow.enqueue("tree.curate", user_id=aim.user_id, payload={"aim": str(aim.id), "windows": windows},
+                            dedupe_key=f"tree:{aim.id}", priority=60, created_by=Origin.USER)
+        return {"queued": True, "pending": ThoughtTree(rt).pending_count(aim)}
+
+    @app.get("/v1/thought-nodes/{node_id}")
+    def tree_node(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """One node: its line of thought, the turns in it (with every sample), and the code meanwhile."""
+        from pga.tree import ThoughtTree, node_out
+        n = tree_node_or_404(rt, node_id)
+        tree = ThoughtTree(rt)
+        notes = tree.notes_of(n)
+        return {**node_out(n, full=True), "path": [{"id": str(x.id), "title": x.title} for x in tree.path(n)],
+                "children": [str(x.id) for x in tree.nodes(n.aim_id) if x.parent_id == n.id],
+                "notes": [{"id": str(x.id), "kind": x.kind, "agent": x.agent, "role": x.role, "status": x.status,
+                           "at": x.created_at.isoformat(), "text": x.text[:4000], "data": x.data or {}} for x in notes[-80:]],
+                "hidden": max(0, len(notes) - 80)}
+
+    @app.post("/v1/thought-nodes/{node_id}/continue")
+    def tree_continue(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Continue from this node (or one of its buds): your question and the agent's answer grow a branch of yours."""
+        from pga.agents.routing import AgentRouter
+        from pga.db.models import Aim
+        from pga.tree import ThoughtTree, node_out
+        n = tree_node_or_404(rt, node_id)
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise HTTPException(422, "text is needed")
+        aim = rt.session.get(Aim, n.aim_id)
+        u = user_or_404(rt, aim.user_id)
+        tree = ThoughtTree(rt)
+        branch = tree.branch_for(n, text, bud=str(body.get("bud") or "") or None)
+        try:
+            with rt.billing(user_ctx(u)):
+                reply = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=tree.context_for(branch if branch.note_ids else n),
+                                            category="serious" if str(body.get("agent") or "auto") == "auto" else None,
+                                            conversation=f"node:{branch.id}", project=None)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        tree.record(branch, aim, text, reply)
+        if body.get("focus"):
+            from pga.tree import TreeError
+            try:
+                tree.focus(aim, branch)
+            except TreeError:
+                pass
+        return {"node": node_out(branch), "reply": {k: reply.get(k) for k in ("agent", "text", "error", "model")}}
+
+    @app.post("/v1/aims/{aim_id}/tree/focus")
+    def tree_focus(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Tell the team which branch to keep thinking along (or none)."""
+        from pga.tree import ThoughtTree, TreeError
+        aim = aim_or_404(rt, aim_id)
+        node = tree_node_or_404(rt, uuid.UUID(str(body["node_id"]))) if body.get("node_id") else None
+        if node is not None and node.aim_id != aim.id:
+            raise HTTPException(422, "that node belongs to another motivation")
+        try:
+            return ThoughtTree(rt).focus(aim, node)
+        except TreeError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get("/v1/aims/{aim_id}/allocation")
     def perpetual_allocation(aim_id: uuid.UUID, role: str = "researcher", rt: Runtime = Depends(get_rt)):
         """How this motivation shares its work out: your weights, every agent's parts, score and target share,
