@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title>PGA 工作台</title>
+<title>存档 · PGA 工作台</title>
 <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=3">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=3">
 <link rel="manifest" href="/manifest.webmanifest">
@@ -368,7 +368,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 <div class="app">
   <header>
     <a class="logo" href="/forest"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a href="/forest" id="toForest">森林</a><a class="on" href="/console" id="toDeskTab">工作台</a></nav>
+    <nav><a href="/forest" id="toForest">← 森林</a><a class="on" href="/archive/console" id="toDeskTab">工作台（存档）</a></nav>
     <div class="pulse"><span id="pWorking"><span class="dot"></span> —</span><span id="pTasks">—</span><span id="pUpdated" class="dim"></span></div>
   </header>
   <div class="stage">
@@ -392,7 +392,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const AS_UID = new URLSearchParams(location.search).get("as");
-if (AS_UID) { $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`; $("#toForest").href = `/forest?as=${encodeURIComponent(AS_UID)}`; }
+if (AS_UID) { $("#toDeskTab").href = `/archive/console?as=${encodeURIComponent(AS_UID)}`; $("#toForest").href = `/forest?as=${encodeURIComponent(AS_UID)}`; }
 const SYS_ZH = { user: "用户知识库", world: "世界知识库", aim: "抱负知识库" };
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
@@ -445,7 +445,7 @@ async function boot() {
   catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：清掉浏览器里保存的账号后刷新。</div>`; return; } }
   if (!AS_UID) store.set("pga_uid", C.uid);
   const q = new URLSearchParams({ embed: "map" }); if (AS_UID) q.set("as", AS_UID);
-  $("#map").src = "/?" + q;
+  $("#map").src = "/archive/sky?" + q;
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
   if (C.view.kind === "aim") C.view.id = C.sel;

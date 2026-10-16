@@ -86,20 +86,22 @@ body.entering .tree:not(.going), body.entering .sky, body.entering .soil, body.e
 .modal .box h2 { margin: 0 0 6px; font-weight: 400; } .md p { margin: .5em 0; } .md h1, .md h2, .md h3 { font-weight: 500; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #111; border: 1px solid var(--line-2); padding: 8px 14px; font-size: 12.5px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; }
 #toast.on { opacity: 1; }
+.foot { text-align: center; padding: 0 0 30px; font-size: 12px; } .foot a { color: #666; } .foot a:hover { color: var(--muted); }
 @media (pointer: coarse) { #guide { display: none; } }
 </style>
 </head>
 <body>
 <header>
   <a class="logo" href="/forest" id="home"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-  <nav><a class="on" href="#">森林</a><a href="/console" id="toDesk">工作台</a></nav>
+  <nav><a class="on" href="#">森林</a></nav>
   <div class="pulse" id="pulse"></div>
 </header>
 <section class="sky"><div class="stars"></div><div id="world"></div></section>
 <section class="forest" id="forest"><div style="color:var(--muted)">载入森林…</div></section>
 <div class="ground"></div>
 <section class="soil" id="soil"></section>
-<section class="nursery"><h2>苗圃 · 共享的知识 <small>每棵树沉淀出来的数据集和技能；挂到一棵树上，它每一轮思考都会读到</small></h2><div class="shelf" id="shelf"></div></section>
+<section class="nursery" id="nurserySec"><h2>苗圃 · 共享的知识 <small>每棵树沉淀出来的数据集和技能；挂到一棵树上，它每一轮思考都会读到</small></h2><div class="shelf" id="shelf"></div></section>
+<footer class="foot"><a id="toArchive" href="/archive/console" title="森林之前的工作台和星空，保留原样">旧的工作台和星空（存档）</a></footer>
 <div id="guide"></div>
 <div id="toast"></div>
 <script>
@@ -243,7 +245,7 @@ document.addEventListener("click", async (e) => {
   if (t.id === "seed") { if (!F.planting) { F.planting = true; render(); $("#seedText")?.focus(); } return; }
   const id = t.dataset.enter || t.dataset.tree; if (id) enter(id);
 });
-$("#toDesk").href = "/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""); $("#home").href = "/forest" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "");
+$("#toArchive").href = "/archive/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""); $("#home").href = "/forest" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "");
 addEventListener("pageshow", (e) => { if (e.persisted) { G.going = false; document.body.classList.remove("entering"); document.querySelectorAll(".flyer, .burst").forEach((x) => x.remove()); } });
 load(); setInterval(() => load().catch(() => {}), 15000);
 </script>

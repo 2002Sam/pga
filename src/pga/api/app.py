@@ -20,7 +20,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
@@ -205,16 +205,26 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     # ---------------------------------------------------------------- web app
 
+    WEB = Path(__file__).resolve().parent.parent / "web"
+
     @app.get("/", include_in_schema=False)
     def web_app() -> FileResponse:
-        return FileResponse(Path(__file__).resolve().parent.parent / "web" / "index.html")
+        """PGA opens on the forest: every motivation's thought tree, your own conversation tree, the shared knowledge."""
+        return FileResponse(WEB / "forest.html")
+
+    # the pages before the forest, kept as they were (the old workbench embeds the old sky as its map)
+    @app.get("/archive/console", include_in_schema=False)
+    def web_archive_console() -> FileResponse:
+        return FileResponse(WEB / "archive" / "console.html")
+
+    @app.get("/archive/sky", include_in_schema=False)
+    def web_archive_sky() -> FileResponse:
+        return FileResponse(WEB / "archive" / "sky.html")
 
     @app.get("/console", include_in_schema=False)
-    def web_console() -> FileResponse:
-        """工作台: motivations → projects → the agents' process, with controls."""
-        return FileResponse(Path(__file__).resolve().parent.parent / "web" / "console.html")
-
-    WEB = Path(__file__).resolve().parent.parent / "web"
+    def web_console(request: Request):
+        """Old links to the workbench land on its archived copy."""
+        return RedirectResponse("/archive/console" + (f"?{request.url.query}" if request.url.query else ""))
 
     @app.get("/forest", include_in_schema=False)
     def web_forest() -> FileResponse:
@@ -236,7 +246,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.get("/v1/version", include_in_schema=False)
     def web_version() -> dict:
         """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
-        st = (WEB / "index.html").stat()
+        st = (WEB / "forest.html").stat()
         return {"ui": f"{int(st.st_mtime)}-{st.st_size}"}
 
     ICONS = Path(__file__).resolve().parent.parent / "web" / "icons"

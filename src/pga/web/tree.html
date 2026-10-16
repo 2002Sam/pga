@@ -96,7 +96,7 @@ h3 small { letter-spacing: .04em; color: var(--dim); font-size: 11px; } h3 small
 <div class="app">
   <header>
     <a class="logo" id="home" href="/forest"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a href="/forest" id="toForest">森林</a><a class="on" href="#">思考树</a><a href="/console" id="toDesk">工作台</a></nav>
+    <nav><a href="/forest" id="toForest">森林</a><a class="on" href="#">思考树</a></nav>
     <select class="aimpick" id="aimPick" title="换一棵树"></select>
     <div class="run" id="run"></div>
   </header>
@@ -139,7 +139,7 @@ const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
 /* ------------------------------------------------ loading */
 async function boot() {
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
-  $("#toDesk").href = "/console" + asq; $("#toForest").href = $("#home").href = "/forest" + asq;
+  $("#toForest").href = $("#home").href = "/forest" + asq;
   try { const d = await api(`/v1/users/${S.uid}/console`); S.aims = d.aims || []; S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); } catch {}
   if (!S.aim) S.aim = (S.aims.find((a) => a.task) || S.aims[0])?.id || "you";
   $("#aimPick").innerHTML = `<option value="you" ${YOU() ? "selected" : ""}>你的对话</option>` + S.aims.map((a) => `<option value="${a.id}" ${a.id === S.aim ? "selected" : ""}>${esc(a.text.length > 30 ? a.text.slice(0, 29) + "…" : a.text)}</option>`).join("");
@@ -147,8 +147,12 @@ async function boot() {
   await loadTree();
   setInterval(() => loadTree(true).catch(() => {}), 20000);
 }
+async function loadProc() {
+  if (YOU()) { S.proc = null; return; }
+  try { S.proc = await api(`/v1/users/${S.uid}/console/aims/${S.aim}`); } catch { S.proc = null; }
+}
 async function loadTree(quiet) {
-  S.tree = await api(treeApi());
+  [S.tree] = await Promise.all([api(treeApi()), loadProc()]);
   const nodes = (S.tree.nodes || []).filter((n) => n.kind !== "bud");
   if (!S.node || !nodes.some((n) => n.id === S.node)) S.node = (nodes.find((n) => n.tip) || nodes[nodes.length - 1])?.id || null;
   renderRun(); renderLegend(); drawTree(!quiet);
@@ -168,7 +172,8 @@ function renderRun() {
   $("#run").innerHTML = t ? `<span class="st"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? "运行中" : t.status === "paused" ? "已暂停" : "已停止"}</b> · ${esc(t.phase_zh || "")}</span>
       <span title="张力：${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join("，")}">张力 ${t.pressure.toFixed(2)} <span class="pbar"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
       <span>${esc(t.autonomy_zh || "")} · 每题 ${t.samples || 1} 次生成</span>
-      ${T.for_you ? `<a href="/console${asq}" class="gold">${T.for_you} 个问题等你回答</a>` : ""}
+      ${T.for_you || S.proc?.checkpoint ? `<button class="primary" id="waitBtn">${[S.proc?.checkpoint ? "检查点等你看" : "", T.for_you ? `${T.for_you} 个问题等你回答` : ""].filter(Boolean).join(" · ")}</button>` : ""}
+      <button id="setBtn" title="驱动模式、多次生成、分配">设置</button>
       ${T.project ? `<button id="runBtn" class="${t.status === "running" ? "" : "primary"}">${t.status === "running" ? "⏸ 暂停" : "▶ 开始"}</button>` : ""}`
     : `<span>这个抱负还没有在长期运行${T.project ? "" : "：先在工作台给它选一个工作文件夹"}</span>${T.project ? `<button id="runBtn" class="primary">▶ 开始</button>` : ""}`;
 }
@@ -400,6 +405,50 @@ async function quickOp(op) {
     }
   } catch (err) { toast(err.message); }
 }
+/* what used to need the workbench: questions only you can answer, checkpoints, and the settings */
+const PRESETS = { performance: ["最高性能", { w_perf: 2.5, w_pref: 1, w_balance: .5, w_cost: 0, w_speed: .3, temperature: .25 }],
+                  balanced: ["均衡模式", { w_perf: 1, w_pref: 1, w_balance: 1, w_cost: .4, w_speed: .3, temperature: .35 }],
+                  economy: ["省钱模式", { w_perf: .6, w_pref: 1, w_balance: 2, w_cost: 2, w_speed: .2, temperature: .5 }] };
+const LEVELS = [["free", "完全自由", "它自己想、自己研究，验证过的改进自动上线（出问题会回滚）"], ["checkpoint", "检查点", "每想几轮停下来，把发现和打算交给你决定"], ["driven", "用户驱动", "只在你提出要求时工作"]];
+function modal(html) {
+  document.querySelector(".modal")?.remove();
+  const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div class="box">${html}</div>`;
+  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m); return m;
+}
+function showWaiting() {
+  const P = S.proc || {}, cp = P.checkpoint;
+  S.cpApprove = S.cpApprove || new Set((cp?.proposals || []).filter((p) => p.recommend).map((p) => p.code));
+  modal(`${cp ? `<h2>检查点</h2><div class="dim" style="margin-bottom:10px">它停下来了：这是它的发现和打算，你决定下一步。</div>
+      <h3>它发现了什么</h3><div class="sum">${esc(cp.summary || "")}</div>
+      ${cp.direction ? `<h3>接下来的整体思路</h3><div class="sum">${esc(cp.direction)}</div>` : ""}${cp.question ? `<h3>最想请你判断</h3><div class="shift">${esc(cp.question)}</div>` : ""}
+      ${(cp.options || []).length ? `<h3>怎么走</h3>${cp.options.map((o, i) => `<label style="display:block;margin:6px 0"><input type="radio" name="cpopt" value="${i}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}${i === 0 ? " <span class='dim'>（它的建议）</span>" : ""}<div class="dim" style="margin-left:22px;font-size:12px">${esc(o.detail || "")}</div></label>`).join("")}` : ""}
+      ${(cp.proposals || []).length ? `<h3>要动手实现的改进（勾选才会做）</h3>${cp.proposals.map((p) => `<label style="display:block;margin:6px 0"><input type="checkbox" data-cpp="${esc(p.code)}" ${S.cpApprove.has(p.code) ? "checked" : ""}> <b>${esc(p.code)}</b> ${esc(p.title)}<div class="dim" style="margin-left:22px;font-size:12px">${esc(p.why || p.change || "")}</div></label>`).join("")}` : ""}
+      <div class="form"><textarea id="cpText" placeholder="可选：你的看法或修正，会成为之后每一轮的指导"></textarea>
+      <div class="row"><button data-cp="stop">停下</button><button data-cp="adjust">按我的意见调整后继续</button><button class="primary" data-cp="continue">同意，继续</button></div></div>` : ""}
+    ${(P.for_you || []).length ? `<h2 style="margin-top:${cp ? 24 : 0}px">只有你能回答</h2>${P.for_you.map((q) => `<div class="form"><div>${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px">为什么问你：${esc(q.data.why)}</div>` : ""}
+      <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到"></textarea>
+      <div class="row"><button data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}` : ""}`);
+}
+async function showSettings() {
+  const t = S.proc?.task; if (!t) { toast("这个抱负还没有在长期运行：先按 ▶ 开始"); return; }
+  let preset = "balanced"; try { preset = (await api(`/v1/aims/${S.aim}/allocation`)).settings?.preset || "balanced"; } catch {}
+  modal(`<h2>设置</h2><div class="dim" style="margin-bottom:12px">这棵树的长期任务怎么跑。</div>
+    <h3>驱动模式</h3>${LEVELS.map(([k, zh, d]) => `<label style="display:block;margin:6px 0"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}> <b style="font-weight:500">${zh}</b><div class="dim" style="margin-left:22px;font-size:12px">${d}</div></label>`).join("")}
+    <div style="margin:6px 0 0 22px;font-size:12.5px">检查点：每想 <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:52px"> 轮停下来一次</div>
+    <h3>多次生成</h3><div style="font-size:12.5px">每个问题生成 <input type="number" id="setSamples" min="1" max="5" value="${t.samples ?? 3}" style="width:52px"> 次（不同 agent、稍加扰动的提示词，再合成并保留新想法）</div>
+    <div style="font-size:12.5px;margin-top:6px">扰动强度 <input type="range" id="setPerturb" min="0" max="1" step="0.1" value="${t.perturb ?? .5}" style="vertical-align:middle"> <span id="pv">${(t.perturb ?? .5).toFixed(1)}</span></div>
+    <h3>多 agent 分配</h3><div class="chips">${Object.entries(PRESETS).map(([k, [zh]]) => `<label class="chip ${k === preset ? "on" : ""}"><input type="radio" name="preset" value="${k}" ${k === preset ? "checked" : ""} style="display:none">${zh}</label>`).join("")}</div>
+    <div class="form" style="border:0;background:none;padding:0;margin-top:16px"><div class="row"><button data-closemodal="1">取消</button><button class="primary" id="saveSettings">保存</button></div></div>`);
+  document.querySelectorAll('input[name=preset]').forEach((r) => r.addEventListener("change", () => document.querySelectorAll('input[name=preset]').forEach((x) => x.parentElement.classList.toggle("on", x.checked))));
+  $("#setPerturb").addEventListener("input", (e) => { $("#pv").textContent = Number(e.target.value).toFixed(1); });
+}
+async function saveSettings() {
+  const lvl = document.querySelector('input[name=lvl]:checked')?.value, preset = document.querySelector('input[name=preset]:checked')?.value;
+  const settings = { autonomy: lvl, checkpoint_every: Number($("#setEvery").value), samples: Number($("#setSamples").value), perturb: Number($("#setPerturb").value) };
+  if (preset) settings.alloc = { preset, ...PRESETS[preset][1] };
+  try { await api(`/v1/aims/${S.aim}/perpetual`, { method: "PATCH", body: { settings } }); document.querySelector(".modal")?.remove(); toast("已保存"); await loadTree(true); }
+  catch (err) { toast(err.message); }
+}
 async function showDoc(id) {
   const d = await api(`/v1/bodies/${id}/document`).catch((e) => ({ error: e.message }));
   const m = document.createElement("div"); m.className = "modal";
@@ -407,7 +456,7 @@ async function showDoc(id) {
   m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m);
 }
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], #send, #curate, #rewrite, #runBtn");
+  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings");
   if (!t) return;
   if (t.dataset.mode) { S.mode = t.dataset.mode; store.set("pga_tree_mode", S.mode); renderLegend(); drawTree(false); return; }
   if (t.dataset.crefdel) { e.preventDefault(); S.contRefs = S.contRefs.filter((x) => x !== t.dataset.crefdel); renderCont(nodeOf(S.node), S.bud != null); return; }
@@ -453,6 +502,30 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (t.id === "send") { send(); return; }
+  if (t.id === "waitBtn") { showWaiting(); return; }
+  if (t.id === "setBtn") { showSettings(); return; }
+  if (t.id === "saveSettings") { saveSettings(); return; }
+  if (t.dataset.closemodal) { document.querySelector(".modal")?.remove(); return; }
+  if (t.dataset.answer || t.dataset.drop) {
+    const id = t.dataset.answer || t.dataset.drop, text = t.dataset.answer ? (document.querySelector(`textarea[data-q="${CSS.escape(id)}"]`)?.value || "").trim() : "";
+    if (t.dataset.answer && !text) { toast("先写下你的回答"); return; }
+    try { await api(`/v1/aims/${S.aim}/perpetual/answer`, { body: t.dataset.answer ? { note_id: id, text } : { note_id: id, drop: true } });
+      toast(t.dataset.answer ? "已回答：之后的每一轮都会读到" : "已放下这个问题"); await loadTree(true); if ((S.proc?.for_you || []).length || S.proc?.checkpoint) showWaiting(); else document.querySelector(".modal")?.remove(); }
+    catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.dataset.cp) {
+    const cp = S.proc?.checkpoint; if (!cp) return;
+    const text = ($("#cpText")?.value || "").trim();
+    if (t.dataset.cp === "adjust" && !text) { toast("先写下你的意见"); $("#cpText")?.focus(); return; }
+    if (t.dataset.cp === "stop" && !confirm("停下：这个抱负会暂停，直到你按 ▶ 开始。")) return;
+    const approve = [...document.querySelectorAll("[data-cpp]")].filter((x) => x.checked).map((x) => x.dataset.cpp);
+    const option = Number(document.querySelector('input[name=cpopt]:checked')?.value ?? 0);
+    try { await api(`/v1/aims/${S.aim}/perpetual/checkpoint`, { body: { note_id: cp.id, decision: t.dataset.cp, text, option, approve } });
+      toast({ continue: "已同意，继续", adjust: "已按你的意见调整", stop: "已停下" }[t.dataset.cp]); S.cpApprove = null; document.querySelector(".modal")?.remove(); await loadTree(true); }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (t.id === "curate") { try { const r = await api(YOU() ? `/v1/users/${S.uid}/tree/curate` : `/v1/aims/${S.aim}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理 ${r.pending} 轮对话：节点会一段一段长出来`); } catch (err) { toast(err.message); } return; }
   if (t.id === "rewrite") { try { await api(YOU() ? `/v1/users/${S.uid}/tree/rewrite` : `/v1/aims/${S.aim}/tree/rewrite`, { method: "POST" }); toast("整理者在后台重写这些概括，写好的会陆续更新"); } catch (err) { toast(err.message); } return; }
   if (t.id === "runBtn") {

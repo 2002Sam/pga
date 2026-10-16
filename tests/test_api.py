@@ -91,8 +91,11 @@ def test_glossary_correction_endpoint(client):
 
 
 def test_web_app_is_served_at_root(client):
-    r = client.get("/")
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "PGA 助理" in r.text
+    r = client.get("/")                                              # PGA opens on the forest
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "森林" in r.text
+    old = client.get("/console")                                     # the old workbench lives on as an archive
+    assert old.status_code == 200 and old.url.path == "/archive/console" and "工作台" in old.text
+    assert client.get("/archive/sky").status_code == 200
 
 
 def test_pressure_series_follows_the_tension_ledger(client):
