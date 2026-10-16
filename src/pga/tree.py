@@ -42,7 +42,7 @@ log = logging.getLogger("pga.tree")
 
 WINDOW = 90                         # turns the curator reads at a time
 GAP = timedelta(hours=2)            # the rule cut (when no model can curate): a pause this long starts a node
-TURNS = ("question", "answer", "insight", "reflect", "correction", "checkpoint", "evolve", "summary", "plan")
+TURNS = ("question", "answer", "insight", "reflect", "correction", "checkpoint", "evolve", "summary", "plan", "alternative")
 MAX_BUDS = 6
 
 STYLE = {
@@ -495,6 +495,9 @@ class ThoughtTree:
                      "sampled": len(sampled), "samples": sum(len((n.data or {}).get("samples") or []) for n in sampled),
                      "spread": round(sum(float((n.data or {}).get("divergence") or 0) for n in sampled) / len(sampled), 3) if sampled else None,
                      "buds": buds[-MAX_BUDS:],
+                     "shadows": [{"note": str(n.id), "alt": (n.data or {}).get("alt"), "conclusion": _clip(n.text, 200),
+                                  "assumption": _clip((n.data or {}).get("assumption") or "", 160), "status": n.status}
+                                 for n in notes if n.kind == "alternative"][-4:],
                      "proposals": sorted({p for p in ((n.data or {}).get("proposal") for n in notes) if p})[:8]}
         if not node.title.strip():
             q = next((n for n in notes if n.kind == "question"), None)
@@ -1012,7 +1015,7 @@ def node_out(n: ThoughtNode, full: bool = False) -> dict:
            "codes": d.get("codes") or [], "sampled": d.get("sampled", 0), "samples": d.get("samples", 0), "spread": d.get("spread"),
            "buds": d.get("buds") or [], "proposals": d.get("proposals") or [], "tip": bool(d.get("tip")), "mode": d.get("mode"),
            "hidden": bool(d.get("hidden")), "edited": bool(d.get("edited")), "dataset": d.get("dataset"), "style": d.get("style"),
-           "behavior": d.get("behavior") or {}, "refs": d.get("refs") or [], "scope": n.scope,
+           "behavior": d.get("behavior") or {}, "refs": d.get("refs") or [], "scope": n.scope, "shadows": d.get("shadows") or [],
            "with": d.get("with"), "with_aim": d.get("with_aim"), "with_title": d.get("with_title"), "exchanges": d.get("exchanges") or [],
            "git": {"commits": len((n.git or {}).get("commits") or []), "files": len((n.git or {}).get("files") or []),
                    "head": (n.git or {}).get("head")}}

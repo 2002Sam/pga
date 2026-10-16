@@ -3,112 +3,118 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>思考树 · PGA</title>
+<title>Tree · PGA</title>
 <link rel="icon" href="/icons/favicon-32.png?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="/ui/tree.js"></script>
 <style>
 :root {
-  --bg: #050505; --panel: #0a0b0d; --text: #e8e8e8; --muted: #8a8a8a; --dim: #555;
-  --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.2); --line-3: rgba(255,255,255,.42);
-  --gold: #e9a94b; --gold-dim: rgba(233,169,75,.35); --green: #96d6a0; --bad: #f08a7a; --link: #9cc3e6;
-  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --bg: #09090b; --panel: #0f0f12; --raised: #16161a; --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12); --line-3: rgba(255,255,255,.2);
+  --text: #ececef; --muted: #a1a1aa; --dim: #71717a; --accent: #d6a75c; --accent-soft: rgba(214,167,92,.12); --blue: #8fb4ff; --green: #7fcf9f; --bad: #e58c7e;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 13.5px/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow: hidden; }
-a { color: var(--link); } button, input, select, textarea { font: inherit; color: inherit; }
-button { cursor: pointer; border: 1px solid var(--line-2); background: transparent; padding: 4px 10px; white-space: nowrap; }
-button:hover { border-color: var(--line-3); } button.primary { border-color: var(--gold); color: var(--gold); } button.primary:hover { background: rgba(233,169,75,.1); }
-button.danger:hover { border-color: var(--bad); color: var(--bad); } button:disabled { opacity: .45; cursor: default; }
-select, input[type=text] { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; outline: none; }
-.app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
-header { display: flex; align-items: center; gap: 16px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: #000; flex-wrap: wrap; }
-header .logo { display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; letter-spacing: .3em; font-size: 13px; }
-header .logo img { width: 18px; height: 18px; }
-header nav { display: flex; gap: 4px; } header nav a { text-decoration: none; padding: 4px 12px; border: 1px solid transparent; color: var(--muted); }
-header nav a.on { border-color: var(--line-2); color: var(--text); } header nav a:hover { color: var(--text); }
-header .aimpick { max-width: 320px; }
-.run { display: flex; align-items: center; gap: 12px; font-size: 12.5px; color: var(--muted); margin-left: auto; flex-wrap: wrap; }
-.run .st b { color: var(--text); font-weight: 400; } .run .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #555; margin-right: 5px; }
-.run .dot.on { background: var(--gold); box-shadow: 0 0 8px var(--gold); animation: beat 1.6s infinite; } @keyframes beat { 50% { opacity: .4; } }
-.pbar { width: 90px; height: 5px; background: var(--line); position: relative; } .pbar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #6fa8d8, var(--gold), #f08a7a); }
-.gold { color: var(--gold); } .dim { color: var(--muted); } .mono { font-family: var(--mono); }
-main { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(400px, .95fr); min-height: 0; }
-#treeSide { position: relative; overflow: auto; border-right: 1px solid var(--line);
-  background: radial-gradient(ellipse at 50% 100%, rgba(233,169,75,.1), transparent 60%), radial-gradient(ellipse at 50% 0%, rgba(120,150,170,.06), transparent 55%), #060709; }
+body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow: hidden; letter-spacing: -.003em; }
+a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; } button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
+button:hover { border-color: var(--line-3); background: #1c1c21; } button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--text); color: #0b0b0e; border-color: transparent; } button.primary:hover { background: #fff; }
+button.accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(214,167,92,.3); } button.accent:hover { background: rgba(214,167,92,.18); }
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); } button.ghost:hover { color: var(--text); background: rgba(255,255,255,.05); }
+button.sm { height: 26px; padding: 0 9px; font-size: 12px; border-radius: 7px; } button.danger:hover { color: var(--bad); border-color: rgba(229,140,126,.4); }
+select, input[type=text], input[type=number] { background: var(--raised); border: 1px solid var(--line-2); border-radius: 8px; height: 30px; padding: 0 8px; outline: none; font-size: 13px; }
+.label { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
+.num { font-variant-numeric: tabular-nums; } .muted { color: var(--muted); } .dimt { color: var(--dim); }
+.app { display: grid; grid-template-rows: 52px minmax(0, 1fr); height: 100%; }
+header { display: flex; align-items: center; gap: 16px; padding: 0 18px; border-bottom: 1px solid var(--line); background: #0b0b0d; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text); letter-spacing: .02em; } .brand img { width: 18px; height: 18px; opacity: .9; } .brand:hover { text-decoration: none; }
+nav { display: flex; gap: 2px; align-items: center; } nav a { padding: 5px 10px; border-radius: 6px; color: var(--muted); font-size: 13px; } nav a:hover { color: var(--text); text-decoration: none; } nav .sep { color: var(--dim); }
+.pick { max-width: 300px; }
+.run { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: 13px; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.pill b { color: var(--text); font-weight: 500; } .dot { width: 6px; height: 6px; border-radius: 50%; background: #3f3f46; } .dot.on { background: var(--green); box-shadow: 0 0 0 3px rgba(127,207,159,.15); }
+.meter { width: 48px; height: 3px; background: rgba(255,255,255,.08); border-radius: 2px; } .meter i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
+.lang { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; } .lang button { height: 26px; border: 0; border-radius: 0; background: transparent; color: var(--dim); padding: 0 9px; font-size: 12px; }
+.lang button.on { background: rgba(255,255,255,.08); color: var(--text); }
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); min-height: 0; }
+#treeSide { position: relative; overflow: auto; border-right: 1px solid var(--line); background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.06), transparent 60%), #0a0a0c; }
 #treeSide svg { display: block; margin: 0 auto; }
-#treeSide .legend { position: sticky; top: 0; z-index: 2; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 8px 14px; font-size: 11.5px; color: var(--muted); background: linear-gradient(#060709 65%, transparent); }
-.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(232,236,238,.85); margin-right: 5px; vertical-align: -1px; }
-.legend i.g { border-color: var(--green); } .legend i.f { border-color: var(--gold); background: var(--gold); } .legend i.b { border-radius: 50% / 35%; border-color: var(--gold); } .legend i.x { border-color: var(--link); }
-.legend label { margin-left: auto; cursor: pointer; }
-.legend .modes { display: inline-flex; border: 1px solid var(--line-2); } .legend .modes button { border: 0; padding: 1px 10px; font-size: 11.5px; color: var(--muted); }
-.legend .modes button.on { color: var(--gold); background: rgba(233,169,75,.1); }
-.cont .crefs { margin: 0 0 8px; } .cont .crefs .chip a { color: inherit; text-decoration: none; margin-left: 4px; } .legend .act { color: var(--gold); cursor: pointer; text-decoration: underline; }
-#nodeSide { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; background: var(--panel); }
-.nh { padding: 14px 22px 10px; border-bottom: 1px solid var(--line); }
-.nh .crumb { font-size: 11.5px; color: var(--muted); } .nh .crumb a { color: var(--muted); text-decoration: none; } .nh .crumb a:hover { color: var(--text); }
-.nh .t { display: flex; gap: 12px; align-items: baseline; margin: 6px 0 4px; } .nh h1 { margin: 0; font-size: 19px; font-weight: 400; line-height: 1.45; flex: 1; }
-.nh .k { font: 10px var(--mono); letter-spacing: .14em; color: var(--gold); white-space: nowrap; }
-.nh .nav, .nh .ops { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; } .nh .nav button, .nh .ops button { font-size: 12px; padding: 2px 9px; }
-.nh .ops button { border-color: var(--line); color: #b9c0c4; } .nh .ops button:hover { color: var(--text); border-color: var(--line-3); } .nh .ops button.on { border-color: var(--gold); color: var(--gold); }
-.form { margin: 10px 0 2px; padding: 10px 12px; border: 1px solid var(--line-2); background: #0c0e10; display: grid; gap: 8px; }
-.form input[type=text], .form textarea, .form select { width: 100%; background: #08090b; border: 1px solid var(--line-2); padding: 5px 8px; }
-.form textarea { min-height: 90px; resize: vertical; } .form .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
-.tabs { display: flex; padding: 0 22px; border-bottom: 1px solid var(--line); }
-.tabs button { border: 0; border-bottom: 2px solid transparent; padding: 8px 12px; color: var(--muted); }
-.tabs button.on { color: var(--text); border-bottom-color: var(--gold); } .tabs small { color: var(--dim); margin-left: 3px; }
-.body { overflow: auto; padding: 16px 22px 30px; }
-.meta { display: flex; flex-wrap: wrap; gap: 6px 20px; font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
-.shift { margin: 4px 0 14px; color: rgba(233,169,75,.92); font-size: 13.5px; line-height: 1.7; }
-.keys { padding-left: 0; list-style: none; display: grid; gap: 6px; } .keys li { padding: 6px 10px; border-left: 2px solid var(--gold-dim); background: rgba(255,255,255,.025); }
-h3 { font: 500 10.5px var(--mono); letter-spacing: .22em; color: rgba(233,169,75,.85); margin: 22px 0 10px; }
-h3 small { letter-spacing: .04em; color: var(--dim); font-size: 11px; } h3 small a { color: var(--muted); }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; } .chip { border: 1px solid var(--line-2); padding: 2px 9px; font-size: 12px; cursor: pointer; background: transparent; }
-.chip.on { border-color: var(--gold); color: var(--gold); } .chip.user { border-color: rgba(150,214,160,.6); color: var(--green); } .chip.exchange { border-color: rgba(156,195,230,.6); color: var(--link); }
-.bud { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; } .bud .i { color: var(--gold); flex: 1; }
-.counts { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
-.counts div { border: 1px solid var(--line); padding: 7px 10px; } .counts b { display: block; font-size: 18px; font-weight: 400; } .counts span { font-size: 11.5px; color: var(--muted); }
-.filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-.filters input { flex: 1; min-width: 140px; background: #0c0e10; border: 1px solid var(--line-2); padding: 3px 8px; outline: none; }
-.kcard { border: 1px solid var(--line); padding: 10px 12px; margin-bottom: 10px; } .kcard .kt { display: flex; gap: 10px; align-items: baseline; }
-.kcard .kt b { font-weight: 500; flex: 1; } .kcard .kg { color: #c9d0d4; font-size: 12.5px; margin-top: 4px; } .kcard .ka { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
-.tagk { font: 10px var(--mono); letter-spacing: .1em; padding: 1px 6px; border: 1px solid var(--line-2); color: var(--muted); }
-.commit, .file { display: flex; gap: 10px; margin: 5px 0; font-size: 12.5px; } .commit a, .file a { font-family: var(--mono); } .commit time { color: var(--muted); margin-left: auto; white-space: nowrap; } .file span { color: var(--muted); }
-.cont { border-top: 1px solid var(--line); padding: 12px 22px 14px; background: #07080a; }
-.cont textarea { width: 100%; min-height: 52px; max-height: 200px; resize: vertical; background: #0c0e10; border: 1px solid var(--line-2); padding: 8px 10px; outline: none; }
-.cont textarea:focus { border-color: var(--gold-dim); } .cont .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; } .cont .grow { flex: 1; }
-.empty { padding: 40px 22px; color: var(--muted); }
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 30; }
-.modal .box { width: min(860px, 92vw); max-height: 86vh; overflow: auto; background: #0b0c0e; border: 1px solid var(--line-2); padding: 20px 26px; }
-.modal .box h2 { margin: 0 0 6px; font-weight: 400; } .md p { margin: .5em 0; } .md h1, .md h2, .md h3 { font-family: var(--font); letter-spacing: normal; color: var(--text); font-weight: 500; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #111; border: 1px solid var(--line-2); padding: 8px 14px; font-size: 12.5px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 40; }
+.bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; font-size: 12px; color: var(--muted);
+  background: linear-gradient(#0a0a0c 70%, rgba(10,10,12,0)); }
+.seg { display: inline-flex; padding: 2px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+.seg button { height: 24px; border: 0; background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px; border-radius: 6px; } .seg button.on { background: var(--raised); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+.keys { display: inline-flex; gap: 12px; align-items: center; } .keys i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(236,236,239,.8); margin-right: 5px; vertical-align: 0; }
+.bar .act { color: var(--accent); cursor: pointer; } .bar .act:hover { text-decoration: underline; } .bar label { cursor: pointer; margin-left: auto; }
+#nodeSide { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; background: var(--panel); }
+#nodeSide > * { min-width: 0; } #treeSide { min-width: 0; }
+.nh { padding: 16px 24px 12px; border-bottom: 1px solid var(--line); }
+.crumb { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .crumb a { color: var(--dim); } .crumb a:hover { color: var(--text); text-decoration: none; }
+.nh .t { display: flex; gap: 12px; align-items: baseline; margin: 6px 0 2px; } .nh h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.015em; line-height: 1.4; flex: 1; }
+.kind { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+.tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 12px; } .tools .sp { flex: 1; }
+.menu { position: relative; } .menu .pop { position: absolute; right: 0; top: 34px; z-index: 5; min-width: 200px; background: #17171b; border: 1px solid var(--line-2); border-radius: 10px; padding: 5px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+.menu .pop button { display: flex; width: 100%; justify-content: flex-start; background: transparent; border: 0; height: 30px; font-weight: 400; color: var(--text); }
+.menu .pop button:hover { background: rgba(255,255,255,.06); } .menu .pop button.danger { color: var(--bad); } .menu .pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.navr { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.chip { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; font-weight: 400; }
+.chip:hover { color: var(--text); border-color: var(--line-3); background: transparent; } .chip.on { color: var(--text); border-color: var(--text); } .chip.user { color: var(--green); border-color: rgba(127,207,159,.35); } .chip.exchange { color: var(--blue); border-color: rgba(143,180,255,.35); }
+.form { margin-top: 12px; padding: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--raised); display: grid; gap: 8px; }
+.form input[type=text], .form textarea, .form select { width: 100%; background: #0c0c0f; border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; height: auto; }
+.form textarea { min-height: 96px; resize: vertical; outline: none; } .form .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+.tabs button { height: 40px; border: 0; border-radius: 0; background: transparent; border-bottom: 2px solid transparent; color: var(--muted); padding: 0 10px; font-weight: 500; }
+.tabs button:hover { color: var(--text); background: transparent; } .tabs button.on { color: var(--text); border-bottom-color: var(--text); } .tabs small { color: var(--dim); margin-left: 5px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.body { overflow: auto; padding: 20px 24px 36px; }
+.sec { margin: 24px 0 10px; } .sec:first-child { margin-top: 0; }
+.metarow { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--dim); margin-bottom: 14px; }
+.shift { margin: 0 0 16px; padding: 10px 14px; border-left: 2px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; color: #e8d3ad; font-size: 13.5px; line-height: 1.7; }
+.points { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; } .points li { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.015); font-size: 13.5px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.stats div { background: var(--panel); padding: 10px 12px; } .stats b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; } .stats span { font-size: 11.5px; color: var(--dim); }
+.item { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 6px; }
+.item .x { flex: 1; font-size: 13.5px; } .item .s { font-size: 12px; color: var(--dim); margin-top: 3px; } .item.dash { border-style: dashed; }
+.filters { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; } .filters input { flex: 1; min-width: 140px; }
+.kcard { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; } .kcard .kt { display: flex; gap: 10px; align-items: baseline; }
+.kcard .kt b { font-weight: 600; flex: 1; font-size: 13.5px; } .kcard .kg { color: var(--muted); font-size: 13px; margin-top: 4px; } .kcard .ka { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.ty { font-size: 10.5px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
+.commit, .file { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; } .commit:first-child, .file:first-child { border-top: 0; }
+.commit a, .file a { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; } .commit time { color: var(--dim); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; } .file span { color: var(--dim); margin-left: auto; }
+.cont { border-top: 1px solid var(--line); padding: 12px 24px 14px; background: #0c0c0f; }
+.cont textarea { width: 100%; min-height: 52px; max-height: 220px; resize: vertical; background: var(--raised); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; outline: none; line-height: 1.6; }
+.cont textarea:focus { border-color: var(--line-3); } .cont .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; } .cont .grow { flex: 1; }
+.cont .refs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--dim); } .cont .refs select { height: 24px; font-size: 12px; }
+.trnote { font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+.empty { padding: 40px 24px; color: var(--dim); }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 30; }
+.modal .box { width: min(780px, 92vw); max-height: 86vh; overflow: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px; padding: 24px 28px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
+.modal h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; } .md p { margin: .5em 0; line-height: 1.75; } .md h1, .md h2, .md h3 { font-weight: 600; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; cursor: pointer; } .opt input { margin-top: 4px; } .opt .d { font-size: 12.5px; color: var(--dim); }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1c1c21; border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 40; }
 #toast.on { opacity: 1; }
-#enter { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: radial-gradient(circle at 50% 70%, rgba(233,169,75,.25), #000 70%); animation: enter 1s ease forwards; }
-@keyframes enter { from { opacity: 1; } to { opacity: 0; } }
-@media (max-width: 900px) { body { overflow: auto; } .app { height: auto; } main { grid-template-columns: 1fr; } #treeSide { height: 60vh; border-right: 0; border-bottom: 1px solid var(--line); } #nodeSide { min-height: 70vh; } }
+#enter { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: var(--bg); animation: enter .7s ease forwards; } @keyframes enter { to { opacity: 0; } }
+@media (max-width: 960px) { body { overflow: auto; } .app { height: auto; } main { grid-template-columns: 1fr; } #treeSide { height: 60vh; border-right: 0; border-bottom: 1px solid var(--line); } #nodeSide { min-height: 70vh; } .run .pill.opt2 { display: none; } }
 </style>
 </head>
 <body>
 <div id="enter"></div>
 <div class="app">
   <header>
-    <a class="logo" id="home" href="/forest"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a href="/forest" id="toForest">森林</a><a class="on" href="#">思考树</a></nav>
-    <select class="aimpick" id="aimPick" title="换一棵树"></select>
+    <a class="brand" id="home" href="/"><img src="/icons/favicon-32.png?v=3" alt="">PGA</a>
+    <nav><a href="/" id="toForest" data-l="森林|Forest">森林</a><span class="sep">/</span></nav>
+    <select class="pick" id="aimPick"></select>
     <div class="run" id="run"></div>
+    <span class="lang"><button data-lang="zh">中</button><button data-lang="en">EN</button></span>
   </header>
   <main>
-    <section id="treeSide" class="treewrap">
-      <div class="legend" id="legend"></div>
-      <svg id="treeSvg"></svg>
-    </section>
+    <section id="treeSide" class="treewrap"><div class="bar" id="bar"></div><svg id="treeSvg"></svg></section>
     <section id="nodeSide">
       <div class="nh" id="nh"></div>
       <div class="tabs" id="tabs"></div>
-      <div class="body" id="body"><div class="empty">载入中…</div></div>
+      <div class="body" id="body"><div class="empty">…</div></div>
       <div class="cont" id="cont"></div>
     </section>
   </main>
@@ -119,10 +125,18 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = PGATree.esc;
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const Q = new URLSearchParams(location.search), AS_UID = Q.get("as");
-const S = { uid: AS_UID || store.get("pga_uid"), aim: Q.get("you") ? "you" : Q.get("aim"), node: Q.get("node"), mode: store.get("pga_tree_mode") || "thought", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab") || "overview",
-  filter: "all", search: "", seen: new Set(), agents: [], aims: [], sending: false, op: null, showHidden: false, forest: null, draft: "" };
-const when = (iso) => iso ? new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? "刚刚" : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : s < 86400 ? `${Math.floor(s / 3600)} 小时前` : `${Math.floor(s / 86400)} 天前`; };
+const LANG = Q.get("lang") || store.get("pga_lang") || "zh", EN = LANG === "en";
+PGATree.setLang(LANG); document.documentElement.lang = EN ? "en" : "zh-CN";
+const L = (zh, en) => (EN ? en : zh);
+const S = { uid: AS_UID || store.get("pga_uid"), aim: Q.get("you") ? "you" : Q.get("aim"), node: Q.get("node"), mode: store.get("pga_tree_mode") || "thought", beh: {}, contRefs: [],
+  bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab") || "overview", filter: "all", search: "", seen: new Set(), agents: [], aims: [], sending: false, op: null,
+  showHidden: false, forest: null, draft: "", proc: null, menu: false, tr: {} };
+const YOU = () => S.aim === "you";
+const lq = (q) => (EN ? (q.includes("?") ? "&" : "?") + "lang=en" : "");
+const treeApi = () => { const p = YOU() ? `/v1/users/${S.uid}/tree` : `/v1/aims/${S.aim}/tree`; return p + lq(p); };
+const when = (iso) => iso ? new Date(iso).toLocaleString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 60 ? L("刚刚", "just now") : s < 3600 ? L(`${Math.floor(s / 60)} 分钟前`, `${Math.floor(s / 60)}m ago`) : s < 86400 ? L(`${Math.floor(s / 3600)} 小时前`, `${Math.floor(s / 3600)}h ago`) : L(`${Math.floor(s / 86400)} 天前`, `${Math.floor(s / 86400)}d ago`); };
 function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3400); }
 async function api(path, opts = {}) {
   const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
@@ -131,19 +145,19 @@ async function api(path, opts = {}) {
   return data;
 }
 const md = (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"))) : esc(t));
-const YOU = () => S.aim === "you";
-const treeApi = () => (YOU() ? `/v1/users/${S.uid}/tree` : `/v1/aims/${S.aim}/tree`);
-const qs = () => { const q = new URLSearchParams(); if (YOU()) q.set("you", "1"); else if (S.aim) q.set("aim", S.aim); if (S.node) q.set("node", S.node); if (AS_UID) q.set("as", AS_UID); return "?" + q; };
+const qs = () => { const q = new URLSearchParams(); if (YOU()) q.set("you", "1"); else if (S.aim) q.set("aim", S.aim); if (S.node) q.set("node", S.node); if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang")); return "?" + q; };
 const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
+document.querySelectorAll("[data-l]").forEach((el) => { const [zh, en] = el.dataset.l.split("|"); el.textContent = L(zh, en); });
+document.querySelectorAll("[data-lang]").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
 
 /* ------------------------------------------------ loading */
 async function boot() {
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
-  $("#toForest").href = $("#home").href = "/forest" + asq;
-  try { const d = await api(`/v1/users/${S.uid}/console`); S.aims = d.aims || []; S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); } catch {}
+  $("#toForest").href = $("#home").href = "/" + asq;
+  try { const d = await api(`/v1/users/${S.uid}/forest${EN ? "?lang=en" : ""}`); S.forest = d; S.aims = (d.trees || []).map((t) => ({ id: t.id, text: t.text, task: t.task })); } catch {}
+  try { const d = await api(`/v1/users/${S.uid}/console`); S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); } catch {}
   if (!S.aim) S.aim = (S.aims.find((a) => a.task) || S.aims[0])?.id || "you";
-  $("#aimPick").innerHTML = `<option value="you" ${YOU() ? "selected" : ""}>你的对话</option>` + S.aims.map((a) => `<option value="${a.id}" ${a.id === S.aim ? "selected" : ""}>${esc(a.text.length > 30 ? a.text.slice(0, 29) + "…" : a.text)}</option>`).join("");
-  if (!S.aim) { $("#body").innerHTML = `<div class="empty">还没有抱负。去森林里种一颗。</div>`; return; }
+  $("#aimPick").innerHTML = `<option value="you" ${YOU() ? "selected" : ""}>${L("你的对话", "Your conversations")}</option>` + S.aims.map((a) => `<option value="${a.id}" ${a.id === S.aim ? "selected" : ""}>${esc(a.text.length > 34 ? a.text.slice(0, 33) + "…" : a.text)}</option>`).join("");
   await loadTree();
   setInterval(() => loadTree(true).catch(() => {}), 20000);
 }
@@ -153,211 +167,232 @@ async function loadProc() {
 }
 async function loadTree(quiet) {
   [S.tree] = await Promise.all([api(treeApi()), loadProc()]);
+  document.title = `${S.tree.aim?.text?.slice(0, 30) || L("思考树", "Tree")} · PGA`;
   const nodes = (S.tree.nodes || []).filter((n) => n.kind !== "bud");
   if (!S.node || !nodes.some((n) => n.id === S.node)) S.node = (nodes.find((n) => n.tip) || nodes[nodes.length - 1])?.id || null;
-  renderRun(); renderLegend(); drawTree(!quiet);
+  renderRun(); renderBar(); drawTree(!quiet);
   if (!quiet) { renderNode(); if (S.node) loadNode(S.node); }
 }
 async function loadNode(id, force) {
   if (S.detail[id] && !force) { renderNode(); return; }
-  try { S.detail[id] = await api(`/v1/thought-nodes/${id}?full=true`); } catch (e) { S.detail[id] = { error: e.message }; }
+  try { S.detail[id] = await api(`/v1/thought-nodes/${id}?full=true${EN ? "&lang=en" : ""}`); } catch (e) { S.detail[id] = { error: e.message }; }
+  if (EN) translateTurns(id);
   if (S.node === id) renderNode();
 }
-async function forest() { if (!S.forest) S.forest = await api(`/v1/users/${S.uid}/forest`); return S.forest; }
+async function forest() { if (!S.forest) S.forest = await api(`/v1/users/${S.uid}/forest${EN ? "?lang=en" : ""}`); return S.forest; }
+
+/* the English pages: the dialogue is written in Chinese — each piece is translated once (and kept by the server) */
+async function translateTurns(id) {
+  const d = S.detail[id]; if (!d?.notes || d._tr) return; d._tr = "running";
+  const cjk = /[㐀-鿿]/, jobs = [];
+  for (const x of d.notes) {
+    const dd = x.data || {};
+    const add = (get, set) => { const t = get(); if (t && cjk.test(t)) jobs.push([t, set]); };
+    add(() => x.text, (v) => { x.text = v; });
+    add(() => dd.why, (v) => { dd.why = v; }); add(() => dd.question, (v) => { dd.question = v; }); add(() => dd.assumption, (v) => { dd.assumption = v; });
+    for (const s of dd.samples || []) add(() => s.answer, (v) => { s.answer = v; });
+    for (const s of dd.ideas || []) add(() => s.idea, (v) => { s.idea = v; });
+    (dd.agreed || []).forEach((a, i) => add(() => a, (v) => { dd.agreed[i] = v; }));
+  }
+  d._trTotal = jobs.length; d._trDone = 0;
+  for (let i = 0; i < jobs.length; i += 20) {
+    const part = jobs.slice(i, i + 20);
+    try { const r = await api(`/v1/users/${S.uid}/i18n`, { body: { texts: part.map(([t]) => t), lang: "en" } }); r.texts.forEach((v, k) => v && part[k][1](v)); } catch { break; }
+    d._trDone = Math.min(jobs.length, i + 20);
+    if (S.node === id && ["turns", "overview", "samples"].includes(S.tab)) renderBody();
+  }
+  d._tr = "done"; if (S.node === id) renderBody();
+}
 
 /* ------------------------------------------------ the tree and how it is doing */
 function renderRun() {
-  const T = S.tree, t = T.task;
-  if (YOU()) { $("#run").innerHTML = `<span>你在 PGA 里的对话，和从 Claude Code、ChatGPT、Hermes、WorkBuddy 导入的对话，按话题长成的树</span>`; return; }
-  $("#run").innerHTML = t ? `<span class="st"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? "运行中" : t.status === "paused" ? "已暂停" : "已停止"}</b> · ${esc(t.phase_zh || "")}</span>
-      <span title="张力：${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join("，")}">张力 ${t.pressure.toFixed(2)} <span class="pbar"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
-      <span>${esc(t.autonomy_zh || "")} · 每题 ${t.samples || 1} 次生成</span>
-      ${T.for_you || S.proc?.checkpoint ? `<button class="primary" id="waitBtn">${[S.proc?.checkpoint ? "检查点等你看" : "", T.for_you ? `${T.for_you} 个问题等你回答` : ""].filter(Boolean).join(" · ")}</button>` : ""}
-      <button id="setBtn" title="驱动模式、多次生成、分配">设置</button>
-      ${T.project ? `<button id="runBtn" class="${t.status === "running" ? "" : "primary"}">${t.status === "running" ? "⏸ 暂停" : "▶ 开始"}</button>` : ""}`
-    : `<span>这个抱负还没有在长期运行${T.project ? "" : "：先在工作台给它选一个工作文件夹"}</span>${T.project ? `<button id="runBtn" class="primary">▶ 开始</button>` : ""}`;
+  const T = S.tree, t = T.task, P = S.proc || {};
+  if (YOU()) { $("#run").innerHTML = `<span class="pill">${L("你在 PGA 里的对话，和从其他应用导入的对话", "Your chats in PGA and the ones imported from other apps")}</span>`; return; }
+  const waiting = [P.checkpoint ? L("检查点", "Checkpoint") : "", T.for_you ? L(`${T.for_you} 个问题等你`, `${T.for_you} for you`) : ""].filter(Boolean).join(" · ");
+  $("#run").innerHTML = t ? `<span class="pill"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? L("运行中", "Running") : t.status === "paused" ? L("已暂停", "Paused") : L("已停止", "Stopped")}</b>${t.status === "running" ? " · " + esc(EN ? t.phase : t.phase_zh || t.phase) : ""}</span>
+      <span class="pill opt2" title="${L("张力", "Pressure")}: ${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}">${L("张力", "Pressure")} <b class="num">${t.pressure.toFixed(2)}</b><span class="meter"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
+      ${waiting ? `<button class="accent" id="waitBtn">${esc(waiting)}</button>` : ""}
+      <button class="ghost" id="setBtn">${L("设置", "Settings")}</button>
+      ${T.project ? `<button id="runBtn" class="${t.status === "running" ? "" : "primary"}">${t.status === "running" ? L("暂停", "Pause") : L("开始", "Start")}</button>` : ""}`
+    : `<span class="pill">${L("还没有在长期运行", "Not running yet")}${T.project ? "" : L("：先在存档的工作台里给它选一个工作文件夹", " — pick a working folder first")}</span>${T.project ? `<button id="runBtn" class="primary">${L("开始", "Start")}</button>` : ""}`;
 }
-function renderLegend() {
+function renderBar() {
   const T = S.tree, nodes = (T.nodes || []).filter((n) => n.kind !== "bud"), old = nodes.filter((n) => n.kind === "segment" && n.style !== 2 && !n.edited).length;
   const hidden = nodes.filter((n) => n.hidden).length, turns = nodes.reduce((a, n) => a + (n.turns || 0), 0);
-  $("#legend").innerHTML = `<span class="modes"><button class="${S.mode === "thought" ? "on" : ""}" data-mode="thought">思维</button><button class="${S.mode === "behavior" ? "on" : ""}" data-mode="behavior" title="每个节点上 agent 做了什么：读、查、命令、改、提交">行为</button></span>
-    ${S.mode === "behavior" ? `<span><i style="border-color:#6fa8d8"></i>读</span><span><i style="border-color:#5fc4b8"></i>查</span><span><i style="border-color:#e9a94b"></i>命令</span><span><i style="border-color:#f08a7a"></i>改</span><span><i style="border-color:#ffd27a"></i>提交</span>`
-    : `<span><i></i>${YOU() ? "一段对话" : "一段思路"}</span>`}<span><i class="g"></i>你的分支</span><span><i class="x"></i>交流</span><span><i class="f"></i>选中 / PGA 的方向</span><span><i class="b"></i>花苞</span>
-    <span>${nodes.length} 个节点 · ${turns} 轮</span>
-    ${T.pending ? `<span class="act" id="curate">还有 ${T.pending} 轮没长进树里 · 整理</span>` : ""}
-    ${old ? `<span class="act" id="rewrite" title="用更好读的格式重写这些节点的概括">${old} 个节点的概括可以更好读 · 重写</span>` : ""}
-    ${hidden ? `<label><input type="checkbox" id="showHidden" ${S.showHidden ? "checked" : ""}> 显示隐藏的 ${hidden} 个</label>` : ""}`;
+  $("#bar").innerHTML = `<span class="seg"><button class="${S.mode === "thought" ? "on" : ""}" data-mode="thought">${L("思维", "Thought")}</button><button class="${S.mode === "behavior" ? "on" : ""}" data-mode="behavior">${L("行为", "Behaviour")}</button></span>
+    <span class="num">${L(`${nodes.length} 个节点 · ${turns} 轮`, `${nodes.length} nodes · ${turns} turns`)}</span>
+    ${S.mode === "behavior" ? `<span class="keys"><span><i style="border-color:#7aa7e6"></i>${L("读", "read")}</span><span><i style="border-color:#6cc4b6"></i>${L("查", "search")}</span><span><i style="border-color:#d6a75c"></i>${L("命令", "cmd")}</span><span><i style="border-color:#e58c7e"></i>${L("改", "edit")}</span><span><i style="border-color:#f0d38c"></i>${L("提交", "commit")}</span></span>`
+      : `<span class="keys"><span><i></i>${YOU() ? L("一段对话", "conversation") : L("一段思路", "line of thought")}</span><span><i style="border-color:#7fcf9f"></i>${L("你的分支", "your branch")}</span><span><i style="border-radius:1px;transform:rotate(45deg);border-style:dashed"></i>${L("影子路线", "shadow path")}</span></span>`}
+    ${T.pending ? `<span class="act" id="curate">${L(`整理 ${T.pending} 轮新对话`, `Place ${T.pending} new turns`)}</span>` : ""}
+    ${old ? `<span class="act" id="rewrite">${L(`重写 ${old} 个概括`, `Rewrite ${old} summaries`)}</span>` : ""}
+    ${hidden ? `<label><input type="checkbox" id="showHidden" ${S.showHidden ? "checked" : ""}> ${L(`显示隐藏的 ${hidden} 个`, `Show ${hidden} hidden`)}</label>` : ""}`;
 }
 function drawTree(scroll) {
   const side = $("#treeSide");
-  const L = PGATree.draw($("#treeSvg"), S.tree, Math.max(560, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: 26, showHidden: S.showHidden, mode: S.mode });
-  if (scroll) { const n = L.list.find((x) => x.id === S.node) || L.list[L.list.length - 1]; if (n) side.scrollTop = Math.max(0, n.y - side.clientHeight * .4); }
-  S.layout = L;
+  const L0 = PGATree.draw($("#treeSvg"), S.tree, Math.max(560, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: EN ? 40 : 24, showHidden: S.showHidden, mode: S.mode });
+  if (scroll) { const n = L0.list.find((x) => x.id === S.node) || L0.list[L0.list.length - 1]; if (n) side.scrollTop = Math.max(0, n.y - side.clientHeight * .42); }
+  S.layout = L0;
 }
 function select(id, bud = null) {
   if (!id) return;
   if (S.op === "exchange-pick" && id !== S.node) { S.exWith = id; S.op = "exchange"; renderNode(); return; }
-  S.node = id; S.bud = bud; S.op = null;
+  S.node = id; S.bud = bud; S.op = null; S.menu = false;
   history.replaceState(null, "", qs());
   drawTree(false); renderNode(); loadNode(id);
 }
 
-/* ------------------------------------------------ one node, all of it */
+/* ------------------------------------------------ one node */
 const nodeOf = (id) => (S.tree?.nodes || []).find((n) => n.id === id);
-const KTAG = { user: "你的分支", exchange: "交流", segment: "一段思路" };
-const ktag = (n) => (n.scope === "user" && n.kind === "segment" ? "一段对话" : KTAG[n.kind] || "节点");
+const kindLabel = (n) => (n.scope === "user" && n.kind === "segment" ? L("一段对话", "Conversation") : { user: L("你的分支", "Your branch"), exchange: L("交流", "Exchange"), segment: L("一段思路", "Line of thought") }[n.kind] || "");
 function renderNode() {
   const n = nodeOf(S.node);
-  if (!n) { $("#nh").innerHTML = ""; $("#tabs").innerHTML = ""; $("#body").innerHTML = `<div class="empty">这棵树还没有长出节点。${S.tree?.pending ? "点左上的「整理」。" : ""}</div>`; $("#cont").innerHTML = ""; return; }
-  const d = S.detail[n.id], notes = d?.notes || [], bud = S.bud != null ? (n.buds || [])[S.bud] : null;
-  const list = S.layout?.list || [], i = list.findIndex((x) => x.id === n.id);
-  const sampled = notes.filter((x) => x.kind === "answer" && x.data?.samples?.length), g = d?.git || {};
-  const mine = n.kind !== "segment";
-  $("#nh").innerHTML = `<div class="crumb">${(d?.path || []).slice(0, -1).map((x) => `<a href="#" data-go="${x.id}">${esc(x.title.length > 16 ? x.title.slice(0, 15) + "…" : x.title)}</a>`).join(" › ")}</div>
-    <div class="t"><span class="k">${bud ? "灵感" : ktag(n)}${i >= 0 && !bud ? " · " + (i + 1) : ""}</span><h1>${esc(bud ? bud.idea : n.title)}</h1></div>
-    ${bud ? "" : `<div class="ops">
-      <button data-op="edit" class="${S.op === "edit" ? "on" : ""}">改名 / 改概括</button>
-      <button data-op="branch" class="${S.op === "branch" ? "on" : ""}">新分支</button>
-      <button data-op="exchange-pick" class="${S.op?.startsWith("exchange") ? "on" : ""}" title="和另一个节点（这棵树或别的树）交流">和别的分支交流</button>
-      <button data-op="distill" title="把这段思路（连同它长出去的）写成一份数据集，别的树可以参考">${n.dataset ? "重新沉淀" : "沉淀为知识"}</button>
-      <a href="/v1/thought-nodes/${n.id}/markdown" target="_blank" rel="noopener"><button>Markdown</button></a>
-      <button data-op="move" class="${S.op === "move" ? "on" : ""}">移到…</button>
-      <button data-op="hide">${n.hidden ? "显示" : "隐藏"}</button>
-      ${n.parent && n.kind === "segment" ? `<button data-op="merge" title="切得太细时，把它并进上一级">合并到上一级</button>` : ""}
-      ${mine ? `<button data-op="delete" class="danger">删除</button>` : ""}</div>`}
-    <div class="nav">${n.parent ? `<button data-go="${n.parent}">↓ 父节点</button>` : `<button disabled>↓ 根</button>`}
-      ${i > 0 ? `<button data-go="${list[i - 1].id}" title="按时间的上一个（↓）">上一个</button>` : ""}${i >= 0 && i < list.length - 1 ? `<button data-go="${list[i + 1].id}" title="按时间的下一个（↑）">下一个</button>` : ""}
-      ${(d?.children || []).map((c) => `<button data-go="${c.id}" class="chip ${c.kind}">↑ ${esc(c.title.length > 12 ? c.title.slice(0, 11) + "…" : c.title)}</button>`).join("")}
-      ${n.with ? `<button data-goaim="${n.with_aim}" data-gonode="${n.with}" class="chip exchange">↔ ${esc((n.with_title || "").slice(0, 14))}</button>` : ""}
-      ${bud ? `<button data-go="${n.id}">回到节点</button>` : ""}</div>
+  if (!n) { $("#nh").innerHTML = ""; $("#tabs").innerHTML = ""; $("#body").innerHTML = `<div class="empty">${L("这棵树还没有长出节点。", "This tree has no nodes yet.")}${S.tree?.pending ? L("点左上的「整理」。", " Use “Place new turns” at the top left.") : ""}</div>`; $("#cont").innerHTML = ""; return; }
+  const d = S.detail[n.id], bud = S.bud != null ? (n.buds || [])[S.bud] : null;
+  const list = S.layout?.list || [], i = list.findIndex((x) => x.id === n.id), mine = n.kind !== "segment";
+  $("#nh").innerHTML = `<div class="crumb">${(d?.path || []).slice(0, -1).map((x) => `<a href="#" data-go="${x.id}">${esc(x.title.length > 18 ? x.title.slice(0, 17) + "…" : x.title)}</a>`).join(" / ") || "&nbsp;"}</div>
+    <div class="t"><span class="kind">${bud ? L("灵感", "Idea") : kindLabel(n)}</span><h1>${esc(bud ? bud.idea : n.title)}</h1></div>
+    ${bud ? "" : `<div class="tools">
+      <button class="sm" data-op="edit">${L("编辑", "Edit")}</button><button class="sm" data-op="branch">${L("新分支", "New branch")}</button>
+      <button class="sm" data-op="exchange-pick">${L("和别的分支交流", "Exchange")}</button><button class="sm" data-op="distill">${n.dataset ? L("重新沉淀", "Distill again") : L("沉淀为知识", "Distill")}</button>
+      <span class="sp"></span>
+      <span class="menu"><button class="sm ghost" data-op="menu">${L("更多", "More")} ▾</button>${S.menu ? `<div class="pop">
+        <button data-op="markdown">${L("下载 Markdown", "Download Markdown")}</button><button data-op="move">${L("移到…", "Move to…")}</button>
+        <button data-op="hide">${n.hidden ? L("显示", "Show") : L("隐藏", "Hide")}</button>${n.parent && n.kind === "segment" ? `<button data-op="merge">${L("合并到上一级", "Merge into parent")}</button>` : ""}
+        ${mine ? `<hr><button class="danger" data-op="delete">${L("删除", "Delete")}</button>` : ""}</div>` : ""}</span></div>`}
+    <div class="navr">${n.parent ? `<button class="chip" data-go="${n.parent}">↓ ${L("父节点", "Parent")}</button>` : ""}
+      ${i > 0 ? `<button class="chip" data-go="${list[i - 1].id}">${L("上一个", "Previous")}</button>` : ""}${i >= 0 && i < list.length - 1 ? `<button class="chip" data-go="${list[i + 1].id}">${L("下一个", "Next")}</button>` : ""}
+      ${(d?.children || []).map((c) => `<button class="chip ${c.kind}" data-go="${c.id}">↑ ${esc(c.title.length > 14 ? c.title.slice(0, 13) + "…" : c.title)}</button>`).join("")}
+      ${n.with ? `<button class="chip exchange" data-goaim="${n.with_aim}" data-gonode="${n.with}">↔ ${esc((n.with_title || "").slice(0, 16))}</button>` : ""}
+      ${bud ? `<button class="chip" data-go="${n.id}">${L("回到节点", "Back to the node")}</button>` : ""}</div>
     ${opForm(n)}`;
-  const tabs = [["overview", "概览", ""], ["turns", "对话", notes.length || n.turns], ["behavior", "行为", n.behavior?.runs || ""], ["samples", "多次生成", sampled.length || ""],
-    ["code", "代码", (g.commits || []).length + (g.files || []).length || ""], ["knowledge", "知识", (n.dataset ? "✓" : "") + ((n.refs || []).length ? ` +${n.refs.length}` : "")]];
-  if (YOU() && S.tab === "samples") S.tab = "overview";
-  $("#tabs").innerHTML = tabs.map(([k, zh, c]) => `<button class="${S.tab === k ? "on" : ""}" data-tab="${k}">${zh}${c ? `<small>${c}</small>` : ""}</button>`).join("");
-  const body = $("#body"), keep = body.dataset.node === n.id + S.tab ? body.scrollTop : 0;
-  body.innerHTML = !d ? `<div class="empty">载入这个节点的全部数据…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
-    : bud && S.tab === "overview" ? budHtml(n, bud) : { overview: overviewHtml, turns: turnsHtml, behavior: behaviorHtml, samples: samplesHtml, code: codeHtml, knowledge: knowledgeHtml }[S.tab](n, d);
+  const notes = d?.notes || [], sampled = notes.filter((x) => x.kind === "answer" && x.data?.samples?.length), g = d?.git || {};
+  const tabs = [["overview", L("概览", "Overview"), ""], ["turns", L("对话", "Dialogue"), notes.length || n.turns], ["behavior", L("行为", "Behaviour"), n.behavior?.runs || ""],
+    ...(YOU() ? [] : [["samples", L("多次生成", "Samples"), sampled.length || ""]]), ["code", L("代码", "Code"), (g.commits || []).length + (g.files || []).length || ""],
+    ["knowledge", L("知识", "Knowledge"), (n.dataset ? 1 : 0) + (n.refs || []).length || ""]];
+  if (!tabs.some(([k]) => k === S.tab)) S.tab = "overview";
+  $("#tabs").innerHTML = tabs.map(([k, nm, c]) => `<button class="${S.tab === k ? "on" : ""}" data-tab="${k}">${nm}${c ? `<small>${c}</small>` : ""}</button>`).join("");
+  renderBody(); renderCont(n, bud);
+}
+function renderBody() {
+  const n = nodeOf(S.node); if (!n) return;
+  const d = S.detail[n.id], bud = S.bud != null ? (n.buds || [])[S.bud] : null, body = $("#body"), keep = body.dataset.node === n.id + S.tab ? body.scrollTop : 0;
+  body.innerHTML = !d ? `<div class="empty">${L("载入这个节点…", "Loading this node…")}</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
+    : (EN && d._tr === "running" && ["turns", "overview", "samples"].includes(S.tab) ? `<div class="trnote">${L("", `Translating the dialogue into English… ${d._trDone || 0} / ${d._trTotal || 0}`)}</div>` : "")
+      + (bud && S.tab === "overview" ? budHtml(n, bud) : { overview: overviewHtml, turns: turnsHtml, behavior: behaviorHtml, samples: samplesHtml, code: codeHtml, knowledge: knowledgeHtml }[S.tab](n, d));
   body.dataset.node = n.id + S.tab; body.scrollTop = keep;
   if (S.tab === "knowledge") fillKnowledge(n);
-  if (S.tab === "behavior" && !S.beh[n.id]) api(`/v1/thought-nodes/${n.id}/behavior`).then((b) => { S.beh[n.id] = b; if (S.node === n.id && S.tab === "behavior") renderNode(); }).catch((e) => { S.beh[n.id] = { error: e.message }; });
-  renderCont(n, bud);
+  if (S.tab === "behavior" && !S.beh[n.id]) api(`/v1/thought-nodes/${n.id}/behavior`).then((b) => { S.beh[n.id] = b; if (S.node === n.id && S.tab === "behavior") renderBody(); }).catch((e) => { S.beh[n.id] = { error: e.message }; });
 }
 function opForm(n) {
-  if (S.op === "edit") return `<div class="form"><input type="text" id="fTitle" value="${esc(n.title)}" placeholder="标题：一个短语">
-    <textarea id="fSummary" placeholder="问：…&#10;发现：…&#10;定：…">${esc(n.summary)}</textarea>
-    <textarea id="fKeys" style="min-height:60px" placeholder="关键想法，每行一条">${esc((n.key_thoughts || []).join("\n"))}</textarea>
-    <div class="row"><span class="dim" style="font-size:12px;margin-right:auto">你改过的内容，整理者以后不会覆盖</span><button data-op="">取消</button><button class="primary" data-do="edit">保存</button></div></div>`;
-  if (S.op === "branch") return `<div class="form"><input type="text" id="fBranch" placeholder="新分支要往哪个方向想？（一句话）">
-    <div class="row"><button data-op="">取消</button><button class="primary" data-do="branch">长出分支</button></div></div>`;
+  if (S.op === "edit") return `<div class="form"><input type="text" id="fTitle" value="${esc(n.title)}" placeholder="${L("标题：一个短语", "Title: a short phrase")}">
+    <textarea id="fSummary" placeholder="${L("问：…\n发现：…\n定：…", "Asked: …\nFound: …\nNext: …")}">${esc(n.summary)}</textarea>
+    <textarea id="fKeys" style="min-height:60px" placeholder="${L("关键想法，每行一条", "Key thoughts, one per line")}">${esc((n.key_thoughts || []).join("\n"))}</textarea>
+    <div class="row"><span class="dimt" style="font-size:12px;margin-right:auto">${L("你改过的内容，整理者以后不会覆盖", "What you change here, the curator will not overwrite")}</span><button class="ghost" data-op="">${L("取消", "Cancel")}</button><button class="primary" data-do="edit">${L("保存", "Save")}</button></div></div>`;
+  if (S.op === "branch") return `<div class="form"><input type="text" id="fBranch" placeholder="${L("新分支要往哪个方向想？", "Which direction should the new branch take?")}">
+    <div class="row"><button class="ghost" data-op="">${L("取消", "Cancel")}</button><button class="primary" data-do="branch">${L("长出分支", "Grow it")}</button></div></div>`;
   if (S.op === "move") {
     const sub = new Set(); const kids = (id) => (S.tree.nodes || []).filter((x) => x.parent === id).forEach((x) => { sub.add(x.id); kids(x.id); }); sub.add(n.id); kids(n.id);
-    return `<div class="form"><select id="fParent"><option value="">根（直接长在抱负上）</option>${(S.tree.nodes || []).filter((x) => !sub.has(x.id)).map((x) => `<option value="${x.id}" ${x.id === n.parent ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select>
-      <div class="row"><button data-op="">取消</button><button class="primary" data-do="move">移过去</button></div></div>`;
+    return `<div class="form"><select id="fParent"><option value="">${L("根（直接长在根上）", "The root")}</option>${(S.tree.nodes || []).filter((x) => !sub.has(x.id)).map((x) => `<option value="${x.id}" ${x.id === n.parent ? "selected" : ""}>${esc(x.title)}</option>`).join("")}</select>
+      <div class="row"><button class="ghost" data-op="">${L("取消", "Cancel")}</button><button class="primary" data-do="move">${L("移过去", "Move")}</button></div></div>`;
   }
-  if (S.op === "exchange-pick") return `<div class="form"><div>在左边的树上点另一个节点，或者从别的树里选：</div><select id="fOther"><option value="">（别的树的节点）</option></select>
-    <div class="row"><button data-op="">取消</button><button class="primary" data-do="pick-other">用这个</button></div></div>`;
-  if (S.op === "exchange") { const o = nodeOf(S.exWith) || S.exOther; return `<div class="form"><div>让「${esc(n.title)}」和「${esc(o?.title || "另一个节点")}」交流：一个 agent 同时读这两条思路，写出双方能互相借鉴什么、哪里冲突、合起来下一步做什么。</div>
-    <textarea id="fExText" style="min-height:52px" placeholder="（可选）你特别想让它们讨论什么"></textarea>
-    <div class="row"><button data-op="">取消</button><button class="primary" data-do="exchange" ${S.sending ? "disabled" : ""}>${S.sending ? "交流中…" : "开始交流"}</button></div></div>`; }
+  if (S.op === "exchange-pick") return `<div class="form"><div class="muted" style="font-size:13px">${L("在左边的树上点另一个节点，或者从别的树里选：", "Click another node on the tree, or pick one from another tree:")}</div><select id="fOther"><option value="">${L("（别的树的节点）", "(a node in another tree)")}</option></select>
+    <div class="row"><button class="ghost" data-op="">${L("取消", "Cancel")}</button><button class="primary" data-do="pick-other">${L("用这个", "Use this")}</button></div></div>`;
+  if (S.op === "exchange") { const o = nodeOf(S.exWith) || S.exOther; return `<div class="form"><div style="font-size:13px">${L(`让「${esc(n.title)}」和「${esc(o?.title || "另一个节点")}」交流：一个 agent 同时读两条思路，写出双方能互相借鉴什么、哪里冲突、合起来下一步做什么。`, `Let “${esc(n.title)}” and “${esc(o?.title || "the other node")}” talk: an agent reads both lines of thought and writes what each can take from the other, where they conflict, and a joint next step.`)}</div>
+    <textarea id="fExText" style="min-height:52px" placeholder="${L("（可选）你特别想让它们讨论什么", "(optional) what they should discuss")}"></textarea>
+    <div class="row"><button class="ghost" data-op="">${L("取消", "Cancel")}</button><button class="primary" data-do="exchange" ${S.sending ? "disabled" : ""}>${S.sending ? L("交流中…", "Talking…") : L("开始交流", "Start")}</button></div></div>`; }
   return "";
 }
 function overviewHtml(n, d) {
   const notes = d.notes || [], by = (k) => notes.filter((x) => x.kind === k).length, insp = notes.filter((x) => x.data?.inspiration).length;
-  return `<div class="meta"><span>${esc(when(n.first_at))}${n.last_at ? " – " + esc(when(n.last_at)) : ""}</span>${n.codes?.length ? `<span>${esc(n.codes.join("–"))}</span>` : ""}
-      ${n.proposals?.length ? `<span>改进提案 ${esc(n.proposals.join("、"))}</span>` : ""}${n.edited ? `<span>你改过</span>` : ""}${n.mode === "rule" ? `<span>按停顿切的</span>` : ""}</div>
-    ${n.shift ? `<div class="shift">↱ ${esc(n.shift)}</div>` : ""}
-    ${n.summary ? PGATree.summary(n.summary) : `<div class="dim">${n.kind === "segment" ? "还没有概括。" : "这条分支还空着：在下面写点什么，它就开始长。"}</div>`}
-    ${n.key_thoughts?.length ? `<h3>关键想法</h3><ul class="keys">${n.key_thoughts.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
-    ${(n.buds || []).length ? `<h3>花苞 <small>只有一部分样本想到、还没人走下去的灵感</small></h3>${n.buds.map((b, i) => `<div class="bud"><span class="i">✦ ${esc(b.idea)}</span><button data-bud="${i}">从这里长出分支</button></div>`).join("")}` : ""}
-    <h3>数字</h3><div class="counts"><div><b>${notes.length}</b><span>轮对话</span></div><div><b>${by("question")}</b><span>提问</span></div><div><b>${by("answer")}</b><span>回答</span></div>
-      <div><b>${by("insight") - insp}</b><span>发现</span></div><div><b>${insp}</b><span>灵感</span></div><div><b>${n.open}</b><span>还开着</span></div>
-      <div><b>${n.samples || 0}</b><span>次生成</span></div><div><b>${n.spread != null ? n.spread.toFixed(2) : "—"}</b><span>平均分歧</span></div></div>
-    <h3>最近几轮 <small><a href="#" data-tab="turns">看全部 ${notes.length} 轮</a></small></h3>${PGATree.chat(notes.slice(-5), { md })}`;
+  const shadows = (n.shadows || []);
+  return `<div class="metarow num"><span>${esc(when(n.first_at))}${n.last_at ? " – " + esc(when(n.last_at)) : ""}</span>${n.codes?.length ? `<span>${esc(n.codes.join("–"))}</span>` : ""}
+      ${n.proposals?.length ? `<span>${L("改进提案", "Proposals")} ${esc(n.proposals.join(", "))}</span>` : ""}${n.edited ? `<span>${L("你改过", "edited by you")}</span>` : ""}</div>
+    ${n.shift ? `<div class="shift">${esc(n.shift)}</div>` : ""}
+    ${n.summary ? PGATree.summary(n.summary) : `<div class="dimt">${n.kind === "segment" ? L("还没有概括。", "No summary yet.") : L("这条分支还空着：在下面写点什么，它就开始长。", "This branch is still empty: write below and it starts to grow.")}</div>`}
+    ${n.key_thoughts?.length ? `<div class="sec label">${L("关键想法", "Key thoughts")}</div><ul class="points">${n.key_thoughts.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
+    ${shadows.length ? `<div class="sec label">${L("影子路线 · 分叉时没有走、之后会重新考虑的结论", "Shadow paths · conclusions not taken when it forked, revisited later")}</div>${shadows.map((x) => `<div class="item dash"><div class="x"><b>${esc(x.alt || "")}</b> ${esc(x.conclusion)}<div class="s">${L("前提", "Assumption")}: ${esc(x.assumption || "—")} · ${{ shadow: L("待重新考虑", "kept for later"), promoted: L("已被提上来", "promoted"), dropped: L("已放下", "dropped") }[x.status] || ""}</div></div></div>`).join("")}` : ""}
+    ${(n.buds || []).length ? `<div class="sec label">${L("花苞 · 只有部分样本想到的灵感", "Buds · ideas only some samples had")}</div>${n.buds.map((b, i) => `<div class="item"><div class="x">${esc(b.idea)}</div><button class="sm" data-bud="${i}">${L("从这里长出分支", "Grow a branch")}</button></div>`).join("")}` : ""}
+    <div class="sec label">${L("数字", "Numbers")}</div><div class="stats"><div><b>${notes.length}</b><span>${L("轮对话", "turns")}</span></div><div><b>${by("question")}</b><span>${L("提问", "questions")}</span></div><div><b>${by("answer")}</b><span>${L("回答", "answers")}</span></div><div><b>${n.open}</b><span>${L("还开着", "open")}</span></div>
+      <div><b>${by("insight") - insp}</b><span>${L("发现", "findings")}</span></div><div><b>${insp}</b><span>${L("灵感", "ideas")}</span></div><div><b>${n.samples || 0}</b><span>${L("次生成", "samples")}</span></div><div><b>${n.spread != null ? n.spread.toFixed(2) : "—"}</b><span>${L("平均分歧", "mean spread")}</span></div></div>
+    <div class="sec label">${L("最近几轮", "Latest turns")} · <a href="#" data-tab="turns">${L(`看全部 ${notes.length} 轮`, `all ${notes.length}`)}</a></div>${PGATree.chat(notes.slice(-5), { md })}`;
 }
 function budHtml(n, bud) {
-  return `<div class="shift">✦ ${esc(bud.idea)}</div><div class="dim">这个想法出现在「${esc(n.title)}」的多次生成里，只有一部分样本想到了它，还没有人沿它想下去。在下面写下你想沿它问什么，它就长成一条你的分支。</div>`;
+  return `<div class="shift">${esc(bud.idea)}</div><div class="muted">${L(`这个想法出现在「${esc(n.title)}」的多次生成里，只有一部分样本想到了它。在下面写下你想沿它问什么，它就长成一条你的分支。`, `This idea came up in some of the samples in “${esc(n.title)}”. Write what you want to ask along it and it grows into a branch of yours.`)}</div>`;
 }
 function turnsHtml(n, d) {
-  const F = [["all", "全部"], ["question", "提问"], ["answer", "回答"], ["insight", "发现与灵感"], ["you", "你的"], ["other", "其他"]], q = S.search.trim().toLowerCase();
-  const pick = (x) => S.filter === "all" || (S.filter === "you" ? (x.agent === "you" || x.kind === "correction") : S.filter === "other" ? !["question", "answer", "insight"].includes(x.kind) : x.kind === S.filter);
+  const F = [["all", L("全部", "All")], ["question", L("提问", "Questions")], ["answer", L("回答", "Answers")], ["insight", L("发现与灵感", "Findings")], ["alternative", L("影子路线", "Shadow paths")], ["you", L("你的", "Yours")]], q = S.search.trim().toLowerCase();
+  const pick = (x) => S.filter === "all" || (S.filter === "you" ? (x.agent === "you" || x.kind === "correction") : x.kind === S.filter);
   const notes = (d.notes || []).filter(pick).filter((x) => !q || x.text.toLowerCase().includes(q) || String(x.data?.code || "").toLowerCase() === q);
-  return `<div class="filters">${F.map(([k, zh]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-filter="${k}">${zh}</button>`).join("")}<input id="search" placeholder="搜索这一段（或输入 Q123）" value="${esc(S.search)}"></div>
+  return `<div class="filters">${F.map(([k, nm]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-filter="${k}">${nm}</button>`).join("")}<input type="text" id="search" placeholder="${L("搜索这一段，或输入 Q123", "Search, or type Q123")}" value="${esc(S.search)}"></div>
     ${PGATree.chat(notes, { md })}`;
 }
 function behaviorHtml(n) {
   const B = S.beh[n.id];
-  if (!B) return `<div class="empty" style="padding:20px 0">读取这一段里 agent 的动作…</div>`;
+  if (!B) return `<div class="empty" style="padding:20px 0">${L("读取这一段里 agent 的动作…", "Reading what the agents did…")}</div>`;
   if (B.error) return `<div class="empty">${esc(B.error)}</div>`;
-  return `<div class="dim" style="font-size:12.5px;margin-bottom:12px">行为树：这一段${YOU() ? "对话" : "思考"}期间，每个 agent 做了哪些事。根是这个节点，往下是 agent，再往下是它的每次运行（哪一步、回答哪个问题、结果如何），最下面是运行里的每个动作（读了哪个文件、查了什么、跑了什么命令、改了什么）。</div>`
-    + PGATree.behaviorTree(B, n);
+  return `<div class="muted" style="font-size:13px;margin-bottom:14px">${L("行为树：这一段里每个 agent 做了什么。往下依次是 agent、它的每次运行（哪一步、回答哪个问题、结果如何）、运行里的每个动作。", "Behaviour tree: what each agent did here — each agent, each of its runs (step, question, outcome), and the actions in each run.")}</div>` + PGATree.behaviorTree(B, n);
 }
 function samplesHtml(n, d) {
   const xs = (d.notes || []).filter((x) => x.kind === "answer" && x.data?.samples?.length);
-  if (!xs.length) return `<div class="empty" style="padding:20px 0">这一段的回答都只生成了一次。多次生成（默认每题 3 次）是之后才打开的，新长出的节点会在这里列出每个样本。</div>`;
-  return PGATree.chat(xs.flatMap((x) => [{ ...x, kind: "question", text: x.data.question || "", data: { code: x.data.code }, agent: "", role: "" }, x]).filter((x) => x.text), { md });
+  if (!xs.length) return `<div class="empty" style="padding:20px 0">${L("这一段的回答都只生成了一次。多次生成是之后才打开的；它只在不确定、有分歧、又重要的问题上触发。", "Every answer here was generated once. Several samples came later, and only for questions that are uncertain, contested and important.")}</div>`;
+  return PGATree.chat(xs.flatMap((x) => [{ ...x, kind: "question", text: x.data.question || "", data: { code: x.data.code }, agent: "lead", role: "lead" }, x]).filter((x) => x.text), { md });
 }
 function codeHtml(n, d) {
   const g = d.git || {};
-  if (!g.repo && !g.head) return `<div class="empty" style="padding:20px 0">这个抱负的工作文件夹不是 git 仓库，或这段时间之前还没有提交。</div>`;
-  return `<div class="meta"><span>仓库 <a href="${esc(g.repo)}" target="_blank" rel="noopener">${esc((g.repo || "").replace("https://github.com/", ""))}</a></span>
-      ${g.head ? `<span>这段思考结束时的代码 <a class="mono" href="${esc(g.head_url)}" target="_blank" rel="noopener">${esc(g.head)}</a></span>` : ""}</div>
-    <h3>这段时间的提交 <small>${(g.commits || []).length}</small></h3>
-    ${(g.commits || []).map((c) => `<div class="commit"><a href="${esc(c.url || "#")}" target="_blank" rel="noopener">${esc(c.sha.slice(0, 7))}</a><span>${esc(c.subject)}</span><time>${esc(when(c.at))}</time></div>`).join("") || `<div class="dim">这段时间没有新的提交。</div>`}
-    <h3>回答里引用的文件 <small>链接指向当时的版本</small></h3>
-    ${(g.files || []).map((f) => `<div class="file"><a href="${esc(f.url || "#")}" target="_blank" rel="noopener">${esc(f.path)}</a><span>被引用 ${f.refs} 次</span></div>`).join("") || `<div class="dim">没有引用到仓库里的文件。</div>`}`;
+  if (!g.repo && !g.head) return `<div class="empty" style="padding:20px 0">${L("这个抱负的工作文件夹不是 git 仓库，或这段时间之前还没有提交。", "This motivation's folder is not a git repository, or there were no commits yet.")}</div>`;
+  return `<div class="metarow"><span>${L("仓库", "Repository")} <a href="${esc(g.repo)}" target="_blank" rel="noopener">${esc((g.repo || "").replace("https://github.com/", ""))}</a></span>
+      ${g.head ? `<span>${L("这段结束时的代码", "Code at the end")} <a href="${esc(g.head_url)}" target="_blank" rel="noopener">${esc(g.head)}</a></span>` : ""}</div>
+    <div class="sec label">${L("这段时间的提交", "Commits meanwhile")}</div>${(g.commits || []).map((c) => `<div class="commit"><a href="${esc(c.url || "#")}" target="_blank" rel="noopener">${esc(c.sha.slice(0, 7))}</a><span>${esc(c.subject)}</span><time>${esc(when(c.at))}</time></div>`).join("") || `<div class="dimt">${L("没有新的提交。", "None.")}</div>`}
+    <div class="sec label">${L("回答里引用的文件 · 链接指向当时的版本", "Files the answers relied on · links point to that version")}</div>${(g.files || []).map((f) => `<div class="file"><a href="${esc(f.url || "#")}" target="_blank" rel="noopener">${esc(f.path)}</a><span>${L(`${f.refs} 次`, `${f.refs}×`)}</span></div>`).join("") || `<div class="dimt">${L("没有。", "None.")}</div>`}`;
 }
-const SYS = { user: "用户模型", world: "世界模型", aim: "抱负知识", branch: "思路" };
+const SYS = { user: ["个人模型", "Personal model"], world: ["世界模型", "World model"], aim: ["抱负知识", "Motivation"], branch: ["思路", "Line of thought"] };
+const sysName = (b) => (SYS[b.system] ? L(...SYS[b.system]) : b.kind === "skill" ? L("技能", "Skill") : L("数据集", "Dataset"));
 function kcard(b, extra = "") {
-  return `<div class="kcard"><div class="kt"><span class="tagk">${esc(SYS[b.system] || (b.kind === "skill" ? "技能" : "数据集"))}</span><b>${esc(b.title)}</b>${b.compiled_at ? `<span class="dim" style="font-size:11.5px">${esc(ago(b.compiled_at))}整理</span>` : ""}</div>
-    ${b.gist ? `<div class="kg">${esc(b.gist)}</div>` : ""}<div class="ka"><button data-doc="${b.id}">看全文</button><a href="/v1/bodies/${b.id}/markdown" target="_blank" rel="noopener"><button>Markdown</button></a>${extra}</div></div>`;
+  return `<div class="kcard"><div class="kt"><span class="ty">${esc(sysName(b))}</span><b>${esc(b.title)}</b>${b.compiled_at ? `<span class="dimt" style="font-size:12px">${esc(ago(b.compiled_at))}</span>` : ""}</div>
+    ${b.gist ? `<div class="kg">${esc(b.gist)}</div>` : ""}<div class="ka"><button class="sm" data-doc="${b.id}">${L("看全文", "Read")}</button><a href="/v1/bodies/${b.id}/markdown" target="_blank" rel="noopener"><button class="sm ghost">Markdown</button></a>${extra}</div></div>`;
 }
 function knowledgeHtml(n) {
   const K = S.tree.knowledge || {};
-  return `<h3>这个节点参考的知识 <small>从这里继续（以及从它长出去的分支）时，agent 会读到它们</small></h3><div id="kRefs"><div class="dim">载入…</div></div>
-    <h3>这段思路沉淀出的知识</h3><div id="kNode">${n.dataset ? `<div class="dim">载入…</div>` : `<div class="dim">还没有沉淀。点上面的「沉淀为知识」：把这段思路连同它长出去的分支写成一份数据集（标题、概要、全文），别的树可以直接参考。</div>`}</div>
-    <h3>这棵树用到的知识 <small>每一轮思考都会读到它们的概要</small></h3>
-    ${K.user ? kcard(K.user) : ""}${K.world ? kcard(K.world) : ""}
-    ${(K.references || []).map((b) => kcard(b, `<button data-unref="${b.id}">不再参考</button>`)).join("")}
+  return `<div class="label" style="margin-bottom:8px">${L("这个节点参考的知识 · 从这里继续（以及从它长出去的分支）都会读到", "Knowledge this node refers to · read when continuing from here and from what grows from it")}</div><div id="kRefs"><div class="dimt">…</div></div>
+    <div class="sec label">${L("这段思路沉淀出的知识", "Distilled from this line of thought")}</div><div id="kNode">${n.dataset ? `<div class="dimt">…</div>` : `<div class="dimt" style="font-size:13px">${L("还没有沉淀。点上面的「沉淀为知识」：把这段思路连同它长出去的分支写成一份数据集，别的树可以直接参考。", "Not distilled yet. “Distill” writes this line of thought (and what grew from it) into a dataset other trees can use.")}</div>`}</div>
+    <div class="sec label">${L("这棵树每一轮都会读到的", "What this tree reads every round")}</div>
+    ${K.user ? kcard(K.user) : ""}${K.world ? kcard(K.world) : ""}${(K.references || []).map((b) => kcard(b, `<button class="sm ghost" data-unref="${b.id}">${L("不再参考", "Stop using")}</button>`)).join("")}
     ${(K.datasets || []).filter((b) => b.id !== n.dataset).map((b) => kcard(b)).join("")}${(K.skills || []).map((b) => kcard(b)).join("")}`;
 }
 async function fillKnowledge(n) {
-  const f = await forest().catch(() => null);
-  const rbox = $("#kRefs");
+  const f = await forest().catch(() => null), rbox = $("#kRefs");
   if (rbox && f) {
     const all = f.knowledge || [], mine = (n.refs || []).map((id) => all.find((k) => k.id === id)).filter(Boolean);
-    rbox.innerHTML = (mine.map((b) => kcard(b, `<button data-unrefnode="${b.id}">不再参考</button>`)).join("") || `<div class="dim">还没有。</div>`)
-      + `<div class="ka" style="display:flex;gap:8px;margin-top:8px"><select id="refAdd"><option value="">加一份知识给这个节点参考…</option>${all.filter((k) => !(n.refs || []).includes(k.id) && k.id !== n.dataset)
-        .map((k) => `<option value="${k.id}">${esc((SYS[k.system] || (k.kind === "skill" ? "技能" : "数据集")) + " · " + k.title)}</option>`).join("")}</select><button data-refadd="1">参考</button></div>`;
+    rbox.innerHTML = (mine.map((b) => kcard(b, `<button class="sm ghost" data-unrefnode="${b.id}">${L("不再参考", "Remove")}</button>`)).join("") || `<div class="dimt" style="font-size:13px">${L("还没有。", "None yet.")}</div>`)
+      + `<div class="ka" style="display:flex;gap:8px;margin-top:8px"><select id="refAdd"><option value="">${L("加一份知识…", "Add knowledge…")}</option>${all.filter((k) => !(n.refs || []).includes(k.id) && k.id !== n.dataset)
+        .map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select><button class="sm" data-refadd="1">${L("参考", "Add")}</button></div>`;
   }
   if (!n.dataset) return;
   const b = f?.knowledge?.find((x) => x.id === n.dataset), box = $("#kNode"); if (!box) return;
-  if (!b) { box.innerHTML = `<div class="dim">找不到这份数据集。</div>`; return; }
+  if (!b) { box.innerHTML = `<div class="dimt">${L("找不到这份数据集。", "Dataset not found.")}</div>`; return; }
   const others = (f.trees || []).filter((t) => t.id !== S.aim && !(b.used_by || []).includes(t.id));
-  const moveTo = `<select id="moveTo"><option value="">移到…</option>${[...(f.trees || []).map((t) => [t.id, t.text, t.nodes]), ["you", "你的对话", f.you?.nodes || []]]
-      .map(([id, text, ns]) => `<optgroup label="${esc(String(text).slice(0, 26))}">${ns.filter((x) => x.id !== n.id).map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("")}</optgroup>`).join("")}</select><button data-move="${b.id}" title="让它成为另一个节点沉淀出的知识">移过去</button>`;
-  box.innerHTML = kcard(b, (others.length ? `<select id="refTo"><option value="">给哪棵树参考…</option>${others.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 26))}</option>`).join("")}</select><button data-ref="${b.id}">给它参考</button>` : "") + moveTo)
-    + ((b.used_by || []).length ? `<div class="dim" style="font-size:12px">正在参考它的树：${b.used_by.map((id) => esc((f.trees.find((t) => t.id === id)?.text || "").slice(0, 20))).join("、")}</div>` : "");
+  const moveTo = `<select id="moveTo"><option value="">${L("移到…", "Move to…")}</option>${[...(f.trees || []).map((t) => [t.id, t.text, t.nodes]), ["you", L("你的对话", "Your conversations"), f.you?.nodes || []]]
+      .map(([id, text, ns]) => `<optgroup label="${esc(String(text).slice(0, 26))}">${ns.filter((x) => x.id !== n.id).map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("")}</optgroup>`).join("")}</select><button class="sm" data-move="${b.id}">${L("移过去", "Move")}</button>`;
+  box.innerHTML = kcard(b, (others.length ? `<select id="refTo"><option value="">${L("给哪棵树参考…", "Let a tree use it…")}</option>${others.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 26))}</option>`).join("")}</select><button class="sm" data-ref="${b.id}">${L("给它参考", "Use")}</button>` : "") + moveTo)
+    + ((b.used_by || []).length ? `<div class="dimt" style="font-size:12px">${L("正在参考它的树：", "Used by: ")}${b.used_by.map((id) => esc((f.trees.find((t) => t.id === id)?.text || "").slice(0, 20))).join(", ")}</div>` : "");
 }
 function renderCont(n, bud) {
   const box = $("#tnText"); if (box) S.draft = box.value;
-  const focused = S.tree?.focus === n.id;
   const K = S.forest?.knowledge || [];
-  if (!S.forest) forest().then(() => { if (S.node === n.id) renderCont(n, bud); }).catch(() => {});
-  const refsRow = `<div class="row crefs"><span class="dim" style="font-size:12px">这次对话参考：</span>${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))} <a href="#" data-crefdel="${id}">×</a></span>` : ""; }).join("")}
-      <select id="crefAdd"><option value="">＋ 引用知识</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc((SYS[k.system] || (k.kind === "skill" ? "技能" : "数据集")) + " · " + k.title)}</option>`).join("")}</select></div>`;
-  $("#cont").innerHTML = refsRow + `<textarea id="tnText" placeholder="${bud ? "沿这个灵感，你想问什么、往哪儿想？" : n.kind === "user" ? "接着你的这条分支说…" : "从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）"}">${esc(S.draft || "")}</textarea>
-    <div class="row">${YOU() ? "" : `<label class="dim" style="font-size:12px"><input type="checkbox" id="tnFocus"> 之后让 PGA 沿这条分支想</label>`}<span class="grow"></span>
-      ${YOU() ? "" : focused ? `<span class="gold" style="font-size:12px">PGA 正沿着这里想</span><button data-focus="">取消</button>` : `<button data-focus="${n.id}" title="长期任务之后提问时，会优先沿这条分支想下去">让 PGA 沿这里想</button>`}
-      <select id="tnAgent"><option value="auto">自动</option>${S.agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
-      <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "思考中…" : bud ? "长出分支" : "继续"}</button></div>`;
+  $("#cont").innerHTML = `<div class="refs">${S.contRefs.length ? L("这次对话参考：", "Using: ") : ""}${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-crefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}
+      <select id="crefAdd"><option value="">${L("＋ 引用知识", "+ Use knowledge")}</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select></div>
+    <textarea id="tnText" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : n.kind === "user" ? L("接着你的这条分支说…", "Continue your branch…") : L("从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）", "Continue from this node: your question grows a new branch (⌘/Ctrl + Enter)")}">${esc(S.draft || "")}</textarea>
+    <div class="row">${YOU() ? "" : `<label class="dimt" style="font-size:12px"><input type="checkbox" id="tnFocus"> ${L("之后让 PGA 沿这条分支想", "Let PGA keep thinking along this branch")}</label>`}<span class="grow"></span>
+      ${YOU() ? "" : S.tree?.focus === n.id ? `<span style="font-size:12px;color:var(--accent)">${L("PGA 正沿着这里想", "PGA is following this branch")}</span><button class="sm ghost" data-focus="">${L("取消", "Stop")}</button>` : `<button class="sm ghost" data-focus="${n.id}">${L("让 PGA 沿这里想", "Follow this branch")}</button>`}
+      <select id="tnAgent" style="height:30px"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
+      <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? L("思考中…", "Thinking…") : bud ? L("长出分支", "Grow") : L("继续", "Continue")}</button></div>`;
 }
 
 /* ------------------------------------------------ doing things */
 async function refresh(id) { S.forest = null; if (id) delete S.detail[id]; await loadTree(true); renderNode(); if (S.node) loadNode(S.node, true); }
 async function send() {
   const n = nodeOf(S.node), text = ($("#tnText")?.value || "").trim(); if (!n) return;
-  if (!text) { toast("先写下你要从这里问什么"); return; }
+  if (!text) { toast(L("先写下你要从这里问什么", "Write what you want to ask first")); return; }
   const bud = S.bud != null ? (n.buds || [])[S.bud]?.idea : null;
   S.sending = true; S.draft = text; renderCont(n, S.bud != null);
   try {
@@ -374,71 +409,70 @@ async function doOp(kind) {
   try {
     if (kind === "edit") {
       await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { title: $("#fTitle").value, summary: $("#fSummary").value, key_thoughts: $("#fKeys").value.split("\n").map((x) => x.trim()).filter(Boolean) } });
-      S.op = null; toast("已保存"); await refresh(n.id);
+      S.op = null; toast(L("已保存", "Saved")); await refresh(n.id);
     } else if (kind === "branch") {
-      const title = $("#fBranch").value.trim(); if (!title) { toast("写一句这条分支的方向"); return; }
-      const b = await api(`/v1/thought-nodes/${n.id}/branch`, { body: { title } }); S.op = null; await loadTree(true); select(b.id); toast("长出了一条空分支：在下面写点什么，它就开始长");
+      const title = $("#fBranch").value.trim(); if (!title) { toast(L("写一句这条分支的方向", "Write the branch's direction")); return; }
+      const b = await api(`/v1/thought-nodes/${n.id}/branch`, { body: { title } }); S.op = null; await loadTree(true); select(b.id); toast(L("长出了一条空分支：在下面写点什么，它就开始长", "A new branch: write below and it starts to grow"));
     } else if (kind === "move") {
-      await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { parent_id: $("#fParent").value || null } }); S.op = null; toast("已移过去"); await refresh(n.id);
+      await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { parent_id: $("#fParent").value || null } }); S.op = null; toast(L("已移过去", "Moved")); await refresh(n.id);
     } else if (kind === "pick-other") {
-      const v = $("#fOther").value; if (!v) { toast("在左边点一个节点，或从列表里选"); return; }
+      const v = $("#fOther").value; if (!v) { toast(L("在左边点一个节点，或从列表里选", "Click a node on the tree, or pick one")); return; }
       const [aim, id] = v.split("|"); S.exWith = id; S.exOther = ([...S.forest.trees, S.forest.you].find((t) => t && t.id === aim)?.nodes || []).find((x) => x.id === id); S.op = "exchange"; renderNode();
     } else if (kind === "exchange") {
       S.sending = true; renderNode();
-      try {
-        const r = await api(`/v1/thought-nodes/${n.id}/exchange`, { body: { with: S.exWith, text: $("#fExText")?.value || "" } });
-        S.op = null; await loadTree(true); select(r.node.id); S.tab = "turns"; renderNode(); toast("交流完成：长成了一个交流节点");
-      } finally { S.sending = false; }
+      try { const r = await api(`/v1/thought-nodes/${n.id}/exchange`, { body: { with: S.exWith, text: $("#fExText")?.value || "" } });
+        S.op = null; await loadTree(true); select(r.node.id); S.tab = "turns"; renderNode(); toast(L("交流完成", "Done")); }
+      finally { S.sending = false; }
     }
   } catch (err) { toast(err.message); }
 }
 async function quickOp(op) {
   const n = nodeOf(S.node); if (!n) return;
+  S.menu = false;
   try {
-    if (op === "hide") { await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { hidden: !n.hidden } }); toast(n.hidden ? "显示回来了" : "已隐藏（连同它长出去的）：勾选「显示隐藏的」可以看到"); await refresh(n.id); }
-    else if (op === "merge") { if (!confirm(`把「${n.title}」并进上一级？它的对话会归到父节点，它长出去的分支改挂到父节点上。`)) return; const p = await api(`/v1/thought-nodes/${n.id}/merge`, { method: "POST" }); await loadTree(true); select(p.id); toast("已合并"); }
-    else if (op === "delete") { if (!confirm(`删除「${n.title}」？对话仍留在抱负的记录里，只是不再显示在树上。`)) return; const parent = n.parent; await api(`/v1/thought-nodes/${n.id}`, { method: "DELETE" }); await loadTree(true); select(parent); toast("已删除"); }
+    if (op === "hide") { await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { hidden: !n.hidden } }); toast(n.hidden ? L("显示回来了", "Shown again") : L("已隐藏（连同它长出去的）", "Hidden, with what grew from it")); await refresh(n.id); }
+    else if (op === "merge") { if (!confirm(L(`把「${n.title}」并进上一级？`, `Merge “${n.title}” into its parent?`))) return; const p = await api(`/v1/thought-nodes/${n.id}/merge`, { method: "POST" }); await loadTree(true); select(p.id); toast(L("已合并", "Merged")); }
+    else if (op === "delete") { if (!confirm(L(`删除「${n.title}」？对话仍留在记录里，只是不再显示在树上。`, `Delete “${n.title}”? The dialogue stays on record; it just leaves the tree.`))) return; const parent = n.parent; await api(`/v1/thought-nodes/${n.id}`, { method: "DELETE" }); await loadTree(true); select(parent); toast(L("已删除", "Deleted")); }
+    else if (op === "markdown") { window.open(`/v1/thought-nodes/${n.id}/markdown`, "_blank"); renderNode(); }
     else if (op === "distill") {
-      toast("正在沉淀这段思路…"); const r = await api(`/v1/thought-nodes/${n.id}/distill`, { method: "POST" });
-      toast(r.status === "compiled" ? `已沉淀成一份数据集（${r.words} 词）` : r.status === "deferred" ? "现在额度不够，稍后再试" : `没有沉淀成：${r.note || r.status}`);
+      toast(L("正在沉淀这段思路…", "Distilling this line of thought…")); const r = await api(`/v1/thought-nodes/${n.id}/distill`, { method: "POST" });
+      toast(r.status === "compiled" ? L(`已沉淀成一份数据集（${r.words} 词）`, `Distilled into a dataset (${r.words} words)`) : r.status === "deferred" ? L("现在额度不够，稍后再试", "No budget right now; try later") : `${r.note || r.status}`);
       S.tab = "knowledge"; await refresh(n.id);
     }
   } catch (err) { toast(err.message); }
 }
+
 /* what used to need the workbench: questions only you can answer, checkpoints, and the settings */
-const PRESETS = { performance: ["最高性能", { w_perf: 2.5, w_pref: 1, w_balance: .5, w_cost: 0, w_speed: .3, temperature: .25 }],
-                  balanced: ["均衡模式", { w_perf: 1, w_pref: 1, w_balance: 1, w_cost: .4, w_speed: .3, temperature: .35 }],
-                  economy: ["省钱模式", { w_perf: .6, w_pref: 1, w_balance: 2, w_cost: 2, w_speed: .2, temperature: .5 }] };
-const LEVELS = [["free", "完全自由", "它自己想、自己研究，验证过的改进自动上线（出问题会回滚）"], ["checkpoint", "检查点", "每想几轮停下来，把发现和打算交给你决定"], ["driven", "用户驱动", "只在你提出要求时工作"]];
-function modal(html) {
-  document.querySelector(".modal")?.remove();
-  const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div class="box">${html}</div>`;
-  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m); return m;
-}
+const PRESETS = { performance: [L("最高性能", "Best quality"), { w_perf: 2.5, w_pref: 1, w_balance: .5, w_cost: 0, w_speed: .3, temperature: .25 }],
+                  balanced: [L("均衡", "Balanced"), { w_perf: 1, w_pref: 1, w_balance: 1, w_cost: .4, w_speed: .3, temperature: .35 }],
+                  economy: [L("省钱", "Economical"), { w_perf: .6, w_pref: 1, w_balance: 2, w_cost: 2, w_speed: .2, temperature: .5 }] };
+const LEVELS = [["free", L("完全自由", "Free"), L("它自己想、自己研究，验证过的改进自动上线（出问题会回滚）", "It thinks and researches on its own; verified improvements go live (and roll back if they regress)")],
+  ["checkpoint", L("检查点", "Checkpoints"), L("每想几轮停下来，把发现和打算交给你决定", "Every few rounds it stops and hands you its findings and plans")], ["driven", L("用户驱动", "On request"), L("只在你提出要求时工作", "It works only when you ask")]];
+function modal(html) { document.querySelector(".modal")?.remove(); const m = document.createElement("div"); m.className = "modal"; m.innerHTML = `<div class="box">${html}</div>`; m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m); return m; }
 function showWaiting() {
   const P = S.proc || {}, cp = P.checkpoint;
-  S.cpApprove = S.cpApprove || new Set((cp?.proposals || []).filter((p) => p.recommend).map((p) => p.code));
-  modal(`${cp ? `<h2>检查点</h2><div class="dim" style="margin-bottom:10px">它停下来了：这是它的发现和打算，你决定下一步。</div>
-      <h3>它发现了什么</h3><div class="sum">${esc(cp.summary || "")}</div>
-      ${cp.direction ? `<h3>接下来的整体思路</h3><div class="sum">${esc(cp.direction)}</div>` : ""}${cp.question ? `<h3>最想请你判断</h3><div class="shift">${esc(cp.question)}</div>` : ""}
-      ${(cp.options || []).length ? `<h3>怎么走</h3>${cp.options.map((o, i) => `<label style="display:block;margin:6px 0"><input type="radio" name="cpopt" value="${i}" ${i === 0 ? "checked" : ""}> ${esc(o.label)}${i === 0 ? " <span class='dim'>（它的建议）</span>" : ""}<div class="dim" style="margin-left:22px;font-size:12px">${esc(o.detail || "")}</div></label>`).join("")}` : ""}
-      ${(cp.proposals || []).length ? `<h3>要动手实现的改进（勾选才会做）</h3>${cp.proposals.map((p) => `<label style="display:block;margin:6px 0"><input type="checkbox" data-cpp="${esc(p.code)}" ${S.cpApprove.has(p.code) ? "checked" : ""}> <b>${esc(p.code)}</b> ${esc(p.title)}<div class="dim" style="margin-left:22px;font-size:12px">${esc(p.why || p.change || "")}</div></label>`).join("")}` : ""}
-      <div class="form"><textarea id="cpText" placeholder="可选：你的看法或修正，会成为之后每一轮的指导"></textarea>
-      <div class="row"><button data-cp="stop">停下</button><button data-cp="adjust">按我的意见调整后继续</button><button class="primary" data-cp="continue">同意，继续</button></div></div>` : ""}
-    ${(P.for_you || []).length ? `<h2 style="margin-top:${cp ? 24 : 0}px">只有你能回答</h2>${P.for_you.map((q) => `<div class="form"><div>${esc(q.text)}</div>${q.data?.why ? `<div class="dim" style="font-size:12px">为什么问你：${esc(q.data.why)}</div>` : ""}
-      <textarea data-q="${q.id}" placeholder="你的回答会成为这个抱负的指导，之后每一轮都会读到"></textarea>
-      <div class="row"><button data-drop="${q.id}">不用回答</button><button class="primary" data-answer="${q.id}">回答</button></div></div>`).join("")}` : ""}`);
+  modal(`${cp ? `<h2>${L("检查点", "Checkpoint")}</h2><div class="muted" style="margin-bottom:12px">${L("它停下来了：这是它的发现和打算，你决定下一步。", "It stopped: here is what it found and plans. You decide what comes next.")}</div>
+      <div class="label">${L("它发现了什么", "What it found")}</div><div style="margin:6px 0 14px">${esc(cp.summary || "")}</div>
+      ${cp.direction ? `<div class="label">${L("接下来的整体思路", "Where it wants to go")}</div><div style="margin:6px 0 14px">${esc(cp.direction)}</div>` : ""}${cp.question ? `<div class="shift">${esc(cp.question)}</div>` : ""}
+      ${(cp.options || []).map((o, i) => `<label class="opt"><input type="radio" name="cpopt" value="${i}" ${i === 0 ? "checked" : ""}><span>${esc(o.label)}${i === 0 ? ` <span class="dimt">${L("（它的建议）", "(its suggestion)")}</span>` : ""}<div class="d">${esc(o.detail || "")}</div></span></label>`).join("")}
+      ${(cp.proposals || []).length ? `<div class="label" style="margin-top:12px">${L("要动手实现的改进（勾选才会做）", "Improvements to build (only the ticked ones)")}</div>${cp.proposals.map((p) => `<label class="opt"><input type="checkbox" data-cpp="${esc(p.code)}" ${p.recommend ? "checked" : ""}><span><b>${esc(p.code)}</b> ${esc(p.title)}<div class="d">${esc(p.why || p.change || "")}</div></span></label>`).join("")}` : ""}
+      <div class="form"><textarea id="cpText" placeholder="${L("可选：你的看法或修正，会成为之后每一轮的指导", "Optional: your view or correction, read by every later round")}"></textarea>
+      <div class="row"><button class="ghost" data-cp="stop">${L("停下", "Stop")}</button><button data-cp="adjust">${L("按我的意见调整后继续", "Adjust and continue")}</button><button class="primary" data-cp="continue">${L("同意，继续", "Continue")}</button></div></div>` : ""}
+    ${(P.for_you || []).length ? `<h2 style="margin-top:${cp ? 24 : 0}px">${L("只有你能回答", "Only you can answer")}</h2>${P.for_you.map((q) => `<div class="form"><div>${esc(q.text)}</div>${q.data?.why ? `<div class="dimt" style="font-size:12.5px">${esc(q.data.why)}</div>` : ""}
+      <textarea data-q="${q.id}" placeholder="${L("你的回答会成为这个抱负的指导，之后每一轮都会读到", "Your answer becomes guidance every later round reads")}"></textarea>
+      <div class="row"><button class="ghost" data-drop="${q.id}">${L("不用回答", "Skip")}</button><button class="primary" data-answer="${q.id}">${L("回答", "Answer")}</button></div></div>`).join("")}` : ""}`);
 }
 async function showSettings() {
-  const t = S.proc?.task; if (!t) { toast("这个抱负还没有在长期运行：先按 ▶ 开始"); return; }
+  const t = S.proc?.task; if (!t) { toast(L("这个抱负还没有在长期运行：先按开始", "Not running yet: press Start first")); return; }
   let preset = "balanced"; try { preset = (await api(`/v1/aims/${S.aim}/allocation`)).settings?.preset || "balanced"; } catch {}
-  modal(`<h2>设置</h2><div class="dim" style="margin-bottom:12px">这棵树的长期任务怎么跑。</div>
-    <h3>驱动模式</h3>${LEVELS.map(([k, zh, d]) => `<label style="display:block;margin:6px 0"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}> <b style="font-weight:500">${zh}</b><div class="dim" style="margin-left:22px;font-size:12px">${d}</div></label>`).join("")}
-    <div style="margin:6px 0 0 22px;font-size:12.5px">检查点：每想 <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:52px"> 轮停下来一次</div>
-    <h3>多次生成</h3><div style="font-size:12.5px">每个问题生成 <input type="number" id="setSamples" min="1" max="5" value="${t.samples ?? 3}" style="width:52px"> 次（不同 agent、稍加扰动的提示词，再合成并保留新想法）</div>
-    <div style="font-size:12.5px;margin-top:6px">扰动强度 <input type="range" id="setPerturb" min="0" max="1" step="0.1" value="${t.perturb ?? .5}" style="vertical-align:middle"> <span id="pv">${(t.perturb ?? .5).toFixed(1)}</span></div>
-    <h3>多 agent 分配</h3><div class="chips">${Object.entries(PRESETS).map(([k, [zh]]) => `<label class="chip ${k === preset ? "on" : ""}"><input type="radio" name="preset" value="${k}" ${k === preset ? "checked" : ""} style="display:none">${zh}</label>`).join("")}</div>
-    <div class="form" style="border:0;background:none;padding:0;margin-top:16px"><div class="row"><button data-closemodal="1">取消</button><button class="primary" id="saveSettings">保存</button></div></div>`);
+  modal(`<h2>${L("设置", "Settings")}</h2><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
+    <div class="label">${L("驱动模式", "Drive mode")}</div>${LEVELS.map(([k, nm, d]) => `<label class="opt"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}><span><b style="font-weight:500">${nm}</b><div class="d">${d}</div></span></label>`).join("")}
+    <div style="margin:4px 0 16px 26px;font-size:13px">${L("每想", "Stop every")} <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:60px"> ${L("轮停下来一次", "rounds")}</div>
+    <div class="label">${L("受控分叉 · 多次生成", "Controlled forking · samples")}</div>
+    <div style="font-size:13px;margin:8px 0">${L("每个问题最多生成", "At most")} <input type="number" id="setSamples" min="1" max="5" value="${t.samples ?? 3}" style="width:60px"> ${L("次。实际次数由 P(fork)=f(不确定性, 分歧, 影响, 成本) 决定；分出明显不同的结论会留作影子路线，回顾时重新考虑。", "samples per question. How many is decided by P(fork) = f(uncertainty, disagreement, impact, cost); clearly different conclusions are kept as shadow paths and revisited.")}</div>
+    <div style="font-size:13px;margin-bottom:16px">${L("提示词扰动强度", "Prompt perturbation")} <input type="range" id="setPerturb" min="0" max="1" step="0.1" value="${t.perturb ?? .5}" style="vertical-align:middle"> <span id="pv" class="num">${(t.perturb ?? .5).toFixed(1)}</span></div>
+    <div class="label">${L("多 agent 分配", "How work is shared among agents")}</div><div style="display:flex;gap:6px;margin:8px 0 18px">${Object.entries(PRESETS).map(([k, [nm]]) => `<label class="chip ${k === preset ? "on" : ""}"><input type="radio" name="preset" value="${k}" ${k === preset ? "checked" : ""} style="display:none">${nm}</label>`).join("")}</div>
+    <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="saveSettings">${L("保存", "Save")}</button></div></div>`);
   document.querySelectorAll('input[name=preset]').forEach((r) => r.addEventListener("change", () => document.querySelectorAll('input[name=preset]').forEach((x) => x.parentElement.classList.toggle("on", x.checked))));
   $("#setPerturb").addEventListener("input", (e) => { $("#pv").textContent = Number(e.target.value).toFixed(1); });
 }
@@ -446,58 +480,56 @@ async function saveSettings() {
   const lvl = document.querySelector('input[name=lvl]:checked')?.value, preset = document.querySelector('input[name=preset]:checked')?.value;
   const settings = { autonomy: lvl, checkpoint_every: Number($("#setEvery").value), samples: Number($("#setSamples").value), perturb: Number($("#setPerturb").value) };
   if (preset) settings.alloc = { preset, ...PRESETS[preset][1] };
-  try { await api(`/v1/aims/${S.aim}/perpetual`, { method: "PATCH", body: { settings } }); document.querySelector(".modal")?.remove(); toast("已保存"); await loadTree(true); }
+  try { await api(`/v1/aims/${S.aim}/perpetual`, { method: "PATCH", body: { settings } }); document.querySelector(".modal")?.remove(); toast(L("已保存", "Saved")); await loadTree(true); }
   catch (err) { toast(err.message); }
 }
 async function showDoc(id) {
-  const d = await api(`/v1/bodies/${id}/document`).catch((e) => ({ error: e.message }));
-  const m = document.createElement("div"); m.className = "modal";
-  m.innerHTML = `<div class="box">${d.error ? esc(d.error) : `<h2>${esc(d.title)}</h2><div class="dim" style="margin-bottom:10px">${esc(d.gist || "")}</div>${d.summary ? PGATree.summary(d.summary) : ""}<hr style="border:0;border-top:1px solid var(--line);margin:16px 0"><div class="md">${md(d.full || "（还没有全文）")}</div>`}</div>`;
-  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m);
+  const d = await api(`/v1/bodies/${id}/document${EN ? "?lang=en" : ""}`).catch((e) => ({ error: e.message }));
+  modal(d.error ? esc(d.error) : `<h2>${esc(d.title)}</h2><div class="muted" style="margin-bottom:12px">${esc(d.gist || "")}</div>${d.summary ? PGATree.summary(d.summary) : ""}<div class="md" style="margin-top:16px">${md(d.full || L("（还没有全文）", "(no full text yet)"))}</div>`);
 }
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings");
+  if (S.menu && !e.target.closest(".menu")) { S.menu = false; renderNode(); }
+  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-lang], #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings");
   if (!t) return;
-  if (t.dataset.mode) { S.mode = t.dataset.mode; store.set("pga_tree_mode", S.mode); renderLegend(); drawTree(false); return; }
-  if (t.dataset.crefdel) { e.preventDefault(); S.contRefs = S.contRefs.filter((x) => x !== t.dataset.crefdel); renderCont(nodeOf(S.node), S.bud != null); return; }
-  if (t.dataset.refadd || t.dataset.unrefnode) {
-    const n = nodeOf(S.node), add = $("#refAdd")?.value;
-    const refs = t.dataset.unrefnode ? (n.refs || []).filter((x) => x !== t.dataset.unrefnode) : add ? [...(n.refs || []), add] : null;
-    if (!refs) { toast("选一份知识"); return; }
-    try { await api(`/v1/thought-nodes/${n.id}/refs`, { method: "PUT", body: { refs } }); toast(t.dataset.unrefnode ? "不再参考" : "从这里继续时，agent 会读到它"); await refresh(n.id); } catch (err) { toast(err.message); }
-    return;
-  }
-  if (t.dataset.move) {
-    const to = $("#moveTo")?.value; if (!to) { toast("选一个节点"); return; }
-    try { await api(`/v1/bodies/${t.dataset.move}/move`, { body: { node_id: to } }); toast("已移过去：它现在是那段思路沉淀出的知识"); await refresh(S.node); } catch (err) { toast(err.message); }
-    return;
-  }
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim) e.preventDefault();
+  if (t.dataset.lang) { store.set("pga_lang", t.dataset.lang); const q = new URLSearchParams(location.search); q.delete("lang"); location.search = q.toString(); return; }
+  if (t.dataset.mode) { S.mode = t.dataset.mode; store.set("pga_tree_mode", S.mode); renderBar(); drawTree(false); return; }
+  if (t.dataset.crefdel) { e.preventDefault(); S.contRefs = S.contRefs.filter((x) => x !== t.dataset.crefdel); renderCont(nodeOf(S.node), S.bud != null); return; }
   if (t.dataset.tbud) { const [id, i] = t.dataset.tbud.split("|"); S.tab = "overview"; select(id, Number(i)); return; }
   if (t.dataset.tnode) { select(t.dataset.tnode); return; }
   if (t.dataset.go) { select(t.dataset.go); return; }
-  if (t.dataset.goaim) { if (t.dataset.goaim === S.aim) { select(t.dataset.gonode); return; } location.href = `/tree?aim=${t.dataset.goaim}&node=${t.dataset.gonode}${AS_UID ? `&as=${AS_UID}` : ""}`; return; }
+  if (t.dataset.goaim) { const q = t.dataset.goaim === "you" ? "you=1" : `aim=${t.dataset.goaim}`; if (t.dataset.goaim === S.aim) { select(t.dataset.gonode); return; } location.href = `/tree?${q}&node=${t.dataset.gonode}${AS_UID ? `&as=${AS_UID}` : ""}`; return; }
   if (t.dataset.tab) { S.tab = t.dataset.tab; store.set("pga_tree_tab", S.tab); renderNode(); return; }
-  if (t.dataset.filter) { S.filter = t.dataset.filter; renderNode(); return; }
+  if (t.dataset.filter) { S.filter = t.dataset.filter; renderBody(); return; }
   if (t.dataset.bud !== undefined) { S.bud = Number(t.dataset.bud); drawTree(false); renderNode(); $("#tnText")?.focus(); return; }
+  if (t.dataset.refadd || t.dataset.unrefnode) {
+    const n = nodeOf(S.node), add = $("#refAdd")?.value;
+    const refs = t.dataset.unrefnode ? (n.refs || []).filter((x) => x !== t.dataset.unrefnode) : add ? [...(n.refs || []), add] : null;
+    if (!refs) { toast(L("选一份知识", "Pick one")); return; }
+    try { await api(`/v1/thought-nodes/${n.id}/refs`, { method: "PUT", body: { refs } }); toast(t.dataset.unrefnode ? L("不再参考", "Removed") : L("从这里继续时，agent 会读到它", "Agents will read it when continuing from here")); await refresh(n.id); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.dataset.move) { const to = $("#moveTo")?.value; if (!to) { toast(L("选一个节点", "Pick a node")); return; }
+    try { await api(`/v1/bodies/${t.dataset.move}/move`, { body: { node_id: to } }); toast(L("已移过去", "Moved")); await refresh(S.node); } catch (err) { toast(err.message); } return; }
   if (t.dataset.op !== undefined) {
     const op = t.dataset.op;
-    if (["hide", "merge", "delete", "distill"].includes(op)) { quickOp(op); return; }
-    S.op = op || null; renderNode();
+    if (op === "menu") { S.menu = !S.menu; renderNode(); return; }
+    if (["hide", "merge", "delete", "distill", "markdown"].includes(op)) { quickOp(op); return; }
+    S.op = op || null; S.menu = false; renderNode();
     if (op === "exchange-pick") {
       const f = await forest().catch(() => null), sel = $("#fOther");
-      if (f && sel) sel.innerHTML = `<option value="">（别的树的节点）</option>` + [...f.trees, ...(f.you ? [f.you] : [])].filter((x) => x.id !== S.aim && x.nodes.length).map((x) => `<optgroup label="${esc(x.text.slice(0, 30))}">${x.nodes.map((m) => `<option value="${x.id}|${m.id}">${esc(m.title)}</option>`).join("")}</optgroup>`).join("");
-      toast("在左边的树上点另一个节点");
+      if (f && sel) sel.innerHTML = `<option value="">${L("（别的树的节点）", "(a node in another tree)")}</option>` + [...f.trees, ...(f.you ? [f.you] : [])].filter((x) => x.id !== S.aim && x.nodes.length)
+        .map((x) => `<optgroup label="${esc(x.text.slice(0, 30))}">${x.nodes.map((m) => `<option value="${x.id}|${m.id}">${esc(m.title)}</option>`).join("")}</optgroup>`).join("");
     }
     if (op === "branch") $("#fBranch")?.focus();
     return;
   }
   if (t.dataset.do) { doOp(t.dataset.do); return; }
   if (t.dataset.doc) { showDoc(t.dataset.doc); return; }
-  if (t.dataset.ref) { const to = $("#refTo")?.value; if (!to) { toast("选一棵树"); return; } try { await api(`/v1/aims/${to}/references`, { body: { body_id: t.dataset.ref } }); toast("那棵树之后每一轮都会读到它"); S.forest = null; renderNode(); } catch (err) { toast(err.message); } return; }
-  if (t.dataset.unref) { try { await api(`/v1/aims/${S.aim}/references/${t.dataset.unref}`, { method: "DELETE" }); toast("不再参考"); await refresh(); } catch (err) { toast(err.message); } return; }
+  if (t.dataset.ref) { const to = $("#refTo")?.value; if (!to) { toast(L("选一棵树", "Pick a tree")); return; } try { await api(`/v1/aims/${to}/references`, { body: { body_id: t.dataset.ref } }); toast(L("那棵树之后每一轮都会读到它", "That tree will read it every round")); S.forest = null; renderNode(); } catch (err) { toast(err.message); } return; }
+  if (t.dataset.unref) { try { await api(`/v1/aims/${S.aim}/references/${t.dataset.unref}`, { method: "DELETE" }); toast(L("不再参考", "Removed")); await refresh(); } catch (err) { toast(err.message); } return; }
   if (t.dataset.focus !== undefined) {
-    try { await api(`/v1/aims/${S.aim}/tree/focus`, { body: { node_id: t.dataset.focus || null } }); toast(t.dataset.focus ? "之后 PGA 会沿这条分支想" : "已取消"); await loadTree(true); drawTree(false); renderNode(); }
+    try { await api(`/v1/aims/${S.aim}/tree/focus`, { body: { node_id: t.dataset.focus || null } }); toast(t.dataset.focus ? L("之后 PGA 会沿这条分支想", "PGA will follow this branch") : L("已取消", "Stopped")); await loadTree(true); drawTree(false); renderNode(); }
     catch (err) { toast(err.message); }
     return;
   }
@@ -508,42 +540,42 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.closemodal) { document.querySelector(".modal")?.remove(); return; }
   if (t.dataset.answer || t.dataset.drop) {
     const id = t.dataset.answer || t.dataset.drop, text = t.dataset.answer ? (document.querySelector(`textarea[data-q="${CSS.escape(id)}"]`)?.value || "").trim() : "";
-    if (t.dataset.answer && !text) { toast("先写下你的回答"); return; }
+    if (t.dataset.answer && !text) { toast(L("先写下你的回答", "Write your answer first")); return; }
     try { await api(`/v1/aims/${S.aim}/perpetual/answer`, { body: t.dataset.answer ? { note_id: id, text } : { note_id: id, drop: true } });
-      toast(t.dataset.answer ? "已回答：之后的每一轮都会读到" : "已放下这个问题"); await loadTree(true); if ((S.proc?.for_you || []).length || S.proc?.checkpoint) showWaiting(); else document.querySelector(".modal")?.remove(); }
+      toast(t.dataset.answer ? L("已回答：之后的每一轮都会读到", "Answered: every later round reads it") : L("已放下这个问题", "Skipped")); await loadTree(true);
+      if ((S.proc?.for_you || []).length || S.proc?.checkpoint) showWaiting(); else document.querySelector(".modal")?.remove(); }
     catch (err) { toast(err.message); }
     return;
   }
   if (t.dataset.cp) {
     const cp = S.proc?.checkpoint; if (!cp) return;
     const text = ($("#cpText")?.value || "").trim();
-    if (t.dataset.cp === "adjust" && !text) { toast("先写下你的意见"); $("#cpText")?.focus(); return; }
-    if (t.dataset.cp === "stop" && !confirm("停下：这个抱负会暂停，直到你按 ▶ 开始。")) return;
+    if (t.dataset.cp === "adjust" && !text) { toast(L("先写下你的意见", "Write your view first")); $("#cpText")?.focus(); return; }
+    if (t.dataset.cp === "stop" && !confirm(L("停下：这个抱负会暂停，直到你按开始。", "Stop: this motivation pauses until you press Start."))) return;
     const approve = [...document.querySelectorAll("[data-cpp]")].filter((x) => x.checked).map((x) => x.dataset.cpp);
     const option = Number(document.querySelector('input[name=cpopt]:checked')?.value ?? 0);
     try { await api(`/v1/aims/${S.aim}/perpetual/checkpoint`, { body: { note_id: cp.id, decision: t.dataset.cp, text, option, approve } });
-      toast({ continue: "已同意，继续", adjust: "已按你的意见调整", stop: "已停下" }[t.dataset.cp]); S.cpApprove = null; document.querySelector(".modal")?.remove(); await loadTree(true); }
+      toast({ continue: L("已同意，继续", "Continuing"), adjust: L("已按你的意见调整", "Adjusted"), stop: L("已停下", "Stopped") }[t.dataset.cp]); document.querySelector(".modal")?.remove(); await loadTree(true); }
     catch (err) { toast(err.message); }
     return;
   }
-  if (t.id === "curate") { try { const r = await api(YOU() ? `/v1/users/${S.uid}/tree/curate` : `/v1/aims/${S.aim}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理 ${r.pending} 轮对话：节点会一段一段长出来`); } catch (err) { toast(err.message); } return; }
-  if (t.id === "rewrite") { try { await api(YOU() ? `/v1/users/${S.uid}/tree/rewrite` : `/v1/aims/${S.aim}/tree/rewrite`, { method: "POST" }); toast("整理者在后台重写这些概括，写好的会陆续更新"); } catch (err) { toast(err.message); } return; }
+  if (t.id === "curate") { try { const r = await api(YOU() ? `/v1/users/${S.uid}/tree/curate` : `/v1/aims/${S.aim}/tree/curate`, { method: "POST", body: {} }); toast(L(`开始整理 ${r.pending} 轮对话`, `Placing ${r.pending} turns`)); } catch (err) { toast(err.message); } return; }
+  if (t.id === "rewrite") { try { await api(YOU() ? `/v1/users/${S.uid}/tree/rewrite` : `/v1/aims/${S.aim}/tree/rewrite`, { method: "POST" }); toast(L("整理者在后台重写这些概括", "The curator is rewriting them in the background")); } catch (err) { toast(err.message); } return; }
   if (t.id === "runBtn") {
-    const T = S.tree, on = T.task?.status === "running";
-    if (!T.project) return;
-    try { await api(`/v1/users/${S.uid}/projects/${T.project.id}/run`, { body: { action: on ? "pause" : "start" } }); toast(on ? "已暂停" : "开始了：它会在这棵树上不停地长"); await loadTree(true); }
+    const T = S.tree, on = T.task?.status === "running"; if (!T.project) return;
+    try { await api(`/v1/users/${S.uid}/projects/${T.project.id}/run`, { body: { action: on ? "pause" : "start" } }); toast(on ? L("已暂停", "Paused") : L("开始了", "Started")); await loadTree(true); }
     catch (err) { toast(err.message); }
   }
 });
-document.addEventListener("input", (e) => { if (e.target.id === "search") { S.search = e.target.value; const pos = e.target.selectionStart; renderNode(); const s = $("#search"); s.focus(); s.setSelectionRange(pos, pos); } });
+document.addEventListener("input", (e) => { if (e.target.id === "search") { S.search = e.target.value; const pos = e.target.selectionStart; renderBody(); const s = $("#search"); s.focus(); s.setSelectionRange(pos, pos); } });
 document.addEventListener("change", (e) => {
   if (e.target.id === "crefAdd" && e.target.value) { S.contRefs = [...S.contRefs, e.target.value]; renderCont(nodeOf(S.node), S.bud != null); return; }
-  if (e.target.id === "aimPick") { S.aim = e.target.value; S.node = null; S.bud = null; S.detail = {}; S.seen = new Set(); history.replaceState(null, "", qs()); loadTree(); }
+  if (e.target.id === "aimPick") { S.aim = e.target.value; S.node = null; S.bud = null; S.detail = {}; S.beh = {}; S.seen = new Set(); history.replaceState(null, "", qs()); loadTree(); }
   if (e.target.id === "showHidden") { S.showHidden = e.target.checked; drawTree(false); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "tnText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
-  if (e.key === "Escape") { document.querySelector(".modal")?.remove(); if (S.op) { S.op = null; renderNode(); } return; }
+  if (e.key === "Escape") { document.querySelector(".modal")?.remove(); if (S.op || S.menu) { S.op = null; S.menu = false; renderNode(); } return; }
   if (e.target.closest?.("textarea, input, select")) return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);
   if (e.key === "ArrowUp" && i < list.length - 1) { e.preventDefault(); select(list[i + 1].id); }

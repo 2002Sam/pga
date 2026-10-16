@@ -86,7 +86,8 @@ DEFAULTS: dict[str, Any] = {
     "alloc": {},                # how the work is shared among agents (pga.allocation): your weights, preferences, parallelism
     "focus_node": None,         # 思考树: the branch you asked it to continue (pga.tree)
     "focus_since": None,
-    "samples": 3,               # 多次生成: answers per question (different agents, lightly disturbed prompts), then folded together
+    "samples": 3,               # 多次生成: at most this many answers per question (different agents, lightly disturbed prompts)
+    "fork": "adaptive",         # adaptive: how many follows the fork score P(fork)=f(U,D,I,C) · always: every question gets them all
     "perturb": 0.5,             # how much the prompts are disturbed (0 = never, ≥0.5 two stances, ≥0.7 also drops a context section)
 }
 AUTONOMY = ("free", "checkpoint", "driven")
@@ -144,8 +145,11 @@ Reply with JSON only: {{"summary": "...", "direction": "...", "proposals": [{{"c
 
 REFLECT = """You are {role} on a perpetual task. Look back over the board: what has the team learned, what changed, which
 open questions are stale or answered already (drop them), which matter most now (re-prioritise), and is there one thing
-only the user can decide? Write "summary" and "ask_user" in {lang}; ask_user may be empty.
-Reply with JSON only: {{"summary": "≤150 words", "drop": ["Q3"], "priorities": {{"Q5": 0.9}}, "ask_user": ""}}"""
+only the user can decide? If shadow paths are listed (conclusions the team did NOT take when it forked), judge each
+against what is known now: "promote" if the evidence now favours it over the main line, "keep" if still plausible,
+"drop" if it is dead; say why in one line. Write "summary", "ask_user" and the reasons in {lang}; ask_user may be empty.
+Reply with JSON only: {{"summary": "≤150 words", "drop": ["Q3"], "priorities": {{"Q5": 0.9}}, "ask_user": "",
+"shadows": {{"A1": {{"verdict": "promote|keep|drop", "why": "..."}}}}}}"""
 
 
 def _cjk_grams(t: str) -> set[str]:
@@ -448,7 +452,11 @@ class Perpetual:
         alloc = Allocation(self)
         a = alloc.settings(t)
         rows = alloc.table(t, aim, role, action, now)
-        samples = max(1, min(5, int(c.get("samples") or 1))) if action == "investigate" and self.questions(t) else 1
+        samples, fork = 1, None
+        if action == "investigate" and self.questions(t):
+            mx = max(1, min(5, int(c.get("samples") or 1)))
+            fork = self.fork_plan(t, aim, rows, mx) if c.get("fork", "adaptive") == "adaptive" else {"n": mx, "mode": "always"}
+            samples = fork["n"]
         k = samples if samples > 1 else min(a["parallel"], max(1, len(self.questions(t)))) if action == "investigate" else 1
         drawn = alloc.draw(rows, k, random.Random(f"{t.id}:{t.cycles}"))      # by your weights; reproducible per cycle
         agents = drawn or [agent]
@@ -458,7 +466,7 @@ class Perpetual:
         self._phase(t, action, f"{PHASE_ZH[action]}{f' · {samples} 次生成' if samples > 1 else ''} · {'、'.join(dict.fromkeys(agents))}", now)
         started = time.monotonic()
         try:
-            out = (self._investigate_sampled(t, aim, role, agents, now, float(c.get("perturb") or 0)) if samples > 1
+            out = (self._investigate_sampled(t, aim, role, agents, now, float(c.get("perturb") or 0), fork) if samples > 1
                    else self._investigate_many(t, aim, role, agents, now) if len(agents) > 1
                    else getattr(self, "_" + action)(t, aim, role, agent, now))
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not end a perpetual task
@@ -647,7 +655,30 @@ class Perpetual:
                 "summary": "并行研究：" + "；".join(f"{ag} {o.get('summary') or o.get('error') or ''}" for ag, o in outs),
                 "error": None if any(o["ok"] for _, o in outs) else "; ".join(str(o.get("error")) for _, o in outs)}
 
-    def _investigate_sampled(self, t: PerpetualTask, aim: Aim, role: str, agents: list[str], now: datetime, strength: float) -> dict:
+    def fork_plan(self, t: PerpetualTask, aim: Aim, rows: list[dict], max_samples: int) -> dict:
+        """受控分叉: how many answers the next question deserves — P(fork) = f(U, D, I, C)."""
+        from pga.sampling import fork_samples, fork_score
+        qs = sorted(self.questions(t), key=lambda q: (-clamp01((q.data or {}).get("priority"), .5), q.created_at))
+        q = qs[0] if qs else None
+        recent = list(self.s.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "answer")
+                                     .order_by(AimNote.created_at.desc()).limit(12)))
+        confs = [clamp01((n.data or {}).get("confidence"), .5) for n in recent]
+        divs = [float((n.data or {}).get("divergence")) for n in recent if (n.data or {}).get("divergence") is not None][:6]
+        usable = [r for r in rows if r.get("usable")]
+        bal = [float(r["parts"].get("balance", .7)) for r in usable] or [.5]
+        U = round(1 - sum(confs) / len(confs), 3) if confs else .5
+        D = round(sum(divs) / len(divs), 3) if divs else .4
+        I = clamp01((q.data or {}).get("priority") if q else .5, .5)
+        C = round(1 - sum(bal) / len(bal), 3)
+        score = fork_score(U, D, I, C)
+        return {"mode": "adaptive", "U": U, "D": D, "I": I, "C": C, "score": score, "n": fork_samples(score, max_samples), "max": max_samples}
+
+    def shadows(self, aim: Aim, status: tuple[str, ...] = ("shadow",)) -> list[AimNote]:
+        return list(self.s.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "alternative",
+                                                         AimNote.status.in_(status)).order_by(AimNote.created_at)))
+
+    def _investigate_sampled(self, t: PerpetualTask, aim: Aim, role: str, agents: list[str], now: datetime, strength: float,
+                             fork: dict | None = None) -> dict:
         """多次生成: the top question answered once per sample — by different agents where there are, each prompt lightly
         disturbed (sample 0 left as it is) — then one aggregator folds them together and keeps the stray ideas."""
         from concurrent.futures import ThreadPoolExecutor
@@ -687,8 +718,11 @@ class Perpetual:
                               "confidence": clamp01(d.get("confidence"), .5), "raw": text})
         if not cands:
             return {**self._apply_answer(t, aim, role, agents[0], q, "", "none of the samples answered"), "agents": list(dict.fromkeys(agents))}
+        from pga.sampling import clusters
         spread = divergence([c["answer"] for c in cands])
-        samples = [{k: c[k] for k in ("n", "agent", "angle", "ops", "confidence")} | {"answer": c["answer"][:1500]} for c in cands]
+        groups = clusters([c["answer"] for c in cands])
+        samples = [{k: c[k] for k in ("n", "agent", "angle", "ops", "confidence")} | {"answer": c["answer"][:1500],
+                   "group": next(i for i, g in enumerate(groups) if k_ in g)} for k_, c in enumerate(cands)]
         if len(cands) == 1:
             return {**self._apply_answer(t, aim, role, cands[0]["agent"], q, cands[0]["raw"], None,
                                          extra={"samples": samples, "divergence": spread}), "agents": [cands[0]["agent"]]}
@@ -713,15 +747,29 @@ class Perpetual:
                     "agents": list(dict.fromkeys(c["agent"] for c in cands))}
         ideas = [{"idea": str(x.get("idea") or "")[:400], "from": [int(n) for n in (x.get("from") or []) if str(n).isdigit()][:5]}
                  for x in (d.get("ideas") or []) if isinstance(x, dict) and str(x.get("idea") or "").strip()][:4]
+        alts = []
+        if len(groups) > 1:                                   # clearly different conclusions: keep up to two as shadow paths
+            for x in (d.get("alternatives") or [])[:2]:
+                if isinstance(x, dict) and str(x.get("conclusion") or "").strip():
+                    alts.append({"conclusion": str(x["conclusion"])[:600], "assumption": str(x.get("assumption") or "")[:300],
+                                 "from": [int(n) for n in (x.get("from") or []) if str(n).isdigit()][:5],
+                                 "strength": clamp01(x.get("strength"), .5)})
         out = self._apply_answer(t, aim, role, lead, q, text, err,
                                  extra={"samples": samples, "divergence": spread, "aggregated": True, "ideas": ideas,
+                                        "groups": len(groups), "fork": fork or {},
                                         "agreed": [str(x)[:300] for x in (d.get("agreed") or [])][:5]})
         later = utcnow()
         for x in ideas:                                       # inspirations: kept on the board, where the next rounds see them
             self.team._note(aim, "insight", x["idea"], role="lead", agent=lead, now=later,
                             data={"code": code, "inspiration": True, "from_samples": x["from"], "perpetual": str(t.id)})
+        n_alt = int(self.s.scalar(select(func.count()).select_from(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "alternative")) or 0)
+        for i, x in enumerate(alts):                          # shadow paths: not taken now, revisited by the reflection step
+            self.team._note(aim, "alternative", x["conclusion"], role="lead", agent=lead, now=later, status="shadow",
+                            data={"code": code, "alt": f"A{n_alt + i + 1}", "assumption": x["assumption"], "from_samples": x["from"],
+                                  "strength": x["strength"], "question": q.text[:300], "perpetual": str(t.id)})
         out["agents"] = list(dict.fromkeys([c["agent"] for c in cands] + [lead]))
-        out["summary"] = (out.get("summary") or "") + f"（{len(cands)} 次生成，分歧 {spread:.2f}" + (f"，{len(ideas)} 个新想法）" if ideas else "）")
+        out["summary"] = (out.get("summary") or "") + f"（{len(cands)} 次生成，分歧 {spread:.2f}" + (f"，{len(ideas)} 个新想法" if ideas else "") \
+            + (f"，留下 {len(alts)} 条影子路线" if alts else "") + "）"
         return out
 
     def _apply_answer(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote, text: str, err: str | None,
@@ -814,7 +862,11 @@ class Perpetual:
         system = REFLECT.format(role=self._role_en(role), lang=self._lang(t))
         recent = list(self.s.scalars(select(AimNote).where(AimNote.aim_id == t.aim_id).order_by(AimNote.created_at.desc()).limit(30)))
         board = "\n".join(f"[{n.kind}{' ' + str((n.data or {}).get('code')) if (n.data or {}).get('code') else ''}] {n.text[:400]}" for n in reversed(recent))
-        text, err = self._ask(t, aim, role, agent, self.context(t, aim, answers=3) + f"\n\n<board_recent>\n{board}\n</board_recent>\nLook back.",
+        shadows = self.shadows(aim)[:4]                       # the oldest paths not taken, revisited
+        sh = ("\n\n<shadow_paths>\n" + "\n".join(f"{(n.data or {}).get('alt')} (from {(n.data or {}).get('code')}): {n.text[:400]}"
+                                                   f" — assumption: {(n.data or {}).get('assumption', '')[:200]}" for n in shadows)
+              + "\n</shadow_paths>") if shadows else ""
+        text, err = self._ask(t, aim, role, agent, self.context(t, aim, answers=3) + f"\n\n<board_recent>\n{board}\n</board_recent>{sh}\nLook back.",
                               system, "reflect")
         d = self._json(text)
         summary = str(d.get("summary") or "").strip()
@@ -832,8 +884,22 @@ class Perpetual:
             if q is not None and q.status == "open":
                 q.data = {**(q.data or {}), "priority": clamp01(pr, .5)}
         later = utcnow()
+        verdicts = d.get("shadows") if isinstance(d.get("shadows"), dict) else {}
+        promoted = []
+        for n in shadows:
+            v = verdicts.get((n.data or {}).get("alt")) or {}
+            verdict = str((v.get("verdict") if isinstance(v, dict) else v) or "keep").lower()
+            why = str(v.get("why") or "")[:300] if isinstance(v, dict) else ""
+            n.data = {**(n.data or {}), "revisited": later.isoformat(), "revisits": int((n.data or {}).get("revisits", 0)) + 1, "why": why}
+            if verdict == "promote":
+                n.status = "promoted"
+                promoted.append((n.data or {}).get("alt"))
+                self.team._note(aim, "insight", f"重新考虑影子路线 {(n.data or {}).get('alt')}：{n.text[:400]}" + (f"（{why}）" if why else ""),
+                                role=role, agent=agent, now=later, data={"promoted": (n.data or {}).get("alt"), "perpetual": str(t.id)})
+            elif verdict == "drop":
+                n.status = "dropped"
         self.team._note(aim, "reflect", summary[:3000], role=role, agent=agent, now=later,
-                        data={"dropped": dropped, "perpetual": str(t.id)})
+                        data={"dropped": dropped, "promoted": promoted, "perpetual": str(t.id)})
         ask = str(d.get("ask_user") or "").strip()
         if ask:
             self._add_questions(t, aim, [{"q": ask, "kind": "user", "priority": 0.8, "why": "回顾时发现只有你能决定"}], agent, role, later)

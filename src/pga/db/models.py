@@ -215,6 +215,7 @@ class Body(Base):
     # a dataset PGA keeps itself: "user" (who you are), "world" (what is happening), "aim" (what a motivation learned)
     system: Mapped[str | None] = mapped_column(String(16))
     compiled_at: Mapped[datetime | None] = mapped_column(Tz())               # when its full text was last rebuilt
+    data: Mapped[dict[str, Any] | None] = mapped_column(JSONType)           # structure, e.g. the personal model's five dimensions
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_bodies_user_aim", "user_id", "aim_id"),)

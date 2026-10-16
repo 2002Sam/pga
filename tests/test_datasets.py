@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from pga.aims import AimService
@@ -21,6 +22,9 @@ DOC = "# Overview\n\nThe person builds a perpetual agent called PGA. " + "They c
 
 
 def _writer(system, messages):
+    if system.startswith("You keep the PERSONAL MODEL"):
+        dim = {"summary": "Builds PGA, a perpetual personal agent.", "stated": ["wants clean interfaces"], "inferred": ["works late"], "confidence": 0.7}
+        return json.dumps({"dimensions": {k: dim for k in ("background", "goals", "preferences", "abilities", "state")}})
     if system.startswith("You keep one curated knowledge document"):
         return DOC
     return default_fake_reply("m", system, messages)
@@ -31,7 +35,7 @@ def test_user_and_world_always_exist_once(rt, user):
     a = ds.ensure(user)
     b = ds.ensure(user)
     assert set(a) == {"user", "world"} and a["user"].id == b["user"].id
-    assert a["user"].title == "用户" and a["world"].title == "世界" and a["user"].aim_id is None
+    assert a["user"].title == "个人模型" and a["world"].title == "世界模型" and a["user"].aim_id is None
 
 
 def test_world_is_compiled_from_hot_lists_and_cut_into_a_pyramid(rt, user, provider):
@@ -69,8 +73,12 @@ def test_the_user_dataset_reads_everything_the_user_wrote(rt, user, provider):
     provider.handler = _writer
     u = Datasets(rt).ensure(user)["user"]
     assert Datasets(rt).compile(user, u, now).status == "compiled"
-    sent = next(c for c in provider.calls if c.system.startswith("You keep one curated knowledge document"))
+    sent = next(c for c in provider.calls if c.system.startswith("You keep the PERSONAL MODEL"))
     assert "I like clean interfaces" in sent.messages[-1]["content"] and "Build an agent that never stops" in sent.messages[-1]["content"]
+    # the personal model: five dimensions kept as structure, written out as a document
+    assert set(u.data["dims_en"]) == {"background", "goals", "preferences", "abilities", "state"}
+    assert u.data["dims_en"]["goals"]["confidence"] == 0.7 and u.description_en.startswith("# Personal model")
+    assert u.title == "个人模型"
     # rebuilt only when something new arrived, and not too often
     ds = Datasets(rt)
     later = now + timedelta(days=2)

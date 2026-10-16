@@ -52,7 +52,8 @@ elif "Review them." in text:
             "regression_risk": 0.1, "reversibility": 0.9}
     print(json.dumps({"reviews": [{"id": c, "scores": good, "objections": [], "critical": False} for c in codes]}))
 elif "Look back." in text:
-    print(json.dumps({"summary": "阈值的问题已经查清，接下来看副作用。", "drop": [], "priorities": {}, "ask_user": ""}))
+    print(json.dumps({"summary": "阈值的问题已经查清，接下来看副作用。", "drop": [], "priorities": {}, "ask_user": "",
+                      "shadows": {"A1": {"verdict": "promote", "why": "新的证据支持按主题设阈值"}, "A2": {"verdict": "drop", "why": "已被排除"}}}))
 else:
     print("{}")
 '''
@@ -362,7 +363,7 @@ def test_one_question_many_samples_folded_together(rt, user, setup):
     """多次生成: several agents answer the same question, prompts lightly disturbed, then one aggregator folds them."""
     eng, t, aim, _ = setup
     eng.cycle(t)                                                                # think: questions to answer
-    t.settings = {**t.settings, "samples": 3, "perturb": 0.8}
+    t.settings = {**t.settings, "samples": 3, "perturb": 0.8, "fork": "always"}
     t.next_at = None
     out = eng.cycle(t)
     assert out["action"] == "investigate" and out["ok"], out
@@ -388,3 +389,26 @@ def test_perturbation_keeps_the_question_last_and_the_anchor_untouched():
     assert s.startswith("S\n\nFor this answer:") and p.startswith("board\n\n") and p.endswith("</question>\nAnswer it.")
     assert "drop_context" in ops and p.count("\n\n") == prompt.count("\n\n") - 1
     assert divergence(["a b c", "a b c"]) == 0.0 and divergence(["a b c", "x y z"]) == 1.0
+
+
+def test_fork_only_when_it_matters_and_keep_the_paths_not_taken():
+    """P(fork) = f(U, D, I, C): an unsure, contested, important question gets several answers; a settled cheap one gets one."""
+    from pga.sampling import clusters, fork_samples, fork_score
+    hot, cold = fork_score(U=.7, D=.8, I=.9, C=.1), fork_score(U=.1, D=.1, I=.2, C=.8)
+    assert hot > .6 and cold == 0.0 and fork_samples(hot, 5) >= 4 and fork_samples(cold, 5) == 1 and fork_samples(hot, 1) == 1
+    g = clusters(["缓存 太 短 要 加长 TTL", "缓存 太 短 要 加长 TTL 到 一天", "完全 换成 事件 驱动 失效"])
+    assert g == [[0, 1], [2]]
+
+
+def test_reflection_revisits_the_shadow_paths(rt, user, setup):
+    eng, t, aim, _ = setup
+    for i, alt in enumerate(("A1", "A2")):
+        eng.team._note(aim, "alternative", f"另一条路 {alt}", role="lead", agent="gpt", status="shadow",
+                       data={"alt": alt, "assumption": "假设不同", "code": "Q1"})
+    out = eng._reflect(t, aim, "critic", "claudeish", datetime.now(timezone.utc))
+    assert out["ok"], out
+    st = {(n.data or {}).get("alt"): n.status for n in eng.shadows(aim, ("shadow", "promoted", "dropped"))}
+    assert st == {"A1": "promoted", "A2": "dropped"}
+    promoted = rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "insight")
+                                  .order_by(AimNote.created_at.desc())).first()
+    assert promoted.data["promoted"] == "A1" and "A1" in promoted.text

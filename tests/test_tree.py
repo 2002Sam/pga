@@ -303,3 +303,21 @@ def test_knowledge_moves_and_is_referenced_by_nodes_and_conversations(session_fa
         seen.clear()
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "你好", "agent": "auto", "refs": [str(b.id)]})
         assert any("Per-topic thresholds" in s for s in seen)                          # and a plain conversation can refer to it too
+
+
+def test_english_pages_translate_once_and_keep_it(rt, user, provider):
+    """The English version: Chinese pieces are translated in one call and cached; English stays as it is."""
+    from pga.i18n import translate_many
+
+    calls = []
+
+    def handler(system, messages):
+        if system.startswith("Translate each numbered piece into English"):
+            calls.append(messages[-1]["content"])
+            import re as _re
+            return "\n".join(f"⟦{i}⟧ EN:{t.strip()}" for i, t in _re.findall(r"⟦(\d+)⟧ ([^⟦]*)", messages[-1]["content"]))
+        return default_fake_reply("m", system, messages)
+    provider.handler = handler
+    out = translate_many(rt, ["缓存太短", "already English", "按主题设阈值"], "en")
+    assert out == ["EN:缓存太短", "already English", "EN:按主题设阈值"] and len(calls) == 1
+    assert translate_many(rt, ["缓存太短"], "en") == ["EN:缓存太短"] and len(calls) == 1            # kept, not asked again

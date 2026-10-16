@@ -37,8 +37,8 @@ if TYPE_CHECKING:
 log = logging.getLogger("pga.datasets")
 
 SYSTEM_SETS = {
-    "user": ("用户", "The user", "你是谁：你告诉 PGA 的，和从你所有输入里推断出的情况"),
-    "world": ("世界", "The world", "世界正在发生什么：从各平台热点汇总、整理出的现状"),
+    "user": ("个人模型", "Personal model", "你是谁：背景、目标、偏好、能力、状态五个维度，来自你告诉 PGA 的和从你所有输入里推断出的"),
+    "world": ("世界模型", "World model", "世界正在发生什么：从各平台热点汇总、整理出的现状"),
 }
 # hot lists, as TrendRadar collects them (newsnow aggregator ids)
 WORLD_SOURCES = {"weibo": "微博热搜", "zhihu": "知乎热榜", "baidu": "百度热搜", "toutiao": "今日头条", "thepaper": "澎湃新闻",
@@ -70,6 +70,23 @@ WHAT = {
 }
 
 
+# the personal model: five dimensions about you
+DIMENSIONS = [
+    ("background", "背景", "Background", "who the user is: role, field, situation, the projects they carry"),
+    ("goals", "目标", "Goals", "what the user wants, long and short term, and why it matters to them"),
+    ("preferences", "偏好", "Preferences", "how the user likes things done: taste, style, communication, what they dislike"),
+    ("abilities", "能力", "Knowledge & skills", "what the user knows and can do well, and where they need help"),
+    ("state", "状态", "Current state", "what is going on now: constraints, resources, time, open decisions"),
+]
+PERSONAL = """You keep the PERSONAL MODEL of one user for their long-running personal agent: five dimensions about the user.
+{dims}
+For each dimension: "summary" (1-2 plain sentences), "stated" (what the user said themselves, up to 5 short items),
+"inferred" (what can reasonably be inferred from what they wrote, up to 5 short items, each a careful inference, not a fact),
+"confidence" (0-1, how well the material supports this dimension). Never include passwords, keys or secrets. Write in English.
+{untrusted}
+Reply with JSON only: {{"dimensions": {{"background": {{"summary": "...", "stated": ["..."], "inferred": ["..."], "confidence": 0.0}}, ...}}}}"""
+
+
 class DatasetError(RuntimeError):
     pass
 
@@ -95,6 +112,9 @@ class Datasets:
         """The user and world datasets always exist (one per account)."""
         now = now or utcnow()
         have = {b.system: b for b in self.s.scalars(select(Body).where(Body.user_id == user.id, Body.system.in_(list(SYSTEM_SETS))))}
+        for key, b in have.items():                           # the names they had before they were models
+            if b.title in ("用户", "世界"):
+                b.title, b.title_en = SYSTEM_SETS[key][0], SYSTEM_SETS[key][1]
         for key, (title, title_en, desc) in SYSTEM_SETS.items():
             if key not in have:
                 b = Body(user_id=user.id, aim_id=None, kind="database", title=title, title_en=title_en, description=desc,
@@ -170,8 +190,16 @@ class Datasets:
             .order_by(AgentRun.started_at.desc()).limit(120))]
         corr = [n.text_en or n.text for n in self.s.scalars(select(AimNote).where(
             AimNote.user_id == user.id, AimNote.kind == "correction").order_by(AimNote.created_at.desc()).limit(60))]
+        from pga.db.models import AgentConversation, LinkedAgent, ThoughtNode
+        convs = [f"- [{la.name or la.vendor}] {c.title}" for c, la in self.s.execute(
+            select(AgentConversation, LinkedAgent).join(LinkedAgent, LinkedAgent.id == AgentConversation.linked_agent_id)
+            .where(LinkedAgent.user_id == user.id).order_by(AgentConversation.updated_at.desc().nulls_last()).limit(150))]
+        lines = [f"- {n.title}: {n.summary}" for n in self.s.scalars(select(ThoughtNode).where(
+            ThoughtNode.user_id == user.id, ThoughtNode.scope == "user").order_by(ThoughtNode.seq))]
         parts = ["Stated facts and preferences:\n" + ("\n".join(facts) or "(none)"),
                  "Long-range motivations:\n" + ("\n".join(aims) or "(none)"),
+                 "Topics of the user's own conversations (their conversation tree):\n" + ("\n".join(lines) or "(none)"),
+                 "Titles of conversations the user had with other AI apps:\n" + ("\n".join(convs) or "(none)"),
                  "Guidance and answers the user gave:\n" + ("\n".join(f"- {c[:400]}" for c in corr) or "(none)"),
                  fence("source", "\n".join(f"- {x[:400]}" for x in said + asks) or "(none)", 24000, kind="what the user wrote")]
         return "\n\n".join(parts)
@@ -218,6 +246,9 @@ class Datasets:
         except DatasetError as exc:
             return Compiled(b.id, key, 0, "failed", str(exc))
         what, words = WHAT[key]
+        system = WRITE.format(what=what, untrusted=UNTRUSTED_NOTE, words=words)
+        if key == "user":
+            system = PERSONAL.format(dims="\n".join(f"- {k} ({en}): {why}" for k, _zh, en, why in DIMENSIONS), untrusted=UNTRUSTED_NOTE)
         decision = self.rt.allocator.allocate(RunRequest(
             user_id=user.id, kind="synthesis",
             justification=Justification(
@@ -229,11 +260,17 @@ class Datasets:
         if not decision.allowed:
             return Compiled(b.id, key, 0, "deferred", "; ".join(decision.reasons))
         with self.rt.runs.track(decision) as guard:
-            res = self.rt.router.complete(decision.tier, system=WRITE.format(what=what, untrusted=UNTRUSTED_NOTE, words=words),
+            res = self.rt.router.complete(decision.tier, system=system,
                                           messages=[{"role": "user", "content": material}],
                                           max_tokens=decision.limits.get("max_output_tokens", 2400), usage=guard.usage_context())
             text = (res.text or "").strip()
             guard.stop(f"{key} dataset written ({len(text.split())} words)")
+        dims = None
+        if key == "user":                                     # five dimensions, kept as structure and written out as a document
+            dims = _dimensions(text)
+            if dims is None:
+                return Compiled(b.id, key, 0, "failed", "the model did not write the five dimensions")
+            text = _dims_markdown(dims)
         if len(text) < 80:
             return Compiled(b.id, key, 0, "failed", "the model wrote almost nothing")
         b.description_en = text
@@ -241,12 +278,63 @@ class Datasets:
             shown = self.rt.gateway.render(text.replace("\n", " ¶ "), user.locale or "zh-CN", user.id).text
         b.description = re.sub(r" ?¶ ?", "\n", shown).strip()
         b.compiled_at = now
+        if dims is not None:
+            b.data = {**(b.data or {}), "dims_en": dims, "dims": _dims_shown(self.rt, dims, user.locale or "zh-CN")}
         self.s.flush()
         try:
             self.rt.layers.build(user, f"k:{b.id}", force=True, now=now)     # title · summary · full
         except Exception as exc:  # noqa: BLE001 - the document is saved; the pyramid is retried by the heartbeat
             log.info("pyramid for %s not built: %s", b.id, exc)
         return Compiled(b.id, key, len(text.split()), "compiled")
+
+
+def _dimensions(text: str) -> dict | None:
+    from pga.agent.common import ModelOutputError, parse_json
+    try:
+        d = parse_json(text)
+    except ModelOutputError:
+        return None
+    raw = (d or {}).get("dimensions") if isinstance(d, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for k, _zh, _en, _why in DIMENSIONS:
+        x = raw.get(k) if isinstance(raw.get(k), dict) else {}
+        try:
+            conf = max(0.0, min(1.0, float(x.get("confidence") or 0)))
+        except (TypeError, ValueError):
+            conf = 0.0
+        out[k] = {"summary": str(x.get("summary") or "").strip()[:600],
+                  "stated": [str(i).strip()[:200] for i in (x.get("stated") or []) if str(i).strip()][:5],
+                  "inferred": [str(i).strip()[:200] for i in (x.get("inferred") or []) if str(i).strip()][:5],
+                  "confidence": round(conf, 2)}
+    return out if any(v["summary"] for v in out.values()) else None
+
+
+def _dims_markdown(dims: dict) -> str:
+    lines = ["# Personal model", ""]
+    for k, _zh, en, _why in DIMENSIONS:
+        x = dims[k]
+        lines += [f"## {en} (confidence {x['confidence']:.1f})", "", x["summary"] or "(not enough to say)", ""]
+        if x["stated"]:
+            lines += ["Stated:", *[f"- {i}" for i in x["stated"]], ""]
+        if x["inferred"]:
+            lines += ["Inferred:", *[f"- {i}" for i in x["inferred"]], ""]
+    return "\n".join(lines).strip()
+
+
+def _dims_shown(rt: "Runtime", dims: dict, locale: str) -> dict:
+    """The five dimensions in your language (one batch of translations, cached)."""
+    from pga.i18n import translate_many
+    if locale.lower().startswith("en"):
+        return dims
+    flat: list[str] = []
+    for k, *_ in DIMENSIONS:
+        flat += [dims[k]["summary"], *dims[k]["stated"], *dims[k]["inferred"]]
+    shown = iter(translate_many(rt, flat, "zh"))
+    return {k: {"summary": next(shown), "stated": [next(shown) for _ in dims[k]["stated"]],
+                "inferred": [next(shown) for _ in dims[k]["inferred"]], "confidence": dims[k]["confidence"]}
+            for k, *_ in DIMENSIONS}
 
 
 def _get_json(url: str):

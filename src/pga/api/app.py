@@ -436,16 +436,23 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         BodyService(rt).delete(b)
 
     @app.get("/v1/bodies/{body_id}/document")
-    def body_document(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+    def body_document(body_id: uuid.UUID, lang: str = "", rt: Runtime = Depends(get_rt)):
         """A dataset as its pyramid: title, summary and the full text."""
         from pga.db.models import Body
         b = rt.session.get(Body, body_id)
         if b is None:
             raise HTTPException(404, "body not found")
         lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
-        return {"id": b.id, "title": b.title, "system": b.system, "compiled_at": b.compiled_at,
-                "gist": lv[1].text if 1 in lv else b.title, "summary": lv[2].text if 2 in lv else None,
-                "full": b.description, "words": len((b.description_en or "").split())}
+        en = lang.startswith("en")
+        out = {"id": b.id, "title": b.title, "system": b.system, "compiled_at": b.compiled_at,
+               "gist": (lv[1].text_en if en else lv[1].text) if 1 in lv else b.title,
+               "summary": (lv[2].text_en if en else lv[2].text) if 2 in lv else None,
+               "full": b.description_en if en and b.description_en else b.description, "words": len((b.description_en or "").split()),
+               "dims": ((b.data or {}).get("dims_en" if en else "dims")) if b.system == "user" else None}
+        if en:
+            from pga.i18n import translate_many
+            out["title"] = translate_many(rt, [b.title], "en")[0]
+        return out
 
     @app.post("/v1/bodies/{body_id}/compile")
     def compile_body(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
@@ -2231,10 +2238,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return n
 
     @app.get("/v1/aims/{aim_id}/tree")
-    def tree_view(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
-        """A motivation's thought tree: its dialogue cut into nodes, with branches, twigs (samples) and buds (ideas)."""
+    def tree_view(aim_id: uuid.UUID, lang: str = "", rt: Runtime = Depends(get_rt)):
+        """A motivation's thought tree: its dialogue cut into nodes, with branches, twigs (samples) and buds (ideas).
+        `lang=en`: the English pages (translated once, cached)."""
+        from pga.i18n import localize_tree
         from pga.tree import ThoughtTree
-        return ThoughtTree(rt).out(aim_or_404(rt, aim_id))
+        return localize_tree(rt, ThoughtTree(rt).out(aim_or_404(rt, aim_id)), lang)
 
     @app.post("/v1/aims/{aim_id}/tree/curate", status_code=202)
     def tree_curate(aim_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
@@ -2247,9 +2256,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"queued": True, "pending": ThoughtTree(rt).pending_count(aim)}
 
     @app.get("/v1/thought-nodes/{node_id}")
-    def tree_node(node_id: uuid.UUID, full: bool = False, rt: Runtime = Depends(get_rt)):
+    def tree_node(node_id: uuid.UUID, full: bool = False, lang: str = "", rt: Runtime = Depends(get_rt)):
         """One node: its line of thought, the turns in it (with every sample), and the code meanwhile.
         `full`: every turn, uncut (the tree page); otherwise the latest 80, each cut at 4000 characters."""
+        from pga.i18n import localize_node
         from pga.tree import ThoughtTree, node_out
         n = tree_node_or_404(rt, node_id)
         tree = ThoughtTree(rt)
@@ -2260,7 +2270,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 "children": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in nodes if x.parent_id == n.id],
                 "notes": [{"id": str(x.id), "kind": x.kind, "agent": x.agent, "role": x.role, "status": x.status,
                            "at": x.created_at.isoformat(), "text": x.text if full else x.text[:4000], "data": x.data or {}} for x in shown],
-                "hidden": len(notes) - len(shown)}
+                "hidden": len(notes) - len(shown)} if not lang.startswith("en") else localize_node(rt, {
+                **node_out(n, full=True), "path": [{"id": str(x.id), "title": x.title} for x in tree.path(n)],
+                "children": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in nodes if x.parent_id == n.id],
+                "notes": [{"id": str(x.id), "kind": x.kind, "agent": x.agent, "role": x.role, "status": x.status,
+                           "at": x.created_at.isoformat(), "text": x.text if full else x.text[:4000], "data": x.data or {}} for x in shown],
+                "hidden": len(notes) - len(shown)}, lang)
 
     @app.post("/v1/thought-nodes/{node_id}/continue")
     def tree_continue(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -2418,7 +2433,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return Response(text + "\n", media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": f"inline; filename*=UTF-8''{name}"})
 
     @app.get("/v1/users/{user_id}/forest")
-    def forest(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+    def forest(user_id: uuid.UUID, lang: str = "", rt: Runtime = Depends(get_rt)):
         """森林: every motivation's tree (its shape, its pressure, whether it runs), the two models, the shared knowledge."""
         from pga.db.models import AimNote, Body, Bridge, PerpetualTask
         from pga.knowledge.datasets import Datasets
@@ -2458,18 +2473,25 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.tree import YouRoot
         you = YouRoot(u)
         ynodes = tree.nodes(you)
-        mine = {"id": "you", "text": "你的对话", "scope": "user", "pending": tree.pending_count(you),
+        mine = {"id": "you", "text": "Your conversations" if lang.startswith("en") else "你的对话", "scope": "user", "pending": tree.pending_count(you),
                 "last_growth": max((n.last_at or n.created_at for n in ynodes), default=None),
                 "nodes": [{"id": str(n.id), "parent": str(n.parent_id) if n.parent_id else None, "seq": n.seq, "kind": n.kind,
                            "turns": (n.data or {}).get("turns", 0), "tip": bool((n.data or {}).get("tip")), "hidden": bool((n.data or {}).get("hidden")),
                            "title": n.title, "sampled": 0, "samples": 0} for n in ynodes]}
-        return {"trees": trees, "you": mine, "knowledge": shared}
+        from pga.i18n import localize_forest
+        personal = next((b for b in rt.session.scalars(select(Body).where(Body.user_id == u.id, Body.system == "user"))), None)
+        dims = (personal.data or {}).get("dims_en" if lang.startswith("en") else "dims") if personal else None
+        return localize_forest(rt, {"trees": trees, "you": mine, "knowledge": shared, "personal": dims}, lang)
 
     # your own conversations, as a tree of their own
     @app.get("/v1/users/{user_id}/tree")
-    def tree_you(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+    def tree_you(user_id: uuid.UUID, lang: str = "", rt: Runtime = Depends(get_rt)):
+        from pga.i18n import localize_tree
         from pga.tree import ThoughtTree, YouRoot
-        return ThoughtTree(rt).out(YouRoot(user_or_404(rt, user_id)))
+        out = ThoughtTree(rt).out(YouRoot(user_or_404(rt, user_id)))
+        if lang.startswith("en"):
+            out["aim"]["text"] = "Your conversations"
+        return localize_tree(rt, out, lang)
 
     @app.post("/v1/users/{user_id}/tree/curate", status_code=202)
     def tree_you_curate(user_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
@@ -2522,6 +2544,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if (node and node.user_id != b.user_id) or (aim and aim.user_id != b.user_id):
             raise HTTPException(404, "not found")
         return body_out(ThoughtTree(rt).move_dataset(b, node=node, aim=aim))
+
+    @app.post("/v1/users/{user_id}/i18n")
+    def i18n_texts(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """The English pages: the dialogue on screen, in English (each piece translated once, then kept)."""
+        from pga.i18n import translate_many
+        user_or_404(rt, user_id)
+        texts = [str(t or "")[:6000] for t in (body.get("texts") or [])][:40]
+        return {"texts": translate_many(rt, texts, str(body.get("lang") or "en"))}
 
     @app.post("/v1/aims/{aim_id}/tree/focus")
     def tree_focus(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
