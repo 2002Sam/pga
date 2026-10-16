@@ -61,6 +61,9 @@ VENDOR_ADAPTER = {"claude_code": "claude_local", "chatgpt": "codex_local", "code
                   "workbuddy": "codebuddy_local", "codebuddy": "codebuddy_local", "gemini": "gemini_local"}
 
 
+CONV_GAP = timedelta(hours=2)            # a pause longer than this starts a new conversation
+
+
 def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
     """Each conversation is a small planet: your recent talks orbit the model you talked to; the questions a
     motivation's agents are discussing orbit its black hole, tied to the agents that asked and answered them."""
@@ -95,23 +98,33 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
         links.append({"source": parent, "target": f"cv:{cid}"[:180], "kind": "conv"})
         if c.get("folder"):                                      # it worked in this folder
             links.append({"source": f"cv:{cid}"[:180], "target": f"fd:{c['folder']}", "kind": "rel", "rel": "references"})
-    added_q: list[dict] = []
-    for q in rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind == "question",
-                                                      AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None),
-                                                      (AimNote.status.in_(["open", "for_you"])) | (AimNote.created_at >= since))
-                                .order_by(AimNote.created_at.desc()).limit(24)):
-        d = q.data or {}
-        qid = f"cq:{q.id}"
-        add({"id": qid, "kind": "conv", "label": f"{d.get('code') or ''} {q.text}"[:80], "parent": f"aim:{q.aim_id}",
-             "code": d.get("code"), "status": q.status, "agent": q.agent, "answered_by": d.get("answered_by"), "question": str(q.id)})
-        for who in {q.agent, d.get("answered_by")} - {None}:     # the agents who asked and answered it
+    # the agents' self-dialogue: one planet per continuous conversation (questions less than CONV_GAP apart), not per question
+    qs = list(rt.session.scalars(select(AimNote).where(AimNote.user_id == u.id, AimNote.kind == "question",
+                                                       AimNote.aim_id.in_(aim_ids) if aim_ids else AimNote.id.is_(None))
+                                 .order_by(AimNote.aim_id, AimNote.created_at)))
+    sessions: list[list] = []
+    for q in qs:
+        if sessions and sessions[-1][-1].aim_id == q.aim_id and q.created_at - sessions[-1][-1].created_at <= CONV_GAP:
+            sessions[-1].append(q)
+        else:
+            sessions.append([q])
+    per_aim: dict = {}
+    for sess in sorted(sessions, key=lambda x: x[-1].created_at, reverse=True):
+        aim_id = sess[0].aim_id
+        if per_aim.get(aim_id, 0) >= 6:                          # the latest few conversations of each motivation
+            continue
+        per_aim[aim_id] = per_aim.get(aim_id, 0) + 1
+        first, last = sess[0], sess[-1]
+        qid = f"cq:{first.id}"
+        open_n = sum(q.status in ("open", "for_you") for q in sess)
+        agents = sorted({a for q in sess for a in (q.agent, (q.data or {}).get("answered_by")) if a and a != "you"})
+        add({"id": qid, "kind": "conv", "label": first.text[:80], "parent": f"aim:{aim_id}", "turns": len(sess),
+             "open": open_n, "agents": agents, "at": last.created_at.isoformat(), "question": str(first.id),
+             "status": "open" if open_n else "answered", "codes": [(q.data or {}).get("code") for q in sess][:40]})
+        for who in agents:                                       # the agents who took part
             if who in model_node:
                 links.append({"source": model_node[who], "target": qid, "kind": "talk"})
-        if d.get("parent"):                                      # a follow-up depends on the question it came from
-            parent_q = next((n["id"] for n in added_q if n.get("code") == d["parent"]), None)
-            if parent_q:
-                links.append({"source": qid, "target": parent_q, "kind": "rel", "rel": "depends_on"})
-        added_q.append({"id": qid, "code": d.get("code")})
+
     # what the agents found out is not drawn piece by piece: it is curated into the motivation's knowledge dataset
 
 
@@ -2166,6 +2179,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 old = (t.settings or {}).get("alloc") or {}
                 inc = new["alloc"] if isinstance(new["alloc"], dict) else {}
                 new["alloc"] = clean({**old, **inc, "prefs": {**(old.get("prefs") or {}), **(inc.get("prefs") or {})}})
+            if "samples" in new:
+                new["samples"] = max(1, min(5, int(new["samples"])))
+            if "perturb" in new:
+                new["perturb"] = max(0.0, min(1.0, float(new["perturb"])))
             if "checkpoint_every" in new:
                 new["checkpoint_every"] = max(1, min(50, int(new["checkpoint_every"])))
             t.settings = {**(t.settings or {}), **new}

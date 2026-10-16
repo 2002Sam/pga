@@ -43,6 +43,9 @@ elif "Answer it." in text:
                      "change": "raise THRESHOLD",
                      "files": ["src/pga/dedupe.py"], "evaluation_plan": "a test"},
         "follow_up": [{"q": ["误合并", "冷启动", "漏通知", "缓存过期", "抢额度", "绕远路", "雪崩", "卡顿"][n % 8] + "风险呢？", "why": "副作用", "kind": "code", "priority": 0.7}]}))
+elif "Fold them together." in text:
+    print(json.dumps({"answer": "综合：阈值 0.5 太低；另外两个样本指出时间窗也有影响。", "agreed": ["阈值太低"],
+        "ideas": [{"idea": "按主题而不是全局设阈值", "from": [2]}], "evidence": [], "confidence": 0.7, "proposal": None, "follow_up": []}))
 elif "Review them." in text:
     codes = sorted(set(re.findall(r"\n(P\d\d): ", text)))
     good = {"goal_alignment": 0.9, "evidence_strength": 0.9, "expected_gain": 0.9, "implementation_cost": 0.1,
@@ -100,7 +103,7 @@ def setup(rt, user, cfg, repo, tmp_path, monkeypatch):
     rt.session.flush()
     coding = CodingAgent(repo=repo, root=tmp_path / "wt", run_cli=stacking_cli, run_tests=lambda p: SuiteResult(passed=10, ok=True))
     eng = Perpetual(rt, AgentPool(rt, cfg), coding=coding)
-    t = eng.create(user, aim, proj, settings={"autonomy": "free", "auto_promote": False})   # the tests below drive it freely
+    t = eng.create(user, aim, proj, settings={"autonomy": "free", "auto_promote": False, "samples": 1})   # driven freely; one answer per question unless a test asks for more
     return eng, t, aim, coding
 
 
@@ -346,10 +349,42 @@ def test_parallel_research_answers_several_questions_with_different_agents(rt, u
     answered = lambda: len(eng.questions(t, ("answered",)))  # noqa: E731
     before = answered()
     assert len(eng.questions(t)) >= 2
-    t.settings = {**t.settings, "alloc": {"parallel": 2}}
+    t.settings = {**t.settings, "alloc": {"parallel": 2}, "samples": 1}
     t.next_at = None
     out = eng.cycle(t)
     assert out["action"] == "investigate" and out["ok"], out
     assert len(set(out["agents"])) == 2 and answered() == before + 2              # two answered at once, by two agents
     assert "office" not in out["agents"]                                          # only agents that can research
     assert t.ledger[0]["agents"] == out["agents"]
+
+
+def test_one_question_many_samples_folded_together(rt, user, setup):
+    """多次生成: several agents answer the same question, prompts lightly disturbed, then one aggregator folds them."""
+    eng, t, aim, _ = setup
+    eng.cycle(t)                                                                # think: questions to answer
+    t.settings = {**t.settings, "samples": 3, "perturb": 0.8}
+    t.next_at = None
+    out = eng.cycle(t)
+    assert out["action"] == "investigate" and out["ok"], out
+    assert "3 次生成" in out["summary"] and "1 个新想法" in out["summary"], out
+    ans = rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "answer")
+                             .order_by(AimNote.created_at.desc())).first()
+    d = ans.data
+    assert ans.text.startswith("综合") and d["aggregated"] and len(d["samples"]) == 3
+    assert d["samples"][0]["ops"] == ["anchor"] and all(s["ops"] != ["anchor"] for s in d["samples"][1:])   # sample 0 is the anchor
+    assert 0.0 <= d["divergence"] <= 1.0 and d["ideas"][0]["from"] == [2]
+    idea = rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "insight")
+                              .order_by(AimNote.created_at.desc())).first()
+    assert idea.text == "按主题而不是全局设阈值" and idea.data["inspiration"]
+
+
+def test_perturbation_keeps_the_question_last_and_the_anchor_untouched():
+    import random
+
+    from pga.sampling import divergence, perturb
+    prompt = "board\n\nsnapshot\n\nopen\n\nfindings\n\n<question code=\"Q1\">\nwhy?\n</question>\nAnswer it."
+    assert perturb("S", prompt, 0, random.Random(1), 1.0) == ("S", prompt, ["anchor"])
+    s, p, ops = perturb("S", prompt, 1, random.Random(1), 1.0)
+    assert s.startswith("S\n\nFor this answer:") and p.startswith("board\n\n") and p.endswith("</question>\nAnswer it.")
+    assert "drop_context" in ops and p.count("\n\n") == prompt.count("\n\n") - 1
+    assert divergence(["a b c", "a b c"]) == 0.0 and divergence(["a b c", "x y z"]) == 1.0

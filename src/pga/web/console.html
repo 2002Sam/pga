@@ -59,6 +59,9 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
 
 .adds { display: flex; gap: 8px; padding: 12px 16px; } .adds button { font-size: 12px; }
+.smp { margin-top: 8px; border-top: 1px dashed var(--line-2); padding-top: 6px; }
+.smp .one { margin: 8px 0 0 10px; padding-left: 10px; border-left: 1px solid var(--line-2); } .smp .one .h { display: flex; gap: 10px; font-size: 11.5px; color: var(--muted); }
+.smp .one .b { font-size: 12.5px; white-space: pre-wrap; } .smp .idea { margin: 4px 0; color: var(--gold, #e9a94b); font-size: 12.5px; }
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
@@ -402,7 +405,7 @@ const LEVELS = [["free", "完全自由", "自己思考、研究、改代码、�
                 ["checkpoint", "检查点", "想一段时间后停下来，把发现、整体思路和选项交给你；你同意了才动手"],
                 ["driven", "用户驱动", "不自己行动；你在下面提要求，它按你的要求回答或修改"]];
 const ROLE = { lead: "主导", researcher: "研究员", critic: "审阅", builder: "实现" };
-const KIND = { question: "提问", answer: "回答", insight: "发现", evolve: "进化", reflect: "回顾", correction: "你的指正", checkpoint: "检查点" };
+const KIND = { inspiration: "灵感", question: "提问", answer: "回答", insight: "发现", evolve: "进化", reflect: "回顾", correction: "你的指正", checkpoint: "检查点" };
 
 /* ------------------------------------------------ data */
 
@@ -720,6 +723,9 @@ function settingsHtml(t) {
     <span class="cap">驱动模式</span>
     <div class="levels">${LEVELS.map(([k, zh, d]) => `<button data-level="${k}" class="${(t.autonomy || "checkpoint") === k ? "on" : ""}"><b>${zh}</b><span>${d}</span></button>`).join("")}</div>
     ${(t.autonomy || "checkpoint") === "checkpoint" ? `<div class="lvlrow">每思考 <input type="number" min="1" max="50" id="cpEvery" value="${t.checkpoint_every || 6}"> 轮停下来给你看一次 · 距上次检查点已 ${t.since_checkpoint ?? 0} 轮</div>` : ""}
+    <span class="cap" style="display:block;margin-top:16px">多次生成</span>
+    <div class="lvlrow">每个问题生成 <input type="number" min="1" max="5" id="smpN" value="${t.samples ?? 3}"> 次（不同 agent、稍加扰动的提示词，再合成一个回答并保留新想法）·
+      扰动强度 <input type="range" min="0" max="1" step="0.1" id="smpP" value="${t.perturb ?? .5}" style="width:110px;vertical-align:middle"> <span class="dim">${(t.perturb ?? .5).toFixed(1)}</span></div>
     <span class="cap" style="display:block;margin-top:16px">多 agent 分配 · 高级权重</span><div id="allocBox">${allocHtml()}</div></div>`;
 }
 
@@ -1004,8 +1010,18 @@ function evHtml(e) {
   const by = e.agent ? `<b title="${esc(e.agent)}">${esc(ROLE[e.role] || e.role || "agent")}</b>` : e.kind === "correction" ? "<b>你</b>" : "";
   const st = e.kind === "question" ? { open: "待研究", for_you: "等你回答", answered: "已回答", dropped: "已放下" }[e.status] || e.status : "";
   return `<div class="ev ${e.kind === "question" ? "q" : ""} ${user ? "user" : ""}">
-    <div class="h"><span class="k">${esc(KIND[e.kind] || e.kind)}${e.data?.code ? " " + esc(e.data.code) : ""}</span>${by}${st ? `<span>${esc(st)}</span>` : ""}${at}</div>
-    <div class="b">${esc(e.text)}</div>${e.data?.why ? `<div class="dim" style="font-size:12px;margin-top:3px">为什么问：${esc(e.data.why)}</div>` : ""}</div>`;
+    <div class="h"><span class="k">${esc(e.data?.inspiration ? KIND.inspiration : KIND[e.kind] || e.kind)}${e.data?.code ? " " + esc(e.data.code) : ""}</span>${by}${st ? `<span>${esc(st)}</span>` : ""}${at}</div>
+    <div class="b">${esc(e.text)}</div>${e.data?.why ? `<div class="dim" style="font-size:12px;margin-top:3px">为什么问：${esc(e.data.why)}</div>` : ""}${samplesHtml(e)}</div>`;
+}
+/* 多次生成: the answer above was folded from several samples — who answered, from which angle, how far they spread */
+function samplesHtml(e) {
+  const S = e.data?.samples; if (!S?.length) return "";
+  const k = "smp:" + e.id, open = C.folds.has(k), dv = e.data.divergence ?? 0;
+  const spread = dv >= .75 ? "分歧很大：这个问题没有唯一答案" : dv >= .5 ? "有明显分歧" : "大体一致";
+  return `<div class="smp"><span class="cap" data-fold="${k}" style="cursor:pointer">${S.length} 次生成 · ${spread}（${dv.toFixed(2)}）${e.data.ideas?.length ? ` · ${e.data.ideas.length} 个新想法` : ""} ${open ? "▴" : "▾"}</span>
+    ${open ? `${(e.data.agreed || []).length ? `<div class="dim" style="margin:6px 0 2px">共识：${esc(e.data.agreed.join("；"))}</div>` : ""}
+      ${(e.data.ideas || []).map((x) => `<div class="idea">✦ ${esc(x.idea)}${x.from?.length ? ` <span class="dim">（样本 ${x.from.join("、")}）</span>` : ""}</div>`).join("")}
+      ${S.map((x) => `<div class="one"><div class="h"><b>样本 ${x.n}</b><span title="${esc(x.agent)}">${esc(x.agent)}</span><span>${esc(x.angle || "")}</span><span>把握 ${Math.round((x.confidence ?? .5) * 100)}%</span></div><div class="b">${esc(x.answer)}</div></div>`).join("")}` : ""}</div>`;
 }
 function detailHtml(d) {
   return `${d.trace ? `<span class="cap">过程 · 它读了什么、做了什么</span><pre>${traceHtml(d.trace)}</pre>` : ""}
@@ -1111,6 +1127,11 @@ document.addEventListener("change", async (e) => {
   }
   if (t.name === "cpopt") C.cp.option = Number(t.value);
   if (t.dataset.cpp) { C.cp.approve = C.cp.approve || new Set(); t.checked ? C.cp.approve.add(t.dataset.cpp) : C.cp.approve.delete(t.dataset.cpp); }
+  if (t.id === "smpN" || t.id === "smpP") {
+    try { await api(`/v1/aims/${C.sel}/perpetual`, { method: "PATCH", body: { settings: { [t.id === "smpN" ? "samples" : "perturb"]: Number(t.value) } } }); toast("已更新"); await loadProcess(); }
+    catch (err) { toast(err.message); }
+    return;
+  }
   if (t.id === "cpEvery") {
     try { await api(`/v1/aims/${C.sel}/perpetual`, { method: "PATCH", body: { settings: { checkpoint_every: Number(t.value) } } }); toast("已更新"); await loadProcess(); }
     catch (err) { toast(err.message); }

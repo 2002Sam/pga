@@ -104,4 +104,22 @@ def test_conversations_become_planets_tied_to_the_agents_that_talk(rt, user, set
     nodes, links, added = [{"id": "ai:x", "kind": "ai", "vendor": "chatgpt"}], [], []
     _conversation_planets(rt, user, added.append, links, nodes, {aim.id}, datetime.now(timezone.utc))
     q = next(n for n in added if n["id"].startswith("cq:"))
-    assert q["kind"] == "conv" and q["parent"] == f"aim:{aim.id}" and q["code"] == "Q1"
+    assert q["kind"] == "conv" and q["parent"] == f"aim:{aim.id}" and q["codes"] == ["Q1"]
+
+
+def test_a_continuous_conversation_is_one_planet(rt, user, setup):
+    from datetime import datetime, timedelta, timezone
+
+    from pga.api.app import _conversation_planets
+    from pga.db.models import AimNote
+
+    eng, t, aim, _ = setup
+    t0 = datetime.now(timezone.utc) - timedelta(hours=10)
+    for i, dt in enumerate([0, 20, 50, 300, 310]):                # minutes: two talks, five hours apart
+        rt.session.add(AimNote(user_id=user.id, aim_id=aim.id, kind="question", text=f"q{i}", status="answered", agent="gpt",
+                               data={"code": f"Z{i}"}, created_at=t0 + timedelta(minutes=dt)))
+    rt.session.flush()
+    added = []
+    _conversation_planets(rt, user, added.append, [], [], {aim.id}, datetime.now(timezone.utc))
+    convs = sorted((n for n in added if n["id"].startswith("cq:") and any(c and c.startswith("Z") for c in n["codes"])), key=lambda n: n["at"])
+    assert [n["codes"] for n in convs] == [["Z0", "Z1", "Z2"], ["Z3", "Z4"]] and convs[0]["turns"] == 3

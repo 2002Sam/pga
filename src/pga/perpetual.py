@@ -84,6 +84,8 @@ DEFAULTS: dict[str, Any] = {
     "checkpoint_every": 6,      # checkpoint: cycles of thinking before it reports to you and waits
     "auto_promote": True,       # free: verified changes go live on their own (canary, rolls back on regression)
     "alloc": {},                # how the work is shared among agents (pga.allocation): your weights, preferences, parallelism
+    "samples": 3,               # 多次生成: answers per question (different agents, lightly disturbed prompts), then folded together
+    "perturb": 0.5,             # how much the prompts are disturbed (0 = never, ≥0.5 two stances, ≥0.7 also drops a context section)
 }
 AUTONOMY = ("free", "checkpoint", "driven")
 AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
@@ -444,14 +446,18 @@ class Perpetual:
         alloc = Allocation(self)
         a = alloc.settings(t)
         rows = alloc.table(t, aim, role, action, now)
-        k = min(a["parallel"], max(1, len(self.questions(t)))) if action == "investigate" else 1
+        samples = max(1, min(5, int(c.get("samples") or 1))) if action == "investigate" and self.questions(t) else 1
+        k = samples if samples > 1 else min(a["parallel"], max(1, len(self.questions(t)))) if action == "investigate" else 1
         drawn = alloc.draw(rows, k, random.Random(f"{t.id}:{t.cycles}"))      # by your weights; reproducible per cycle
         agents = drawn or [agent]
         agent = agents[0]
-        self._phase(t, action, f"{PHASE_ZH[action]} · {'、'.join(agents)}", now)
+        if samples > 1:                                       # fewer agents than samples: the same agent again, another angle
+            agents = [agents[i % len(agents)] for i in range(samples)]
+        self._phase(t, action, f"{PHASE_ZH[action]}{f' · {samples} 次生成' if samples > 1 else ''} · {'、'.join(dict.fromkeys(agents))}", now)
         started = time.monotonic()
         try:
-            out = (self._investigate_many(t, aim, role, agents, now) if len(agents) > 1
+            out = (self._investigate_sampled(t, aim, role, agents, now, float(c.get("perturb") or 0)) if samples > 1
+                   else self._investigate_many(t, aim, role, agents, now) if len(agents) > 1
                    else getattr(self, "_" + action)(t, aim, role, agent, now))
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not end a perpetual task
             log.exception("perpetual cycle failed")
@@ -635,7 +641,85 @@ class Perpetual:
                 "summary": "并行研究：" + "；".join(f"{ag} {o.get('summary') or o.get('error') or ''}" for ag, o in outs),
                 "error": None if any(o["ok"] for _, o in outs) else "; ".join(str(o.get("error")) for _, o in outs)}
 
-    def _apply_answer(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote, text: str, err: str | None) -> dict:
+    def _investigate_sampled(self, t: PerpetualTask, aim: Aim, role: str, agents: list[str], now: datetime, strength: float) -> dict:
+        """多次生成: the top question answered once per sample — by different agents where there are, each prompt lightly
+        disturbed (sample 0 left as it is) — then one aggregator folds them together and keeps the stray ideas."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        from pga.sampling import AGGREGATE, divergence, label, perturb
+        qs = sorted(self.questions(t), key=lambda q: (-clamp01((q.data or {}).get("priority"), .5), q.created_at))
+        if not qs:
+            return {"ok": True, "summary": "没有待回答的问题"}
+        q = qs[0]
+        code = (q.data or {}).get("code")
+        rng = random.Random(f"{t.id}:{t.cycles}:{q.id}")
+        jobs = []
+        for i, ag in enumerate(agents):
+            system, prompt = self._investigate_prompt(t, aim, role, ag, q)
+            system, prompt, ops = perturb(system, prompt, i, rng, strength)
+            jobs.append((i, ag, ops, prompt, self._task_for(t, aim, role, ag, prompt, system, "investigate", q)))
+        t0 = utcnow()
+        first = {}                                            # one at a time per agent; different agents side by side
+        for j in jobs:
+            if self.pool.adapters[j[1]].type not in PAID:
+                first.setdefault(j[1], j)
+        threaded = list(first.values())
+        steps: dict[int, Any] = {}
+        with ThreadPoolExecutor(max_workers=max(1, len(threaded))) as ex:
+            futs = {j[0]: ex.submit(self.pool._call, j[1], j[4], "investigate") for j in threaded}
+            steps.update({i: f.result() for i, f in futs.items()})
+        for j in jobs:
+            if j[0] not in steps:
+                steps[j[0]] = self.pool._call(j[1], j[4], "investigate")
+        cands = []
+        for i, ag, ops, prompt, _task in jobs:
+            text, err = self._record_step(t, aim, role, ag, steps[i], prompt, "investigate", t0)
+            d = self._json(text)
+            ans = str(d.get("answer") or "").strip()
+            if ans:
+                cands.append({"n": i + 1, "agent": ag, "ops": ops, "angle": label(ops), "answer": ans[:3000],
+                              "confidence": clamp01(d.get("confidence"), .5), "raw": text})
+        if not cands:
+            return {**self._apply_answer(t, aim, role, agents[0], q, "", "none of the samples answered"), "agents": list(dict.fromkeys(agents))}
+        spread = divergence([c["answer"] for c in cands])
+        samples = [{k: c[k] for k in ("n", "agent", "angle", "ops", "confidence")} | {"answer": c["answer"][:1500]} for c in cands]
+        if len(cands) == 1:
+            return {**self._apply_answer(t, aim, role, cands[0]["agent"], q, cands[0]["raw"], None,
+                                         extra={"samples": samples, "divergence": spread}), "agents": [cands[0]["agent"]]}
+        # fold them together (Mixture-of-Agents: the aggregator writes the answer; Universal Self-Consistency: it judges)
+        lead, _ = self.pick(aim, "lead", float(self.cfg(t)["reserve"]), now)
+        lead = lead or cands[0]["agent"]
+        evolve = self.cfg(t)["evolve"] and self.self_project(t)
+        system = AGGREGATE.format(role=self._role_en("lead"), where=self._where(t, lead), lang=self._lang(t),
+                                  proposal_rule=PROPOSAL_RULE if evolve else NO_PROPOSAL_RULE)
+        prompt = (self.team.context(aim) + f"\n\n<question code=\"{code}\">\n{q.text}\n</question>\n\n"
+                  + "\n\n".join(f"<sample n=\"{c['n']}\" agent=\"{c['agent']}\" angle=\"{c['angle']}\" confidence=\"{c['confidence']:.2f}\">\n"
+                                f"{c['answer']}\n</sample>" for c in cands)
+                  + f"\n\nHow far the samples spread (0 same … 1 nothing shared): {spread:.2f}. Fold them together.")
+        t1 = utcnow()
+        st = self.pool._call(lead, self._task_for(t, aim, "lead", lead, prompt, system, "aggregate", q), "aggregate")
+        text, err = self._record_step(t, aim, "lead", lead, st, prompt, "aggregate", t1)
+        d = self._json(text)
+        if not str(d.get("answer") or "").strip():           # no aggregate: keep the most confident sample, still with all of them
+            best = max(cands, key=lambda c: c["confidence"])
+            return {**self._apply_answer(t, aim, role, best["agent"], q, best["raw"], None,
+                                         extra={"samples": samples, "divergence": spread, "aggregated": False}),
+                    "agents": list(dict.fromkeys(c["agent"] for c in cands))}
+        ideas = [{"idea": str(x.get("idea") or "")[:400], "from": [int(n) for n in (x.get("from") or []) if str(n).isdigit()][:5]}
+                 for x in (d.get("ideas") or []) if isinstance(x, dict) and str(x.get("idea") or "").strip()][:4]
+        out = self._apply_answer(t, aim, role, lead, q, text, err,
+                                 extra={"samples": samples, "divergence": spread, "aggregated": True, "ideas": ideas,
+                                        "agreed": [str(x)[:300] for x in (d.get("agreed") or [])][:5]})
+        later = utcnow()
+        for x in ideas:                                       # inspirations: kept on the board, where the next rounds see them
+            self.team._note(aim, "insight", x["idea"], role="lead", agent=lead, now=later,
+                            data={"code": code, "inspiration": True, "from_samples": x["from"], "perpetual": str(t.id)})
+        out["agents"] = list(dict.fromkeys([c["agent"] for c in cands] + [lead]))
+        out["summary"] = (out.get("summary") or "") + f"（{len(cands)} 次生成，分歧 {spread:.2f}" + (f"，{len(ideas)} 个新想法）" if ideas else "）")
+        return out
+
+    def _apply_answer(self, t: PerpetualTask, aim: Aim, role: str, agent: str, q: AimNote, text: str, err: str | None,
+                      extra: dict | None = None) -> dict:
         code = (q.data or {}).get("code")
         evolve = self.cfg(t)["evolve"] and self.self_project(t)
         d = self._json(text)
@@ -652,7 +736,8 @@ class Perpetual:
             prop_code = self._propose(t, p, q, agent, later)
         self.team._note(aim, "answer", ans[:6000], role=role, agent=agent, now=later,
                         data={"code": code, "question": q.text[:300], "evidence": [str(x)[:200] for x in (d.get("evidence") or [])][:8],
-                              "confidence": clamp01(d.get("confidence"), .5), "proposal": prop_code, "perpetual": str(t.id)})
+                              "confidence": clamp01(d.get("confidence"), .5), "proposal": prop_code, "perpetual": str(t.id),
+                              **(extra or {})})
         q.status = "answered"
         q.data = {**(q.data or {}), "answered_by": agent, "answered_at": later.isoformat()}
         follow = self._add_questions(t, aim, d.get("follow_up") or [], agent, role, later, parent=code)

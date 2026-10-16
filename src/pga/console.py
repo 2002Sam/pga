@@ -160,7 +160,7 @@ class Console:
         said = {" ".join(e["summary"].split())[:60] for e in events if e["type"] == "run" and e["summary"]}
         for n in self.s.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind.in_(NOTE_KINDS))
                                 .order_by(AimNote.created_at.desc()).limit(limit)):
-            if n.kind in ("answer", "reflect", "insight") and " ".join(n.text.split())[:60] in said:
+            if n.kind in ("answer", "reflect", "insight") and not (n.data or {}).get("samples") and " ".join(n.text.split())[:60] in said:
                 continue                                  # the step that wrote it is already on the timeline
             events.append({"type": "note", "at": _iso(n.created_at), "id": str(n.id), "kind": n.kind, "status": n.status,
                            "role": n.role, "agent": n.agent, "text": n.text[:1500], "data": n.data or {}})
@@ -174,7 +174,8 @@ class Console:
                     "phase_note": t.phase_note, "pressure": t.pressure, "parts": t.parts or {}, "cycles": t.cycles,
                     "next_at": _iso(t.next_at), "ledger": (t.ledger or [])[:30],
                     "project_id": str(t.project_id) if t.project_id else None, "autonomy": cfg.get("autonomy"),
-                    "checkpoint_every": cfg.get("checkpoint_every"), "since_checkpoint": eng.since_checkpoint(t)},
+                    "checkpoint_every": cfg.get("checkpoint_every"), "since_checkpoint": eng.since_checkpoint(t),
+                    "samples": cfg.get("samples"), "perturb": cfg.get("perturb")},
                 "checkpoint": None if cp is None else {"id": str(cp.id), "at": _iso(cp.created_at), "agent": cp.agent, **(cp.data or {})},
                 "live": working, "events": events[: limit * 2],
                 "for_you": [{"id": str(n.id), "text": n.text, "agent": n.agent, "role": n.role, "data": n.data or {},
