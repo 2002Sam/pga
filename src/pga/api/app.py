@@ -1812,6 +1812,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             except TeamError as exc:
                 raise HTTPException(422, str(exc)) from exc
         try:
+            if body.get("refs"):                                    # datasets you pinned to this conversation
+                from pga.tree import refs_context
+                extra = refs_context(rt, [str(x) for x in body["refs"]][:8], u.id)
+                context = ((context or "") + "\n\n" + extra).strip() if extra else context
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
                                            model=str(body["model"]) if body.get("model") else None,
@@ -2241,7 +2245,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         tree = ThoughtTree(rt)
         notes = tree.notes_of(n)
         shown = notes if full else notes[-80:]
-        nodes = tree.nodes(n.aim_id)
+        nodes = tree.nodes(tree.root_of(n))
         return {**node_out(n, full=True), "path": [{"id": str(x.id), "title": x.title} for x in tree.path(n)],
                 "children": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in nodes if x.parent_id == n.id],
                 "notes": [{"id": str(x.id), "kind": x.kind, "agent": x.agent, "role": x.role, "status": x.status,
@@ -2258,13 +2262,16 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         text = str(body.get("text") or "").strip()
         if not text:
             raise HTTPException(422, "text is needed")
-        aim = rt.session.get(Aim, n.aim_id)
-        u = user_or_404(rt, aim.user_id)
         tree = ThoughtTree(rt)
+        aim = tree.root_of(n)
+        u = user_or_404(rt, aim.user_id)
         branch = tree.branch_for(n, text, bud=str(body.get("bud") or "") or None)
+        from pga.tree import refs_context
+        refs = [str(x) for x in (body.get("refs") or []) if x][:8]
+        context = tree.context_for(branch if branch.note_ids else n) + ("\n\n" + refs_context(rt, refs, u.id) if refs else "")
         try:
             with rt.billing(user_ctx(u)):
-                reply = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=tree.context_for(branch if branch.note_ids else n),
+                reply = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
                                             category="serious" if str(body.get("agent") or "auto") == "auto" else None,
                                             conversation=f"node:{branch.id}", project=None)
         except ValueError as exc:
@@ -2328,7 +2335,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.db.models import Aim
         from pga.tree import ThoughtTree
         n = tree_node_or_404(rt, node_id)
-        u = user_or_404(rt, rt.session.get(Aim, n.aim_id).user_id)
+        u = user_or_404(rt, n.user_id)
         with rt.billing(user_ctx(u)):
             b, out = ThoughtTree(rt).distill(u, n)
         return {"dataset": body_out(b), "status": out.status, "words": out.words, "note": out.note}
@@ -2349,10 +2356,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.tree import ThoughtTree, TreeError, node_out
         n = tree_node_or_404(rt, node_id)
         other = tree_node_or_404(rt, uuid.UUID(str(body.get("with") or "")))
-        aim = rt.session.get(Aim, n.aim_id)
-        if rt.session.get(Aim, other.aim_id).user_id != aim.user_id:
+        if other.user_id != n.user_id:
             raise HTTPException(404, "node not found")
-        u = user_or_404(rt, aim.user_id)
+        u = user_or_404(rt, n.user_id)
         try:
             with rt.billing(user_ctx(u)):
                 x, reply = ThoughtTree(rt).exchange(u, n, other, str(body.get("text") or ""), str(body.get("agent") or "auto"))
@@ -2439,7 +2445,73 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             shared.append({"id": str(b.id), "title": b.title, "kind": b.kind, "system": b.system, "aim_id": str(b.aim_id) if b.aim_id else None,
                            "gist": lv[1].text if 1 in lv else None, "brief": lv[2].text if 2 in lv else None,
                            "compiled_at": b.compiled_at, "used_by": users.get(str(b.id), [])})
-        return {"trees": trees, "knowledge": shared}
+        from pga.tree import YouRoot
+        you = YouRoot(u)
+        ynodes = tree.nodes(you)
+        mine = {"id": "you", "text": "你的对话", "scope": "user", "pending": tree.pending_count(you),
+                "last_growth": max((n.last_at or n.created_at for n in ynodes), default=None),
+                "nodes": [{"id": str(n.id), "parent": str(n.parent_id) if n.parent_id else None, "seq": n.seq, "kind": n.kind,
+                           "turns": (n.data or {}).get("turns", 0), "tip": bool((n.data or {}).get("tip")), "hidden": bool((n.data or {}).get("hidden")),
+                           "title": n.title, "sampled": 0, "samples": 0} for n in ynodes]}
+        return {"trees": trees, "you": mine, "knowledge": shared}
+
+    # your own conversations, as a tree of their own
+    @app.get("/v1/users/{user_id}/tree")
+    def tree_you(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.tree import ThoughtTree, YouRoot
+        return ThoughtTree(rt).out(YouRoot(user_or_404(rt, user_id)))
+
+    @app.post("/v1/users/{user_id}/tree/curate", status_code=202)
+    def tree_you_curate(user_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
+        from pga.tree import ThoughtTree, YouRoot
+        u = user_or_404(rt, user_id)
+        windows = max(1, min(30, int((body or {}).get("windows") or 20)))
+        rt.workflow.enqueue("tree.curate", user_id=u.id, payload={"you": str(u.id), "windows": windows},
+                            dedupe_key=f"tree:you:{u.id}", priority=60, created_by=Origin.USER)
+        return {"queued": True, "pending": ThoughtTree(rt).pending_count(YouRoot(u))}
+
+    @app.post("/v1/users/{user_id}/tree/rewrite", status_code=202)
+    def tree_you_rewrite(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        u = user_or_404(rt, user_id)
+        rt.workflow.enqueue("tree.rewrite", user_id=u.id, payload={"you": str(u.id)}, dedupe_key=f"tree-rewrite:you:{u.id}",
+                            priority=60, created_by=Origin.USER)
+        return {"queued": True}
+
+    @app.post("/v1/aims/{aim_id}/tree/refresh")
+    def tree_refresh(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Recount every node (behaviour, code, twigs) — no model involved."""
+        from pga.tree import ThoughtTree
+        return {"nodes": ThoughtTree(rt).refresh(aim_or_404(rt, aim_id))}
+
+    @app.get("/v1/thought-nodes/{node_id}/behavior")
+    def tree_node_behavior(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """行为树: who did what in this node — each agent, its runs (step, question, outcome), the actions in them."""
+        from pga.tree import ThoughtTree
+        return ThoughtTree(rt).behavior(tree_node_or_404(rt, node_id))
+
+    @app.put("/v1/thought-nodes/{node_id}/refs")
+    def tree_node_refs(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """The datasets this node refers to: continuing from it (or anything that grows from it) reads them."""
+        from pga.tree import ThoughtTree, node_out
+        return node_out(ThoughtTree(rt).set_refs(tree_node_or_404(rt, node_id), [str(x) for x in body.get("refs") or []]))
+
+    @app.post("/v1/bodies/{body_id}/move")
+    def body_move(body_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Move a dataset to another node (it becomes that line of thought's knowledge) or to another tree."""
+        from pga.db.models import Body
+        from pga.tree import ThoughtTree
+        b = rt.session.get(Body, body_id)
+        if b is None:
+            raise HTTPException(404, "body not found")
+        if b.system in ("user", "world"):
+            raise HTTPException(409, "用户和世界模型属于所有的树，不能移动")
+        node = tree_node_or_404(rt, uuid.UUID(str(body["node_id"]))) if body.get("node_id") else None
+        aim = aim_or_404(rt, uuid.UUID(str(body["aim_id"]))) if body.get("aim_id") else None
+        if node is None and aim is None:
+            raise HTTPException(422, "move it to a node or a tree")
+        if (node and node.user_id != b.user_id) or (aim and aim.user_id != b.user_id):
+            raise HTTPException(404, "not found")
+        return body_out(ThoughtTree(rt).move_dataset(b, node=node, aim=aim))
 
     @app.post("/v1/aims/{aim_id}/tree/focus")
     def tree_focus(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

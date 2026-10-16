@@ -86,6 +86,8 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .tcont textarea { width: 100%; min-height: 56px; resize: vertical; background: rgba(12,14,16,.85); border: 1px solid var(--line-2); padding: 8px 10px; outline: none; }
 .tcont textarea:focus { border-color: var(--gold-dim); } .tcont .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; } .tcont .grow { flex: 1; }
 .tcont select { background: #0a0a0a; border: 1px solid var(--line-2); padding: 3px 6px; }
+.crefs { display: inline-flex; gap: 4px; align-items: center; flex-wrap: wrap; } .crefs .chip { font-size: 11.5px; border: 1px solid var(--gold-dim); color: var(--gold); padding: 0 6px; }
+.crefs .chip a { color: inherit; text-decoration: none; } .crefs select { max-width: 130px; }
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
@@ -833,7 +835,7 @@ function composerHtml(key, proj, t) {
   const cproj = allProjects().find((p) => p.id === c.project);
   return `<div class="composer"><textarea id="chatText" data-chatkey="${key}" rows="2" placeholder="${t?.autonomy === "driven" ? "用户驱动：说你要它做什么" : "对这个抱负的 agent 说话：提要求、给方向、问问题（⌘/Ctrl + Enter 发送）"}">${esc(C.drafts["chat:" + key] || "")}</textarea>
     <div class="row"><span class="grow">${cproj ? (cproj.full_access ? `在「${esc(cproj.name)}」里 · 完整权限` : `在「${esc(cproj.name)}」里 · 只读`) : "这段对话不进任何文件夹"}</span>
-      <select data-chatproj="${key}" title="这段对话在哪个文件夹里工作"><option value="">不用文件夹</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      ${refsHtml(key)}<select data-chatproj="${key}" title="这段对话在哪个文件夹里工作"><option value="">不用文件夹</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
       <select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动（按分配）</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
 }
@@ -868,6 +870,14 @@ function chat(key) {
   if (!c.conv) c.conv = (c.agent === "auto" ? "cat:serious" : "agent:" + c.agent) + ":console-" + Math.random().toString(36).slice(2, 10);
   return c;
 }
+/* datasets a conversation can refer to (its agent reads their summary): chips plus a picker */
+function knowledgeList() { return (C.graph?.nodes || []).filter((n) => (n.kind === "database" || n.kind === "skill") && n.body_id); }
+function refsHtml(key) {
+  const c = chat(key), K = knowledgeList(), refs = c.refs || [];
+  if (!K.length) return "";
+  return `<span class="crefs">${refs.map((id) => { const k = K.find((x) => x.body_id === id); return k ? `<span class="chip">${esc(k.label.slice(0, 14))} <a href="#" data-chatrefdel="${key}|${id}">×</a></span>` : ""; }).join("")}
+    <select data-chatref="${key}" title="这段对话参考哪份知识：agent 会读到它的概要"><option value="">＋ 引用知识</option>${K.filter((k) => !refs.includes(k.body_id)).map((k) => `<option value="${k.body_id}">${esc(k.label)}</option>`).join("")}</select></span>`;
+}
 function allProjects() { return [...(C.data?.aims || []).flatMap((a) => a.projects), ...(C.data?.free_projects || [])]; }
 function chatHtml(key) {
   const c = chat(key), agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
@@ -875,7 +885,7 @@ function chatHtml(key) {
   return `<div class="chat" data-chat="${key}">${(c.log || []).map((m) => msgHtml(m, c)).join("") || `<div class="dim" style="font-size:12.5px">${key === "me" ? "选一个 agent（或「自动」让 PGA 选），说你要它做什么。" : `直接和 ${esc(c.agent)} 说。`}</div>`}</div>
     <div class="talk" style="margin-top:12px"><textarea id="chatText" data-chatkey="${key}" placeholder="要它做什么，或问它什么（⌘/Ctrl + Enter 发送）">${esc(C.drafts["chat:" + key] || "")}</textarea>
     <div class="row"><span class="grow">${proj ? (proj.full_access ? `在「${esc(proj.name)}」里 · 完整权限：可以改文件、跑命令` : `在「${esc(proj.name)}」里 · 只读`) : "不在任何项目文件夹里"}</span>
-      <select data-chatproj="${key}"><option value="">不选项目</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
+      ${refsHtml(key)}<select data-chatproj="${key}"><option value="">不选项目</option>${allProjects().map((p) => `<option value="${p.id}" ${p.id === c.project ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
       ${key === "me" || key.startsWith("folder:") ? `<select data-chatagent="${key}"><option value="auto" ${c.agent === "auto" ? "selected" : ""}>自动</option>${agents.map((a) => `<option ${a.name === c.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}
       <button class="ghost" data-chatnew="${key}" title="开始一段新对话">新对话</button>
       <button class="primary" data-chatsend="${key}" ${c.sending ? "disabled" : ""}>${c.sending ? "进行中…" : "发送"}</button></div></div>`;
@@ -955,7 +965,7 @@ async function sendChat(key) {
   c.sending = true; C.drafts["chat:" + key] = ""; if (box) box.value = ""; renderCenter();
   try {
     const r = await api(`/v1/users/${C.uid}/agents/ask`, { body: { text, agent: c.agent, category: c.agent === "auto" ? "serious" : null, history,
-      conversation: c.conv, project_id: c.project || null } });
+      conversation: c.conv, project_id: c.project || null, refs: c.refs || [] } });
     Object.assign(pend, { pending: false, agent: r.agent, text: r.text, error: r.error, model: r.model, at: new Date().toISOString() });
   } catch (err) { Object.assign(pend, { pending: false, error: err.message }); }
   finally { c.sending = false; saveChats(); }
@@ -1228,6 +1238,10 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
+document.addEventListener("click", (e) => {                          // a conversation stops referring to a dataset
+  const a = e.target.closest?.("[data-chatrefdel]"); if (!a) return;
+  e.preventDefault(); const [key, id] = a.dataset.chatrefdel.split("|"); const c = chat(key); c.refs = (c.refs || []).filter((x) => x !== id); saveChats(); keepDrafts(); renderCenter();
+});
 document.addEventListener("click", (e) => {                          // the thought tree: a node, a bud, the path
   const g = e.target.closest?.("[data-tnode], [data-tbud], [data-tgo]"); if (!g || !$("#proc")?.contains(g)) return;
   e.preventDefault();
@@ -1248,6 +1262,7 @@ document.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.dataset.w) { const v = Number(t.value); saveAlloc({ [t.dataset.w]: v, preset: "custom" }); return; }
   if (t.dataset.pref) { saveAlloc({ prefs: { [t.dataset.pref]: Number(t.value) } }); return; }
+  if (t.dataset.chatref) { if (t.value) { const c = chat(t.dataset.chatref); c.refs = [...(c.refs || []), t.value]; saveChats(); keepDrafts(); renderCenter(); } return; }
   if (t.dataset.chatproj) { const c = chat(t.dataset.chatproj); c.project = t.value || null; c.projectSet = true; saveChats(); keepDrafts(); renderCenter(); return; }
   if (t.dataset.chatagent) { const c = chat(t.dataset.chatagent); c.agent = t.value;
     if (t.dataset.chatagent === "me") { c.conv = null; c.log = []; chat(t.dataset.chatagent); }      // a new agent for 我: a new conversation

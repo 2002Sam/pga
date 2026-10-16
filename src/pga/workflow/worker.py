@@ -297,9 +297,12 @@ def _plan_datasets(rt: "Runtime", user: User, now: datetime) -> list[dict]:
 def _tree_curate(rt: "Runtime", job: Job, now: datetime) -> dict:
     """Place the motivation's new dialogue into its thought tree (a few windows per job)."""
     from pga.db.models import Aim
-    from pga.tree import ThoughtTree, TreeDeferred
+    from pga.tree import ThoughtTree, TreeDeferred, YouRoot
 
-    aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
+    if job.payload.get("you"):                                # your own conversation tree
+        aim = YouRoot(_user(rt, job))
+    else:
+        aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
     if aim is None:
         raise Permanent("motivation is gone")
     try:
@@ -315,9 +318,9 @@ def _tree_curate(rt: "Runtime", job: Job, now: datetime) -> dict:
 def _tree_rewrite(rt: "Runtime", job: Job, now: datetime) -> dict:
     """Rewrite a tree's hard-to-read summaries in the readable style, a few nodes per call."""
     from pga.db.models import Aim
-    from pga.tree import ThoughtTree, TreeDeferred
+    from pga.tree import ThoughtTree, TreeDeferred, YouRoot
 
-    aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
+    aim = YouRoot(_user(rt, job)) if job.payload.get("you") else rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
     if aim is None:
         raise Permanent("motivation is gone")
     try:
@@ -346,6 +349,11 @@ def _plan_tree(rt: "Runtime", user: User, now: datetime) -> list[dict]:
             AimNote.aim_id == aim.id, AimNote.kind.in_(TURNS), *( [AimNote.created_at > since] if since else [])))
         if n >= 25 or (oldest and now - oldest > timedelta(hours=6)):
             out.append({"kind": "tree.curate", "key": f"tree:{aim.id}", "payload": {"aim": str(aim.id), "windows": 3}, "priority": 165})
+    from pga.tree import YouRoot
+    if (user.preferences or {}).get("demo"):
+        return out                                                  # a demo account's conversations stay where they are
+    if tree.pending_count(YouRoot(user)) >= 25:                     # your own conversations grow their tree too
+        out.append({"kind": "tree.curate", "key": f"tree:you:{user.id}", "payload": {"you": str(user.id), "windows": 3}, "priority": 168})
     return out
 
 

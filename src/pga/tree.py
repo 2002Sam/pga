@@ -23,6 +23,7 @@ import logging
 import re
 import subprocess
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -31,7 +32,7 @@ from sqlalchemy import func, select
 
 from pga.agent.common import UNTRUSTED_NOTE, ModelOutputError, fence, parse_json
 from pga.allocator import Estimates, Justification, RunRequest
-from pga.db.models import Aim, AimNote, PerpetualTask, Project, ThoughtNode, User
+from pga.db.models import AgentConversation, AgentRun, Aim, AimNote, LinkedAgent, PerpetualTask, Project, ThoughtNode, User
 from pga.db.types import utcnow
 
 if TYPE_CHECKING:
@@ -97,6 +98,46 @@ def _lang(user: User) -> tuple[str, str]:
     return ("Simplified Chinese", "zh") if zh else ("English", "en")
 
 
+class YouRoot:
+    """The root of your conversation tree: you — your own conversations with agents, in PGA and imported from other apps."""
+    scope = "user"
+
+    def __init__(self, user: User):
+        self.id, self.user_id = user.id, user.id
+        self.text, self.text_en = "你的对话", "The user's own conversations with AI agents (in PGA and imported from other apps)"
+
+
+def _scope(root) -> str:
+    return getattr(root, "scope", "aim")
+
+
+@dataclass
+class Turn:
+    """One turn of your conversation tree: your message, an agent's answer, or a conversation imported from another app."""
+    id: str
+    kind: str
+    agent: str | None
+    text: str
+    created_at: datetime
+    data: dict = field(default_factory=dict)
+    status: str = "done"
+    role: str | None = None
+
+    @property
+    def text_en(self) -> str:
+        return self.text
+
+
+def _answer(output: str) -> str:
+    try:
+        d = parse_json(output)
+        if isinstance(d, dict) and d.get("answer"):
+            return str(d["answer"])
+    except ModelOutputError:
+        pass
+    return output or ""
+
+
 def _short(u: uuid.UUID | str) -> str:
     return str(u)[:8]
 
@@ -113,25 +154,86 @@ class ThoughtTree:
 
     # -------------------------------------------------------------- reading
 
-    def nodes(self, aim_id: uuid.UUID) -> list[ThoughtNode]:
-        return list(self.s.scalars(select(ThoughtNode).where(ThoughtNode.aim_id == aim_id).order_by(ThoughtNode.seq)))
+    def _where(self, root) -> tuple:
+        if isinstance(root, uuid.UUID):
+            return (ThoughtNode.aim_id == root,)
+        if _scope(root) == "user":
+            return (ThoughtNode.scope == "user", ThoughtNode.user_id == root.id)
+        return (ThoughtNode.aim_id == root.id,)
 
-    def latest(self, aim_id: uuid.UUID) -> ThoughtNode | None:
-        return self.s.scalar(select(ThoughtNode).where(ThoughtNode.aim_id == aim_id, ThoughtNode.kind == "segment")
+    def root_of(self, node: ThoughtNode):
+        if node.aim_id:
+            return self.s.get(Aim, node.aim_id)
+        return YouRoot(self.s.get(User, node.user_id))
+
+    def _make(self, root, **kw) -> ThoughtNode:
+        return ThoughtNode(user_id=root.user_id, aim_id=None if _scope(root) == "user" else root.id, scope=_scope(root), **kw)
+
+    def _max_seq(self, root) -> int:
+        return int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(*self._where(root))) or 0)
+
+    def nodes(self, root) -> list[ThoughtNode]:
+        return list(self.s.scalars(select(ThoughtNode).where(*self._where(root)).order_by(ThoughtNode.seq)))
+
+    def latest(self, root) -> ThoughtNode | None:
+        return self.s.scalar(select(ThoughtNode).where(*self._where(root), ThoughtNode.kind == "segment")
                              .order_by(ThoughtNode.seq.desc()).limit(1))
 
-    def placed_until(self, aim_id: uuid.UUID) -> datetime | None:
-        return self.s.scalar(select(func.max(ThoughtNode.last_at)).where(ThoughtNode.aim_id == aim_id, ThoughtNode.kind == "segment"))
+    def placed_until(self, root) -> datetime | None:
+        return self.s.scalar(select(func.max(ThoughtNode.last_at)).where(*self._where(root), ThoughtNode.kind == "segment"))
 
-    def pending(self, aim: Aim, limit: int = WINDOW) -> list[AimNote]:
-        """Turns of the self-dialogue not in the tree yet (oldest first). Your own branches are placed when you make them."""
+    # your conversations: PGA's own chats (each a message and an answer) and the ones imported from other apps
+    def _your_turns(self, user_id: uuid.UUID, placed: set[str] | None = None) -> list[Turn]:
+        out: list[Turn] = []
+        for r in self.s.scalars(select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None), AgentRun.workflow == "ask")
+                                .order_by(AgentRun.started_at)):
+            d = r.data or {}
+            conv = str(d.get("conversation") or "")
+            if d.get("node") or conv.startswith(("node:", "exchange:")) or (placed is not None and f"r:{r.id}" in placed):
+                continue
+            out += self._run_turns(r)
+        for c, la in self.s.execute(select(AgentConversation, LinkedAgent).join(LinkedAgent, LinkedAgent.id == AgentConversation.linked_agent_id)
+                                    .where(LinkedAgent.user_id == user_id)):
+            if placed is not None and f"c:{c.id}" in placed:
+                continue
+            out.append(self._conv_turn(c, la))
+        return sorted(out, key=lambda t: t.created_at)
+
+    def _run_turns(self, r: AgentRun) -> list[Turn]:
+        d = r.data or {}
+        meta = {"conversation": d.get("conversation"), "run": str(r.id), "project": (d.get("project") or {}).get("name")}
+        out = [Turn(f"r:{r.id}", "question", "you", " ".join((r.prompt or "").split())[:4000], r.started_at, meta)]
+        ans = _answer(r.output) or r.error or ""
+        if ans:
+            out.append(Turn(f"r:{r.id}", "answer", r.agent, ans[:12000], r.finished_at or r.started_at, {**meta, "status": r.status},
+                            status=r.status.lower() if r.status else "done"))
+        return out
+
+    def _conv_turn(self, c: AgentConversation, la: LinkedAgent) -> Turn:
+        at = c.updated_at or c.started_at or c.created_at
+        return Turn(f"c:{c.id}", "conversation", la.name or la.vendor, f"{c.title}\n{c.excerpt}".strip()[:6000], at,
+                    {"vendor": la.vendor, "project": c.project, "messages": c.message_count, "model": c.model,
+                     "started_at": c.started_at.isoformat() if c.started_at else None})
+
+    def _placed(self, root) -> set[str]:
+        out: set[str] = set()
+        for ids in self.s.scalars(select(ThoughtNode.note_ids).where(*self._where(root))):
+            out.update(str(x) for x in ids or [])
+        return out
+
+    def pending(self, aim, limit: int = WINDOW) -> list:
+        """Turns not in the tree yet (oldest first). Your own branches are placed when you make them."""
+        if _scope(aim) == "user":
+            return self._your_turns(aim.id, self._placed(aim))[:limit]
         since = self.placed_until(aim.id)
         q = select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind.in_(TURNS))
         if since is not None:
             q = q.where(AimNote.created_at > since)
         return [n for n in self.s.scalars(q.order_by(AimNote.created_at).limit(limit * 2)) if not (n.data or {}).get("node")][:limit]
 
-    def pending_count(self, aim: Aim) -> int:
+    def pending_count(self, aim) -> int:
+        if _scope(aim) == "user":
+            return len(self._your_turns(aim.id, self._placed(aim)))
         since = self.placed_until(aim.id)
         q = select(func.count()).select_from(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind.in_(TURNS))
         if since is not None:
@@ -146,11 +248,29 @@ class ThoughtTree:
             n = self.s.get(ThoughtNode, n.parent_id) if n.parent_id else None
         return list(reversed(out))
 
-    def notes_of(self, node: ThoughtNode) -> list[AimNote]:
+    def notes_of(self, node: ThoughtNode) -> list:
+        if node.scope == "user" or any(str(x).startswith(("r:", "c:")) for x in node.note_ids or []):
+            return self._turns_of(node)
         ids = [uuid.UUID(str(x)) for x in (node.note_ids or [])]
         if not ids:
             return []
         return list(self.s.scalars(select(AimNote).where(AimNote.id.in_(ids)).order_by(AimNote.created_at)))
+
+    def _turns_of(self, node: ThoughtNode) -> list:
+        runs = [uuid.UUID(x[2:]) for x in node.note_ids or [] if str(x).startswith("r:")]
+        convs = [uuid.UUID(x[2:]) for x in node.note_ids or [] if str(x).startswith("c:")]
+        notes = [uuid.UUID(str(x)) for x in node.note_ids or [] if not str(x).startswith(("r:", "c:"))]
+        out: list = []
+        if runs:
+            for r in self.s.scalars(select(AgentRun).where(AgentRun.id.in_(runs))):
+                out += self._run_turns(r)
+        if convs:
+            for c, la in self.s.execute(select(AgentConversation, LinkedAgent).join(LinkedAgent, LinkedAgent.id == AgentConversation.linked_agent_id)
+                                        .where(AgentConversation.id.in_(convs))):
+                out.append(self._conv_turn(c, la))
+        if notes:
+            out += list(self.s.scalars(select(AimNote).where(AimNote.id.in_(notes))))
+        return sorted(out, key=lambda t: t.created_at)
 
     # -------------------------------------------------------------- curating
 
@@ -191,13 +311,15 @@ class ThoughtTree:
         return f"[{i}] {n.created_at.strftime('%m-%d %H:%M')} {tag} ({who}){extra}: {_clip(n.text_en or n.text, lim)}"
 
     def _outline(self, aim: Aim) -> str:
-        rows = [n for n in self.nodes(aim.id) if n.kind != "bud"][-40:]
+        rows = [n for n in self.nodes(aim) if n.kind != "bud"][-40:]
         if not rows:
             return "(the tree is empty: only the root)"
         return "\n".join(f"node {_short(n.id)} (parent {_short(n.parent_id) if n.parent_id else 'root'}): {_clip(n.title, 90)}"
                          for n in rows)
 
-    def _focus_hint(self, aim: Aim) -> str:
+    def _focus_hint(self, aim) -> str:
+        if _scope(aim) == "user":
+            return ""
         t = self.s.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
         fid = ((t.settings or {}).get("focus_node") if t else None)
         if not fid:
@@ -208,9 +330,13 @@ class ThoughtTree:
     def _curate_window(self, user: User, aim: Aim, turns: list[AimNote], now: datetime) -> tuple[int, int] | None:
         lang, style = _lang(user)
         system = CURATE.format(lang=lang, style=STYLE[style], untrusted=UNTRUSTED_NOTE)
-        latest = self.latest(aim.id)
+        latest = self.latest(aim)
         body = "\n".join(self._turn_line(i, n) for i, n in enumerate(turns))
-        prompt = (f"Motivation: {aim.text_en or aim.text}\n\nThe tree so far:\n{self._outline(aim)}\n"
+        head = (f"Motivation: {aim.text_en or aim.text}" if _scope(aim) == "aim" else
+                "Root: the user's OWN conversations with AI agents (not an agent team): their messages and the answers in PGA, "
+                "and whole conversations imported from other apps (a title and an excerpt each). Cut them by topic and purpose; "
+                "a conversation that returns to an older topic grows from that topic's node.")
+        prompt = (f"{head}\n\nThe tree so far:\n{self._outline(aim)}\n"
                   f"Latest node: {_short(latest.id) if latest else 'none'}{self._focus_hint(aim)}\n\n"
                   + fence("source", body, 60000, kind="new stretch of the team's dialogue"))
         decision = self.rt.allocator.allocate(RunRequest(
@@ -237,16 +363,16 @@ class ThoughtTree:
                 guard.stop("thought tree window placed")
         except TreeDeferred:
             raise
-        except Exception as exc:  # noqa: BLE001 - fall back to the rule cut; the next window tries the model again
+        except Exception as exc:  # noqa: BLE001 - the model could not be reached: try again later rather than cut blindly
             log.warning("tree curate failed: %s", exc)
-            return None
+            raise TreeDeferred(f"the curator could not be reached: {exc}"[:300]) from exc
         if not isinstance(d, dict):
             return None
         return self._apply(aim, turns, d)
 
     def _apply(self, aim: Aim, turns: list[AimNote], d: dict) -> tuple[int, int] | None:
         n = len(turns)
-        latest = self.latest(aim.id)
+        latest = self.latest(aim)
         try:
             ext = int(d.get("extend_latest_until", -1))
         except (TypeError, ValueError):
@@ -287,8 +413,8 @@ class ThoughtTree:
         first_spec = specs[0]["from"] if specs else n
         for i in range(ext + 1, first_spec):             # not covered before the first new node: the latest node (or the first new one)
             owner[i] = latest if latest is not None else 0
-        seq = int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(ThoughtNode.aim_id == aim.id)) or 0)
-        by_short = {_short(x.id): x for x in self.nodes(aim.id)}
+        seq = self._max_seq(aim)
+        by_short = {_short(x.id): x for x in self.nodes(aim)}
         made: list[ThoughtNode] = []
         for k, x in enumerate(specs):
             par = str(x.get("parent") or "").strip()
@@ -303,7 +429,7 @@ class ThoughtTree:
             else:
                 parent = by_short.get(par[:8]) or (made[-1] if made else latest)
             seq += 1
-            node = ThoughtNode(user_id=aim.user_id, aim_id=aim.id, parent_id=parent.id if parent else None, kind="segment", seq=seq,
+            node = self._make(aim, parent_id=parent.id if parent else None, kind="segment", seq=seq,
                                title=_clip(x.get("title"), 120), summary=str(x.get("summary") or "")[:1500],
                                shift=str(x.get("shift") or "")[:400],
                                key_thoughts=[_clip(t, 200) for t in (x.get("key_thoughts") or []) if str(t).strip()][:4],
@@ -324,16 +450,17 @@ class ThoughtTree:
 
     def _rule_window(self, aim: Aim, turns: list[AimNote]) -> tuple[int, int]:
         """No model: cut where the dialogue paused for a while; a node is named after its first question."""
-        latest = self.latest(aim.id)
-        seq = int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(ThoughtNode.aim_id == aim.id)) or 0)
+        latest = self.latest(aim)
+        seq = self._max_seq(aim)
         touched: dict[uuid.UUID, ThoughtNode] = {}
         made = extended = 0
         cur, prev_at = latest, (latest.last_at if latest else None)
+        gap = GAP if _scope(aim) == "aim" else timedelta(days=3)   # your conversations are spread over months
         for n in turns:
-            if cur is None or (prev_at and n.created_at - prev_at > GAP) or len(cur.note_ids or []) >= 60:
+            if cur is None or (prev_at and n.created_at - prev_at > gap) or len(cur.note_ids or []) >= 60:
                 seq += 1
-                title = n.text if n.kind == "question" else f"{n.created_at.strftime('%m-%d %H:%M')} 起的思考"
-                cur = ThoughtNode(user_id=aim.user_id, aim_id=aim.id, parent_id=cur.id if cur else None, kind="segment", seq=seq,
+                title = n.text if n.kind in ("question", "conversation") else f"{n.created_at.strftime('%m-%d %H:%M')} 起的思考"
+                cur = self._make(aim, parent_id=cur.id if cur else None, kind="segment", seq=seq,
                                   title=_clip(title, 60), note_ids=[], data={"mode": "rule"}, created_at=utcnow())
                 self.s.add(cur)
                 self.s.flush()
@@ -347,8 +474,9 @@ class ThoughtTree:
             self._grow_details(aim, node)
         return made, extended
 
-    def _attach(self, node: ThoughtNode, n: AimNote) -> None:
-        node.note_ids = list(node.note_ids or []) + [str(n.id)]
+    def _attach(self, node: ThoughtNode, n) -> None:
+        if str(n.id) not in (node.note_ids or [])[-2:]:          # a run's message and answer share one id
+            node.note_ids = list(node.note_ids or []) + [str(n.id)]
         node.first_at = min(node.first_at or n.created_at, n.created_at)
         node.last_at = max(node.last_at or n.created_at, n.created_at)
         node.updated_at = utcnow()
@@ -372,18 +500,24 @@ class ThoughtTree:
             q = next((n for n in notes if n.kind == "question"), None)
             node.title = _clip(q.text if q else "思考", 60)
         node.git = self._git(aim, node, notes)
+        try:
+            node.data = {**(node.data or {}), "behavior": self._behavior_counts(node)}
+        except Exception as exc:  # noqa: BLE001 - counts are a nicety; the node is fine without them
+            log.info("behaviour for %s: %s", node.id, exc)
 
     def _refresh_growth(self, aim: Aim) -> None:
         """The newest node is the growing tip."""
-        latest = self.latest(aim.id)
-        for n in self.nodes(aim.id):
+        latest = self.latest(aim)
+        for n in self.nodes(aim):
             tip = latest is not None and n.id == latest.id
             if bool((n.data or {}).get("tip")) != tip:
                 n.data = {**(n.data or {}), "tip": tip}
 
     # -------------------------------------------------------------- the code meanwhile
 
-    def project(self, aim: Aim) -> Project | None:
+    def project(self, aim) -> Project | None:
+        if _scope(aim) == "user":
+            return None
         t = self.s.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
         if t and t.project_id:
             return self.s.get(Project, t.project_id)
@@ -425,13 +559,14 @@ class ThoughtTree:
     # -------------------------------------------------------------- continuing from a branch
 
     def context_for(self, node: ThoughtNode, intro: bool = True) -> str:
-        aim = self.s.get(Aim, node.aim_id)
-        lines = [f"You are continuing one branch of the thought tree of the user's motivation: {aim.text_en or aim.text}" if intro
-                 else f"Motivation: {aim.text_en or aim.text}", "The branch, from the root to the chosen node:"]
+        aim = self.root_of(node)
+        what = "the user's motivation" if _scope(aim) == "aim" else "the user's own conversations"
+        lines = [f"You are continuing one branch of the thought tree of {what}: {aim.text_en or aim.text}" if intro
+                 else f"Root: {aim.text_en or aim.text}", "The branch, from the root to the chosen node:"]
         for i, n in enumerate(self.path(node)):
             lines.append(f"{'  ' * i}- {n.title}" + (f": {n.summary}" if n.summary else "")
                          + (f" (key: {'; '.join(n.key_thoughts)})" if n.key_thoughts else ""))
-        recent = [n for n in self.notes_of(node) if n.kind in ("answer", "insight", "question")][-6:]
+        recent = [n for n in self.notes_of(node) if n.kind in ("answer", "insight", "question", "conversation")][-6:]
         if recent:
             lines.append("The latest turns on this node:")
             lines += [f"- {n.kind}: {_clip(n.text, 500)}" for n in recent]
@@ -441,6 +576,8 @@ class ThoughtTree:
         if not intro:
             return "\n".join(lines)
         lines.append(knowledge_context(self.rt, aim))
+        refs = [r for n in self.path(node) for r in ((n.data or {}).get("refs") or [])]
+        lines.append(refs_context(self.rt, list(dict.fromkeys(refs)), node.user_id))
         lines.append("Continue this line of thought with the user. Answer in the user's language.")
         return "\n".join(x for x in lines if x)
 
@@ -448,15 +585,27 @@ class ThoughtTree:
         """Where your turn goes: a branch of yours continues in place; anywhere else a new branch grows."""
         if node.kind == "user" and not bud:
             return node
-        seq = int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(ThoughtNode.aim_id == node.aim_id)) or 0) + 1
+        seq = self._max_seq(self.root_of(node)) + 1
         title = _clip(bud or text, 40)
-        b = ThoughtNode(user_id=node.user_id, aim_id=node.aim_id, parent_id=node.id, kind="user", seq=seq, title=title,
+        b = ThoughtNode(user_id=node.user_id, aim_id=node.aim_id, scope=node.scope, parent_id=node.id, kind="user", seq=seq, title=title,
                         summary="", note_ids=[], data={"from_bud": bud} if bud else {}, created_at=utcnow())
         self.s.add(b)
         self.s.flush()
         return b
 
-    def record(self, branch: ThoughtNode, aim: Aim, question: str, reply: dict) -> list[AimNote]:
+    def record(self, branch: ThoughtNode, aim, question: str, reply: dict) -> list:
+        if _scope(aim) == "user" or not branch.aim_id:            # your tree: the reply is a run of the chat itself
+            run = self.s.get(AgentRun, uuid.UUID(str(reply["run_id"]))) if reply.get("run_id") else None
+            if run is None:
+                return []
+            run.data = {**(run.data or {}), "node": str(branch.id)}
+            turns = self._run_turns(run)
+            for t in turns:
+                self._attach(branch, t)
+            self._grow_details(aim, branch)
+            if not branch.summary and len(turns) > 1:
+                branch.summary = _clip(turns[1].text, 280)
+            return turns
         from pga.teams import TeamService
         team = TeamService(self.rt)
         now = utcnow()
@@ -473,7 +622,9 @@ class ThoughtTree:
             branch.summary = _clip(out[1].text, 280)
         return out
 
-    def focus(self, aim: Aim, node: ThoughtNode | None) -> dict:
+    def focus(self, aim, node: ThoughtNode | None) -> dict:
+        if _scope(aim) == "user":
+            raise TreeError("你的对话树没有长期任务可以引导")
         t = self.s.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == aim.id))
         if t is None:
             raise TreeError("这个抱负还没有在长期运行：先按 ▶ 开始")
@@ -503,7 +654,7 @@ class ThoughtTree:
     def rewrite(self, user: User, aim: Aim, now: datetime | None = None, *, batch: int = 4, limit: int = 40) -> dict:
         """Rewrite older or hard-to-read summaries in the readable style (nodes you edited are left alone)."""
         now = now or utcnow()
-        todo = [n for n in self.nodes(aim.id) if n.kind == "segment" and (n.data or {}).get("style") != 2
+        todo = [n for n in self.nodes(aim) if n.kind == "segment" and (n.data or {}).get("style") != 2
                 and not (n.data or {}).get("edited")][:limit]
         lang, style = _lang(user)
         done = 0
@@ -568,7 +719,7 @@ class ThoughtTree:
         node.data = d
         if parent != "keep":
             if parent is not None:
-                if parent.aim_id != node.aim_id:
+                if parent.aim_id != node.aim_id or parent.scope != node.scope:
                     raise TreeError("只能挂到同一棵树的节点下")
                 if any(x.id == node.id for x in self.path(parent)):
                     raise TreeError("不能挂到它自己的子孙下面")
@@ -582,10 +733,10 @@ class ThoughtTree:
         if node.parent_id is None:
             raise TreeError("直接长在根上的节点没有上一级可以合并")
         parent = self.s.get(ThoughtNode, node.parent_id)
-        aim = self.s.get(Aim, node.aim_id)
+        aim = self.root_of(node)
         for n in self.notes_of(node):
             self._attach(parent, n)
-        for c in self.nodes(node.aim_id):
+        for c in self.nodes(self.root_of(node)):
             if c.parent_id == node.id:
                 c.parent_id = parent.id
         if (node.data or {}).get("dataset") and not (parent.data or {}).get("dataset"):
@@ -602,7 +753,7 @@ class ThoughtTree:
         dialogue can be hidden or merged, never deleted."""
         if node.kind == "segment":
             raise TreeError("这是团队对话的一段：可以隐藏或合并到上一级，不能删除")
-        for c in self.nodes(node.aim_id):
+        for c in self.nodes(self.root_of(node)):
             if c.parent_id == node.id:
                 c.parent_id = node.parent_id
         self.s.flush()
@@ -610,8 +761,8 @@ class ThoughtTree:
         self.s.flush()
 
     def new_branch(self, node: ThoughtNode, title: str, kind: str = "user", data: dict | None = None) -> ThoughtNode:
-        seq = int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(ThoughtNode.aim_id == node.aim_id)) or 0) + 1
-        b = ThoughtNode(user_id=node.user_id, aim_id=node.aim_id, parent_id=node.id, kind=kind, seq=seq, title=_clip(title, 60),
+        seq = self._max_seq(self.root_of(node)) + 1
+        b = ThoughtNode(user_id=node.user_id, aim_id=node.aim_id, scope=node.scope, parent_id=node.id, kind=kind, seq=seq, title=_clip(title, 60),
                         summary="", note_ids=[], data=data or {}, created_at=utcnow())
         self.s.add(b)
         self.s.flush()
@@ -620,7 +771,7 @@ class ThoughtTree:
     # -------------------------------------------------------------- a line of thought, distilled
 
     def subtree(self, node: ThoughtNode) -> list[ThoughtNode]:
-        all_ = self.nodes(node.aim_id)
+        all_ = self.nodes(self.root_of(node))
         kids: dict = {}
         for n in all_:
             kids.setdefault(n.parent_id, []).append(n)
@@ -633,7 +784,7 @@ class ThoughtTree:
 
     def branch_material(self, node: ThoughtNode) -> str:
         """What the distiller reads: the path to this node, then the node and everything that grew from it."""
-        aim = self.s.get(Aim, node.aim_id)
+        aim = self.root_of(node)
         path = "\n".join(f"- {n.title}: {n.summary}" for n in self.path(node)[:-1])
         body = []
         for n in self.subtree(node):
@@ -668,7 +819,7 @@ class ThoughtTree:
         return self.s.scalar(select(ThoughtNode).where(ThoughtNode.data["dataset"].as_string() == str(body_id)).limit(1))
 
     def markdown(self, node: ThoughtNode) -> str:
-        aim = self.s.get(Aim, node.aim_id)
+        aim = self.root_of(node)
         out = [f"# {node.title}", "", f"> 抱负：{aim.text}", f"> 路径：{' › '.join(n.title for n in self.path(node))}"]
         if node.first_at:
             out.append(f"> 时间：{node.first_at:%Y-%m-%d %H:%M} – {(node.last_at or node.first_at):%Y-%m-%d %H:%M}")
@@ -700,7 +851,7 @@ class ThoughtTree:
         if other.id == node.id:
             raise TreeError("选另一个节点来交流")
         lang, _ = _lang(user)
-        aim = self.s.get(Aim, node.aim_id)
+        aim = self.root_of(node)
         a, b = self.context_for(node, intro=False), self.context_for(other, intro=False)
         context = (EXCHANGE.format(lang=lang) + "\n\n<line_A>\n" + a + "\n</line_A>\n\n<line_B>\n" + b + "\n</line_B>\n\n"
                    + knowledge_context(self.rt, aim))
@@ -709,13 +860,115 @@ class ThoughtTree:
                                          category="serious" if (agent or "auto") == "auto" else None,
                                          conversation=f"exchange:{node.id}:{other.id}", project=None)
         x = self.new_branch(node, f"↔ {other.title}", kind="exchange",
-                            data={"with": str(other.id), "with_aim": str(other.aim_id), "with_title": other.title})
+                            data={"with": str(other.id), "with_aim": str(other.aim_id) if other.aim_id else "you", "with_title": other.title})
         self.record(x, aim, ask, reply)
         if (reply.get("text") or "").strip():
             x.summary = _clip(reply["text"], 600)
         other.data = {**(other.data or {}), "exchanges": list(dict.fromkeys(((other.data or {}).get("exchanges") or []) + [str(x.id)]))[-12:]}
         self.s.flush()
         return x, reply
+
+    # -------------------------------------------------------------- what the agents did (行为树)
+
+    def runs_of(self, node: ThoughtNode) -> list[AgentRun]:
+        """The agent runs behind a node: the team's steps while it was being thought through, or the chats that made it."""
+        ids = [uuid.UUID(x[2:]) for x in node.note_ids or [] if str(x).startswith("r:")]
+        q = None
+        if node.scope == "aim" and node.kind == "segment" and node.first_at:
+            q = select(AgentRun).where(AgentRun.parent_id.is_(None), AgentRun.workflow == "perpetual",
+                                       AgentRun.data["aim"].as_string() == str(node.aim_id),
+                                       AgentRun.started_at >= node.first_at - timedelta(minutes=10),
+                                       AgentRun.started_at <= (node.last_at or node.first_at) + timedelta(minutes=1))
+        elif node.kind in ("user", "exchange") and node.scope == "aim":
+            q = select(AgentRun).where(AgentRun.parent_id.is_(None), AgentRun.user_id == node.user_id,
+                                       AgentRun.data["conversation"].as_string().like(f"node:{node.id}%")
+                                       | AgentRun.data["conversation"].as_string().like(f"exchange:{node.parent_id}:%")
+                                       | (AgentRun.data["node"].as_string() == str(node.id)))
+        runs = list(self.s.scalars(q.order_by(AgentRun.started_at).limit(400))) if q is not None else []
+        if ids:
+            runs += list(self.s.scalars(select(AgentRun).where(AgentRun.id.in_(ids)).order_by(AgentRun.started_at)))
+        return sorted({r.id: r for r in runs}.values(), key=lambda r: r.started_at)
+
+    def behavior(self, node: ThoughtNode) -> dict:
+        """Who did what: per agent, each run (which step, which question, how it went) and the actions in it."""
+        runs = self.runs_of(node)
+        steps: dict[uuid.UUID, list[AgentRun]] = {}
+        if runs:
+            for c in self.s.scalars(select(AgentRun).where(AgentRun.parent_id.in_([r.id for r in runs])).order_by(AgentRun.started_at)):
+                steps.setdefault(c.parent_id, []).append(c)
+        agents: dict[str, dict] = {}
+        totals: dict[str, int] = {}
+        for r in runs:
+            d = r.data or {}
+            actions = []
+            for c in steps.get(r.id, []):
+                actions += parse_actions((c.data or {}).get("trace") or "")
+            for a in actions:
+                totals[a["kind"]] = totals.get(a["kind"], 0) + 1
+            code = re.search(r'<question code="([^"]+)"', r.prompt or "")
+            step = str(d.get("step") or r.step or "run")
+            totals[f"step:{step}"] = totals.get(f"step:{step}", 0) + 1
+            who = d.get("agent") or r.agent
+            ag = agents.setdefault(who, {"agent": who, "runs": [], "ok": 0, "failed": 0, "seconds": 0.0})
+            ok = r.status == "SUCCEEDED"
+            ag["ok" if ok else "failed"] += 1
+            ag["seconds"] = round(ag["seconds"] + float(r.duration_s or 0), 1)
+            ag["runs"].append({"id": str(r.id), "step": step, "step_zh": STEP_ZH.get(step, step), "code": code.group(1) if code else None,
+                               "status": r.status, "seconds": round(float(r.duration_s or 0), 1), "at": r.started_at.isoformat(),
+                               "role": d.get("role"), "error": _clip(r.error or "", 200) if not ok else None,
+                               "conversation": d.get("conversation"), "actions": actions[:80], "more": max(0, len(actions) - 80)})
+        g = node.git or {}
+        return {"agents": sorted(agents.values(), key=lambda a: -len(a["runs"])), "totals": totals, "runs": len(runs),
+                "proposals": (node.data or {}).get("proposals") or [], "commits": g.get("commits") or [],
+                "traced": sum(1 for r in runs if any((c.data or {}).get("trace") for c in steps.get(r.id, [])))}
+
+    def _behavior_counts(self, node: ThoughtNode) -> dict:
+        b = self.behavior(node)
+        t = b["totals"]
+        return {"runs": b["runs"], "agents": len(b["agents"]), **{k: v for k, v in t.items() if not k.startswith("step:")},
+                "commits": len(b["commits"]), "steps": {k[5:]: v for k, v in t.items() if k.startswith("step:")}}
+
+    def refresh(self, root) -> int:
+        """Recount every node's details (behaviour, git, twigs) without asking any model."""
+        n = 0
+        for node in self.nodes(root):
+            self._grow_details(root, node)
+            n += 1
+        self._refresh_growth(root)
+        self.s.flush()
+        return n
+
+    # -------------------------------------------------------------- knowledge: references and moving it
+
+    def set_refs(self, node: ThoughtNode, refs: list[str]) -> ThoughtNode:
+        from pga.db.models import Body
+        ok = []
+        for r in refs:
+            try:
+                b = self.s.get(Body, uuid.UUID(str(r)))
+            except ValueError:
+                continue
+            if b is not None and b.user_id == node.user_id:
+                ok.append(str(b.id))
+        node.data = {**(node.data or {}), "refs": list(dict.fromkeys(ok))[:12]}
+        self.s.flush()
+        return node
+
+    def move_dataset(self, body, *, node: ThoughtNode | None = None, aim: Aim | None = None):
+        """Move a dataset: to another node (it becomes that line of thought's knowledge) or to another tree."""
+        if node is not None:
+            for n in self.s.scalars(select(ThoughtNode).where(ThoughtNode.data["dataset"].as_string() == str(body.id))):
+                if n.id != node.id:
+                    n.data = {k: v for k, v in (n.data or {}).items() if k != "dataset"}
+            node.data = {**(node.data or {}), "dataset": str(body.id)}
+            body.aim_id = node.aim_id
+        elif aim is not None:
+            for n in self.s.scalars(select(ThoughtNode).where(ThoughtNode.data["dataset"].as_string() == str(body.id))):
+                if n.aim_id != aim.id:
+                    n.data = {k: v for k, v in (n.data or {}).items() if k != "dataset"}
+            body.aim_id = aim.id
+        self.s.flush()
+        return body
 
     # -------------------------------------------------------------- for the UI
 
@@ -739,11 +992,11 @@ class ThoughtTree:
                     "next_at": t.next_at.isoformat() if t.next_at else None}
         for_you = int(self.s.scalar(select(func.count()).select_from(AimNote).where(
             AimNote.aim_id == aim.id, AimNote.kind == "question", AimNote.status == "for_you")) or 0)
-        return {"aim": {"id": str(aim.id), "text": aim.text}, "focus": ((t.settings or {}).get("focus_node") if t else None),
+        return {"aim": {"id": str(aim.id), "text": aim.text, "scope": _scope(aim)}, "focus": ((t.settings or {}).get("focus_node") if t else None),
                 "pending": self.pending_count(aim), "repo": repo, "task": task, "for_you": for_you,
                 "project": {"id": str(p.id), "name": p.name} if p else None,
                 "knowledge": knowledge_of(self.rt, aim),
-                "nodes": [node_out(n) for n in self.nodes(aim.id)]}
+                "nodes": [node_out(n) for n in self.nodes(aim)]}
 
 
 class TreeDeferred(Exception):
@@ -759,12 +1012,54 @@ def node_out(n: ThoughtNode, full: bool = False) -> dict:
            "codes": d.get("codes") or [], "sampled": d.get("sampled", 0), "samples": d.get("samples", 0), "spread": d.get("spread"),
            "buds": d.get("buds") or [], "proposals": d.get("proposals") or [], "tip": bool(d.get("tip")), "mode": d.get("mode"),
            "hidden": bool(d.get("hidden")), "edited": bool(d.get("edited")), "dataset": d.get("dataset"), "style": d.get("style"),
+           "behavior": d.get("behavior") or {}, "refs": d.get("refs") or [], "scope": n.scope,
            "with": d.get("with"), "with_aim": d.get("with_aim"), "with_title": d.get("with_title"), "exchanges": d.get("exchanges") or [],
            "git": {"commits": len((n.git or {}).get("commits") or []), "files": len((n.git or {}).get("files") or []),
                    "head": (n.git or {}).get("head")}}
     if full:
         out["git"] = n.git or {}
     return out
+
+
+STEP_ZH = {"think": "思考", "investigate": "研究", "aggregate": "合成", "evolve": "进化", "reflect": "回顾", "checkpoint": "检查点",
+           "run": "对话", "answer": "回答", "review": "审阅", "synthesis": "综合", "plan": "计划", "work": "实现"}
+_TOOLS = {"Read": "read", "Glob": "read", "LS": "read", "NotebookRead": "read", "Grep": "search", "ToolSearch": "search",
+          "Bash": "command", "BashOutput": "command", "Edit": "edit", "Write": "edit", "MultiEdit": "edit", "NotebookEdit": "edit",
+          "WebSearch": "web", "WebFetch": "web", "Task": "delegate", "Agent": "delegate"}
+
+
+def parse_actions(trace: str) -> list[dict]:
+    """The tool lines an agent's trace shows (→ Read path, → Grep pattern, $ command …) as actions."""
+    out = []
+    for line in (trace or "").splitlines():
+        line = line.strip()
+        m = re.match(r"^(?:→|⚙|›)\s*([A-Za-z_][\w.-]*)\s*(.*)$", line)
+        if m:
+            tool, target = m.group(1), m.group(2)
+        elif line.startswith("$ "):
+            tool, target = "Bash", line[2:]
+        else:
+            continue
+        kind = _TOOLS.get(tool, "edit" if tool.lower().startswith(("write", "edit")) else "other")
+        target = target.replace(str(Path.home()), "~")
+        out.append({"tool": tool, "kind": kind, "target": _clip(target, 160)})
+    return out
+
+
+def refs_context(rt: "Runtime", ids: list[str], user_id: uuid.UUID | None = None) -> str:
+    """Datasets pinned to this node or conversation: their summary and the start of the full text."""
+    from pga.db.models import Body
+    parts = []
+    for i in ids[:8]:
+        try:
+            b = rt.session.get(Body, uuid.UUID(str(i)))
+        except ValueError:
+            continue
+        if b is None or (user_id and b.user_id != user_id) or not (b.description_en or b.description):
+            continue
+        parts.append(f"<referenced_knowledge title=\"{_clip(b.title_en or b.title, 80)}\">\n{_brief(rt, b)}\n"
+                     f"{_clip(b.description_en or b.description, 2500)}\n</referenced_knowledge>")
+    return "\n\n".join(parts)
 
 
 def _brief(rt: "Runtime", b) -> str:

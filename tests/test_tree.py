@@ -189,3 +189,117 @@ def test_every_round_reads_the_user_and_world_models_and_what_it_refers_to(rt, u
     ctx = knowledge_context(rt, aim)
     assert "<user_model" in ctx and "clean interfaces" in ctx and "<world_model" not in ctx   # world not compiled yet
     assert "Per-topic thresholds" in ctx
+
+
+def test_your_own_conversations_grow_a_tree_of_their_own(session_factory, policy, provider, backend, user, session):
+    """Your chats in PGA (a message and an answer each) and conversations imported from other apps, cut into a tree."""
+    from pga.db.models import AgentConversation, AgentRun, LinkedAgent
+    from pga.tree import YouRoot
+
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    t0 = datetime.now(timezone.utc) - timedelta(days=8)
+    for i in range(4):
+        session.add(AgentRun(user_id=user.id, workflow="ask", pattern="single", step="run", agent="claude", adapter="claude_local",
+                             status="SUCCEEDED", prompt=f"怎么让 PGA 的界面更好读？{i}", output=json.dumps({"answer": f"回答 {i}"}),
+                             data={"conversation": "agent:claude:console-1"}, started_at=t0 + timedelta(minutes=i)))
+    session.add(AgentRun(user_id=user.id, workflow="ask", pattern="single", step="run", agent="claude", adapter="claude_local",
+                         status="SUCCEEDED", prompt="这一条属于一棵思考树", output="x", data={"conversation": "node:abc"}, started_at=t0))
+    la = LinkedAgent(user_id=user.id, name="ChatGPT", vendor="chatgpt", connector="import")
+    session.add(la)
+    session.flush()
+    session.add(AgentConversation(linked_agent_id=la.id, external_id="x1", title="旅行计划", excerpt="去京都的路线",
+                                  started_at=t0 + timedelta(days=5), updated_at=t0 + timedelta(days=5)))
+    session.flush()
+    tree = ThoughtTree(rt)
+    you = YouRoot(user)
+    assert tree.pending_count(you) == 4 * 2 + 1                                     # 4 chats (2 turns each) + 1 imported
+    out = tree.curate(user, you, use_model=False)
+    nodes = tree.nodes(you)
+    assert out["pending"] == 0 and len(nodes) == 2 and all(n.scope == "user" and n.aim_id is None for n in nodes)
+    assert nodes[0].data["turns"] == 8 and nodes[1].title.startswith("旅行计划")
+    assert [t.kind for t in tree.notes_of(nodes[1])] == ["conversation"]
+    assert tree.pending_count(you) == 0                                              # placed turns are not offered again
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        t = c.get(f"/v1/users/{user.id}/tree").json()
+        assert t["aim"]["scope"] == "user" and len(t["nodes"]) == 2
+        f = c.get(f"/v1/users/{user.id}/forest").json()
+        assert f["you"]["text"] == "你的对话" and len(f["you"]["nodes"]) == 2
+        d = c.get(f"/v1/thought-nodes/{nodes[0].id}?full=true").json()
+        assert [x["kind"] for x in d["notes"]][:2] == ["question", "answer"] and len(d["children"]) == 1
+        assert c.get(f"/v1/thought-nodes/{nodes[0].id}/behavior").json()["runs"] == 4
+        r = c.post(f"/v1/thought-nodes/{nodes[0].id}/continue", json={"text": "再说一点", "agent": "auto"})
+        assert r.status_code == 200, r.text
+        b = r.json()["node"]
+        assert b["scope"] == "user" and b["parent"] == str(nodes[0].id) and b["turns"] >= 1
+
+
+def test_the_behaviour_tree_shows_who_did_what(rt, user):
+    """Each agent's runs in a node and the actions in them, read from the tool traces."""
+    from pga.db.models import AgentRun
+
+    aim = AimService(rt.session).create(user, "目标", "aim")
+    _dialogue(rt, user, aim, n=6)
+    tree = ThoughtTree(rt)
+    tree.curate(user, aim, use_model=False)
+    node = tree.nodes(aim.id)[0]
+    parent = AgentRun(user_id=user.id, workflow="perpetual", pattern="single", step="run", agent="claude", adapter="claude_local",
+                      status="SUCCEEDED", prompt='<question code="Q2">\nwhy?\n</question>', data={"aim": str(aim.id), "step": "investigate", "agent": "claude"},
+                      started_at=node.first_at + timedelta(seconds=30), duration_s=40)
+    rt.session.add(parent)
+    rt.session.flush()
+    rt.session.add(AgentRun(user_id=user.id, parent_id=parent.id, workflow="perpetual", pattern="single", step="investigate", agent="claude",
+                            adapter="claude_local", status="SUCCEEDED", data={"trace": "→ Read /x/src/pga/a.py\n→ Grep cache\n$ pytest -q\n→ Edit src/pga/a.py"},
+                            started_at=node.first_at + timedelta(seconds=31)))
+    rt.session.flush()
+    b = tree.behavior(node)
+    ag = b["agents"][0]
+    assert ag["agent"] == "claude" and ag["runs"][0]["code"] == "Q2" and ag["runs"][0]["step_zh"] == "研究"
+    assert [a["kind"] for a in ag["runs"][0]["actions"]] == ["read", "search", "command", "edit"]
+    assert b["totals"]["read"] == 1 and b["traced"] == 1
+    tree.refresh(aim)
+    assert node.data["behavior"]["runs"] == 1 and node.data["behavior"]["edit"] == 1
+
+
+def test_knowledge_moves_and_is_referenced_by_nodes_and_conversations(session_factory, policy, provider, backend, user, session, monkeypatch):
+    from pga.db.models import Body
+    from pga.db.types import Origin
+
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    aims = AimService(session)
+    a1, a2 = aims.create(user, "一", "one"), aims.create(user, "二", "two")
+    _dialogue(rt, user, a1, n=6)
+    _dialogue(rt, user, a2, n=6)
+    tree = ThoughtTree(rt)
+    tree.curate(user, a1, use_model=False)
+    tree.curate(user, a2, use_model=False)
+    n1, n2 = tree.nodes(a1.id)[0], tree.nodes(a2.id)[0]
+    b = Body(user_id=user.id, aim_id=a1.id, kind="database", title="思路 · 缓存", title_en="Line: cache", description="按主题设阈值",
+             description_en="Per-topic thresholds work better than one global threshold.", private=False, origin=Origin.SYSTEM, system="branch",
+             created_at=datetime.now(timezone.utc))
+    session.add(b)
+    session.flush()
+    n1.data = {**n1.data, "dataset": str(b.id)}
+    session.commit()
+    seen = []
+    from pga.agents.routing import AgentRouter
+
+    def ask(self, user, text, agent="auto", **kw):                                    # what the agent would be told
+        seen.append(kw.get("context") or "")
+        return {"ok": True, "agent": "claude", "text": "好", "error": None, "run_id": None}
+    monkeypatch.setattr(AgentRouter, "ask", ask)
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        moved = c.post(f"/v1/bodies/{b.id}/move", json={"node_id": str(n2.id)}).json()
+        assert moved["aim_id"] == str(a2.id)
+        assert c.get(f"/v1/thought-nodes/{n2.id}").json()["dataset"] == str(b.id)
+        assert c.get(f"/v1/thought-nodes/{n1.id}").json()["dataset"] is None
+        assert c.put(f"/v1/thought-nodes/{n1.id}/refs", json={"refs": [str(b.id), "nonsense"]}).json()["refs"] == [str(b.id)]
+        c.post(f"/v1/thought-nodes/{n1.id}/continue", json={"text": "用上那份知识", "agent": "auto"})
+        assert any("Per-topic thresholds" in s for s in seen)                          # the node's reference reached the agent
+        seen.clear()
+        c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "你好", "agent": "auto", "refs": [str(b.id)]})
+        assert any("Per-topic thresholds" in s for s in seen)                          # and a plain conversation can refer to it too

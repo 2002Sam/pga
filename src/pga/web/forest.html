@@ -46,7 +46,8 @@ header .pulse { margin-left: auto; color: var(--muted); font-size: 12.5px; displ
 .tree .tp { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
 .pbar { width: 90px; height: 4px; background: var(--line); position: relative; } .pbar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #6fa8d8, var(--gold), #f08a7a); }
 .tree .tb { display: flex; gap: 8px; justify-content: center; margin-top: 8px; } .tree .tb button { font-size: 12px; padding: 2px 10px; }
-.tree:hover { transform: translateY(-6px); } .tree.paused svg { filter: grayscale(.6) brightness(.75); }
+.tree:hover { transform: translateY(-6px); }
+.tree.you .mini .br { stroke: rgba(150,214,160,.6); } .tree.you .mini .dt { stroke: rgba(170,224,178,.95); } .tree.you .tname { color: #b9e4c0; } .tree.paused svg { filter: grayscale(.6) brightness(.75); }
 .tree .ask { position: absolute; top: 4px; right: 16px; font-size: 11px; color: #0b0d10; background: var(--gold); border-radius: 10px; padding: 0 7px; }
 .mini .br { fill: none; stroke: rgba(222,230,234,.5); stroke-linecap: round; } .mini .br.mine { stroke: rgba(150,214,160,.75); } .mini .br.ex { stroke: rgba(156,195,230,.7); }
 .mini .dt { fill: #0b0d10; stroke: rgba(232,236,238,.9); stroke-width: 1; } .mini .dt.tip { fill: var(--gold); stroke: var(--gold); }
@@ -152,7 +153,12 @@ function render() {
   $("#soil").innerHTML = model(user, "user", "用户模型 · 你是谁、你要什么");
   const running = D.trees.filter((t) => t.task?.status === "running").length, working = (F.live || []).filter((r) => r.running).length;
   $("#pulse").innerHTML = `<span><span class="dot ${working ? "on" : ""}"></span>${working ? `${working} 个 agent 在工作` : "没有 agent 在工作"}</span><span>${running} / ${D.trees.length} 棵树在生长</span>`;
-  $("#forest").innerHTML = D.trees.map((t) => {
+  const you = D.you ? (() => { const t = D.you, nodes = (t.nodes || []).filter((n) => n.kind !== "bud");
+    return `<div class="tree you alive" data-tree="you">${miniTree(t)}<div class="tname">你的对话</div>
+      <div class="tmeta">${nodes.length ? `${nodes.length} 个节点` : "还没有长出来"}${t.last_growth ? ` · ${esc(ago(t.last_growth))}长过` : ""}${t.pending ? ` · ${t.pending} 轮待整理` : ""}</div>
+      <div class="tp"><span>你在 PGA 里和导入的对话，按话题长成的树</span></div>
+      <div class="tb">${t.pending && !nodes.length ? `<button data-growyou="1" class="primary">长出这棵树</button>` : ""}<button data-enter="you">进入 →</button></div></div>`; })() : "";
+  $("#forest").innerHTML = you + D.trees.map((t) => {
     const nodes = (t.nodes || []).filter((n) => n.kind !== "bud"), on = t.task?.status === "running";
     return `<div class="tree ${on ? "alive" : t.task ? "paused" : "paused"}" data-tree="${t.id}">${t.for_you ? `<span class="ask" title="只有你能回答的问题">${t.for_you}</span>` : ""}
       ${miniTree(t)}<div class="tname">${esc(t.text.length > 34 ? t.text.slice(0, 33) + "…" : t.text)}</div>
@@ -202,7 +208,7 @@ function enter(id) {
     Object.assign(fly.style, { left: (innerWidth - r.width * s) / 2 + "px", top: (innerHeight - r.height * s) / 2 + "px", width: r.width * s + "px", height: r.height * s + "px", opacity: ".0" });
     const b = document.createElement("div"); b.className = "burst"; b.style.left = G.tx + "px"; b.style.top = G.ty + "px"; document.body.appendChild(b);
   }, 380);
-  setTimeout(() => { location.href = `/tree?aim=${id}${asq}`; }, 1050);
+  setTimeout(() => { location.href = id === "you" ? `/tree?you=1${asq}` : `/tree?aim=${id}${asq}`; }, 1050);
 }
 async function showDoc(id) {
   const d = await api(`/v1/bodies/${id}/document`).catch((e) => ({ error: e.message }));
@@ -213,8 +219,13 @@ async function showDoc(id) {
   m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m);
 }
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-enter], [data-run], [data-doc], [data-compile], #seed, #seedGo, #seedCancel, .tree");
+  const t = e.target.closest("[data-enter], [data-run], [data-doc], [data-compile], [data-growyou], #seed, #seedGo, #seedCancel, .tree");
   if (!t) return;
+  if (t.dataset.growyou) {
+    e.stopPropagation();
+    try { const r = await api(`/v1/users/${F.uid}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理你的 ${r.pending} 轮对话：树会一段一段长出来`); } catch (err) { toast(err.message); }
+    return;
+  }
   if (t.dataset.run) {
     e.stopPropagation();
     const tr = F.data.trees.find((x) => x.id === t.dataset.run), on = tr.task?.status === "running";

@@ -43,7 +43,10 @@ main { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(400px, .95
 #treeSide .legend { position: sticky; top: 0; z-index: 2; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 8px 14px; font-size: 11.5px; color: var(--muted); background: linear-gradient(#060709 65%, transparent); }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(232,236,238,.85); margin-right: 5px; vertical-align: -1px; }
 .legend i.g { border-color: var(--green); } .legend i.f { border-color: var(--gold); background: var(--gold); } .legend i.b { border-radius: 50% / 35%; border-color: var(--gold); } .legend i.x { border-color: var(--link); }
-.legend label { margin-left: auto; cursor: pointer; } .legend .act { color: var(--gold); cursor: pointer; text-decoration: underline; }
+.legend label { margin-left: auto; cursor: pointer; }
+.legend .modes { display: inline-flex; border: 1px solid var(--line-2); } .legend .modes button { border: 0; padding: 1px 10px; font-size: 11.5px; color: var(--muted); }
+.legend .modes button.on { color: var(--gold); background: rgba(233,169,75,.1); }
+.cont .crefs { margin: 0 0 8px; } .cont .crefs .chip a { color: inherit; text-decoration: none; margin-left: 4px; } .legend .act { color: var(--gold); cursor: pointer; text-decoration: underline; }
 #nodeSide { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; background: var(--panel); }
 .nh { padding: 14px 22px 10px; border-bottom: 1px solid var(--line); }
 .nh .crumb { font-size: 11.5px; color: var(--muted); } .nh .crumb a { color: var(--muted); text-decoration: none; } .nh .crumb a:hover { color: var(--text); }
@@ -116,7 +119,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = PGATree.esc;
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const Q = new URLSearchParams(location.search), AS_UID = Q.get("as");
-const S = { uid: AS_UID || store.get("pga_uid"), aim: Q.get("aim"), node: Q.get("node"), bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab") || "overview",
+const S = { uid: AS_UID || store.get("pga_uid"), aim: Q.get("you") ? "you" : Q.get("aim"), node: Q.get("node"), mode: store.get("pga_tree_mode") || "thought", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab") || "overview",
   filter: "all", search: "", seen: new Set(), agents: [], aims: [], sending: false, op: null, showHidden: false, forest: null, draft: "" };
 const when = (iso) => iso ? new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? "刚刚" : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : s < 86400 ? `${Math.floor(s / 3600)} 小时前` : `${Math.floor(s / 86400)} 天前`; };
@@ -128,7 +131,9 @@ async function api(path, opts = {}) {
   return data;
 }
 const md = (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"))) : esc(t));
-const qs = () => { const q = new URLSearchParams(); if (S.aim) q.set("aim", S.aim); if (S.node) q.set("node", S.node); if (AS_UID) q.set("as", AS_UID); return "?" + q; };
+const YOU = () => S.aim === "you";
+const treeApi = () => (YOU() ? `/v1/users/${S.uid}/tree` : `/v1/aims/${S.aim}/tree`);
+const qs = () => { const q = new URLSearchParams(); if (YOU()) q.set("you", "1"); else if (S.aim) q.set("aim", S.aim); if (S.node) q.set("node", S.node); if (AS_UID) q.set("as", AS_UID); return "?" + q; };
 const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
 
 /* ------------------------------------------------ loading */
@@ -136,14 +141,14 @@ async function boot() {
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
   $("#toDesk").href = "/console" + asq; $("#toForest").href = $("#home").href = "/forest" + asq;
   try { const d = await api(`/v1/users/${S.uid}/console`); S.aims = d.aims || []; S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); } catch {}
-  if (!S.aim) S.aim = (S.aims.find((a) => a.task) || S.aims[0])?.id || null;
-  $("#aimPick").innerHTML = S.aims.map((a) => `<option value="${a.id}" ${a.id === S.aim ? "selected" : ""}>${esc(a.text.length > 30 ? a.text.slice(0, 29) + "…" : a.text)}</option>`).join("");
+  if (!S.aim) S.aim = (S.aims.find((a) => a.task) || S.aims[0])?.id || "you";
+  $("#aimPick").innerHTML = `<option value="you" ${YOU() ? "selected" : ""}>你的对话</option>` + S.aims.map((a) => `<option value="${a.id}" ${a.id === S.aim ? "selected" : ""}>${esc(a.text.length > 30 ? a.text.slice(0, 29) + "…" : a.text)}</option>`).join("");
   if (!S.aim) { $("#body").innerHTML = `<div class="empty">还没有抱负。去森林里种一颗。</div>`; return; }
   await loadTree();
   setInterval(() => loadTree(true).catch(() => {}), 20000);
 }
 async function loadTree(quiet) {
-  S.tree = await api(`/v1/aims/${S.aim}/tree`);
+  S.tree = await api(treeApi());
   const nodes = (S.tree.nodes || []).filter((n) => n.kind !== "bud");
   if (!S.node || !nodes.some((n) => n.id === S.node)) S.node = (nodes.find((n) => n.tip) || nodes[nodes.length - 1])?.id || null;
   renderRun(); renderLegend(); drawTree(!quiet);
@@ -159,6 +164,7 @@ async function forest() { if (!S.forest) S.forest = await api(`/v1/users/${S.uid
 /* ------------------------------------------------ the tree and how it is doing */
 function renderRun() {
   const T = S.tree, t = T.task;
+  if (YOU()) { $("#run").innerHTML = `<span>你在 PGA 里的对话，和从 Claude Code、ChatGPT、Hermes、WorkBuddy 导入的对话，按话题长成的树</span>`; return; }
   $("#run").innerHTML = t ? `<span class="st"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? "运行中" : t.status === "paused" ? "已暂停" : "已停止"}</b> · ${esc(t.phase_zh || "")}</span>
       <span title="张力：${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join("，")}">张力 ${t.pressure.toFixed(2)} <span class="pbar"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
       <span>${esc(t.autonomy_zh || "")} · 每题 ${t.samples || 1} 次生成</span>
@@ -169,7 +175,9 @@ function renderRun() {
 function renderLegend() {
   const T = S.tree, nodes = (T.nodes || []).filter((n) => n.kind !== "bud"), old = nodes.filter((n) => n.kind === "segment" && n.style !== 2 && !n.edited).length;
   const hidden = nodes.filter((n) => n.hidden).length, turns = nodes.reduce((a, n) => a + (n.turns || 0), 0);
-  $("#legend").innerHTML = `<span><i></i>一段思路</span><span><i class="g"></i>你的分支</span><span><i class="x"></i>交流</span><span><i class="f"></i>选中 / PGA 的方向</span><span><i class="b"></i>花苞</span>
+  $("#legend").innerHTML = `<span class="modes"><button class="${S.mode === "thought" ? "on" : ""}" data-mode="thought">思维</button><button class="${S.mode === "behavior" ? "on" : ""}" data-mode="behavior" title="每个节点上 agent 做了什么：读、查、命令、改、提交">行为</button></span>
+    ${S.mode === "behavior" ? `<span><i style="border-color:#6fa8d8"></i>读</span><span><i style="border-color:#5fc4b8"></i>查</span><span><i style="border-color:#e9a94b"></i>命令</span><span><i style="border-color:#f08a7a"></i>改</span><span><i style="border-color:#ffd27a"></i>提交</span>`
+    : `<span><i></i>${YOU() ? "一段对话" : "一段思路"}</span>`}<span><i class="g"></i>你的分支</span><span><i class="x"></i>交流</span><span><i class="f"></i>选中 / PGA 的方向</span><span><i class="b"></i>花苞</span>
     <span>${nodes.length} 个节点 · ${turns} 轮</span>
     ${T.pending ? `<span class="act" id="curate">还有 ${T.pending} 轮没长进树里 · 整理</span>` : ""}
     ${old ? `<span class="act" id="rewrite" title="用更好读的格式重写这些节点的概括">${old} 个节点的概括可以更好读 · 重写</span>` : ""}
@@ -177,7 +185,7 @@ function renderLegend() {
 }
 function drawTree(scroll) {
   const side = $("#treeSide");
-  const L = PGATree.draw($("#treeSvg"), S.tree, Math.max(560, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: 26, showHidden: S.showHidden });
+  const L = PGATree.draw($("#treeSvg"), S.tree, Math.max(560, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: 26, showHidden: S.showHidden, mode: S.mode });
   if (scroll) { const n = L.list.find((x) => x.id === S.node) || L.list[L.list.length - 1]; if (n) side.scrollTop = Math.max(0, n.y - side.clientHeight * .4); }
   S.layout = L;
 }
@@ -192,6 +200,7 @@ function select(id, bud = null) {
 /* ------------------------------------------------ one node, all of it */
 const nodeOf = (id) => (S.tree?.nodes || []).find((n) => n.id === id);
 const KTAG = { user: "你的分支", exchange: "交流", segment: "一段思路" };
+const ktag = (n) => (n.scope === "user" && n.kind === "segment" ? "一段对话" : KTAG[n.kind] || "节点");
 function renderNode() {
   const n = nodeOf(S.node);
   if (!n) { $("#nh").innerHTML = ""; $("#tabs").innerHTML = ""; $("#body").innerHTML = `<div class="empty">这棵树还没有长出节点。${S.tree?.pending ? "点左上的「整理」。" : ""}</div>`; $("#cont").innerHTML = ""; return; }
@@ -200,7 +209,7 @@ function renderNode() {
   const sampled = notes.filter((x) => x.kind === "answer" && x.data?.samples?.length), g = d?.git || {};
   const mine = n.kind !== "segment";
   $("#nh").innerHTML = `<div class="crumb">${(d?.path || []).slice(0, -1).map((x) => `<a href="#" data-go="${x.id}">${esc(x.title.length > 16 ? x.title.slice(0, 15) + "…" : x.title)}</a>`).join(" › ")}</div>
-    <div class="t"><span class="k">${bud ? "灵感" : KTAG[n.kind] || "节点"}${i >= 0 && !bud ? " · " + (i + 1) : ""}</span><h1>${esc(bud ? bud.idea : n.title)}</h1></div>
+    <div class="t"><span class="k">${bud ? "灵感" : ktag(n)}${i >= 0 && !bud ? " · " + (i + 1) : ""}</span><h1>${esc(bud ? bud.idea : n.title)}</h1></div>
     ${bud ? "" : `<div class="ops">
       <button data-op="edit" class="${S.op === "edit" ? "on" : ""}">改名 / 改概括</button>
       <button data-op="branch" class="${S.op === "branch" ? "on" : ""}">新分支</button>
@@ -217,13 +226,16 @@ function renderNode() {
       ${n.with ? `<button data-goaim="${n.with_aim}" data-gonode="${n.with}" class="chip exchange">↔ ${esc((n.with_title || "").slice(0, 14))}</button>` : ""}
       ${bud ? `<button data-go="${n.id}">回到节点</button>` : ""}</div>
     ${opForm(n)}`;
-  const tabs = [["overview", "概览", ""], ["turns", "对话", notes.length || n.turns], ["samples", "多次生成", sampled.length || ""], ["code", "代码", (g.commits || []).length + (g.files || []).length || ""], ["knowledge", "知识", n.dataset ? "✓" : ""]];
+  const tabs = [["overview", "概览", ""], ["turns", "对话", notes.length || n.turns], ["behavior", "行为", n.behavior?.runs || ""], ["samples", "多次生成", sampled.length || ""],
+    ["code", "代码", (g.commits || []).length + (g.files || []).length || ""], ["knowledge", "知识", (n.dataset ? "✓" : "") + ((n.refs || []).length ? ` +${n.refs.length}` : "")]];
+  if (YOU() && S.tab === "samples") S.tab = "overview";
   $("#tabs").innerHTML = tabs.map(([k, zh, c]) => `<button class="${S.tab === k ? "on" : ""}" data-tab="${k}">${zh}${c ? `<small>${c}</small>` : ""}</button>`).join("");
   const body = $("#body"), keep = body.dataset.node === n.id + S.tab ? body.scrollTop : 0;
   body.innerHTML = !d ? `<div class="empty">载入这个节点的全部数据…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
-    : bud && S.tab === "overview" ? budHtml(n, bud) : { overview: overviewHtml, turns: turnsHtml, samples: samplesHtml, code: codeHtml, knowledge: knowledgeHtml }[S.tab](n, d);
+    : bud && S.tab === "overview" ? budHtml(n, bud) : { overview: overviewHtml, turns: turnsHtml, behavior: behaviorHtml, samples: samplesHtml, code: codeHtml, knowledge: knowledgeHtml }[S.tab](n, d);
   body.dataset.node = n.id + S.tab; body.scrollTop = keep;
   if (S.tab === "knowledge") fillKnowledge(n);
+  if (S.tab === "behavior" && !S.beh[n.id]) api(`/v1/thought-nodes/${n.id}/behavior`).then((b) => { S.beh[n.id] = b; if (S.node === n.id && S.tab === "behavior") renderNode(); }).catch((e) => { S.beh[n.id] = { error: e.message }; });
   renderCont(n, bud);
 }
 function opForm(n) {
@@ -268,6 +280,13 @@ function turnsHtml(n, d) {
   return `<div class="filters">${F.map(([k, zh]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-filter="${k}">${zh}</button>`).join("")}<input id="search" placeholder="搜索这一段（或输入 Q123）" value="${esc(S.search)}"></div>
     ${PGATree.chat(notes, { md })}`;
 }
+function behaviorHtml(n) {
+  const B = S.beh[n.id];
+  if (!B) return `<div class="empty" style="padding:20px 0">读取这一段里 agent 的动作…</div>`;
+  if (B.error) return `<div class="empty">${esc(B.error)}</div>`;
+  return `<div class="dim" style="font-size:12.5px;margin-bottom:12px">行为树：这一段${YOU() ? "对话" : "思考"}期间，每个 agent 做了哪些事。根是这个节点，往下是 agent，再往下是它的每次运行（哪一步、回答哪个问题、结果如何），最下面是运行里的每个动作（读了哪个文件、查了什么、跑了什么命令、改了什么）。</div>`
+    + PGATree.behaviorTree(B, n);
+}
 function samplesHtml(n, d) {
   const xs = (d.notes || []).filter((x) => x.kind === "answer" && x.data?.samples?.length);
   if (!xs.length) return `<div class="empty" style="padding:20px 0">这一段的回答都只生成了一次。多次生成（默认每题 3 次）是之后才打开的，新长出的节点会在这里列出每个样本。</div>`;
@@ -290,26 +309,41 @@ function kcard(b, extra = "") {
 }
 function knowledgeHtml(n) {
   const K = S.tree.knowledge || {};
-  return `<h3>这段思路沉淀出的知识</h3><div id="kNode">${n.dataset ? `<div class="dim">载入…</div>` : `<div class="dim">还没有沉淀。点上面的「沉淀为知识」：把这段思路连同它长出去的分支写成一份数据集（标题、概要、全文），别的树可以直接参考。</div>`}</div>
+  return `<h3>这个节点参考的知识 <small>从这里继续（以及从它长出去的分支）时，agent 会读到它们</small></h3><div id="kRefs"><div class="dim">载入…</div></div>
+    <h3>这段思路沉淀出的知识</h3><div id="kNode">${n.dataset ? `<div class="dim">载入…</div>` : `<div class="dim">还没有沉淀。点上面的「沉淀为知识」：把这段思路连同它长出去的分支写成一份数据集（标题、概要、全文），别的树可以直接参考。</div>`}</div>
     <h3>这棵树用到的知识 <small>每一轮思考都会读到它们的概要</small></h3>
     ${K.user ? kcard(K.user) : ""}${K.world ? kcard(K.world) : ""}
     ${(K.references || []).map((b) => kcard(b, `<button data-unref="${b.id}">不再参考</button>`)).join("")}
     ${(K.datasets || []).filter((b) => b.id !== n.dataset).map((b) => kcard(b)).join("")}${(K.skills || []).map((b) => kcard(b)).join("")}`;
 }
 async function fillKnowledge(n) {
+  const f = await forest().catch(() => null);
+  const rbox = $("#kRefs");
+  if (rbox && f) {
+    const all = f.knowledge || [], mine = (n.refs || []).map((id) => all.find((k) => k.id === id)).filter(Boolean);
+    rbox.innerHTML = (mine.map((b) => kcard(b, `<button data-unrefnode="${b.id}">不再参考</button>`)).join("") || `<div class="dim">还没有。</div>`)
+      + `<div class="ka" style="display:flex;gap:8px;margin-top:8px"><select id="refAdd"><option value="">加一份知识给这个节点参考…</option>${all.filter((k) => !(n.refs || []).includes(k.id) && k.id !== n.dataset)
+        .map((k) => `<option value="${k.id}">${esc((SYS[k.system] || (k.kind === "skill" ? "技能" : "数据集")) + " · " + k.title)}</option>`).join("")}</select><button data-refadd="1">参考</button></div>`;
+  }
   if (!n.dataset) return;
-  const f = await forest().catch(() => null), b = f?.knowledge?.find((x) => x.id === n.dataset), box = $("#kNode"); if (!box) return;
+  const b = f?.knowledge?.find((x) => x.id === n.dataset), box = $("#kNode"); if (!box) return;
   if (!b) { box.innerHTML = `<div class="dim">找不到这份数据集。</div>`; return; }
   const others = (f.trees || []).filter((t) => t.id !== S.aim && !(b.used_by || []).includes(t.id));
-  box.innerHTML = kcard(b, others.length ? `<select id="refTo"><option value="">给哪棵树参考…</option>${others.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 26))}</option>`).join("")}</select><button data-ref="${b.id}">给它参考</button>` : "")
+  const moveTo = `<select id="moveTo"><option value="">移到…</option>${[...(f.trees || []).map((t) => [t.id, t.text, t.nodes]), ["you", "你的对话", f.you?.nodes || []]]
+      .map(([id, text, ns]) => `<optgroup label="${esc(String(text).slice(0, 26))}">${ns.filter((x) => x.id !== n.id).map((x) => `<option value="${x.id}">${esc(x.title)}</option>`).join("")}</optgroup>`).join("")}</select><button data-move="${b.id}" title="让它成为另一个节点沉淀出的知识">移过去</button>`;
+  box.innerHTML = kcard(b, (others.length ? `<select id="refTo"><option value="">给哪棵树参考…</option>${others.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 26))}</option>`).join("")}</select><button data-ref="${b.id}">给它参考</button>` : "") + moveTo)
     + ((b.used_by || []).length ? `<div class="dim" style="font-size:12px">正在参考它的树：${b.used_by.map((id) => esc((f.trees.find((t) => t.id === id)?.text || "").slice(0, 20))).join("、")}</div>` : "");
 }
 function renderCont(n, bud) {
   const box = $("#tnText"); if (box) S.draft = box.value;
   const focused = S.tree?.focus === n.id;
-  $("#cont").innerHTML = `<textarea id="tnText" placeholder="${bud ? "沿这个灵感，你想问什么、往哪儿想？" : n.kind === "user" ? "接着你的这条分支说…" : "从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）"}">${esc(S.draft || "")}</textarea>
-    <div class="row"><label class="dim" style="font-size:12px"><input type="checkbox" id="tnFocus"> 之后让 PGA 沿这条分支想</label><span class="grow"></span>
-      ${focused ? `<span class="gold" style="font-size:12px">PGA 正沿着这里想</span><button data-focus="">取消</button>` : `<button data-focus="${n.id}" title="长期任务之后提问时，会优先沿这条分支想下去">让 PGA 沿这里想</button>`}
+  const K = S.forest?.knowledge || [];
+  if (!S.forest) forest().then(() => { if (S.node === n.id) renderCont(n, bud); }).catch(() => {});
+  const refsRow = `<div class="row crefs"><span class="dim" style="font-size:12px">这次对话参考：</span>${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))} <a href="#" data-crefdel="${id}">×</a></span>` : ""; }).join("")}
+      <select id="crefAdd"><option value="">＋ 引用知识</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc((SYS[k.system] || (k.kind === "skill" ? "技能" : "数据集")) + " · " + k.title)}</option>`).join("")}</select></div>`;
+  $("#cont").innerHTML = refsRow + `<textarea id="tnText" placeholder="${bud ? "沿这个灵感，你想问什么、往哪儿想？" : n.kind === "user" ? "接着你的这条分支说…" : "从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）"}">${esc(S.draft || "")}</textarea>
+    <div class="row">${YOU() ? "" : `<label class="dim" style="font-size:12px"><input type="checkbox" id="tnFocus"> 之后让 PGA 沿这条分支想</label>`}<span class="grow"></span>
+      ${YOU() ? "" : focused ? `<span class="gold" style="font-size:12px">PGA 正沿着这里想</span><button data-focus="">取消</button>` : `<button data-focus="${n.id}" title="长期任务之后提问时，会优先沿这条分支想下去">让 PGA 沿这里想</button>`}
       <select id="tnAgent"><option value="auto">自动</option>${S.agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "思考中…" : bud ? "长出分支" : "继续"}</button></div>`;
 }
@@ -322,7 +356,7 @@ async function send() {
   const bud = S.bud != null ? (n.buds || [])[S.bud]?.idea : null;
   S.sending = true; S.draft = text; renderCont(n, S.bud != null);
   try {
-    const r = await api(`/v1/thought-nodes/${n.id}/continue`, { body: { text, agent: $("#tnAgent")?.value || "auto", focus: !!$("#tnFocus")?.checked, bud } });
+    const r = await api(`/v1/thought-nodes/${n.id}/continue`, { body: { text, agent: $("#tnAgent")?.value || "auto", focus: !!$("#tnFocus")?.checked, bud, refs: S.contRefs } });
     if (r.reply?.error && !r.reply?.text) toast(r.reply.error);
     S.draft = ""; delete S.detail[r.node.id];
     await loadTree(true); S.node = r.node.id; S.bud = null; S.tab = "turns"; history.replaceState(null, "", qs());
@@ -343,7 +377,7 @@ async function doOp(kind) {
       await api(`/v1/thought-nodes/${n.id}`, { method: "PATCH", body: { parent_id: $("#fParent").value || null } }); S.op = null; toast("已移过去"); await refresh(n.id);
     } else if (kind === "pick-other") {
       const v = $("#fOther").value; if (!v) { toast("在左边点一个节点，或从列表里选"); return; }
-      const [aim, id] = v.split("|"); S.exWith = id; S.exOther = (S.forest?.trees.find((t) => t.id === aim)?.nodes || []).find((x) => x.id === id); S.op = "exchange"; renderNode();
+      const [aim, id] = v.split("|"); S.exWith = id; S.exOther = ([...S.forest.trees, S.forest.you].find((t) => t && t.id === aim)?.nodes || []).find((x) => x.id === id); S.op = "exchange"; renderNode();
     } else if (kind === "exchange") {
       S.sending = true; renderNode();
       try {
@@ -373,8 +407,22 @@ async function showDoc(id) {
   m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m);
 }
 document.addEventListener("click", async (e) => {
-  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], #send, #curate, #rewrite, #runBtn");
+  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], #send, #curate, #rewrite, #runBtn");
   if (!t) return;
+  if (t.dataset.mode) { S.mode = t.dataset.mode; store.set("pga_tree_mode", S.mode); renderLegend(); drawTree(false); return; }
+  if (t.dataset.crefdel) { e.preventDefault(); S.contRefs = S.contRefs.filter((x) => x !== t.dataset.crefdel); renderCont(nodeOf(S.node), S.bud != null); return; }
+  if (t.dataset.refadd || t.dataset.unrefnode) {
+    const n = nodeOf(S.node), add = $("#refAdd")?.value;
+    const refs = t.dataset.unrefnode ? (n.refs || []).filter((x) => x !== t.dataset.unrefnode) : add ? [...(n.refs || []), add] : null;
+    if (!refs) { toast("选一份知识"); return; }
+    try { await api(`/v1/thought-nodes/${n.id}/refs`, { method: "PUT", body: { refs } }); toast(t.dataset.unrefnode ? "不再参考" : "从这里继续时，agent 会读到它"); await refresh(n.id); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.dataset.move) {
+    const to = $("#moveTo")?.value; if (!to) { toast("选一个节点"); return; }
+    try { await api(`/v1/bodies/${t.dataset.move}/move`, { body: { node_id: to } }); toast("已移过去：它现在是那段思路沉淀出的知识"); await refresh(S.node); } catch (err) { toast(err.message); }
+    return;
+  }
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim) e.preventDefault();
   if (t.dataset.tbud) { const [id, i] = t.dataset.tbud.split("|"); S.tab = "overview"; select(id, Number(i)); return; }
   if (t.dataset.tnode) { select(t.dataset.tnode); return; }
@@ -389,7 +437,7 @@ document.addEventListener("click", async (e) => {
     S.op = op || null; renderNode();
     if (op === "exchange-pick") {
       const f = await forest().catch(() => null), sel = $("#fOther");
-      if (f && sel) sel.innerHTML = `<option value="">（别的树的节点）</option>` + f.trees.filter((x) => x.id !== S.aim && x.nodes.length).map((x) => `<optgroup label="${esc(x.text.slice(0, 30))}">${x.nodes.map((m) => `<option value="${x.id}|${m.id}">${esc(m.title)}</option>`).join("")}</optgroup>`).join("");
+      if (f && sel) sel.innerHTML = `<option value="">（别的树的节点）</option>` + [...f.trees, ...(f.you ? [f.you] : [])].filter((x) => x.id !== S.aim && x.nodes.length).map((x) => `<optgroup label="${esc(x.text.slice(0, 30))}">${x.nodes.map((m) => `<option value="${x.id}|${m.id}">${esc(m.title)}</option>`).join("")}</optgroup>`).join("");
       toast("在左边的树上点另一个节点");
     }
     if (op === "branch") $("#fBranch")?.focus();
@@ -405,8 +453,8 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (t.id === "send") { send(); return; }
-  if (t.id === "curate") { try { const r = await api(`/v1/aims/${S.aim}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理 ${r.pending} 轮对话：节点会一段一段长出来`); } catch (err) { toast(err.message); } return; }
-  if (t.id === "rewrite") { try { await api(`/v1/aims/${S.aim}/tree/rewrite`, { method: "POST" }); toast("整理者在后台重写这些概括，写好的会陆续更新"); } catch (err) { toast(err.message); } return; }
+  if (t.id === "curate") { try { const r = await api(YOU() ? `/v1/users/${S.uid}/tree/curate` : `/v1/aims/${S.aim}/tree/curate`, { method: "POST", body: {} }); toast(`开始整理 ${r.pending} 轮对话：节点会一段一段长出来`); } catch (err) { toast(err.message); } return; }
+  if (t.id === "rewrite") { try { await api(YOU() ? `/v1/users/${S.uid}/tree/rewrite` : `/v1/aims/${S.aim}/tree/rewrite`, { method: "POST" }); toast("整理者在后台重写这些概括，写好的会陆续更新"); } catch (err) { toast(err.message); } return; }
   if (t.id === "runBtn") {
     const T = S.tree, on = T.task?.status === "running";
     if (!T.project) return;
@@ -416,6 +464,7 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("input", (e) => { if (e.target.id === "search") { S.search = e.target.value; const pos = e.target.selectionStart; renderNode(); const s = $("#search"); s.focus(); s.setSelectionRange(pos, pos); } });
 document.addEventListener("change", (e) => {
+  if (e.target.id === "crefAdd" && e.target.value) { S.contRefs = [...S.contRefs, e.target.value]; renderCont(nodeOf(S.node), S.bud != null); return; }
   if (e.target.id === "aimPick") { S.aim = e.target.value; S.node = null; S.bud = null; S.detail = {}; S.seen = new Set(); history.replaceState(null, "", qs()); loadTree(); }
   if (e.target.id === "showHidden") { S.showHidden = e.target.checked; drawTree(false); }
 });

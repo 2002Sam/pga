@@ -139,9 +139,11 @@ class ThoughtNode(Base):
     __tablename__ = "thought_nodes"
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    aim_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("aims.id", ondelete="CASCADE"), nullable=False)
+    aim_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("aims.id", ondelete="CASCADE"))   # None: your conversation tree
+    # aim: a motivation's self-dialogue (the agents talk) | user: your own conversations with agents (PGA's and imported)
+    scope: Mapped[str] = mapped_column(String(16), default="aim", server_default="aim", nullable=False)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("thought_nodes.id", ondelete="CASCADE"))
-    kind: Mapped[str] = mapped_column(String(16), default="segment", nullable=False)     # segment | user | bud
+    kind: Mapped[str] = mapped_column(String(16), default="segment", nullable=False)     # segment | user | exchange
     seq: Mapped[int] = mapped_column(Integer, default=0, nullable=False)                 # growth order within the tree
     title: Mapped[str] = mapped_column(Text, default="", nullable=False)
     summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
