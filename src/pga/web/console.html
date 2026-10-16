@@ -76,11 +76,6 @@ body:not(.sky) #lead { opacity: 1; }
 .skyhint { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 2; font-size: 12px; color: var(--muted); pointer-events: none;
   background: rgba(5,5,5,.55); padding: 4px 12px; letter-spacing: .04em; }
 body:not(.sky) .skyhint { opacity: 0; }
-.layers { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 3; display: flex; gap: 0; border: 1px solid var(--line-2); background: rgba(5,5,5,.72); }
-.layers button { border: 0; background: transparent; font-size: 12px; padding: 5px 12px; color: var(--muted); }
-.layers button.on { color: var(--gold, #e9a94b); background: rgba(233,169,75,.1); }
-body:not(.sky) #layerSw { display: none; }
-.layers.mini-l { position: static; transform: none; border: 0; background: none; } .layers.mini-l button { padding: 2px 6px; font-size: 11px; }
 .skytools { position: absolute; right: 14px; top: 12px; z-index: 2; display: flex; gap: 6px; }
 .skytools button { background: rgba(5,5,5,.7); font-size: 12px; }
 body:not(.sky) .skytools { display: none; }
@@ -349,13 +344,12 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
   </header>
   <div class="stage">
   <div id="sky"><iframe id="map" title="星空"></iframe>
-    <div class="layers" id="layerSw" title="地图每次只显示一层"></div>
     <div class="skytools"><button id="toDesk" title="直接进工作台">工作台 →</button></div>
     <div class="skyhint" id="mapNote">点一颗星球、一个太阳系或「我」（地球）：进入它的工作台</div></div>
   <svg id="lead" aria-hidden="true"><line/><circle r="2.5"/></svg>
   <main>
     <section id="left">
-      <div class="mini"><div class="hh"><span class="cap">星图</span><span class="layers mini-l" id="layerSw2"></span><button class="ghost" id="toSky" title="回到星空（也可以按 Esc）">⟲ 星空</button></div><svg id="miniSvg"></svg></div>
+      <div class="mini"><div class="hh"><span class="cap">星图</span><button class="ghost" id="toSky" title="回到星空（也可以按 Esc）">⟲ 星空</button></div><svg id="miniSvg"></svg></div>
       <div class="list"><div class="colh"><span class="cap">我 · 抱负 · 项目</span></div><div id="aims"></div></div>
     </section>
     <div class="planetzone"></div>
@@ -423,7 +417,6 @@ async function boot() {
   if (!AS_UID) store.set("pga_uid", C.uid);
   const q = new URLSearchParams({ embed: "map" }); if (AS_UID) q.set("as", AS_UID);
   $("#map").src = "/?" + q;
-  renderLayers();
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
   if (C.view.kind === "aim") C.view.id = C.sel;
@@ -453,8 +446,6 @@ function setView(kind, id, fromMap = false) {
   if (kind === "aim") loadProcess().catch(() => {});
   if (kind === "me" || kind === "agent") loadHist(kind === "me" ? chat("me").agent : id).catch(() => {});
   if (kind === "folder") loadDir(id, "").catch(() => {});
-  if (kind === "dataset") { const n = (C.graph?.nodes || []).find((x) => x.body_id === id); setLayer(n?.kind === "skill" ? "skill" : "knowledge"); }
-  else if (kind === "aim" || kind === "me") { /* goals and you are in every layer */ }
   if (kind === "dataset") loadDataset(id).catch((err) => { C.docs[id] = { error: err.message }; renderCenter(); });
 }
 function mapNodeOf(view) {
@@ -469,18 +460,6 @@ function mapNodeOf(view) {
     return n ? n.id : null;
   }
   return null;
-}
-/* the map shows one layer at a time; folders are not a layer — they are picked from the dropdowns */
-const MAP_LAYERS = [["talk", "目标与对话"], ["knowledge", "知识"], ["skill", "技能"]];
-C.layer = (() => { const v = store.get("pga_map_layer"); return MAP_LAYERS.some(([k]) => k === v) ? v : "talk"; })();
-function setLayer(k) {
-  if (C.layer === k) return; C.layer = k; store.set("pga_map_layer", k); renderLayers();
-  try { $("#map").contentWindow.postMessage({ type: "pga:layer", layer: k }, location.origin); } catch {}
-  setTimeout(() => focusMap(), 120);                                   // keep looking at what you are on, once it is drawn
-}
-function renderLayers() {
-  const h = MAP_LAYERS.map(([k, zh]) => `<button class="${k === C.layer ? "on" : ""}" data-layer="${k}">${zh}</button>`).join("");
-  ["#layerSw", "#layerSw2"].forEach((s) => { const el = $(s); if (el) el.innerHTML = h; });
 }
 function focusMap(id = mapNodeOf(C.view)) {
   try { $("#map").contentWindow.postMessage({ type: "pga:focus", id }, location.origin); } catch {}
@@ -1102,9 +1081,6 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
-document.addEventListener("click", (e) => {                          // which layer the map shows
-  const b = e.target.closest?.("[data-layer]"); if (b) setLayer(b.dataset.layer);
-});
 document.addEventListener("click", (e) => {                          // the small disc: move between bodies inside the workbench
   const g = e.target.closest?.("[data-mini]"); if (!g) return;
   const v = g.dataset.mini;
