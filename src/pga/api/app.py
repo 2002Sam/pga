@@ -215,6 +215,18 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     WEB = Path(__file__).resolve().parent.parent / "web"
 
+    @app.get("/tree", include_in_schema=False)
+    def web_tree() -> FileResponse:
+        """思考树: one motivation's thought tree on its own page, with every node's full data."""
+        return FileResponse(WEB / "tree.html")
+
+    @app.get("/ui/{name}", include_in_schema=False)
+    def web_script(name: str) -> FileResponse:
+        f = WEB / name
+        if "/" in name or name.startswith(".") or not name.endswith(".js") or not f.is_file():
+            raise HTTPException(404, "no such script")
+        return FileResponse(f, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+
     @app.get("/v1/version", include_in_schema=False)
     def web_version() -> dict:
         """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
@@ -2215,17 +2227,20 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"queued": True, "pending": ThoughtTree(rt).pending_count(aim)}
 
     @app.get("/v1/thought-nodes/{node_id}")
-    def tree_node(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
-        """One node: its line of thought, the turns in it (with every sample), and the code meanwhile."""
+    def tree_node(node_id: uuid.UUID, full: bool = False, rt: Runtime = Depends(get_rt)):
+        """One node: its line of thought, the turns in it (with every sample), and the code meanwhile.
+        `full`: every turn, uncut (the tree page); otherwise the latest 80, each cut at 4000 characters."""
         from pga.tree import ThoughtTree, node_out
         n = tree_node_or_404(rt, node_id)
         tree = ThoughtTree(rt)
         notes = tree.notes_of(n)
+        shown = notes if full else notes[-80:]
+        nodes = tree.nodes(n.aim_id)
         return {**node_out(n, full=True), "path": [{"id": str(x.id), "title": x.title} for x in tree.path(n)],
-                "children": [str(x.id) for x in tree.nodes(n.aim_id) if x.parent_id == n.id],
+                "children": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in nodes if x.parent_id == n.id],
                 "notes": [{"id": str(x.id), "kind": x.kind, "agent": x.agent, "role": x.role, "status": x.status,
-                           "at": x.created_at.isoformat(), "text": x.text[:4000], "data": x.data or {}} for x in notes[-80:]],
-                "hidden": max(0, len(notes) - 80)}
+                           "at": x.created_at.isoformat(), "text": x.text if full else x.text[:4000], "data": x.data or {}} for x in shown],
+                "hidden": len(notes) - len(shown)}
 
     @app.post("/v1/thought-nodes/{node_id}/continue")
     def tree_continue(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
