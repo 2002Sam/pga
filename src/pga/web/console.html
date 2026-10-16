@@ -58,8 +58,7 @@ header .pulse { margin-left: auto; display: flex; gap: 18px; align-items: center
 .dot.ok { background: #cfcfcf; } .dot.bad { background: var(--bad); }
 @keyframes beat { 0% { box-shadow: 0 0 0 0 rgba(233,169,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(233,169,75,0); } 100% { box-shadow: 0 0 0 0 rgba(233,169,75,0); } }
 
-body.full .app { grid-template-rows: minmax(0, 1fr); }
-body.full .app > header, body.full main, body.full #lead, body.full .skyhint, body.full .skytools, body.full #layerSw { display: none !important; }
+.adds { display: flex; gap: 8px; padding: 12px 16px; } .adds button { font-size: 12px; }
 .stage { position: relative; min-height: 0; overflow: hidden; }
 /* like talking to a planet in the dispatch constellation: the sky stays, the view glides to the body, the rest fades,
    and the workbench appears beside it with no frame — the small map and the list on the left, the words on the right */
@@ -345,7 +344,7 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 <div class="app">
   <header>
     <a class="logo" href="/console"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a class="on" href="/console" id="toDeskTab">工作台</a><a href="/console?full=1" id="toFull" title="同一片星空，带上所有面板：压力曲线、agent 网络、通知、信息源、预算、设置、Agent 星图">完整星空</a></nav>
+    <nav><a class="on" href="/console" id="toDeskTab">工作台</a></nav>
     <div class="pulse"><span id="pWorking"><span class="dot"></span> —</span><span id="pTasks">—</span><span id="pUpdated" class="dim"></span></div>
   </header>
   <div class="stage">
@@ -370,23 +369,13 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const AS_UID = new URLSearchParams(location.search).get("as");
-if (AS_UID) { $("#toFull").href = `/console?full=1&as=${encodeURIComponent(AS_UID)}`; $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`; }
+if (AS_UID) $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`;
 const SYS_ZH = { user: "用户知识库", world: "世界知识库", aim: "抱负知识库" };
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
             cp: { option: 0, approve: null },
             view: { kind: "aim", id: null }, graph: null, chats: {}, hist: {}, mapReady: false };
 C.docs = {};
-C.full = new URLSearchParams(location.search).get("full") === "1";
-function setFull(on) {                                                // 工作台 ⇄ 完整星空: the same sky, no page load
-  on = !!on; if (C.full === on) return;
-  C.full = on; document.body.classList.toggle("full", on);
-  $("#toFull").classList.toggle("on", on); $("#toDeskTab").classList.toggle("on", !on);
-  const q = new URLSearchParams(location.search); on ? q.set("full", "1") : q.delete("full");
-  history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : ""));
-  try { $("#map").contentWindow.postMessage({ type: "pga:mode", embed: !on }, location.origin); } catch {}
-  if (!on) { document.body.classList.add("sky"); setTimeout(() => { try { $("#map").contentWindow.postMessage({ type: "pga:layer", layer: C.layer }, location.origin); } catch {} focusMap(null); }, 300); }
-}
 try { C.chats = JSON.parse(store.get("pga_console_chats") || "{}") || {}; } catch { C.chats = {}; }
 const saveChats = () => { if (!AS_UID) { try { store.set("pga_console_chats", JSON.stringify(Object.fromEntries(Object.entries(C.chats).map(([k, v]) => [k, { ...v, log: (v.log || []).filter((m) => !m.pending).slice(-40) }])))); } catch {} } };
 // a body on the map ⇄ what the console shows. The planets of linked AIs carry their vendor; the pool agents their adapter.
@@ -428,14 +417,12 @@ async function boot() {
   if (!C.uid && !AS_UID) {                                         // first visit: make the account here (the sky used to)
     try { const u = await api("/v1/users", { body: { locale: "zh-CN", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai" } }); C.uid = u.id; store.set("pga_uid", u.id); } catch {}
   }
-  if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号：先打开一次 <a href="#" data-full="1">星空</a>。</div>`; return; }
+  if (!C.uid) { $("#proc").innerHTML = `<div class="idle">还没有账号，也建不了：PGA 的服务是不是没在运行？</div>`; return; }
   try { const u = await api(`/v1/users/${C.uid}`); const into = u.preferences?.merged_into; if (into && into !== C.uid) { C.uid = into; if (!AS_UID) store.set("pga_uid", into); } }
-  catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：先打开一次 <a href="#" data-full="1">星空</a>。</div>`; return; } }
-  // one sky for both: the map of the workbench, or (完整星空) the full sky with all its panels, switched in place
+  catch (e) { if (e.status === 404) { $("#proc").innerHTML = `<div class="idle">这个账号不存在了：清掉浏览器里保存的账号后刷新。</div>`; return; } }
   if (!AS_UID) store.set("pga_uid", C.uid);
-  const q = new URLSearchParams(); if (!C.full) q.set("embed", "map"); if (AS_UID) q.set("as", AS_UID);
+  const q = new URLSearchParams({ embed: "map" }); if (AS_UID) q.set("as", AS_UID);
   $("#map").src = "/?" + q;
-  document.body.classList.toggle("full", C.full); $("#toFull").classList.toggle("on", C.full); $("#toDeskTab").classList.toggle("on", !C.full);
   renderLayers();
   const v = AS_UID ? null : store.get("pga_console_view");
   try { if (v) C.view = JSON.parse(v); } catch {}
@@ -576,7 +563,7 @@ window.addEventListener("message", (e) => {                    // the sky: a bod
   if (d.kind === "ai") {
     const a = (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor] && x.enabled !== false) || (C.data?.agents || []).find((x) => x.adapter === VENDOR_ADAPTER[d.vendor]);
     if (a) { setView("agent", a.name, true); return go(); }
-    toast(`${d.label}：PGA 里还没有对应的 agent（在完整星空 → 设置 → 外部 Agent 里连接）`);
+    toast(`${d.label}：PGA 里还没有对应的 agent（要在 agents.yaml 里加上它）`);
   }
 });
 function renderCenter() {
@@ -662,11 +649,11 @@ function renderAims() {
       ${t ? `<div class="bar ${live ? "gold" : ""}" title="张力 ${(t.pressure ?? 0).toFixed(2)}"><i style="width:${Math.round((t.pressure ?? 0) * 100)}%"></i></div>` : ""}
       ${t?.checkpoint_pending ? `<div class="q">● 检查点等你看</div>` : ""}
       ${a.open_questions ? `<div class="q">● ${a.open_questions} 个问题等你回答</div>` : ""}
-      <div class="projs">${a.projects.map(projRow).join("") || `<div class="empty">还没有项目文件夹（在星空 → 项目里把文件夹挂到这个抱负下）</div>`}</div>
+      <div class="projs">${a.projects.map(projRow).join("") || `<div class="empty">还没有项目文件夹（在抱负页的「工作文件夹」里选一个）</div>`}</div>
     </div>`;
-  }).join("") + (d.free_projects?.length ? `<div class="aim free"><div class="cap">自由文件夹</div><div class="projs">${d.free_projects.map(projRow).join("")}</div>
-      <div class="empty">不属于任何抱负的文件夹不能自己开始：在星空 → 项目里选「属于」。</div></div>` : "")
-    || `<div class="aim"><div class="empty">还没有抱负。先在 <a href="#" data-full="1">星空</a> 写下一个长期抱负。</div></div>`;
+  }).join("") + ((d.free_projects?.length ? `<div class="aim free"><div class="cap">自由文件夹</div><div class="projs">${d.free_projects.map(projRow).join("")}</div>
+      <div class="empty">不属于任何抱负的文件夹不能自己开始：在抱负页的「工作文件夹」里选它。</div></div>` : "")
+    || "") + `<div class="adds"><button class="ghost" data-newaim="1">＋ 新抱负</button><button class="ghost" data-newfolder="1">＋ 文件夹</button></div>`;
 }
 
 /* ------------------------------------------------ center: the process */
@@ -820,7 +807,7 @@ function renderMe() {
     <div class="meta">短程的事：问一个问题、在一个项目文件夹里改点东西。选一个 agent，或让 PGA 自动选；长期的事交给左边的抱负。</div>
     <h2>对话</h2>${chatHtml("me")}
     <h2>${c.agent === "auto" ? "历史对话" : `和 ${esc(c.agent)} 的历史对话`} <small>点一条接着聊</small></h2>${histHtml(c.agent)}
-    <h2>所有 agent <small id="agCount"></small></h2><div id="agents" style="margin:0 -16px"></div>
+    <h2>正在工作的 agent <small id="agCount"></small> <a href="#" data-fold="allag" style="font-size:12px">${C.folds.has("allag") ? "只看在工作的" : "管理全部 agent"}</a></h2><div id="agents" style="margin:0 -16px"></div>
     <h2>别的对话里正在进行 <small>${runs.length} 个</small></h2>${runs.filter((r) => (r.tags || {}).conversation !== c.conv).map((r) => `<div class="live"><div class="lh"><span class="dot on"></span><span class="who"><b>${esc(r.agent)}</b> · ${esc(dur(r.elapsed_s))}</span><button class="ghost" data-stoplive="${r.id}">停止</button></div><pre>${traceHtml((r.text || "").slice(-1500))}</pre></div>`).join("") || `<div class="dim" style="font-size:12.5px">没有。</div>`}`;
   renderAgents();
 }
@@ -951,8 +938,8 @@ function renderFolder(pid) {
   const aim = (C.data?.aims || []).find((a) => a.id === p.aim_id), t = tree(pid), f = t.file;
   const [zh] = STATE[p.state] || STATE.idle;
   $("#proc").innerHTML = `<div class="selhead"><span class="k">文件夹</span><h1>${esc(p.name)}</h1>${p.aim_id ? runBtn(p, true) : ""}</div>
-    <div class="meta"><span class="mono">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</span><span>${p.full_access ? "完整权限：agent 可以改文件、跑命令" : "只读：agent 只能读"}</span></div>
-    <div class="meta">${aim ? `<span>服务于抱负 <b><a href="#" data-goaim="${aim.id}">${esc(aim.text)}</a></b></span><span>${esc(p.state === "running" && p.phase_zh ? p.phase_zh : zh)}</span>` : `<span>自由文件夹：不属于任何抱负（在完整星空 → 项目里选「属于」）</span>`}</div>
+    <div class="meta"><span class="mono">${esc(p.path.replace(/^\/Users\/[^/]+/, "~"))}</span><span>${p.full_access ? "完整权限：agent 可以改文件、跑命令" : "只读：agent 只能读"}</span><button class="ghost" data-access="${p.id}" data-on="${p.full_access ? 0 : 1}">${p.full_access ? "改成只读" : "开完整权限"}</button></div>
+    <div class="meta">${aim ? `<span>服务于抱负 <b><a href="#" data-goaim="${aim.id}">${esc(aim.text)}</a></b></span><span>${esc(p.state === "running" && p.phase_zh ? p.phase_zh : zh)}</span>` : `<span>自由文件夹：不属于任何抱负（在抱负页的「工作文件夹」里选它）</span>`}</div>
     <h2>文件 <small>点文件夹展开，点文件查看（只读）</small></h2>
     <div class="split"><div class="tree">${dirHtml(pid, "")}</div>
       <div class="fview">${!f ? `<div class="dim" style="font-size:12.5px">在左边点一个文件。</div>` : f.loading ? `<div class="dim">载入中…</div>`
@@ -1019,7 +1006,7 @@ function talkHtml(proj) {
   const agents = (C.data?.agents || []).filter((a) => a.enabled !== false && a.name !== "?");
   const last = C.talk.last && C.talk.last.aim === C.sel ? C.talk.last : null;
   return `<div class="talk"><textarea id="talkText" placeholder="${proj ? `在「${esc(proj.name)}」里要它做什么，或问它什么` : "问它什么"}">${esc(C.drafts.talk || "")}</textarea>
-    <div class="row"><span class="grow">${proj ? `${proj.full_access ? "完整权限：它可以改文件、跑命令" : "只读：它可以读这个文件夹，不会改动（在星空 → 项目里可以开完整权限）"}` : ""}</span>
+    <div class="row"><span class="grow">${proj ? `${proj.full_access ? "完整权限：它可以改文件、跑命令" : "只读：它可以读这个文件夹，不会改动（在文件夹页可以开完整权限）"}` : ""}</span>
       <select id="talkAgent">${agents.map((a) => `<option ${a.name === C.talk.agent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" data-talk="1" ${C.talk.sending ? "disabled" : ""}>${C.talk.sending ? "进行中…" : "发送"}</button></div>
     ${last ? `<div class="ans"><span class="cap">${esc(last.agent || "")} 的回答</span>\n${esc(last.text || last.error || "")}</div>` : ""}</div>`;
@@ -1078,8 +1065,9 @@ function aimText(tags) {
 function agentWorking(name) { return (C.live || []).filter((r) => r.running && r.agent === name); }
 function renderAgents() {
   if (!$("#agents")) { renderAgentWork(); return; }                // the agents list lives in the 我 panel
-  const list = (C.data?.agents || []).filter((a) => a.name !== "?");
-  if ($("#agCount")) $("#agCount").textContent = list.length ? `${list.filter((a) => agentWorking(a.name).length).length} / ${list.length} 在工作` : "";
+  const all = (C.data?.agents || []).filter((a) => a.name !== "?");
+  const list = C.folds?.has("allag") ? all : all.filter((a) => agentWorking(a.name).length);
+  if ($("#agCount")) $("#agCount").textContent = all.length ? `${all.filter((a) => agentWorking(a.name).length).length} / ${all.length}` : "";
   $("#agents").innerHTML = list.map((a) => {
     const q = a.quota || {}; const rem = q.remaining;
     const work = agentWorking(a.name);
@@ -1093,7 +1081,7 @@ function renderAgents() {
       <div class="acts">${work.length ? `<button data-agstop="${esc(a.name)}">停止当前工作</button>` : ""}
         <button class="ghost" data-agenable="${esc(a.name)}" data-on="${a.enabled === false ? 1 : 0}">${a.enabled === false ? "启用" : "停用"}</button></div>
     </div>`;
-  }).join("") || `<div class="ag"><div class="empty">没有 agent。</div></div>`;
+  }).join("") || `<div class="ag"><div class="empty">${all.length ? "现在没有 agent 在工作。" : "没有 agent。"}</div></div>`;
   renderAgentWork();
 }
 function renderAgentWork() {
@@ -1114,11 +1102,6 @@ function renderPulse() {
 
 /* ------------------------------------------------ controls */
 
-document.addEventListener("click", (e) => {                          // the two tabs, and links that open the full sky
-  const a = e.target.closest?.("#toFull, #toDeskTab, [data-full]"); if (!a) return;
-  e.preventDefault(); setFull(a.id === "toFull" || !!a.dataset.full);
-});
-window.addEventListener("message", (e) => { if (e.origin === location.origin && e.data?.type === "pga:desk") setFull(false); });
 document.addEventListener("click", (e) => {                          // which layer the map shows
   const b = e.target.closest?.("[data-layer]"); if (b) setLayer(b.dataset.layer);
 });
@@ -1183,7 +1166,26 @@ document.addEventListener("click", async (e) => {
     if (t.dataset.chatsend) { await sendChat(t.dataset.chatsend); return; }
     if (t.dataset.arole) { C.alloc.role = t.dataset.arole; await loadAlloc(true); return; }
     if (t.dataset.preset) { saveAlloc({ ...PRESETS[t.dataset.preset][1], preset: t.dataset.preset }); toast(`已切换为「${PRESETS[t.dataset.preset][0]}」`); return; }
-    if (t.dataset.fold) { C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderCenter(); if (C.view.kind === "aim" && C.folds.has("settings")) loadAlloc(true); return; }
+    if (t.dataset.fold) { e.preventDefault(); C.folds.has(t.dataset.fold) ? C.folds.delete(t.dataset.fold) : C.folds.add(t.dataset.fold); renderCenter(); if (C.view.kind === "aim" && C.folds.has("settings")) loadAlloc(true); return; }
+    if (t.dataset.newaim) {
+      const text = (prompt("新的长期抱负：你想让 PGA 一直朝什么方向努力？") || "").trim(); if (!text) return;
+      try { const a = await api(`/v1/users/${C.uid}/aims`, { body: { text } }); await loadAll(); setView("aim", a.id); toast("已加上这个抱负：给它选一个工作文件夹，就能按 ▶ 开始"); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+    if (t.dataset.newfolder) {
+      const path = (prompt("文件夹的完整路径（例如 ~/Documents/某个项目）") || "").trim(); if (!path) return;
+      try { const p = await api(`/v1/users/${C.uid}/projects`, { body: { path, aim_id: C.view.kind === "aim" ? C.sel : null } }); await loadAll(); setView("folder", p.id); toast("已加上这个文件夹（只读）"); }
+      catch (err) { toast(err.message); }
+      return;
+    }
+    if (t.dataset.access) {
+      const on = t.dataset.on === "1", p = allProjects().find((x) => x.id === t.dataset.access);
+      if (on && !confirm(`给「${p?.name || "这个文件夹"}」开完整权限：agent 可以在里面改文件、跑命令。确定吗？`)) return;
+      try { await api(`/v1/users/${C.uid}/projects/${t.dataset.access}`, { method: "PATCH", body: { full_access: on } }); await loadAll(); toast(on ? "已开完整权限" : "已改成只读"); }
+      catch (err) { toast(err.message); }
+      return;
+    }
     if (t.dataset.compile) {
       const id = t.dataset.compile; C.compiling = id; renderCenter();
       try { const r = await api(`/v1/bodies/${id}/compile`, { method: "POST" });

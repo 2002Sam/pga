@@ -1372,21 +1372,15 @@ if (AS_UID) {                                            // everything this tab 
   store.json = (k, d) => { try { return JSON.parse(store.get(k)) ?? d; } catch { return d; } };
 }
 // ?embed=map: only the sky, as the map inside the console (工作台). Calm: no auto-rotation, slow orbits; a click zooms in
-// Inside the console (工作台) the sky switches live between the map (embed) and the full sky with all its panels:
-// one page, one sky. Opened on its own, it goes to the console (?sky opens the full sky there).
+// This page is only the map inside the console (工作台); opened on its own, it goes to the console.
 let EMBED = new URLSearchParams(location.search).get("embed") === "map";
-const ROTATE0 = SET.autoRotate;
 window.PGA_EMBED = EMBED;
 if (EMBED) { document.documentElement.classList.add("embed"); SET.autoRotate = false; }
 const IN_CONSOLE = window.parent !== window;
 if (!IN_CONSOLE) {
-  const q = new URLSearchParams(); if (AS_UID) q.set("as", AS_UID); if (new URLSearchParams(location.search).has("sky")) q.set("full", "1");
+  const q = new URLSearchParams(); if (AS_UID) q.set("as", AS_UID);
   location.replace("/console" + (q.toString() ? "?" + q : ""));
 }
-document.addEventListener("click", (e) => {                       // 工作台: the console turns back to its own view (no page load)
-  const a = e.target.closest?.("#toConsole"); if (!a || !IN_CONSOLE) return;
-  e.preventDefault(); window.parent.postMessage({ type: "pga:desk" }, location.origin);
-});
 const S = { uid: AS_UID || store.get("pga_uid"), agent: store.get("pga_agent") || null, convs: store.json("pga_convs", {}),
   resps: [], notes: [], tab: store.get("pga_tab") || "notes", sending: false, series: null, pnow: null, health: null,
   lastEventAt: null, collapsed: store.get("pga_dock") === "min" };
@@ -5322,20 +5316,6 @@ function embedLook(n) {                                                  // exac
   window.PGA_CALM?.(!!n);
   document.getElementById("app")?.classList.toggle("talking", !!n);
 }
-window.PGA_SET_EMBED = (on) => {                                        // the console: map ⇄ full sky, in place
-  on = !!on; if (EMBED === on) return;
-  embedLook(null);
-  EMBED = on; window.PGA_EMBED = on;
-  document.documentElement.classList.toggle("embed", on);
-  SET.autoRotate = on ? false : ROTATE0;
-  window.PGA_TALK_LAYOUT = on ? TALK_LAYOUT_MAP : TALK_LAYOUT_SKY;
-  controls.maxPolarAngle = on ? 1.0 : 1.36;
-  layoutKey = ""; loadGraph();                                           // the map leaves the models out; the full sky has them
-  window.dispatchEvent(new Event("resize"));
-};
-window.addEventListener("message", (e) => {
-  if (e.origin === location.origin && e.data?.type === "pga:mode") window.PGA_SET_EMBED(e.data.embed);
-});
 function embedSelect(n) {
   embedLook(n);
   if (n) { n.flash = 1; n.energy = 1; ripple(n.pos, n.d.kind === "aim" ? (systems.find((s) => s.id === n.id)?.R || 3) : 1.4); }
