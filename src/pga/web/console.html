@@ -365,8 +365,8 @@ h2 small { letter-spacing: .04em; text-transform: none; color: var(--dim); font-
 <body class="sky">
 <div class="app">
   <header>
-    <a class="logo" href="/console"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
-    <nav><a class="on" href="/console" id="toDeskTab">工作台</a></nav>
+    <a class="logo" href="/forest"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
+    <nav><a href="/forest" id="toForest">森林</a><a class="on" href="/console" id="toDeskTab">工作台</a></nav>
     <div class="pulse"><span id="pWorking"><span class="dot"></span> —</span><span id="pTasks">—</span><span id="pUpdated" class="dim"></span></div>
   </header>
   <div class="stage">
@@ -390,7 +390,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
 const AS_UID = new URLSearchParams(location.search).get("as");
-if (AS_UID) $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`;
+if (AS_UID) { $("#toDeskTab").href = `/console?as=${encodeURIComponent(AS_UID)}`; $("#toForest").href = `/forest?as=${encodeURIComponent(AS_UID)}`; }
 const SYS_ZH = { user: "用户知识库", world: "世界知识库", aim: "抱负知识库" };
 const C = { uid: AS_UID || store.get("pga_uid"), data: null, sel: AS_UID ? null : store.get("pga_console_aim"), proc: null, live: [],
             open: new Set(), details: {}, drafts: {}, busy: new Set(), talk: { agent: store.get("pga_console_agent") || "claude", sending: false, last: null },
@@ -747,7 +747,7 @@ function renderTreePanel() {
     <div class="meta"><span>${esc(span)}</span><span>${n.turns} 轮</span>${n.codes?.length ? `<span>${esc(n.codes.join("–"))}</span>` : ""}${n.open ? `<span class="gold">${n.open} 个问题还开着</span>` : ""}
       ${n.samples ? `<span>${n.samples} 次生成 · 分歧 ${(n.spread ?? 0).toFixed(2)}</span>` : ""}${n.proposals?.length ? `<span>改进 ${esc(n.proposals.join("、"))}</span>` : ""}${n.mode === "rule" ? `<span class="dim">（按停顿切的，整理者还没读过）</span>` : ""}</div>
     ${n.shift ? `<div class="shift">↱ ${esc(n.shift)}</div>` : ""}
-    ${n.summary ? `<div class="sum">${esc(n.summary)}</div>` : ""}
+    ${n.summary ? `<div class="sum">${PGATree.summary(n.summary)}</div>` : ""}
     ${n.key_thoughts?.length ? `<ul class="keys">${n.key_thoughts.map((k) => `<li>${esc(k)}</li>`).join("")}</ul>` : ""}
     ${(n.buds || []).length ? `<div class="buds">${n.buds.map((b, i) => `<a href="#" data-tbud="${n.id}|${i}">✦ ${esc(b.idea)}</a>`).join("")}</div>` : ""}
     ${g.repo ? `<div class="gitbox"><span class="cap">代码 · 这段思考期间</span>
@@ -755,7 +755,7 @@ function renderTreePanel() {
       ${(g.commits || []).map((c) => `<div class="gc"><a class="mono" href="${esc(c.url || "#")}" target="_blank" rel="noopener">${esc(c.sha.slice(0, 7))}</a> ${esc(c.subject)}</div>`).join("") || `<div class="dim">这段时间没有新的提交。</div>`}
       ${(g.files || []).length ? `<div class="gf">${g.files.map((f) => `<a class="mono" href="${esc(f.url || "#")}" target="_blank" rel="noopener" title="被引用 ${f.refs} 次">${esc(f.path)}</a>`).join("")}</div>` : ""}</div>` : ""}
     <h3>这一段的对话 <small>${notes.length ? `${notes.length}${d?.hidden ? ` + 更早的 ${d.hidden}` : ""} 条` : ""}</small> ${notes.length > 6 ? `<a href="#" data-fold="tn:${n.id}" style="font-size:12px">${showAll ? "只看最后几条" : "看全部"}</a>` : ""}</h3>
-    <div class="tl tnotes">${d ? (d.error ? `<div class="dim">${esc(d.error)}</div>` : shown.map((x) => evHtml({ type: "note", ...x })).join("")) : `<div class="dim">载入中…</div>`}</div>`}
+    <div class="tl tnotes">${d ? (d.error ? `<div class="dim">${esc(d.error)}</div>` : PGATree.chat(shown, { md: (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(String(t || ""))) : esc(t)) })) : `<div class="dim">载入中…</div>`}</div>`}
     <div class="tcont"><textarea id="tnText" data-node="${n.id}" placeholder="${bud ? "沿这个灵感，你想问什么、往哪儿想？" : n.kind === "user" ? "接着你的这条分支说…" : "从这个节点继续：你的问题会长成一条新的分支（⌘/Ctrl + Enter）"}">${esc(C.drafts["tn:" + n.id] || "")}</textarea>
       <div class="row"><label class="dim" style="font-size:12px"><input type="checkbox" id="tnFocus" ${C.tfocusDefault ? "checked" : ""}> 之后让 PGA 沿这条分支想</label><span class="grow"></span>
         <select id="tnAgent"><option value="auto">自动</option>${agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>

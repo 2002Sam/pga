@@ -46,7 +46,8 @@ WORLD_SOURCES = {"weibo": "微博热搜", "zhihu": "知乎热榜", "baidu": "百
                  "hackernews": "Hacker News", "github-trending-today": "GitHub Trending"}
 NEWSNOW = "https://newsnow.busiyi.world/api/s?id={id}&latest"
 _WORLD_CACHE: list = []
-EVERY = {"user": timedelta(hours=24), "world": timedelta(hours=6), "aim": timedelta(hours=12)}
+EVERY = {"user": timedelta(hours=24), "world": timedelta(hours=6), "aim": timedelta(hours=12),
+         "branch": timedelta(days=36500)}       # a line of thought is distilled when you ask
 
 WRITE = """You keep one curated knowledge document for a personal long-running agent. {what}
 Write the FULL document: well organised with short headings, concrete, no filler, no speculation presented as fact
@@ -63,6 +64,9 @@ WHAT = {
               "each theme is about and which items show it; keep the most telling item titles.", 1100),
     "aim": ("The document is everything a motivation's agents have found out: organise it by topic (not by question), "
             "state each finding with the question code(s) it came from, note open doubts and decisions made.", 1200),
+    "branch": ("The document distills ONE line of thought from a motivation's thought tree so that other work can reuse it "
+               "quickly: what it set out to find, what it concluded (with the evidence and question codes), what stays open, "
+               "and what other lines of work could take from it. Plain words; explain rather than quote code names.", 1000),
 }
 
 
@@ -145,6 +149,13 @@ class Datasets:
             return self._user_material(user)
         if b.system == "world":
             return self._world_material()
+        if b.system == "branch":
+            from pga.tree import ThoughtTree
+            tree = ThoughtTree(self.rt)
+            node = tree.node_of_dataset(b.id)
+            if node is None:
+                raise DatasetError("the line of thought it came from is gone")
+            return tree.branch_material(node)
         aim = self.s.get(Aim, b.aim_id)
         return self._aim_material(aim) if aim else ""
 

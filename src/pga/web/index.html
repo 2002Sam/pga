@@ -1372,14 +1372,14 @@ if (AS_UID) {                                            // everything this tab 
   store.json = (k, d) => { try { return JSON.parse(store.get(k)) ?? d; } catch { return d; } };
 }
 // ?embed=map: only the sky, as the map inside the console (工作台). Calm: no auto-rotation, slow orbits; a click zooms in
-// This page is only the map inside the console (工作台); opened on its own, it goes to the console.
+// This page is only the map inside the console (工作台); opened on its own, it goes to the forest (森林).
 let EMBED = new URLSearchParams(location.search).get("embed") === "map";
 window.PGA_EMBED = EMBED;
 if (EMBED) { document.documentElement.classList.add("embed"); SET.autoRotate = false; }
 const IN_CONSOLE = window.parent !== window;
 if (!IN_CONSOLE) {
   const q = new URLSearchParams(); if (AS_UID) q.set("as", AS_UID);
-  location.replace("/console" + (q.toString() ? "?" + q : ""));
+  location.replace("/forest" + (q.toString() ? "?" + q : ""));
 }
 const S = { uid: AS_UID || store.get("pga_uid"), agent: store.get("pga_agent") || null, convs: store.json("pga_convs", {}),
   resps: [], notes: [], tab: store.get("pga_tab") || "notes", sending: false, series: null, pnow: null, health: null,

@@ -11,6 +11,7 @@ import logging
 import math
 import os
 import threading
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -214,6 +215,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return FileResponse(Path(__file__).resolve().parent.parent / "web" / "console.html")
 
     WEB = Path(__file__).resolve().parent.parent / "web"
+
+    @app.get("/forest", include_in_schema=False)
+    def web_forest() -> FileResponse:
+        """森林: every motivation's thought tree, the user and world models, the shared knowledge; click into a tree."""
+        return FileResponse(WEB / "forest.html")
 
     @app.get("/tree", include_in_schema=False)
     def web_tree() -> FileResponse:
@@ -2271,6 +2277,169 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             except TreeError:
                 pass
         return {"node": node_out(branch), "reply": {k: reply.get(k) for k in ("agent", "text", "error", "model")}}
+
+    def tree_err(exc) -> HTTPException:
+        return HTTPException(409, str(exc))
+
+    @app.patch("/v1/thought-nodes/{node_id}")
+    def tree_node_update(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Rename, rewrite, hide / show or move a node (parent_id null: onto the root)."""
+        from pga.tree import ThoughtTree, TreeError, node_out
+        n = tree_node_or_404(rt, node_id)
+        parent = "keep"
+        if "parent_id" in body:
+            parent = tree_node_or_404(rt, uuid.UUID(str(body["parent_id"]))) if body["parent_id"] else None
+        try:
+            return node_out(ThoughtTree(rt).update(n, title=body.get("title"), summary=body.get("summary"),
+                                                   key_thoughts=body.get("key_thoughts") if isinstance(body.get("key_thoughts"), list) else None,
+                                                   hidden=body.get("hidden") if "hidden" in body else None, parent=parent))
+        except TreeError as exc:
+            raise tree_err(exc) from exc
+
+    @app.post("/v1/thought-nodes/{node_id}/merge")
+    def tree_node_merge(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Fold a node into its parent (cut too fine)."""
+        from pga.tree import ThoughtTree, TreeError, node_out
+        try:
+            return node_out(ThoughtTree(rt).merge_up(tree_node_or_404(rt, node_id)))
+        except TreeError as exc:
+            raise tree_err(exc) from exc
+
+    @app.delete("/v1/thought-nodes/{node_id}", status_code=204)
+    def tree_node_delete(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.tree import ThoughtTree, TreeError
+        try:
+            ThoughtTree(rt).delete(tree_node_or_404(rt, node_id))
+        except TreeError as exc:
+            raise tree_err(exc) from exc
+
+    @app.post("/v1/thought-nodes/{node_id}/branch", status_code=201)
+    def tree_node_branch(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Open an empty branch from here: a direction to think along, continued later."""
+        from pga.tree import ThoughtTree, node_out
+        title = str(body.get("title") or "").strip()
+        if not title:
+            raise HTTPException(422, "a branch needs a direction (title)")
+        return node_out(ThoughtTree(rt).new_branch(tree_node_or_404(rt, node_id), title))
+
+    @app.post("/v1/thought-nodes/{node_id}/distill")
+    def tree_node_distill(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Distill this line of thought (the node and what grew from it) into a dataset other trees can use."""
+        from pga.db.models import Aim
+        from pga.tree import ThoughtTree
+        n = tree_node_or_404(rt, node_id)
+        u = user_or_404(rt, rt.session.get(Aim, n.aim_id).user_id)
+        with rt.billing(user_ctx(u)):
+            b, out = ThoughtTree(rt).distill(u, n)
+        return {"dataset": body_out(b), "status": out.status, "words": out.words, "note": out.note}
+
+    @app.get("/v1/thought-nodes/{node_id}/markdown", include_in_schema=False)
+    def tree_node_markdown(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from fastapi.responses import Response
+        from pga.tree import ThoughtTree
+        n = tree_node_or_404(rt, node_id)
+        name = urllib.parse.quote(f"{n.title[:40]}.md")
+        return Response(ThoughtTree(rt).markdown(n), media_type="text/markdown; charset=utf-8",
+                        headers={"Content-Disposition": f"inline; filename*=UTF-8''{name}"})
+
+    @app.post("/v1/thought-nodes/{node_id}/exchange")
+    def tree_node_exchange(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Two branches talk: an agent reads both lines of thought and writes what each can take from the other."""
+        from pga.db.models import Aim
+        from pga.tree import ThoughtTree, TreeError, node_out
+        n = tree_node_or_404(rt, node_id)
+        other = tree_node_or_404(rt, uuid.UUID(str(body.get("with") or "")))
+        aim = rt.session.get(Aim, n.aim_id)
+        if rt.session.get(Aim, other.aim_id).user_id != aim.user_id:
+            raise HTTPException(404, "node not found")
+        u = user_or_404(rt, aim.user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                x, reply = ThoughtTree(rt).exchange(u, n, other, str(body.get("text") or ""), str(body.get("agent") or "auto"))
+        except TreeError as exc:
+            raise tree_err(exc) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"node": node_out(x), "reply": {k: reply.get(k) for k in ("agent", "text", "error", "model")}}
+
+    @app.post("/v1/aims/{aim_id}/references", status_code=201)
+    def tree_reference(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Let this tree refer to a dataset (from another tree, or a shared one): every round reads its summary."""
+        aim = aim_or_404(rt, aim_id)
+        try:
+            br = BodyService(rt).bridge(aim.user_id, f"aim:{aim.id}", f"k:{body.get('body_id')}", kind="references")
+        except BodyError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"id": str(br.id)}
+
+    @app.delete("/v1/aims/{aim_id}/references/{body_id}", status_code=204)
+    def tree_unreference(aim_id: uuid.UUID, body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import Bridge
+        aim = aim_or_404(rt, aim_id)
+        a, b = sorted((f"aim:{aim.id}", f"k:{body_id}"))
+        br = rt.session.scalar(select(Bridge).where(Bridge.user_id == aim.user_id, Bridge.a_ref == a, Bridge.b_ref == b))
+        if br is not None:
+            rt.session.delete(br)
+
+    @app.post("/v1/aims/{aim_id}/tree/rewrite", status_code=202)
+    def tree_rewrite(aim_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Rewrite the hard-to-read summaries of this tree (in the background)."""
+        aim = aim_or_404(rt, aim_id)
+        rt.workflow.enqueue("tree.rewrite", user_id=aim.user_id, payload={"aim": str(aim.id)}, dedupe_key=f"tree-rewrite:{aim.id}",
+                            priority=60, created_by=Origin.USER)
+        return {"queued": True}
+
+    @app.get("/v1/bodies/{body_id}/markdown", include_in_schema=False)
+    def body_markdown(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from fastapi.responses import Response
+        from pga.db.models import Body
+        b = rt.session.get(Body, body_id)
+        if b is None:
+            raise HTTPException(404, "body not found")
+        lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
+        text = f"# {b.title}\n\n" + (f"> {lv[1].text}\n\n" if 1 in lv else "") + (f"{lv[2].text}\n\n---\n\n" if 2 in lv else "") + (b.description or "")
+        name = urllib.parse.quote(f"{b.title[:40]}.md")
+        return Response(text + "\n", media_type="text/markdown; charset=utf-8", headers={"Content-Disposition": f"inline; filename*=UTF-8''{name}"})
+
+    @app.get("/v1/users/{user_id}/forest")
+    def forest(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """森林: every motivation's tree (its shape, its pressure, whether it runs), the two models, the shared knowledge."""
+        from pga.db.models import AimNote, Body, Bridge, PerpetualTask
+        from pga.knowledge.datasets import Datasets
+        from pga.perpetual import PHASE_ZH
+        from pga.tree import ThoughtTree
+        u = user_or_404(rt, user_id)
+        Datasets(rt).ensure(u)
+        tree = ThoughtTree(rt)
+        trees = []
+        for a in AimService(rt.session).list(u):
+            t = rt.session.scalar(select(PerpetualTask).where(PerpetualTask.aim_id == a.id))
+            nodes = tree.nodes(a.id)
+            p = tree.project(a)
+            for_you = int(rt.session.scalar(select(func.count()).select_from(AimNote).where(
+                AimNote.aim_id == a.id, AimNote.kind == "question", AimNote.status == "for_you")) or 0)
+            trees.append({"id": str(a.id), "text": a.text, "pending": tree.pending_count(a), "for_you": for_you,
+                          "project": {"id": str(p.id), "name": p.name} if p else None,
+                          "task": None if t is None else {"status": t.status, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
+                                                          "pressure": round(t.pressure, 3), "cycles": t.cycles},
+                          "last_growth": max((n.last_at or n.created_at for n in nodes), default=None),
+                          "nodes": [{"id": str(n.id), "parent": str(n.parent_id) if n.parent_id else None, "seq": n.seq, "kind": n.kind,
+                                     "turns": (n.data or {}).get("turns", 0), "tip": bool((n.data or {}).get("tip")),
+                                     "hidden": bool((n.data or {}).get("hidden")), "title": n.title,
+                                     "sampled": (n.data or {}).get("sampled", 0), "samples": (n.data or {}).get("samples", 0)}
+                                    for n in nodes]})
+        users = {}
+        for br in rt.session.scalars(select(Bridge).where(Bridge.user_id == u.id, Bridge.kind == "references")):
+            for x, y in ((br.a_ref, br.b_ref), (br.b_ref, br.a_ref)):
+                if x.startswith("k:") and y.startswith("aim:"):
+                    users.setdefault(x[2:], []).append(y[4:])
+        shared = []
+        for b in rt.session.scalars(select(Body).where(Body.user_id == u.id).order_by(Body.created_at)):
+            lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
+            shared.append({"id": str(b.id), "title": b.title, "kind": b.kind, "system": b.system, "aim_id": str(b.aim_id) if b.aim_id else None,
+                           "gist": lv[1].text if 1 in lv else None, "brief": lv[2].text if 2 in lv else None,
+                           "compiled_at": b.compiled_at, "used_by": users.get(str(b.id), [])})
+        return {"trees": trees, "knowledge": shared}
 
     @app.post("/v1/aims/{aim_id}/tree/focus")
     def tree_focus(aim_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

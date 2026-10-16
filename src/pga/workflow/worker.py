@@ -311,6 +311,21 @@ def _tree_curate(rt: "Runtime", job: Job, now: datetime) -> dict:
         raise Defer(_defer_default(now), str(exc)) from exc
 
 
+@handler("tree.rewrite")
+def _tree_rewrite(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """Rewrite a tree's hard-to-read summaries in the readable style, a few nodes per call."""
+    from pga.db.models import Aim
+    from pga.tree import ThoughtTree, TreeDeferred
+
+    aim = rt.session.get(Aim, uuid.UUID(str(job.payload.get("aim"))))
+    if aim is None:
+        raise Permanent("motivation is gone")
+    try:
+        return ThoughtTree(rt).rewrite(_user(rt, job), aim, now)
+    except TreeDeferred as exc:
+        raise Defer(_defer_default(now), str(exc)) from exc
+
+
 @register_planner
 def _plan_tree(rt: "Runtime", user: User, now: datetime) -> list[dict]:
     """A motivation's tree grows when enough new dialogue has piled up (or some has waited for hours)."""

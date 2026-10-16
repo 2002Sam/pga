@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>森林 · PGA</title>
+<link rel="icon" href="/icons/favicon-32.png?v=3">
+<link rel="manifest" href="/manifest.webmanifest">
+<script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/ui/tree.js"></script>
+<style>
+:root {
+  --bg: #040506; --text: #e8e8e8; --muted: #8a8a8a; --line: rgba(255,255,255,.09); --line-2: rgba(255,255,255,.2); --line-3: rgba(255,255,255,.42);
+  --gold: #e9a94b; --gold-dim: rgba(233,169,75,.35); --green: #96d6a0; --link: #9cc3e6;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13.5px/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; cursor: default; }
+a { color: var(--link); } button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line-2); background: rgba(0,0,0,.35); padding: 4px 11px; white-space: nowrap; }
+button:hover { border-color: var(--line-3); } button.primary { border-color: var(--gold); color: var(--gold); } button.primary:hover { background: rgba(233,169,75,.1); }
+header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px; padding: 9px 18px; border-bottom: 1px solid var(--line); background: rgba(0,0,0,.82); backdrop-filter: blur(8px); }
+header .logo { display: flex; align-items: center; gap: 8px; color: var(--text); text-decoration: none; letter-spacing: .3em; font-size: 13px; } header .logo img { width: 18px; height: 18px; }
+header nav { display: flex; gap: 4px; } header nav a { text-decoration: none; padding: 4px 12px; border: 1px solid transparent; color: var(--muted); }
+header nav a.on { border-color: var(--line-2); color: var(--text); } header nav a:hover { color: var(--text); }
+header .pulse { margin-left: auto; color: var(--muted); font-size: 12.5px; display: flex; gap: 14px; align-items: center; }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #555; margin-right: 5px; } .dot.on { background: var(--gold); box-shadow: 0 0 8px var(--gold); }
+/* the sky: the world model */
+.sky { position: relative; padding: 34px 24px 26px; text-align: center; overflow: hidden;
+  background: radial-gradient(ellipse at 50% -20%, rgba(120,160,200,.18), transparent 60%), linear-gradient(#070a10, #05070a); }
+.stars { position: absolute; inset: 0; pointer-events: none; opacity: .7;
+  background-image: radial-gradient(1px 1px at 12% 30%, #fff, transparent), radial-gradient(1px 1px at 72% 20%, #dfe, transparent), radial-gradient(1px 1px at 36% 66%, #fff, transparent),
+    radial-gradient(1px 1px at 88% 58%, #ffe, transparent), radial-gradient(1px 1px at 55% 12%, #fff, transparent), radial-gradient(1.4px 1.4px at 22% 80%, #fff, transparent), radial-gradient(1px 1px at 64% 78%, #cfe, transparent); }
+.model { position: relative; display: inline-block; max-width: 760px; text-align: left; padding: 12px 18px; border: 1px solid rgba(156,195,230,.28); background: rgba(8,12,18,.6); cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+.model:hover { border-color: rgba(156,195,230,.6); box-shadow: 0 0 30px rgba(120,160,200,.15); }
+.model .mk { font: 10px var(--mono); letter-spacing: .24em; color: #9cc3e6; } .model .mg { font-size: 15px; margin: 3px 0; } .model .mb { color: #aab4ba; font-size: 12.5px; line-height: 1.7; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.model.user { border-color: rgba(150,214,160,.28); background: rgba(8,14,10,.6); } .model.user .mk { color: var(--green); } .model.user:hover { border-color: rgba(150,214,160,.6); box-shadow: 0 0 30px rgba(120,200,140,.12); }
+/* the forest */
+.forest { position: relative; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 26px; padding: 40px 24px 0;
+  background: linear-gradient(#05070a, #06080a 70%, #0a0b08); min-height: 420px; }
+.tree { position: relative; width: 270px; text-align: center; cursor: pointer; transition: transform .35s ease, opacity .35s, filter .35s; }
+.tree svg { display: block; width: 270px; height: 260px; overflow: visible; }
+.tree .tname { font-size: 14px; line-height: 1.5; margin-top: 8px; padding: 0 8px; } .tree .tmeta { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
+.tree .tp { display: flex; align-items: center; gap: 8px; justify-content: center; font-size: 11.5px; color: var(--muted); margin-top: 6px; }
+.pbar { width: 90px; height: 4px; background: var(--line); position: relative; } .pbar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(90deg, #6fa8d8, var(--gold), #f08a7a); }
+.tree .tb { display: flex; gap: 8px; justify-content: center; margin-top: 8px; } .tree .tb button { font-size: 12px; padding: 2px 10px; }
+.tree:hover { transform: translateY(-6px); } .tree.paused svg { filter: grayscale(.6) brightness(.75); }
+.tree .ask { position: absolute; top: 4px; right: 16px; font-size: 11px; color: #0b0d10; background: var(--gold); border-radius: 10px; padding: 0 7px; }
+.mini .br { fill: none; stroke: rgba(222,230,234,.5); stroke-linecap: round; } .mini .br.mine { stroke: rgba(150,214,160,.75); } .mini .br.ex { stroke: rgba(156,195,230,.7); }
+.mini .dt { fill: #0b0d10; stroke: rgba(232,236,238,.9); stroke-width: 1; } .mini .dt.tip { fill: var(--gold); stroke: var(--gold); }
+.mini .root { fill: none; stroke: rgba(233,169,75,.3); stroke-width: 1; } .mini .seed { fill: #000; stroke: var(--gold); stroke-width: 1.3; }
+.mini .twig { fill: none; stroke: rgba(222,230,234,.3); stroke-width: .7; }
+.alive .mini .glow { animation: breathe 3.2s ease-in-out infinite; } @keyframes breathe { 50% { opacity: .45; } }
+.mini .sap { fill: none; stroke: rgba(255,214,150,.95); stroke-width: 2; stroke-linecap: round; stroke-dasharray: .06 .94; stroke-dashoffset: 1; animation: sap 3s linear infinite; filter: drop-shadow(0 0 3px rgba(233,169,75,.9)); }
+@keyframes sap { to { stroke-dashoffset: 0; } }
+.seedcard { width: 220px; align-self: flex-end; text-align: center; padding: 18px 14px 22px; border: 1px dashed var(--line-2); color: var(--muted); cursor: pointer; transition: border-color .2s, color .2s; }
+.seedcard:hover { border-color: var(--gold); color: var(--gold); } .seedcard svg { display: block; margin: 0 auto 10px; }
+.seedcard textarea { width: 100%; min-height: 76px; background: #0c0e10; border: 1px solid var(--line-2); padding: 6px 8px; color: var(--text); outline: none; resize: vertical; }
+.ground { height: 26px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent) 0 0 / 100% 1px no-repeat, linear-gradient(#0a0b08, #070806); }
+.soil { padding: 18px 24px 26px; text-align: center; background: linear-gradient(#070806, #050504); }
+/* the nursery: knowledge every tree can use */
+.nursery { padding: 22px 24px 60px; max-width: 1200px; margin: 0 auto; }
+.nursery h2 { font: 500 10.5px var(--mono); letter-spacing: .24em; color: rgba(233,169,75,.85); margin: 0 0 14px; }
+.nursery h2 small { letter-spacing: .04em; color: #666; font-size: 11px; }
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+.kb { border: 1px solid var(--line); padding: 10px 12px; cursor: pointer; background: rgba(255,255,255,.015); transition: border-color .2s; } .kb:hover { border-color: var(--line-3); }
+.kb .kt { display: flex; gap: 8px; align-items: baseline; } .kb .kt b { font-weight: 500; flex: 1; font-size: 13px; }
+.tagk { font: 10px var(--mono); letter-spacing: .1em; padding: 1px 6px; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.kb .kg { font-size: 12.5px; color: #b8c0c4; margin-top: 5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.kb .ku { margin-top: 6px; font-size: 11.5px; color: var(--muted); }
+/* the guide: PGA's light, it follows you through the forest and takes you into a tree */
+#guide { position: fixed; left: 0; top: 0; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; pointer-events: none; z-index: 20;
+  background: radial-gradient(circle, #fff6e0 0, #e9a94b 45%, rgba(233,169,75,0) 72%); box-shadow: 0 0 18px 6px rgba(233,169,75,.35); transition: width .25s, height .25s, margin .25s; }
+#guide.on { width: 22px; height: 22px; margin: -11px 0 0 -11px; box-shadow: 0 0 30px 10px rgba(233,169,75,.45); }
+#guide::after { content: ""; position: absolute; inset: -14px; border-radius: 50%; border: 1px solid rgba(233,169,75,.35); animation: ring 2.4s ease-out infinite; }
+@keyframes ring { from { transform: scale(.4); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+body.entering .tree:not(.going), body.entering .sky, body.entering .soil, body.entering .nursery, body.entering .seedcard { opacity: .08; filter: blur(4px); transition: opacity .5s, filter .5s; }
+.flyer { position: fixed; z-index: 30; pointer-events: none; transition: all .75s cubic-bezier(.6,.0,.3,1); }
+.burst { position: fixed; z-index: 31; pointer-events: none; border-radius: 50%; border: 2px solid var(--gold); animation: burst .8s ease-out forwards; }
+@keyframes burst { from { width: 10px; height: 10px; opacity: 1; } to { width: 1400px; height: 1400px; margin: -700px 0 0 -700px; opacity: 0; } }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: grid; place-items: center; z-index: 40; }
+.modal .box { width: min(860px, 92vw); max-height: 86vh; overflow: auto; background: #0b0c0e; border: 1px solid var(--line-2); padding: 20px 26px; }
+.modal .box h2 { margin: 0 0 6px; font-weight: 400; } .md p { margin: .5em 0; } .md h1, .md h2, .md h3 { font-weight: 500; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #111; border: 1px solid var(--line-2); padding: 8px 14px; font-size: 12.5px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; }
+#toast.on { opacity: 1; }
+@media (pointer: coarse) { #guide { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="logo" href="/forest" id="home"><img src="/icons/favicon-32.png?v=3" alt=""><b>PGA</b></a>
+  <nav><a class="on" href="#">森林</a><a href="/console" id="toDesk">工作台</a></nav>
+  <div class="pulse" id="pulse"></div>
+</header>
+<section class="sky"><div class="stars"></div><div id="world"></div></section>
+<section class="forest" id="forest"><div style="color:var(--muted)">载入森林…</div></section>
+<div class="ground"></div>
+<section class="soil" id="soil"></section>
+<section class="nursery"><h2>苗圃 · 共享的知识 <small>每棵树沉淀出来的数据集和技能；挂到一棵树上，它每一轮思考都会读到</small></h2><div class="shelf" id="shelf"></div></section>
+<div id="guide"></div>
+<div id="toast"></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = PGATree.esc;
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+const AS_UID = new URLSearchParams(location.search).get("as"), asq = AS_UID ? `&as=${encodeURIComponent(AS_UID)}` : "";
+const F = { uid: AS_UID || store.get("pga_uid"), data: null, live: [] };
+const md = (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(String(t || ""))) : esc(t));
+const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000; return s < 60 ? "刚刚" : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : s < 86400 ? `${Math.floor(s / 3600)} 小时前` : `${Math.floor(s / 86400)} 天前`; };
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3200); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText);
+  return data;
+}
+
+/* one tree, small: its real shape (the same layout as the tree page), no labels */
+function miniTree(t) {
+  const W = 270, H = 250, nodes = (t.nodes || []).filter((n) => !n.hidden && n.kind !== "bud");
+  if (!nodes.length) return `<svg viewBox="0 0 ${W} ${H}" class="mini"><path class="root" d="M ${W / 2} ${H - 20} c -10 10 -24 14 -40 16 M ${W / 2} ${H - 20} c 10 10 24 14 40 16"/>
+    <path class="br" d="M ${W / 2} ${H - 20} C ${W / 2 - 4} ${H - 50}, ${W / 2 + 6} ${H - 70}, ${W / 2} ${H - 84}" style="stroke-width:2.4"/><circle class="seed" cx="${W / 2}" cy="${H - 20}" r="6"/></svg>`;
+  const row = Math.max(3, Math.min(16, (H - 50) / (nodes.length + 1)));
+  const L = PGATree.layout({ nodes }, W * 1.6, row, 0);
+  const minX = Math.min(...L.list.map((n) => n.x), L.cx), maxX = Math.max(...L.list.map((n) => n.x), L.cx);
+  const sx = Math.min(1, (W - 50) / Math.max(1, maxX - minX)), ox = W / 2 - L.cx * sx, oy = H - 20 - L.y0;
+  const X = (x) => ox + x * sx, Y = (y) => oy + y;
+  const tipPath = new Set(); for (let x = L.list.find((n) => n.tip) || L.list[L.list.length - 1]; x; x = x.p === "root" ? null : L.by.get(x.p)) tipPath.add(x.id);
+  let edges = "", dots = "", sap = "";
+  for (const n of L.list) {
+    const p = n.p === "root" ? { x: L.cx, y: L.y0 } : L.by.get(n.p), w = Math.max(.7, 4.2 - n.depth * .3);
+    const d = `M ${X(p.x)} ${Y(p.y)} C ${X(p.x)} ${Y(p.y) - (p.y - n.y) * .45}, ${X(n.x)} ${Y(n.y) + (p.y - n.y) * .45}, ${X(n.x)} ${Y(n.y)}`;
+    edges += `<path class="br ${n.kind === "user" ? "mine" : n.kind === "exchange" ? "ex" : ""}" d="${d}" style="stroke-width:${w.toFixed(2)}"/>`;
+    if (tipPath.has(n.id)) sap += `<path class="sap" d="${d}" pathLength="1" style="animation-delay:${(sap.length % 7) * .3}s"/>`;
+    if (n.sampled) for (let j = 0; j < 3; j++) { const a = -Math.PI / 2 + (j - 1) * .55; edges += `<path class="twig" d="M ${X(n.x)} ${Y(n.y)} l ${Math.cos(a) * 8} ${Math.sin(a) * 8}"/>`; }
+    dots += `<circle class="dt ${n.tip ? "tip" : ""}" cx="${X(n.x).toFixed(1)}" cy="${Y(n.y).toFixed(1)}" r="${Math.max(1.6, Math.min(4.2, 1.4 + Math.sqrt(n.turns || 1) * .35)).toFixed(1)}"/>`;
+  }
+  const rx = X(L.cx), ry = Y(L.y0);
+  let roots = ""; for (let i = 0; i < 6; i++) { const a = -1 + i / 2.5; roots += `<path class="root" d="M ${rx} ${ry} C ${rx + a * 10} ${ry + 10}, ${rx + a * 24} ${ry + 14}, ${rx + a * 38} ${ry + 18}"/>`; }
+  const glow = Math.min(1, .25 + (t.task?.pressure || 0) * .9);
+  return `<svg viewBox="0 0 ${W} ${H}" class="mini"><defs><radialGradient id="g${t.id.slice(0, 6)}"><stop offset="0" stop-color="#e9a94b" stop-opacity="${(glow * .55).toFixed(2)}"/><stop offset="1" stop-color="#e9a94b" stop-opacity="0"/></radialGradient></defs>
+    <ellipse class="glow" cx="${rx}" cy="${ry - (H - 40) * .45}" rx="${W * .48}" ry="${H * .5}" fill="url(#g${t.id.slice(0, 6)})"/>
+    ${roots}${edges}${t.task?.status === "running" ? sap : ""}${dots}<circle class="seed" cx="${rx}" cy="${ry}" r="5.5"/></svg>`;
+}
+function render() {
+  const D = F.data, K = D.knowledge || [], world = K.find((k) => k.system === "world"), user = K.find((k) => k.system === "user");
+  const model = (b, cls, label) => b ? `<div class="model ${cls}" data-doc="${b.id}"><div class="mk">${label}</div><div class="mg">${esc(b.gist || b.title)}</div>${b.brief ? `<div class="mb">${esc(b.brief)}</div>` : `<div class="mb">还没有整理过：后台会整理，也可以点开现在整理。</div>`}
+      <div class="mk" style="margin-top:6px;letter-spacing:.06em;color:#666">${b.compiled_at ? `${esc(ago(b.compiled_at))}整理 · ` : ""}每一棵树每一轮都会读到它</div></div>` : "";
+  $("#world").innerHTML = model(world, "world", "世界模型 · 正在发生什么");
+  $("#soil").innerHTML = model(user, "user", "用户模型 · 你是谁、你要什么");
+  const running = D.trees.filter((t) => t.task?.status === "running").length, working = (F.live || []).filter((r) => r.running).length;
+  $("#pulse").innerHTML = `<span><span class="dot ${working ? "on" : ""}"></span>${working ? `${working} 个 agent 在工作` : "没有 agent 在工作"}</span><span>${running} / ${D.trees.length} 棵树在生长</span>`;
+  $("#forest").innerHTML = D.trees.map((t) => {
+    const nodes = (t.nodes || []).filter((n) => n.kind !== "bud"), on = t.task?.status === "running";
+    return `<div class="tree ${on ? "alive" : t.task ? "paused" : "paused"}" data-tree="${t.id}">${t.for_you ? `<span class="ask" title="只有你能回答的问题">${t.for_you}</span>` : ""}
+      ${miniTree(t)}<div class="tname">${esc(t.text.length > 34 ? t.text.slice(0, 33) + "…" : t.text)}</div>
+      <div class="tmeta">${nodes.length} 个节点${t.last_growth ? ` · ${esc(ago(t.last_growth))}长过` : ""}${t.pending ? ` · ${t.pending} 轮待整理` : ""}</div>
+      <div class="tp">${t.task ? `<span>${on ? "生长中" : "已暂停"} · ${esc(t.task.phase_zh || "")}</span><span class="pbar" title="张力 ${t.task.pressure.toFixed(2)}"><i style="width:${Math.round(t.task.pressure * 100)}%"></i></span>` : `<span>还没有开始</span>`}</div>
+      <div class="tb">${t.project ? `<button data-run="${t.id}" class="${on ? "" : "primary"}">${on ? "⏸ 暂停" : "▶ 开始"}</button>` : ""}<button data-enter="${t.id}">进入 →</button></div></div>`;
+  }).join("") + `<div class="seedcard" id="seed">${F.planting ? `<textarea id="seedText" placeholder="一个长期的抱负：你想让 PGA 一直朝什么方向努力？"></textarea><div style="display:flex;gap:8px;justify-content:center;margin-top:8px"><button id="seedCancel">取消</button><button class="primary" id="seedGo">种下</button></div>`
+    : `<svg width="60" height="60" viewBox="0 0 60 60"><path d="M30 46 C 29 36, 31 30, 30 22" stroke="#e9a94b" fill="none"/><path d="M30 30 C 22 28, 18 22, 18 16 C 25 17, 29 22, 30 30" fill="none" stroke="#96d6a0"/><circle cx="30" cy="48" r="4" fill="#000" stroke="#e9a94b"/></svg>种一颗新的种子<div style="font-size:11.5px;margin-top:4px">一个新的长期抱负</div>`}</div>`;
+  const treeName = (id) => (D.trees.find((t) => t.id === id)?.text || "").slice(0, 14);
+  const TAG = { aim: "抱负知识", branch: "思路", user: "用户模型", world: "世界模型" };
+  $("#shelf").innerHTML = K.filter((k) => !["user", "world"].includes(k.system)).map((k) => `<div class="kb" data-doc="${k.id}"><div class="kt"><span class="tagk">${esc(TAG[k.system] || (k.kind === "skill" ? "技能" : "数据集"))}</span><b>${esc(k.title)}</b></div>
+      ${k.gist ? `<div class="kg">${esc(k.gist)}</div>` : ""}<div class="ku">${k.aim_id ? `来自「${esc(treeName(k.aim_id))}」` : "共享"}${(k.used_by || []).length ? ` · 被 ${k.used_by.map((id) => `「${esc(treeName(id))}」`).join("")}参考` : ""}</div></div>`).join("")
+    || `<div style="color:var(--muted)">还没有。进入一棵树，选一段思路，点「沉淀为知识」。</div>`;
+}
+async function load() {
+  if (!F.uid) { try { F.uid = (await api("/healthz")).owner; } catch {} }
+  F.data = await api(`/v1/users/${F.uid}/forest`);
+  try { F.live = await api(`/v1/agents/live`); } catch { F.live = []; }
+  if (!document.activeElement?.matches?.("#seedText")) render();
+}
+
+/* the guide: a small light that follows you; over a tree it settles on its growing tip; click and it takes you in */
+const G = { x: innerWidth / 2, y: 200, tx: innerWidth / 2, ty: 200, el: $("#guide"), lock: null };
+addEventListener("mousemove", (e) => { if (!G.lock) { G.tx = e.clientX; G.ty = e.clientY; } });
+(function fly() {
+  G.x += (G.tx - G.x) * .14; G.y += (G.ty - G.y) * .14;
+  G.el.style.transform = `translate(${G.x.toFixed(1)}px, ${G.y.toFixed(1)}px)`;
+  requestAnimationFrame(fly);
+})();
+document.addEventListener("mouseover", (e) => {
+  const t = e.target.closest?.(".tree");
+  if (t && !G.going) {
+    const tip = t.querySelector(".dt.tip") || t.querySelector(".seed"), r = tip?.getBoundingClientRect();
+    if (r) { G.lock = t; G.tx = r.left + r.width / 2; G.ty = r.top + r.height / 2; G.el.classList.add("on"); }
+  } else if (!t && G.lock && !G.going) { G.lock = null; G.el.classList.remove("on"); }
+});
+function enter(id) {
+  const card = document.querySelector(`.tree[data-tree="${id}"]`); if (!card || G.going) return;
+  G.going = true; card.classList.add("going"); document.body.classList.add("entering");
+  const svg = card.querySelector("svg"), r = svg.getBoundingClientRect(), seed = card.querySelector(".seed").getBoundingClientRect();
+  G.lock = card; G.tx = seed.left + seed.width / 2; G.ty = seed.top + seed.height / 2;          // the light dives to the root
+  const fly = svg.cloneNode(true); fly.classList.add("flyer");
+  Object.assign(fly.style, { left: r.left + "px", top: r.top + "px", width: r.width + "px", height: r.height + "px" });
+  document.body.appendChild(fly);
+  setTimeout(() => {
+    const s = Math.min(innerWidth / r.width, innerHeight / r.height) * .95;
+    Object.assign(fly.style, { left: (innerWidth - r.width * s) / 2 + "px", top: (innerHeight - r.height * s) / 2 + "px", width: r.width * s + "px", height: r.height * s + "px", opacity: ".0" });
+    const b = document.createElement("div"); b.className = "burst"; b.style.left = G.tx + "px"; b.style.top = G.ty + "px"; document.body.appendChild(b);
+  }, 380);
+  setTimeout(() => { location.href = `/tree?aim=${id}${asq}`; }, 1050);
+}
+async function showDoc(id) {
+  const d = await api(`/v1/bodies/${id}/document`).catch((e) => ({ error: e.message }));
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box">${d.error ? esc(d.error) : `<h2>${esc(d.title)}</h2><div style="color:var(--muted);margin-bottom:10px">${esc(d.gist || "")}</div>
+    ${d.summary ? PGATree.summary(d.summary) : ""}${d.system && !d.compiled_at ? `<button class="primary" data-compile="${id}" style="margin-top:12px">现在整理</button>` : ""}
+    <hr style="border:0;border-top:1px solid var(--line);margin:16px 0"><div class="md">${md(d.full || "（还没有全文）")}</div>`}</div>`;
+  m.addEventListener("click", (e) => { if (e.target === m) m.remove(); }); document.body.appendChild(m);
+}
+document.addEventListener("click", async (e) => {
+  const t = e.target.closest("[data-enter], [data-run], [data-doc], [data-compile], #seed, #seedGo, #seedCancel, .tree");
+  if (!t) return;
+  if (t.dataset.run) {
+    e.stopPropagation();
+    const tr = F.data.trees.find((x) => x.id === t.dataset.run), on = tr.task?.status === "running";
+    try { await api(`/v1/users/${F.uid}/projects/${tr.project.id}/run`, { body: { action: on ? "pause" : "start" } }); toast(on ? "已暂停" : "开始生长"); await load(); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.dataset.compile) { toast("整理中…"); try { const r = await api(`/v1/bodies/${t.dataset.compile}/compile`, { method: "POST" }); toast(r.status === "compiled" ? "整理好了" : r.note || r.status); document.querySelector(".modal")?.remove(); await load(); } catch (err) { toast(err.message); } return; }
+  if (t.dataset.doc) { showDoc(t.dataset.doc); return; }
+  if (t.id === "seedCancel") { e.stopPropagation(); F.planting = false; render(); return; }
+  if (t.id === "seedGo") {
+    e.stopPropagation(); const text = ($("#seedText")?.value || "").trim(); if (!text) { toast("写下这个抱负"); return; }
+    try { await api(`/v1/users/${F.uid}/aims`, { body: { text } }); F.planting = false; toast("种下了：进入它，给它选一个工作文件夹，按 ▶ 开始"); await load(); } catch (err) { toast(err.message); }
+    return;
+  }
+  if (t.id === "seed") { if (!F.planting) { F.planting = true; render(); $("#seedText")?.focus(); } return; }
+  const id = t.dataset.enter || t.dataset.tree; if (id) enter(id);
+});
+$("#toDesk").href = "/console" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : ""); $("#home").href = "/forest" + (AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "");
+addEventListener("pageshow", (e) => { if (e.persisted) { G.going = false; document.body.classList.remove("entering"); document.querySelectorAll(".flyer, .burst").forEach((x) => x.remove()); } });
+load(); setInterval(() => load().catch(() => {}), 15000);
+</script>
+</body>
+</html>

@@ -6,8 +6,17 @@
   const ROW = 50;
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function layout(T, W, row = ROW, labelW = 0) {
-    const list = (T?.nodes || []).filter((n) => n.kind !== "bud").sort((a, b) => a.seq - b.seq).map((n, i) => ({ ...n, row: i }));
+  function visible(T, showHidden) {
+    const all = (T?.nodes || []).filter((n) => n.kind !== "bud"), by = new Map(all.map((n) => [n.id, n]));
+    if (showHidden) return { nodes: all, folded: new Map() };
+    const gone = (n) => { for (let x = n, i = 0; x && i < 400; x = by.get(x.parent), i++) if (x.hidden) return true; return false; };
+    const keep = all.filter((n) => !gone(n)), folded = new Map();
+    for (const n of all) if (n.hidden && !gone(by.get(n.parent))) { const p = n.parent || "root"; folded.set(p, (folded.get(p) || 0) + 1); }
+    return { nodes: keep, folded };
+  }
+  function layout(T, W, row = ROW, labelW = 0, showHidden = false) {
+    const vis = visible(T, showHidden);
+    const list = vis.nodes.sort((a, b) => a.seq - b.seq).map((n, i) => ({ ...n, row: i }));
     const by = new Map(list.map((n) => [n.id, n]));
     const pid = (n) => (n.parent && by.has(n.parent) ? n.parent : "root");
     const kids = new Map(); for (const n of list) { const p = pid(n); if (!kids.has(p)) kids.set(p, []); kids.get(p).push(n); }
@@ -25,7 +34,7 @@
     const maxL = Math.max(1, ...[...lane.values()].map(Math.abs)), gap = Math.max(26, Math.min(66, (W / 2 - (labelW || 170)) / maxL));
     const H = (list.length + 1) * row + 150, cx = W / 2, y0 = H - 120;
     for (const n of list) { n.lane = lane.get(n.id); n.depth = depth.get(n.id); n.x = cx + n.lane * gap; n.y = y0 - (n.row + 1) * row; n.p = pid(n); }
-    return { list, by, kids, H, W, cx, y0, row };
+    return { list, by, kids, H, W, cx, y0, row, folded: vis.folded };
   }
 
   function focusPath(T) {
@@ -36,7 +45,7 @@
 
   /* opts: { sel: {id, bud}, seen: Set (ids already drawn: no growth animation), aimText, row } → the layout */
   function draw(svg, T, W, opts = {}) {
-    const L = layout(T, W, opts.row || ROW, (opts.labelChars || 22) * 12.5 + 20), row = L.row;
+    const L = layout(T, W, opts.row || ROW, (opts.labelChars || 22) * 12.5 + 20, !!opts.showHidden), row = L.row;
     const seen = opts.seen || new Set(), first = !seen.size, sel = opts.sel || {}, foc = focusPath(T);
     let fresh = 0;
     const delay = (n) => (seen.has(n.id) ? null : (first ? n.row * 45 : (fresh++) * 160));
@@ -81,15 +90,21 @@
       dots += `<g class="tn ${n.kind} ${n.tip ? "tip" : ""} ${sel.id === n.id && sel.bud == null ? "sel" : ""} ${focus ? "focus" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})" style="${d !== null ? `animation-delay:${d + 280}ms` : ""}">
         <circle class="halo" r="${(r + 7).toFixed(1)}"/><circle class="body" r="${r.toFixed(1)}"/>${n.open ? `<circle class="open" r="${Math.min(2.6, r - 1.5).toFixed(1)}"/>` : ""}<title>${esc(n.title)}</title></g>`;
       const right = n.lane >= 0, lx = n.x + (right ? r + 9 : -(r + 9)), max = opts.labelChars || 22, short = n.title.length > max ? n.title.slice(0, max - 1) + "…" : n.title;
-      const meta = [n.codes?.length ? n.codes.join("–") : "", `${n.turns} 轮`, n.samples ? `${n.samples} 次生成` : "", n.git?.commits ? `⎇ ${n.git.commits}` : ""].filter(Boolean).join(" · ");
+      const meta = [n.kind === "exchange" ? "交流" : "", n.codes?.length ? n.codes.join("–") : "", `${n.turns} 轮`, n.samples ? `${n.samples} 次生成` : "", n.git?.commits ? `⎇ ${n.git.commits}` : "",
+        n.dataset ? "已沉淀" : "", L.folded.get(n.id) ? `收起 ${L.folded.get(n.id)}` : "", n.hidden ? "已隐藏" : ""].filter(Boolean).join(" · ");
       labels += `<text class="tl ${n.kind} ${sel.id === n.id ? "sel" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" x="${lx.toFixed(1)}" y="${(n.y - 1).toFixed(1)}" text-anchor="${right ? "start" : "end"}" style="${d !== null ? `animation-delay:${d + 320}ms` : ""}">${esc(short)}<tspan class="tm" x="${lx.toFixed(1)}" dy="13">${esc(meta)}</tspan></text>`;
+    }
+    let arcs = "";
+    for (const n of L.list) if (n.kind === "exchange" && n.with && L.by.has(n.with)) {
+      const o = L.by.get(n.with), mx = (n.x + o.x) / 2 + (n.lane >= o.lane ? 60 : -60), my = (n.y + o.y) / 2;
+      arcs += `<path class="xarc" d="M ${n.x} ${n.y} Q ${mx} ${my}, ${o.x} ${o.y}"><title>交流：${esc(n.title)}</title></path>`;
     }
     const aimText = opts.aimText || T?.aim?.text || "", short = aimText.length > 26 ? aimText.slice(0, 25) + "…" : aimText;
     svg.setAttribute("viewBox", `0 0 ${L.W} ${L.H}`); svg.setAttribute("width", L.W); svg.setAttribute("height", L.H);
     svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="#e9a94b" stop-opacity=".55"/><stop offset="1" stop-color="#e9a94b" stop-opacity="0"/></radialGradient>
         <linearGradient id="ground" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
       <line x1="${L.cx - 230}" x2="${L.cx + 230}" y1="${L.y0 + 4}" y2="${L.y0 + 4}" stroke="url(#ground)"/>
-      <g class="roots">${roots}</g><g>${edges}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
+      <g class="roots">${roots}</g><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
       <g class="seed"><circle r="26" cx="${L.cx}" cy="${L.y0}" fill="url(#seedGlow)"/><circle class="seedbody" r="9" cx="${L.cx}" cy="${L.y0}"/></g>
       <text class="rootlbl" x="${L.cx}" y="${L.y0 + 74}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L.cx}" dy="14">根 · 这个抱负</tspan></text>
       <g>${dots}</g><g>${labels}</g>`;
@@ -106,6 +121,8 @@
 .treewrap .sap { fill: none; stroke: rgba(255,214,150,.9); stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: .05 .95; stroke-dashoffset: 1;
   animation: pgaSap 2.8s linear infinite; filter: drop-shadow(0 0 3px rgba(233,169,75,.9)); pointer-events: none; }
 @keyframes pgaSap { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.treewrap .xarc { fill: none; stroke: rgba(156,195,230,.6); stroke-width: 1.2; stroke-dasharray: 4 4; }
+.treewrap .tn.exchange .body { stroke: #9cc3e6; } .treewrap text.exchange { fill: #b6d3ec; }
 .treewrap .twig { fill: none; stroke: rgba(222,230,234,.26); stroke-width: .8; } .treewrap .twigend { fill: rgba(222,230,234,.45); }
 .treewrap .bud { fill: rgba(5,5,5,.8); stroke: #e9a94b; stroke-width: 1; cursor: pointer; } .treewrap .bud:hover, .treewrap .bud.on { fill: #e9a94b; }
 .treewrap .pop { opacity: 0; animation: pgaPop .55s ease forwards; }
@@ -125,5 +142,95 @@
 .treewrap .rootlbl { font-size: 12.5px; fill: #e9a94b; cursor: default; }`;
   if (!document.getElementById("pgaTreeCss")) { const st = document.createElement("style"); st.id = "pgaTreeCss"; st.textContent = CSS; document.head.appendChild(st); }
 
-  window.PGATree = { layout, draw, esc, ROW };
+  /* the turns of a node as a group chat: agents on the left (each its own colour), you on the right, findings and
+     ideas as small cards in the middle, a time line where the dialogue paused */
+  const HUES = [205, 160, 32, 280, 345, 95, 190, 250];
+  const hue = (name) => { let h = 0; for (const c of String(name || "")) h = (h * 31 + c.charCodeAt(0)) >>> 0; return HUES[h % HUES.length]; };
+  const KIND = { question: "提问", answer: "回答", insight: "发现", reflect: "回顾", correction: "指正", checkpoint: "检查点", evolve: "进化", summary: "总结", plan: "计划" };
+  const ROLE = { lead: "主持", researcher: "研究员", critic: "审阅" };
+  const when = (iso) => new Date(iso).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  function samples(d) {
+    if (!d.samples?.length) return "";
+    return `<details class="cs"><summary>${d.samples.length} 次生成 · 分歧 ${(d.divergence ?? 0).toFixed(2)}${d.ideas?.length ? ` · ${d.ideas.length} 个新想法` : ""}</summary>
+      <div class="spread"><i style="width:${Math.round((d.divergence ?? 0) * 100)}%"></i></div>
+      ${(d.agreed || []).length ? `<div class="agreed">共识：${esc(d.agreed.join("；"))}</div>` : ""}
+      ${(d.ideas || []).map((x) => `<div class="idea">✦ ${esc(x.idea)}</div>`).join("")}
+      <div class="smps">${d.samples.map((x) => `<div class="smp1"><div class="sh"><b>样本 ${x.n}</b> ${esc(x.agent)} · ${esc(x.angle || "")} · 把握 ${Math.round((x.confidence ?? .5) * 100)}%</div><div class="sx">${esc(x.answer)}</div></div>`).join("")}</div></details>`;
+  }
+  function chat(notes, opts = {}) {
+    const md = opts.md || esc;
+    let out = "", last = null, lastQ = null;
+    for (const x of notes || []) {
+      const d = x.data || {}, at = new Date(x.at);
+      if (!last || at - last > 25 * 60 * 1000) out += `<div class="ctime">${esc(when(x.at))}</div>`;
+      last = at;
+      const me = x.agent === "you" || x.kind === "correction";
+      if (!me && !["question", "answer"].includes(x.kind)) {                // findings, ideas, reviews: a card in the middle
+        const insp = d.inspiration, icon = insp ? "✦" : { insight: "◇", reflect: "↺", checkpoint: "⏸", evolve: "⚙", summary: "≡", plan: "☰" }[x.kind] || "·";
+        out += `<div class="cnote ${insp ? "insp" : x.kind}"><span class="ci">${icon} ${esc(insp ? "灵感" : KIND[x.kind] || x.kind)}${x.agent ? ` · ${esc(x.agent)}` : ""}</span><div>${esc(x.text)}</div></div>`;
+        continue;
+      }
+      const name = me ? "你" : (x.agent || ROLE[x.role] || "agent"), h = hue(name);
+      const tag = `${KIND[x.kind] || x.kind}${d.code ? " " + d.code : ""}`;
+      const quote = x.kind === "answer" && d.question && lastQ !== d.code ? `<div class="cq">↪ ${esc(d.question)}</div>` : "";
+      if (x.kind === "question") lastQ = d.code;
+      const subs = [];
+      if (x.kind === "question" && d.why) subs.push(`为什么问：${esc(d.why)}`);
+      if (x.kind === "question" && x.status && x.status !== "answered") subs.push({ open: "待研究", for_you: "等你回答", dropped: "已放下" }[x.status] || x.status);
+      if (x.kind === "answer" && d.confidence != null) subs.push(`把握 ${Math.round(d.confidence * 100)}%`);
+      if (d.proposal) subs.push(`提出改进 ${esc(d.proposal)}`);
+      if ((d.evidence || []).length) subs.push(`依据 ${d.evidence.slice(0, 4).map((e) => `<code>${esc(e)}</code>`).join(" ")}${d.evidence.length > 4 ? " …" : ""}`);
+      out += `<div class="cmsg ${me ? "me" : ""} ${x.kind}">
+        ${me ? "" : `<div class="cav" style="--h:${h}" title="${esc(name)}">${esc(name.slice(0, 1).toUpperCase())}</div>`}
+        <div class="cbody"><div class="cwho">${me ? "" : `<b style="color:hsl(${h} 60% 72%)">${esc(name)}</b>${x.role ? ` ${esc(ROLE[x.role] || x.role)}` : ""} · `}<span>${esc(tag)}</span></div>
+          <div class="cb">${quote}<div class="ct ${x.kind === "answer" ? "md" : ""}">${x.kind === "answer" ? md(x.text) : esc(x.text)}</div>
+            ${subs.length ? `<div class="csub">${subs.join(" · ")}</div>` : ""}${samples(d)}</div></div></div>`;
+    }
+    return `<div class="chat">${out || `<div class="ctime">还没有对话</div>`}</div>`;
+  }
+  const CHAT_CSS = `
+.chat { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+.chat .ctime { align-self: center; font-size: 11px; color: #777; background: rgba(255,255,255,.04); padding: 1px 10px; border-radius: 10px; }
+.chat .cmsg { display: flex; gap: 10px; align-items: flex-start; max-width: 92%; }
+.chat .cmsg.me { align-self: flex-end; flex-direction: row-reverse; }
+.chat .cav { flex: none; width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font: 600 14px/1 "Inter", sans-serif;
+  color: #0b0d10; background: hsl(var(--h) 55% 68%); }
+.chat .cbody { min-width: 0; display: flex; flex-direction: column; }
+.chat .cmsg.me .cbody { align-items: flex-end; }
+.chat .cwho { font-size: 11.5px; color: #8a8a8a; margin: 0 4px 3px; } .chat .cwho span { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; }
+.chat .cb { position: relative; background: #15191e; border: 1px solid rgba(255,255,255,.07); border-radius: 4px 14px 14px 14px; padding: 9px 13px; line-height: 1.7; font-size: 13.5px; color: #e6e9eb; }
+.chat .cmsg.question .cb { background: #12161b; border-color: rgba(222,230,234,.14); }
+.chat .cmsg.answer .cb { background: #151b22; }
+.chat .cmsg.me .cb { background: #2b4a33; border-color: rgba(150,214,160,.35); border-radius: 14px 4px 14px 14px; color: #eef6ef; }
+.chat .ct { white-space: pre-wrap; word-break: break-word; } .chat .ct.md { white-space: normal; } .chat .ct.md p { margin: .35em 0; }
+.chat .ct.md ul, .chat .ct.md ol { padding-left: 20px; margin: .3em 0; } .chat .ct.md code, .chat code { font: 11.5px "JetBrains Mono", ui-monospace, monospace; background: rgba(255,255,255,.06); padding: 0 4px; }
+.chat .ct.md pre { background: rgba(0,0,0,.35); padding: 8px; overflow: auto; }
+.chat .cq { font-size: 12px; color: #9aa4ab; border-left: 2px solid rgba(255,255,255,.18); padding-left: 8px; margin-bottom: 6px; }
+.chat .csub { margin-top: 6px; font-size: 11.5px; color: #8f989e; }
+.chat .cnote { align-self: center; max-width: 86%; font-size: 12.5px; line-height: 1.65; color: #cfd6da; background: rgba(255,255,255,.035);
+  border: 1px dashed rgba(255,255,255,.14); border-radius: 10px; padding: 7px 12px; }
+.chat .cnote .ci { display: block; font-size: 11px; color: #9aa4ab; margin-bottom: 2px; }
+.chat .cnote.insp { border-color: rgba(233,169,75,.55); color: #f1d3a3; } .chat .cnote.insp .ci { color: #e9a94b; }
+.chat .cs { margin-top: 8px; } .chat .cs summary { cursor: pointer; font-size: 12px; color: #e9a94b; }
+.chat .spread { height: 3px; background: rgba(255,255,255,.08); margin: 6px 0; } .chat .spread i { display: block; height: 100%; background: linear-gradient(90deg, #6fa8d8, #e9a94b, #f08a7a); }
+.chat .agreed { font-size: 12px; color: #9aa4ab; } .chat .idea { color: #e9a94b; font-size: 12.5px; margin: 3px 0; }
+.chat .smps { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-top: 6px; }
+.chat .smp1 { border: 1px solid rgba(255,255,255,.08); border-radius: 8px; padding: 7px 9px; font-size: 12.5px; background: rgba(0,0,0,.2); }
+.chat .smp1 .sh { font-size: 11px; color: #9aa4ab; margin-bottom: 3px; } .chat .smp1 .sh b { color: #e6e9eb; font-weight: 500; } .chat .smp1 .sx { white-space: pre-wrap; }`;
+  if (!document.getElementById("pgaChatCss")) { const st = document.createElement("style"); st.id = "pgaChatCss"; st.textContent = CHAT_CSS; document.head.appendChild(st); }
+
+  /* a node's summary, written as 问 / 发现 / 定 lines, shown as labelled rows */
+  function summary(text) {
+    const lines = String(text || "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    const lab = /^(问|发现|定|下一步|Asked|Found|Next)\s*[:：]\s*/;
+    if (lines.length && lines.every((l) => lab.test(l)))
+      return `<div class="rsum">${lines.map((l) => { const m = l.match(lab); return `<div class="rl"><span class="rk">${esc(m[1])}</span><span>${esc(l.slice(m[0].length))}</span></div>`; }).join("")}</div>`;
+    return `<div class="rsum plain">${esc(text || "")}</div>`;
+  }
+  const SUM_CSS = `.rsum { display: grid; gap: 8px; } .rsum .rl { display: grid; grid-template-columns: 44px 1fr; gap: 10px; line-height: 1.7; font-size: 14px; }
+.rsum .rk { font-size: 12px; color: #e9a94b; border: 1px solid rgba(233,169,75,.4); border-radius: 4px; text-align: center; height: 22px; line-height: 20px; margin-top: 2px; }
+.rsum.plain { line-height: 1.8; font-size: 14px; }`;
+  if (!document.getElementById("pgaSumCss")) { const st = document.createElement("style"); st.id = "pgaSumCss"; st.textContent = SUM_CSS; document.head.appendChild(st); }
+
+  window.PGATree = { layout, draw, esc, ROW, chat, summary, hue };
 })();

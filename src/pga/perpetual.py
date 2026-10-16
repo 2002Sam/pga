@@ -512,8 +512,9 @@ class Perpetual:
 
     def context(self, t: PerpetualTask, aim: Aim, *, answers: int = 6) -> str:
         parts = [self.team.context(aim)]
+        from pga.tree import ThoughtTree, knowledge_context
+        parts.append(knowledge_context(self.rt, aim))           # the user model, the world model, the datasets it refers to
         if (t.settings or {}).get("focus_node"):              # you picked a branch of the thought tree to continue
-            from pga.tree import ThoughtTree
             parts.append(ThoughtTree(self.rt).focus_context(aim, t.settings["focus_node"]))
         p = self.project(t)
         if p:

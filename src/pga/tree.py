@@ -44,6 +44,19 @@ GAP = timedelta(hours=2)            # the rule cut (when no model can curate): a
 TURNS = ("question", "answer", "insight", "reflect", "correction", "checkpoint", "evolve", "summary", "plan")
 MAX_BUDS = 6
 
+STYLE = {
+    "zh": ("title: a short noun phrase, at most 16 Chinese characters. summary: exactly three lines, each starting with its "
+           "label — \"问：\" what this stretch tried to find out (one sentence); \"发现：\" what it found (one or two short sentences "
+           "in plain words: explain what a thing does instead of quoting code names, unless the name is essential); \"定：\" what "
+           "was decided or what comes next (one sentence). key_thoughts: up to 4 items, each a plain statement of at most 25 "
+           "Chinese characters. shift: one short sentence, why attention turned here. Write for a reader who was not there."),
+    "en": ("title: a short noun phrase, at most 8 words. summary: exactly three lines, each starting with its label — "
+           "\"Asked:\" what this stretch tried to find out (one sentence); \"Found:\" what it found (one or two short sentences in "
+           "plain words: explain what a thing does instead of quoting code names, unless the name is essential); \"Next:\" what "
+           "was decided or what comes next (one sentence). key_thoughts: up to 4 items, each a plain statement of at most 12 "
+           "words. shift: one short sentence, why attention turned here. Write for a reader who was not there."),
+}
+
 CURATE = """You keep the thought tree of a long-running agent team that works on one motivation. The root of the tree is
 the motivation; each node is ONE stretch of the team's self-dialogue that follows one line of thought. Cut the new
 stretch of dialogue below into nodes, where attention clearly turned: a new problem, a new angle, a decision, or a return
@@ -55,8 +68,7 @@ Rules:
 - Each new node grows from a parent: the node whose line of thought it continues. Usually that is the node just before it;
   when the dialogue picks up an older thread, the parent is that older node (this is how branches appear). Use "root" only
   for a line of thought that has nothing to do with any node on the tree.
-- title: at most 14 words naming the line of thought. summary: 2-4 sentences — what was asked, found and decided.
-  key_thoughts: up to 4 short items, the pivotal findings or decisions. shift: one sentence, why attention turned here.
+- {style}
 Write title, summary, key_thoughts and shift in {lang}.
 {untrusted}
 Reply with JSON only: {{"extend_latest_until": <index of the last turn that still belongs to the latest node, or -1>,
@@ -64,9 +76,25 @@ Reply with JSON only: {{"extend_latest_until": <index of the last turn that stil
 "title": "...", "summary": "...", "key_thoughts": ["..."], "shift": "..."}}]}}
 "new:<k>" is the k-th new node of this reply (0-based). Turns not covered are attached to the node before them."""
 
+REWRITE = """You keep the thought tree of a long-running agent team. Rewrite the title, summary, key thoughts and shift of the
+nodes below so that someone who was not there understands them at a glance. Keep the meaning; drop jargon; be concrete.
+{style}
+Write in {lang}. {untrusted}
+Reply with JSON only: {{"nodes": [{{"id": "<node id>", "title": "...", "summary": "...", "key_thoughts": ["..."], "shift": "..."}}]}}"""
+
+EXCHANGE = """Two lines of thought from a long-running agent team's thought trees are put side by side (A and B below; they
+may belong to different motivations). Let them talk to each other: what A can take from B, what B can take from A, where
+they disagree or conflict, and one concrete next step that uses both. Be specific and short; plain words.
+Answer in {lang}, as Markdown with four short sections."""
+
 
 class TreeError(RuntimeError):
     pass
+
+
+def _lang(user: User) -> tuple[str, str]:
+    zh = (user.locale or "zh").lower().startswith("zh")
+    return ("Simplified Chinese", "zh") if zh else ("English", "en")
 
 
 def _short(u: uuid.UUID | str) -> str:
@@ -178,8 +206,8 @@ class ThoughtTree:
                 f"{_short(fid)}: new lines of thought from then on most likely grow from it.")
 
     def _curate_window(self, user: User, aim: Aim, turns: list[AimNote], now: datetime) -> tuple[int, int] | None:
-        lang = "Simplified Chinese" if (user.locale or "zh").lower().startswith("zh") else "English"
-        system = CURATE.format(lang=lang, untrusted=UNTRUSTED_NOTE)
+        lang, style = _lang(user)
+        system = CURATE.format(lang=lang, style=STYLE[style], untrusted=UNTRUSTED_NOTE)
         latest = self.latest(aim.id)
         body = "\n".join(self._turn_line(i, n) for i, n in enumerate(turns))
         prompt = (f"Motivation: {aim.text_en or aim.text}\n\nThe tree so far:\n{self._outline(aim)}\n"
@@ -279,7 +307,7 @@ class ThoughtTree:
                                title=_clip(x.get("title"), 120), summary=str(x.get("summary") or "")[:1500],
                                shift=str(x.get("shift") or "")[:400],
                                key_thoughts=[_clip(t, 200) for t in (x.get("key_thoughts") or []) if str(t).strip()][:4],
-                               note_ids=[], data={"mode": "model"}, created_at=utcnow())
+                               note_ids=[], data={"mode": "model", "style": 2}, created_at=utcnow())
             self.s.add(node)
             self.s.flush()
             made.append(node)
@@ -396,10 +424,10 @@ class ThoughtTree:
 
     # -------------------------------------------------------------- continuing from a branch
 
-    def context_for(self, node: ThoughtNode) -> str:
+    def context_for(self, node: ThoughtNode, intro: bool = True) -> str:
         aim = self.s.get(Aim, node.aim_id)
-        lines = [f"You are continuing one branch of the thought tree of the user's motivation: {aim.text_en or aim.text}",
-                 "The branch, from the root to the chosen node:"]
+        lines = [f"You are continuing one branch of the thought tree of the user's motivation: {aim.text_en or aim.text}" if intro
+                 else f"Motivation: {aim.text_en or aim.text}", "The branch, from the root to the chosen node:"]
         for i, n in enumerate(self.path(node)):
             lines.append(f"{'  ' * i}- {n.title}" + (f": {n.summary}" if n.summary else "")
                          + (f" (key: {'; '.join(n.key_thoughts)})" if n.key_thoughts else ""))
@@ -410,8 +438,11 @@ class ThoughtTree:
         if (node.git or {}).get("head"):
             lines.append(f"The code at that point: commit {node.git['head']}" +
                          (f"; files it relied on: {', '.join(f['path'] for f in node.git.get('files') or [])}" if node.git.get("files") else ""))
+        if not intro:
+            return "\n".join(lines)
+        lines.append(knowledge_context(self.rt, aim))
         lines.append("Continue this line of thought with the user. Answer in the user's language.")
-        return "\n".join(lines)
+        return "\n".join(x for x in lines if x)
 
     def branch_for(self, node: ThoughtNode, text: str, bud: str | None = None) -> ThoughtNode:
         """Where your turn goes: a branch of yours continues in place; anywhere else a new branch grows."""
@@ -467,6 +498,225 @@ class ThoughtTree:
         return (f"<focus_branch>\nThe user chose this branch of the thought tree to continue: {path}\n"
                 f"{node.summary}\nPrefer questions that continue this line of thought.\n</focus_branch>")
 
+    # -------------------------------------------------------------- readable again
+
+    def rewrite(self, user: User, aim: Aim, now: datetime | None = None, *, batch: int = 4, limit: int = 40) -> dict:
+        """Rewrite older or hard-to-read summaries in the readable style (nodes you edited are left alone)."""
+        now = now or utcnow()
+        todo = [n for n in self.nodes(aim.id) if n.kind == "segment" and (n.data or {}).get("style") != 2
+                and not (n.data or {}).get("edited")][:limit]
+        lang, style = _lang(user)
+        done = 0
+        for i in range(0, len(todo), batch):
+            group = todo[i:i + batch]
+            parts = []
+            for n in group:
+                turns = [x for x in self.notes_of(n) if x.kind in ("question", "answer", "insight", "correction")]
+                step = max(1, len(turns) // 24)
+                lines = "\n".join(f"- {x.kind}: {_clip(x.text_en or x.text, 220)}" for x in turns[::step][:24])
+                parts.append(f"<node id=\"{_short(n.id)}\">\nCurrent title: {n.title}\nCurrent summary: {n.summary}\n"
+                             f"Current shift: {n.shift}\nSome of its turns:\n{lines}\n</node>")
+            prompt = fence("source", "\n\n".join(parts), 40000, kind="nodes to rewrite")
+            decision = self.rt.allocator.allocate(RunRequest(
+                user_id=user.id, kind="synthesis",
+                justification=Justification(why_now="node summaries are hard to read", expected_gain="a tree you can read at a glance",
+                                            decision_affected="which branch you continue from",
+                                            budget={"max_units": 60_000, "max_output_tokens": 2000}, stop_condition="these nodes rewritten"),
+                estimates=Estimates(information_gain=.3, decision_impact=.3, user_relevance=.9, reuse_value=.6,
+                                    input_tokens=len(prompt) // 3, output_tokens=1200)), now=now)
+            if not decision.allowed:
+                raise TreeDeferred("; ".join(decision.reasons))
+            try:
+                with self.rt.runs.track(decision, now) as guard:
+                    res = self.rt.router.complete(decision.tier, system=REWRITE.format(style=STYLE[style], lang=lang, untrusted=UNTRUSTED_NOTE),
+                                                  messages=[{"role": "user", "content": prompt}], max_tokens=2000, usage=guard.usage_context())
+                    d = parse_json(res.text)
+                    guard.stop("nodes rewritten")
+            except (ModelOutputError, Exception) as exc:  # noqa: BLE001 - leave these as they are; try the next group
+                log.info("rewrite failed: %s", exc)
+                continue
+            by = {_short(n.id): n for n in group}
+            for x in (d.get("nodes") or []) if isinstance(d, dict) else []:
+                n = by.get(str(x.get("id") or "")[:8])
+                if n is None or not str(x.get("title") or "").strip():
+                    continue
+                n.title, n.summary = _clip(x["title"], 60), str(x.get("summary") or n.summary)[:1500]
+                n.key_thoughts = [_clip(t, 80) for t in (x.get("key_thoughts") or []) if str(t).strip()][:4] or n.key_thoughts
+                n.shift = str(x.get("shift") or n.shift)[:400]
+                n.data = {**(n.data or {}), "style": 2}
+                done += 1
+            self.s.flush()
+        return {"rewritten": done, "left": max(0, len(todo) - done)}
+
+    # -------------------------------------------------------------- operations on a node
+
+    def update(self, node: ThoughtNode, *, title: str | None = None, summary: str | None = None,
+               key_thoughts: list | None = None, hidden: bool | None = None, parent: ThoughtNode | None | str = "keep") -> ThoughtNode:
+        """Rename, rewrite, hide / show, or move a node. What you write is never overwritten by the curator."""
+        edited = False
+        if title is not None and title.strip():
+            node.title, edited = _clip(title, 120), True
+        if summary is not None:
+            node.summary, edited = summary.strip()[:3000], True
+        if key_thoughts is not None:
+            node.key_thoughts, edited = [_clip(t, 120) for t in key_thoughts if str(t).strip()][:6], True
+        d = dict(node.data or {})
+        if edited:
+            d["edited"] = True
+        if hidden is not None:
+            d["hidden"] = bool(hidden)
+        node.data = d
+        if parent != "keep":
+            if parent is not None:
+                if parent.aim_id != node.aim_id:
+                    raise TreeError("只能挂到同一棵树的节点下")
+                if any(x.id == node.id for x in self.path(parent)):
+                    raise TreeError("不能挂到它自己的子孙下面")
+            node.parent_id = parent.id if parent is not None else None
+        node.updated_at = utcnow()
+        self.s.flush()
+        return node
+
+    def merge_up(self, node: ThoughtNode) -> ThoughtNode:
+        """Fold a node into its parent: its turns join the parent, its children hang from the parent."""
+        if node.parent_id is None:
+            raise TreeError("直接长在根上的节点没有上一级可以合并")
+        parent = self.s.get(ThoughtNode, node.parent_id)
+        aim = self.s.get(Aim, node.aim_id)
+        for n in self.notes_of(node):
+            self._attach(parent, n)
+        for c in self.nodes(node.aim_id):
+            if c.parent_id == node.id:
+                c.parent_id = parent.id
+        if (node.data or {}).get("dataset") and not (parent.data or {}).get("dataset"):
+            parent.data = {**(parent.data or {}), "dataset": node.data["dataset"]}
+        self.s.flush()                                        # children re-hung before the node goes (its FK cascades)
+        self.s.delete(node)
+        self.s.flush()
+        self._grow_details(aim, parent)
+        self._refresh_growth(aim)
+        return parent
+
+    def delete(self, node: ThoughtNode) -> None:
+        """Only a branch of yours can go away (its turns stay on the motivation's board); a stretch of the team's
+        dialogue can be hidden or merged, never deleted."""
+        if node.kind == "segment":
+            raise TreeError("这是团队对话的一段：可以隐藏或合并到上一级，不能删除")
+        for c in self.nodes(node.aim_id):
+            if c.parent_id == node.id:
+                c.parent_id = node.parent_id
+        self.s.flush()
+        self.s.delete(node)
+        self.s.flush()
+
+    def new_branch(self, node: ThoughtNode, title: str, kind: str = "user", data: dict | None = None) -> ThoughtNode:
+        seq = int(self.s.scalar(select(func.max(ThoughtNode.seq)).where(ThoughtNode.aim_id == node.aim_id)) or 0) + 1
+        b = ThoughtNode(user_id=node.user_id, aim_id=node.aim_id, parent_id=node.id, kind=kind, seq=seq, title=_clip(title, 60),
+                        summary="", note_ids=[], data=data or {}, created_at=utcnow())
+        self.s.add(b)
+        self.s.flush()
+        return b
+
+    # -------------------------------------------------------------- a line of thought, distilled
+
+    def subtree(self, node: ThoughtNode) -> list[ThoughtNode]:
+        all_ = self.nodes(node.aim_id)
+        kids: dict = {}
+        for n in all_:
+            kids.setdefault(n.parent_id, []).append(n)
+        out, stack = [], [node]
+        while stack:
+            n = stack.pop()
+            out.append(n)
+            stack.extend(kids.get(n.id, []))
+        return sorted(out, key=lambda n: n.seq)
+
+    def branch_material(self, node: ThoughtNode) -> str:
+        """What the distiller reads: the path to this node, then the node and everything that grew from it."""
+        aim = self.s.get(Aim, node.aim_id)
+        path = "\n".join(f"- {n.title}: {n.summary}" for n in self.path(node)[:-1])
+        body = []
+        for n in self.subtree(node):
+            body.append(f"## {n.title}\n{n.summary}\nKey: {'; '.join(n.key_thoughts or [])}")
+            for x in self.notes_of(n):
+                if x.kind in ("question", "answer", "insight", "correction"):
+                    d = x.data or {}
+                    body.append(f"[{x.kind}{(' ' + d['code']) if d.get('code') else ''}] {_clip(x.text_en or x.text, 900)}")
+        return (f"Motivation: {aim.text_en or aim.text}\nHow this line of thought was reached:\n{path or '(it starts at the root)'}\n\n"
+                + fence("source", "\n".join(body), 30000, kind="the line of thought and everything that grew from it"))
+
+    def distill(self, user: User, node: ThoughtNode, now: datetime | None = None):
+        """Write this line of thought (the node and its subtree) into a curated dataset other trees can use."""
+        from pga.db.models import Body
+        from pga.db.types import Origin
+        from pga.knowledge.datasets import Datasets
+        b = None
+        if (node.data or {}).get("dataset"):
+            b = self.s.get(Body, uuid.UUID(str(node.data["dataset"])))
+        if b is None:
+            b = Body(user_id=node.user_id, aim_id=node.aim_id, kind="database", title=_clip(f"思路 · {node.title}", 120),
+                     title_en=_clip(f"Line of thought: {node.title}", 200), description="", description_en="", private=False,
+                     origin=Origin.SYSTEM, system="branch", created_at=now or utcnow())
+            self.s.add(b)
+            self.s.flush()
+            node.data = {**(node.data or {}), "dataset": str(b.id)}
+            self.s.flush()
+        out = Datasets(self.rt).compile(user, b, now)
+        return b, out
+
+    def node_of_dataset(self, body_id: uuid.UUID) -> ThoughtNode | None:
+        return self.s.scalar(select(ThoughtNode).where(ThoughtNode.data["dataset"].as_string() == str(body_id)).limit(1))
+
+    def markdown(self, node: ThoughtNode) -> str:
+        aim = self.s.get(Aim, node.aim_id)
+        out = [f"# {node.title}", "", f"> 抱负：{aim.text}", f"> 路径：{' › '.join(n.title for n in self.path(node))}"]
+        if node.first_at:
+            out.append(f"> 时间：{node.first_at:%Y-%m-%d %H:%M} – {(node.last_at or node.first_at):%Y-%m-%d %H:%M}")
+        if node.shift:
+            out += ["", f"**注意力为什么转到这里**：{node.shift}"]
+        if node.summary:
+            out += ["", node.summary]
+        if node.key_thoughts:
+            out += ["", "## 关键想法", *[f"- {k}" for k in node.key_thoughts]]
+        buds = (node.data or {}).get("buds") or []
+        if buds:
+            out += ["", "## 还没走的灵感", *[f"- {b['idea']}" for b in buds]]
+        g = node.git or {}
+        if g.get("head"):
+            out += ["", "## 代码", f"- 当时的代码：[{g['head']}]({g.get('head_url')})",
+                    *[f"- [{c['sha'][:7]}]({c.get('url')}) {c['subject']}" for c in g.get("commits") or []],
+                    *[f"- 引用：[{f['path']}]({f.get('url')})" for f in g.get("files") or []]]
+        out += ["", "## 对话"]
+        for x in self.notes_of(node):
+            d = x.data or {}
+            who = "你" if x.agent == "you" or x.kind == "correction" else (x.agent or x.role or "agent")
+            out += ["", f"**{who} · {x.kind}{(' ' + d['code']) if d.get('code') else ''}** · {x.created_at:%m-%d %H:%M}", "", x.text]
+        return "\n".join(out) + "\n"
+
+    # -------------------------------------------------------------- branches talking to each other
+
+    def exchange(self, user: User, node: ThoughtNode, other: ThoughtNode, text: str = "", agent: str = "auto") -> tuple[ThoughtNode, dict]:
+        from pga.agents.routing import AgentRouter
+        if other.id == node.id:
+            raise TreeError("选另一个节点来交流")
+        lang, _ = _lang(user)
+        aim = self.s.get(Aim, node.aim_id)
+        a, b = self.context_for(node, intro=False), self.context_for(other, intro=False)
+        context = (EXCHANGE.format(lang=lang) + "\n\n<line_A>\n" + a + "\n</line_A>\n\n<line_B>\n" + b + "\n</line_B>\n\n"
+                   + knowledge_context(self.rt, aim))
+        ask = text.strip() or f"让「{node.title}」和「{other.title}」交流。"
+        reply = AgentRouter(self.rt).ask(user, ask[:4000], agent=agent or "auto", context=context,
+                                         category="serious" if (agent or "auto") == "auto" else None,
+                                         conversation=f"exchange:{node.id}:{other.id}", project=None)
+        x = self.new_branch(node, f"↔ {other.title}", kind="exchange",
+                            data={"with": str(other.id), "with_aim": str(other.aim_id), "with_title": other.title})
+        self.record(x, aim, ask, reply)
+        if (reply.get("text") or "").strip():
+            x.summary = _clip(reply["text"], 600)
+        other.data = {**(other.data or {}), "exchanges": list(dict.fromkeys(((other.data or {}).get("exchanges") or []) + [str(x.id)]))[-12:]}
+        self.s.flush()
+        return x, reply
+
     # -------------------------------------------------------------- for the UI
 
     def out(self, aim: Aim) -> dict:
@@ -478,8 +728,21 @@ class ThoughtTree:
                 repo = github_url(_git(p.path, "remote", "get-url", "origin").strip())
             except (OSError, subprocess.SubprocessError):
                 repo = None
+        task = None
+        if t is not None:
+            from pga.perpetual import AUTONOMY_ZH, DEFAULTS, PHASE_ZH
+            st = {**DEFAULTS, **(t.settings or {})}
+            task = {"id": str(t.id), "status": t.status, "phase": t.phase, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
+                    "phase_note": t.phase_note, "pressure": round(t.pressure, 3), "parts": t.parts or {}, "cycles": t.cycles,
+                    "autonomy": st.get("autonomy"), "autonomy_zh": AUTONOMY_ZH.get(st.get("autonomy"), ""),
+                    "samples": st.get("samples"), "project_id": str(t.project_id) if t.project_id else None,
+                    "next_at": t.next_at.isoformat() if t.next_at else None}
+        for_you = int(self.s.scalar(select(func.count()).select_from(AimNote).where(
+            AimNote.aim_id == aim.id, AimNote.kind == "question", AimNote.status == "for_you")) or 0)
         return {"aim": {"id": str(aim.id), "text": aim.text}, "focus": ((t.settings or {}).get("focus_node") if t else None),
-                "pending": self.pending_count(aim), "repo": repo,
+                "pending": self.pending_count(aim), "repo": repo, "task": task, "for_you": for_you,
+                "project": {"id": str(p.id), "name": p.name} if p else None,
+                "knowledge": knowledge_of(self.rt, aim),
                 "nodes": [node_out(n) for n in self.nodes(aim.id)]}
 
 
@@ -495,11 +758,69 @@ def node_out(n: ThoughtNode, full: bool = False) -> dict:
            "turns": d.get("turns", len(n.note_ids or [])), "questions": d.get("questions", 0), "open": d.get("open", 0),
            "codes": d.get("codes") or [], "sampled": d.get("sampled", 0), "samples": d.get("samples", 0), "spread": d.get("spread"),
            "buds": d.get("buds") or [], "proposals": d.get("proposals") or [], "tip": bool(d.get("tip")), "mode": d.get("mode"),
+           "hidden": bool(d.get("hidden")), "edited": bool(d.get("edited")), "dataset": d.get("dataset"), "style": d.get("style"),
+           "with": d.get("with"), "with_aim": d.get("with_aim"), "with_title": d.get("with_title"), "exchanges": d.get("exchanges") or [],
            "git": {"commits": len((n.git or {}).get("commits") or []), "files": len((n.git or {}).get("files") or []),
                    "head": (n.git or {}).get("head")}}
     if full:
         out["git"] = n.git or {}
     return out
+
+
+def _brief(rt: "Runtime", b) -> str:
+    """The summary (L2) of a dataset if its pyramid is built, else the start of its full text."""
+    lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
+    if 2 in lv:
+        return lv[2].text_en or lv[2].text
+    return _clip(b.description_en or b.description, 900)
+
+
+def knowledge_of(rt: "Runtime", aim: Aim) -> dict:
+    """What a tree knows besides its own dialogue: the two models, its own datasets and skills, what it references."""
+    from pga.db.models import Body, Bridge
+    s = rt.session
+    models = {b.system: b for b in s.scalars(select(Body).where(Body.user_id == aim.user_id, Body.system.in_(["user", "world"])))}
+    own = list(s.scalars(select(Body).where(Body.aim_id == aim.id).order_by(Body.created_at)))
+    ref = f"aim:{aim.id}"
+    refs = []
+    for br in s.scalars(select(Bridge).where(Bridge.user_id == aim.user_id, Bridge.kind == "references",
+                                             (Bridge.a_ref == ref) | (Bridge.b_ref == ref))):
+        other = br.b_ref if br.a_ref == ref else br.a_ref
+        if other.startswith("k:"):
+            try:
+                b = s.get(Body, uuid.UUID(other[2:]))
+            except ValueError:
+                b = None
+            if b is not None:
+                refs.append(b)
+
+    def row(b) -> dict:
+        lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
+        return {"id": str(b.id), "title": b.title, "kind": b.kind, "system": b.system, "aim_id": str(b.aim_id) if b.aim_id else None,
+                "gist": lv[1].text if 1 in lv else None, "compiled_at": b.compiled_at.isoformat() if b.compiled_at else None}
+    return {"user": row(models["user"]) if "user" in models else None, "world": row(models["world"]) if "world" in models else None,
+            "datasets": [row(b) for b in own if b.kind == "database"], "skills": [row(b) for b in own if b.kind == "skill"],
+            "references": [row(b) for b in refs]}
+
+
+def knowledge_context(rt: "Runtime", aim: Aim) -> str:
+    """For every prompt of this tree: the user model, the world model, and the datasets it was told to refer to."""
+    from pga.db.models import Body, Bridge
+    s = rt.session
+    parts = []
+    for b in s.scalars(select(Body).where(Body.user_id == aim.user_id, Body.system.in_(["user", "world"]), Body.compiled_at.is_not(None))):
+        tag = "user_model" if b.system == "user" else "world_model"
+        what = "who the user is (stated and inferred)" if b.system == "user" else "what is happening in the world right now"
+        parts.append(f"<{tag} what=\"{what}\">\n{_brief(rt, b)}\n</{tag}>")
+    ref = f"aim:{aim.id}"
+    for br in s.scalars(select(Bridge).where(Bridge.user_id == aim.user_id, Bridge.kind == "references",
+                                             (Bridge.a_ref == ref) | (Bridge.b_ref == ref)).limit(6)):
+        other = br.b_ref if br.a_ref == ref else br.a_ref
+        if other.startswith("k:"):
+            b = s.get(Body, uuid.UUID(other[2:]))
+            if b is not None and (b.description_en or b.description):
+                parts.append(f"<referenced_knowledge title=\"{_clip(b.title_en or b.title, 80)}\">\n{_brief(rt, b)}\n</referenced_knowledge>")
+    return "\n\n".join(parts)
 
 
 def _git(path: str, *args: str) -> str:

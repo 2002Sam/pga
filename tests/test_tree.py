@@ -117,3 +117,75 @@ def test_github_links_from_any_remote():
     assert github_url("git@github.com:2002Sam/pga.git") == "https://github.com/2002Sam/pga"
     assert github_url("ssh://git@ssh.github.com:443/2002Sam/pga.git") == "https://github.com/2002Sam/pga"
     assert github_url("https://github.com/a/b") == "https://github.com/a/b" and github_url("git@gitlab.com:a/b.git") is None
+
+
+def test_node_operations_distill_reference_and_exchange(session_factory, policy, provider, backend, user, session):
+    """Rename, hide, move, merge, a new branch, delete; distill a line of thought, let another tree refer to it; two branches talk."""
+    from pga.db.models import Body
+
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    aims = AimService(session)
+    aim = aims.create(user, "让项目不断思考", "Keep the project thinking")
+    other_aim = aims.create(user, "健康", "Stay healthy")
+    _dialogue(rt, user, aim, n=10)
+    _dialogue(rt, user, aim, n=6, start=datetime.now(timezone.utc) - timedelta(hours=1))
+    tree = ThoughtTree(rt)
+    tree.curate(user, aim, use_model=False)
+    a, b = tree.nodes(aim.id)
+
+    def handler(system, messages):
+        if "<line_A>" in system:
+            return "## A 能从 B 借鉴\n按主题设阈值。"
+        if system.startswith("You keep one curated knowledge document"):
+            return "# 这条思路\n\nThe team found the cache TTL too short and decided to make it per topic. " * 4
+        return default_fake_reply("m", system, messages)
+    provider.handler = handler
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        r = c.patch(f"/v1/thought-nodes/{b.id}", json={"title": "缓存：按主题", "hidden": True}).json()
+        assert r["title"] == "缓存：按主题" and r["hidden"] and r["edited"]
+        assert c.patch(f"/v1/thought-nodes/{a.id}", json={"parent_id": str(b.id)}).status_code == 409    # not under its own child
+        nb = c.post(f"/v1/thought-nodes/{a.id}/branch", json={"title": "试试别的缓存"}).json()
+        assert nb["kind"] == "user" and nb["parent"] == str(a.id) and nb["turns"] == 0
+        assert c.delete(f"/v1/thought-nodes/{a.id}").status_code == 409                                    # the team's dialogue stays
+        assert c.delete(f"/v1/thought-nodes/{nb['id']}").status_code == 204
+        md = c.get(f"/v1/thought-nodes/{a.id}/markdown").text
+        assert md.startswith("# ") and "## 对话" in md
+        d = c.post(f"/v1/thought-nodes/{a.id}/distill").json()
+        assert d["status"] == "compiled" and d["dataset"]["system"] == "branch"
+        body_id = d["dataset"]["id"]
+        assert c.post(f"/v1/aims/{other_aim.id}/references", json={"body_id": body_id}).status_code == 201
+        t2 = c.get(f"/v1/aims/{other_aim.id}/tree").json()
+        assert [x["id"] for x in t2["knowledge"]["references"]] == [body_id]
+        f = c.get(f"/v1/users/{user.id}/forest").json()
+        assert {t["text"] for t in f["trees"]} == {"让项目不断思考", "健康"}
+        assert next(k for k in f["knowledge"] if k["id"] == body_id)["used_by"] == [str(other_aim.id)]
+        x = c.post(f"/v1/thought-nodes/{a.id}/exchange", json={"with": str(b.id)}).json()
+        assert x["node"]["kind"] == "exchange" and x["node"]["with"] == str(b.id) and x["node"]["parent"] == str(a.id)
+        merged = c.post(f"/v1/thought-nodes/{b.id}/merge").json()
+        assert merged["id"] == str(a.id) and merged["turns"] == 18                                         # 11 + 7 turns
+        assert c.delete(f"/v1/aims/{other_aim.id}/references/{body_id}").status_code == 204
+    session.expire_all()
+    assert session.get(Body, __import__("uuid").UUID(body_id)).system == "branch"
+
+
+def test_every_round_reads_the_user_and_world_models_and_what_it_refers_to(rt, user):
+    from pga.bodies import BodyService
+    from pga.db.models import Body
+    from pga.knowledge.datasets import Datasets
+    from pga.tree import knowledge_context
+
+    aim = AimService(rt.session).create(user, "目标", "aim")
+    sets = Datasets(rt).ensure(user)
+    sets["user"].description_en, sets["user"].compiled_at = "The user builds PGA and likes clean interfaces.", datetime.now(timezone.utc)
+    ref = Body(user_id=user.id, aim_id=None, kind="database", title="别的思路", title_en="Another line", description="d",
+               description_en="Per-topic thresholds beat a global one.", private=False, origin=__import__("pga.db.types", fromlist=["Origin"]).Origin.SYSTEM,
+               system="branch", created_at=datetime.now(timezone.utc))
+    rt.session.add(ref)
+    rt.session.flush()
+    BodyService(rt).bridge(user.id, f"aim:{aim.id}", f"k:{ref.id}", kind="references")
+    ctx = knowledge_context(rt, aim)
+    assert "<user_model" in ctx and "clean interfaces" in ctx and "<world_model" not in ctx   # world not compiled yet
+    assert "Per-topic thresholds" in ctx
