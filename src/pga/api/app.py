@@ -1353,6 +1353,55 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         with rt.billing(user_ctx(u)):
             return {**rt.hub.background_sync(u), "linked": linked}
 
+    # ---------------------------------------------------------------- 时间树: every conversation on one time axis (timeline.py)
+    @app.get("/v1/users/{user_id}/timeline")
+    def time_tree(user_id: uuid.UUID, days: int = Query(90, ge=1, le=730), rt: Runtime = Depends(get_rt)):
+        from pga.timeline import Timeline
+        return Timeline(rt).build(user_or_404(rt, user_id), days)
+
+    @app.post("/v1/users/{user_id}/timeline/organize", status_code=202)
+    def time_tree_organize(user_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
+        """Tidy the loose conversations into lines: same titles join at once; a model reads the rest in the background."""
+        from pga.timeline import Timeline, _prefs, _save
+        u = user_or_404(rt, user_id)
+        out = Timeline(rt).organize_rules(u)
+        if (body or {}).get("use_model", True):
+            tl = _prefs(u)
+            tl["pending"] = True
+            _save(u, tl)
+            rt.workflow.enqueue("timeline.organize", user_id=u.id, payload={}, dedupe_key=f"timeline:{u.id}", priority=60, created_by=Origin.USER)
+        return {**out, "queued": bool((body or {}).get("use_model", True))}
+
+    @app.put("/v1/users/{user_id}/timeline/items")
+    def time_tree_move(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Put a conversation on another line (`line`), or back on its own (`line` empty)."""
+        from pga.timeline import Timeline
+        key = str(body.get("key") or "")[:120]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        Timeline(rt).move(user_or_404(rt, user_id), key, str(body.get("line") or "") or None)
+        return {"key": key, "line": body.get("line") or None}
+
+    @app.put("/v1/users/{user_id}/timeline/lines")
+    def time_tree_rename(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.timeline import Timeline
+        if not str(body.get("line") or "") or not str(body.get("title") or "").strip():
+            raise HTTPException(422, "line and title are needed")
+        Timeline(rt).rename(user_or_404(rt, user_id), str(body["line"])[:120], str(body["title"]))
+        return {"ok": True}
+
+    @app.get("/v1/users/{user_id}/imported/{cid}")
+    def imported_one(user_id: uuid.UUID, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """One conversation imported from another app: its title, where it ran, and the excerpt PGA keeps."""
+        from pga.db.models import AgentConversation, LinkedAgent
+        c = rt.session.get(AgentConversation, cid)
+        a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
+        if c is None or a is None or a.user_id != user_id:
+            raise HTTPException(404, "conversation not found")
+        return {"id": str(c.id), "title": c.title, "agent": a.name, "agent_type": a.connector, "vendor": a.vendor, "project": c.project,
+                "model": c.model, "messages": c.message_count, "excerpt": c.excerpt,
+                "started_at": c.started_at.isoformat() if c.started_at else None, "updated_at": c.updated_at.isoformat() if c.updated_at else None}
+
     @app.get("/v1/users/{user_id}/hub/timeline")
     def hub_timeline(user_id: uuid.UUID, limit: int = Query(300, le=1000), agent: str | None = None, pga: bool = True,
                      rt: Runtime = Depends(get_rt)):
@@ -2298,7 +2347,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         tree = ThoughtTree(rt)
         aim = tree.root_of(n)
         u = user_or_404(rt, aim.user_id)
-        branch = tree.branch_for(n, text, bud=str(body.get("bud") or "") or None)
+        branch = tree.branch_for(n, text, bud=str(body.get("bud") or "") or None, branch=bool(body.get("branch")))
         refs = [str(x) for x in (body.get("refs") or []) if x][:8]
         start = branch if branch.note_ids else n
         context, tail = tree.context_for(start), tree.tail_for(start, text, refs)

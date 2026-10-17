@@ -129,7 +129,7 @@
     }
     const sn = opts.plus && L0.by.get(sel.id);                                        // the + by the selected node: a new node, right away
     const plus = sn ? (() => { const r = Math.max(3.6, Math.min(9.5, 3.2 + Math.sqrt(sn.turns || 1) * .55)), px = sn.x + (sn.lane >= 0 ? -(r + 15) : r + 15);
-      return `<g class="plus" data-plus="${sn.id}" transform="translate(${px.toFixed(1)},${sn.y.toFixed(1)})"><circle r="9"/><path d="M -4 0 H 4 M 0 -4 V 4"/><title>${esc(L("新建一个子节点", "Add a child node"))}</title></g>`; })() : "";
+      return `<g class="plus" data-plus="${sn.id}" transform="translate(${px.toFixed(1)},${sn.y.toFixed(1)})"><circle r="9"/><path d="M 0 4.5 V 0 M 0 0 L -3.6 -4.2 M 0 0 L 3.6 -4.2"/><title>${esc(L("从这里分支", "Branch from here"))}</title></g>`; })() : "";
     const aimText = opts.aimText || T?.aim?.text || "", short = aimText.length > 30 ? aimText.slice(0, 29) + "…" : aimText;
     svg.setAttribute("viewBox", `0 0 ${L0.W} ${L0.H}`); svg.setAttribute("width", L0.W); svg.setAttribute("height", L0.H);
     svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="${C.accent}" stop-opacity=".35"/><stop offset="1" stop-color="${C.accent}" stop-opacity="0"/></radialGradient>

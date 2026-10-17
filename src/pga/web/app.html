@@ -167,7 +167,16 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .ctx hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 /* everyday chats: no tree, just the conversations */
-#vChats { display: grid; grid-template-columns: 280px minmax(0, 1fr); }
+#vChats { display: grid; grid-template-columns: minmax(320px, 36%) minmax(0, 1fr); }
+.clist { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden !important; } .tlwrap { overflow: auto; min-height: 0; }
+.clist .ch button { flex: none; } .tlfoot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); } .tlfoot a { color: var(--muted); margin-left: auto; }
+#tlSvg { display: block; } #tlSvg text { font: 500 12.5px/1 var(--font); fill: var(--text); cursor: pointer; } #tlSvg text .tm { font: 400 10.5px var(--font); fill: var(--dim); }
+#tlSvg .tlday { font: 600 11px var(--font) !important; fill: var(--dim) !important; cursor: default; letter-spacing: .02em; } #tlSvg .tlrule { stroke: var(--line); }
+#tlSvg .tlseg { stroke-width: 2; opacity: .55; stroke-linecap: round; } #tlSvg .tlarc { fill: none; stroke-width: 1.4; stroke-dasharray: 4 4; opacity: .6; }
+#tlSvg .tlseg.on, #tlSvg .tlarc.on { opacity: 1; stroke-width: 2.4; }
+#tlSvg .tlpt { cursor: pointer; } #tlSvg .tlpt circle { fill: var(--panel); stroke: var(--muted); stroke-width: 1.6; }
+#tlSvg .tlpt.chat circle { stroke: var(--blue); } #tlSvg .tlpt.tree circle { stroke: var(--green); fill: rgba(127,207,159,.15); }
+#tlSvg .tlpt:hover text { fill: var(--accent); } #tlSvg .tlpt.on circle { fill: var(--accent); stroke: var(--accent); } #tlSvg .tlpt.on text { fill: var(--accent); }
 .clist { border-right: 1px solid var(--line); overflow: auto; background: var(--canvas); }
 .clist .ch { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; background: var(--canvas); }
 .clist .ch b { flex: 1; font-size: 14px; font-weight: 600; }
@@ -288,7 +297,7 @@ function renderRail() {
   const bar = (id, name, sub, cls, fill, extra = "", ini = "") => `<a class="rb ${cls} ${(S.view === "tree" && S.aim === id) || (id === "chats" && S.view === "chats") ? "on" : ""}" href="${id === "chats" ? "?view=chats" : "?tree=" + id}" data-bar="${id}">
       <span class="rt" data-ini="${esc(ini || [...String(name)][0] || "·")}" title="${esc(name)}">${extra}<span class="n">${esc(name)}</span></span><span class="line"><i style="width:${fill}"></i></span>${sub ? `<span class="rs">${sub}</span>` : ""}</a>`;
   let html = `<div class="grp"><span class="label">${L("对话", "Conversations")}</span></div>`
-    + bar("chats", L("日常对话", "Everyday chats"), chats.length ? L(`${chats.length} 段 · 最近 ${ago(chats[0].last_at)}`, `${chats.length} · latest ${ago(chats[0].last_at)}`) : L("一次性的提问，不用长成树", "One-off questions, no tree needed"), "chat", chats.length ? width(Math.min(maxN, chats.length)) : "4%", "", L("日", "D"))
+    + bar("chats", L("时间树 · 日常对话", "Time tree · everyday chats"), chats.length ? L(`${chats.length} 段 · 最近 ${ago(chats[0].last_at)}`, `${chats.length} · latest ${ago(chats[0].last_at)}`) : L("一次性的提问，不用长成树", "One-off questions, no tree needed"), "chat", chats.length ? width(Math.min(maxN, chats.length)) : "4%", "", L("日", "D"))
     + (F.you ? bar("you", L("你的对话树", "Your conversation tree"), L(`${(F.you.nodes || []).length} 个节点`, `${(F.you.nodes || []).length} nodes`) + (F.you.pending ? L(` · ${F.you.pending} 轮待整理`, ` · ${F.you.pending} to place`) : ""), "mine", width((F.you.nodes || []).length), "", L("你", "Y")) : "")
     + `<div class="grp"><span class="label">${L("抱负 · 每一棵树", "Motivations · the trees")}</span><button class="ghost" id="plant" title="${L("新的抱负", "New motivation")}">+</button></div>`
     + (S.planting ? `<div class="plantbox"><textarea id="seedText" placeholder="${L("一个长期的抱负：你想让 PGA 一直朝什么方向努力？", "A long-range motivation: what should PGA keep working towards?")}"></textarea>
@@ -316,7 +325,7 @@ function show(view, opts = {}) {
   history.replaceState(null, "", qs()); renderRail();
   if (view === "home") { document.title = "PGA"; renderHome(); }
   if (view === "tree") { $("#dlgIn").innerHTML = `<div class="empty">…</div>`; loadTree(); }
-  if (view === "chats") { document.title = L("日常对话 · PGA", "Everyday chats · PGA"); renderChatList(); renderChat(); if (S.chat) loadChat(S.chat); }
+  if (view === "chats") { document.title = L("时间树 · PGA", "Time tree · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }
 }
 
 /* ------------------------------------------------ home: the two models and the library */
@@ -430,7 +439,7 @@ function renderBar() {
     ${T.pending ? `<span class="act" id="curate">${L(`整理 ${T.pending} 轮新对话`, `Place ${T.pending} new turns`)}</span>` : ""}
     ${old ? `<span class="act" id="rewrite">${L(`重写 ${old} 个概括`, `Rewrite ${old} summaries`)}</span>` : ""}
     ${hidden ? `<label><input type="checkbox" id="showHidden" ${S.showHidden ? "checked" : ""}> ${L(`显示隐藏的 ${hidden} 个`, `Show ${hidden} hidden`)}</label>` : ""}`;
-  $("#hint").textContent = L("点节点看对话，点它旁边的 ＋ 新建节点 · 拖动节点移动，拖到另一个节点上链接 · 右键看更多", "Click a node to read it, its + adds a node · drag to move, drop on a node to link · right-click for more");
+  $("#hint").textContent = L("点节点看对话，输入框接着这段对话往下说；点节点旁的分叉图标从那里分支 · 拖动节点移动，拖到另一个节点上链接 · 右键看更多", "Click a node to read it; the composer continues that conversation; the fork icon beside a node branches from there · drag to move, drop on a node to link · right-click for more");
 }
 function drawTree(scroll) {
   const side = $("#treeSide");
@@ -441,7 +450,7 @@ function drawTree(scroll) {
 function select(id, bud = null) {
   if (!id) return;
   if (S.op === "exchange-pick" && id !== S.node) { S.exWith = id; S.op = "exchange"; S.drawer = true; renderDrawer(); return; }
-  S.node = id; S.bud = bud; if (S.op !== null && S.op !== "exchange") S.op = null;
+  S.node = id; S.bud = bud; if (S.op !== null && S.op !== "exchange") S.op = null; if (S.branchFrom !== id) S.branchFrom = null;
   history.replaceState(null, "", qs());
   drawTree(false); renderHead(); renderDialog(); renderCont(); renderDrawer(); loadNode(id);
   scrollToSeam();
@@ -511,7 +520,7 @@ function renderDrawer() {
   $("#nh").innerHTML = `<div class="top"><div class="crumb">${(d?.path || []).slice(0, -1).map((x) => `<a href="#" data-go="${x.id}">${esc(x.title.length > 14 ? x.title.slice(0, 13) + "…" : x.title)}</a>`).join(" / ") || "&nbsp;"}</div><button class="sm ghost" id="drawerClose">✕</button></div>
     <div class="t"><span class="kind">${bud ? L("灵感", "Idea") : kindLabel(n)}</span><h2>${esc(bud ? bud.idea : n.title)}</h2></div>
     ${bud ? "" : `<div class="tools">
-      <button class="sm" data-op="edit">${L("编辑", "Edit")}</button><button class="sm" data-op="newnode">${L("＋ 子节点", "+ Child node")}</button>
+      <button class="sm" data-op="edit">${L("编辑", "Edit")}</button><button class="sm" data-op="branchhere">${L("从这里分支", "Branch from here")}</button>
       <button class="sm" data-op="exchange-pick">${L("和别的分支交流", "Exchange")}</button><button class="sm" data-op="distill">${n.dataset ? L("重新沉淀", "Distill again") : L("沉淀为知识", "Distill")}</button>
       <button class="sm" data-op="move">${L("移到…", "Move…")}</button><button class="sm" data-op="hide">${n.hidden ? L("显示", "Show") : L("隐藏", "Hide")}</button>
       ${n.parent && n.kind === "segment" ? `<button class="sm" data-op="merge">${L("合并到上一级", "Merge up")}</button>` : ""}<button class="sm" data-op="markdown">Markdown</button>
@@ -635,13 +644,14 @@ function renderCont() {
   const n = nodeOf(S.node), box = $("#tnText"); if (box) S.draft = box.value;
   if (!n) { $("#cont").innerHTML = ""; return; }
   const bud = S.bud != null ? (n.buds || [])[S.bud] : null, K = S.forest?.knowledge || [];
-  $("#cont").innerHTML = `<div class="inner">${bud ? `<div class="budbar"><span>${L("沿这个灵感长出分支：", "Grow a branch along this idea: ")}${esc(bud.idea)}</span><a href="#" data-go="${n.id}">${L("取消", "Cancel")}</a></div>` : ""}
+  const bf = S.branchFrom && nodeOf(S.branchFrom), end = chainEnd();
+  $("#cont").innerHTML = `<div class="inner">${bf ? `<div class="budbar"><span>${L(`从「${esc(bf.title)}」分出一条新分支：写下新方向的第一句`, `Branching from “${esc(bf.title)}”: write the first line of the new direction`)}</span><a href="#" id="unbranch">${L("取消", "Cancel")}</a></div>` : ""}${bud ? `<div class="budbar"><span>${L("沿这个灵感长出分支：", "Grow a branch along this idea: ")}${esc(bud.idea)}</span><a href="#" data-go="${n.id}">${L("取消", "Cancel")}</a></div>` : ""}
     <div class="refs">${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-crefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}${S.tree?.focus === n.id && !YOU() ? `<span style="color:var(--accent)">${L("PGA 正沿着这里想", "PGA is following this branch")}</span><a href="#" data-focus="">${L("取消", "Stop")}</a>` : ""}</div>
     <div class="cbar"><select id="crefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
-      <textarea id="tnText" rows="1" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : L(`从「${n.title.length > 14 ? n.title.slice(0, 13) + "…" : n.title}」继续…（⌘/Ctrl + Enter）`, `Continue from “${n.title.length > 20 ? n.title.slice(0, 19) + "…" : n.title}”… (⌘/Ctrl + Enter)`)}">${esc(S.draft || "")}</textarea>
+      <textarea id="tnText" rows="1" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : bf ? L("新分支的第一句…（⌘/Ctrl + Enter）", "The new branch's first line… (⌘/Ctrl + Enter)") : L(`继续这段对话…（⌘/Ctrl + Enter）`, `Continue this conversation… (⌘/Ctrl + Enter)`)}" title="${bf ? "" : esc(L(`接在「${end?.title || ""}」后面`, `After “${end?.title || ""}”`))}">${esc(S.draft || "")}</textarea>
       <button class="ghost" id="ctxBtn" style="height:36px" title="${L("这次会带上什么上下文", "What context this message carries")}">${L("上下文", "Context")}</button>
       <select id="tnAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
-      <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : bud ? L("长出", "Grow") : L("发送", "Send")}</button></div></div>`;
+      <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : bud || bf ? L("分支", "Branch") : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#tnText"));
 }
 function autoGrow(t) { if (!t) return; t.style.height = "36px"; t.style.height = Math.min(240, t.scrollHeight + 2) + "px"; }
@@ -654,7 +664,7 @@ function openCtx(x, y, id) {
   const mine = n.kind !== "segment", m = document.createElement("div"); m.className = "ctx";
   m.innerHTML = `<div class="ch">${esc(n.title)}</div>
     <button data-cx="continue">${L("从这里继续对话", "Continue the conversation here")}<kbd>↵</kbd></button>
-    <button data-cx="newnode">${L("新建一个子节点", "Add a child node")}</button>
+    <button data-cx="branch">${L("从这里分支", "Branch from here")}</button>
     <button data-cx="details">${L("查看详情", "Details")}</button>
     <hr><button data-cx="edit">${L("编辑标题和概括…", "Edit title and summary…")}</button>
     <button data-cx="exchange-pick">${L("和别的分支交流…", "Exchange with another branch…")}</button>
@@ -671,7 +681,7 @@ async function ctxDo(op, id) {
   closeCtx(); if (S.node !== id) select(id);
   if (op === "continue") { S.drawer = false; renderDrawer(); renderHead(); $("#tnText")?.focus(); return; }
   if (op === "details") { S.drawer = true; renderDrawer(); renderHead(); return; }
-  if (op === "newnode") { newNode(id); return; }
+  if (op === "branch") { branchFrom(id); return; }
   if (op.startsWith("unlink:")) { try { await api(`/v1/thought-nodes/${id}/links/${op.slice(7)}`, { method: "DELETE" }); await loadTree(true); drawTree(false); toast(L("已断开", "Unlinked")); } catch (err) { toast(err.message); } return; }
   if (op === "unpos") { try { await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { pos: null } }); await loadTree(true); drawTree(false); } catch (err) { toast(err.message); } return; }
   if (op === "focus") { const on = S.tree?.focus === id; focusOn(on ? "" : id); return; }
@@ -695,15 +705,18 @@ async function focusOn(id) {
 
 /* ------------------------------------------------ doing things in a tree */
 async function refresh(id) { S.forest = null; if (id) delete S.detail[id]; await loadTree(true); renderAll(); renderCont(); if (S.node) loadNode(S.node, true); }
+/* the composer continues the conversation you are reading (at its end); a branch starts from the node you picked */
+const chainEnd = () => { const { nodes } = chainOf(S.node); return nodes[nodes.length - 1] || nodeOf(S.node); };
 async function send() {
-  const n = nodeOf(S.node), text = ($("#tnText")?.value || "").trim(); if (!n) return;
+  const branching = S.branchFrom && nodeOf(S.branchFrom);
+  const n = branching || (S.bud != null ? nodeOf(S.node) : chainEnd()), text = ($("#tnText")?.value || "").trim(); if (!n) return;
   if (!text) { toast(L("先写下你要从这里问什么", "Write what you want to ask first")); return; }
   const bud = S.bud != null ? (n.buds || [])[S.bud]?.idea : null;
   S.sending = true; S.draft = text; renderCont();
   try {
-    const r = await api(`/v1/thought-nodes/${n.id}/continue`, { body: { text, agent: $("#tnAgent")?.value || "auto", bud, refs: S.contRefs } });
+    const r = await api(`/v1/thought-nodes/${n.id}/continue`, { body: { text, agent: $("#tnAgent")?.value || "auto", bud, refs: S.contRefs, branch: !!branching } });
     if (r.reply?.error && !r.reply?.text) toast(r.reply.error);
-    S.draft = ""; delete S.detail[r.node.id];
+    S.draft = ""; S.branchFrom = null; delete S.detail[r.node.id];
     await loadTree(true); S.node = r.node.id; S.bud = null; history.replaceState(null, "", qs());
     drawTree(true); await loadNode(r.node.id, true);
   } catch (err) { toast(err.message); }
@@ -811,18 +824,159 @@ async function showDoc(id) {
     ${d.system && !d.compiled_at ? `<button class="primary" data-compile="${id}" style="margin-top:14px">${L("现在整理", "Compile now")}</button>` : ""}`);
 }
 
-/* ------------------------------------------------ everyday chats */
+/* ------------------------------------------------ everyday chats, on the time tree */
 const chatOf = (k) => (S.chats || []).find((c) => c.key === k);
-function renderChatList() {
-  const xs = S.showArch ? (S.allChats || []).filter((c) => c.archived) : S.chats, nArch = (S.allChats || []).filter((c) => c.archived).length;
-  $("#clist").innerHTML = `<div class="ch"><b>${L("日常对话", "Everyday chats")}</b><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`
-    + (xs == null ? `<div class="empty">…</div>` : xs.length ? xs.map((c) => `<div class="ci2 ${c.key === S.chat ? "on" : ""}" data-chat="${esc(c.key)}"><div class="a"><b>${esc(c.title || L("（没有内容）", "(empty)"))}</b><small>${esc(ago(c.last_at))}</small></div>
-        <div class="b">${esc(c.agent && c.agent !== "-" ? c.agent : "AI")}${c.turns > 1 ? L(` · ${c.turns} 轮`, ` · ${c.turns} turns`) : ""}${c.last ? " · " + esc(c.last) : ""}</div>
-        <button class="sm arch" data-arch="${esc(c.key)}" data-to="${c.archived ? "0" : "1"}">${c.archived ? L("取消归档", "Unarchive") : L("归档", "Archive")}</button></div>`).join("")
-      : `<div class="empty" style="padding:20px 14px">${S.showArch ? L("没有归档的对话。", "Nothing archived.") : L("还没有。日常的、一次性的问题放在这里，不用长成树。", "None yet. Everyday one-off questions go here; no tree needed.")}</div>`)
-    + (nArch || S.showArch ? `<div style="padding:10px 14px;border-top:1px solid var(--line)"><a href="#" id="archToggle" style="font-size:12.5px;color:var(--muted)">${S.showArch ? L("← 回到对话", "← Back to chats") : L(`已归档 ${nArch} 段`, `${nArch} archived`)}</a></div>` : "");
+const hueOf = (x) => { let h = 7; for (const c of String(x)) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+const CONN = { claude_code: "claude", codex: "codex", hermes: "hermes", workbuddy: "workbuddy", codebuddy: "workbuddy" };
+function pollTidy(n = 0) { setTimeout(async () => { await loadTimeline(); if (S.tl?.pending && n < 40) pollTidy(n + 1); else if (n) toast(L("整理完了", "Tidied")); }, 6000); }
+async function loadTimeline() {
+  try { S.tl = await api(`/v1/users/${S.uid}/timeline?days=120`); } catch { S.tl = S.tl || { sessions: [], lines: {} }; }
+  if (S.view === "chats") renderTimeline();
+}
+const renderChatList = () => renderTimeline();
+/* rows go by time; each line holds a lane while it keeps talking (next session within a day); when it comes back later
+   it takes a free lane and a path is drawn from where it stopped */
+function tlLayout() {
+  const T = S.tl || { sessions: [] }, ss = T.sessions || [], rows = [], ROW = 40, DAY = 30;
+  const nextOf = new Map(), byLine = new Map();
+  ss.forEach((x, i) => { if (!byLine.has(x.line)) byLine.set(x.line, []); byLine.get(x.line).push(i); });
+  for (const idx of byLine.values()) idx.forEach((i, k) => nextOf.set(i, idx[k + 1]));
+  const held = new Map(), free = [], last = new Map(), segs = [], arcs = [], pts = [];
+  let y = 18, lanes = 0, day = "";
+  const take = () => { free.sort((a, b) => a - b); return free.length ? free.shift() : lanes++; };
+  ss.forEach((x, i) => {
+    const d = new Date(x.at), dk = d.toDateString();
+    if (dk !== day) { day = dk; rows.push({ day: d, y: y + DAY / 2 }); y += DAY; }
+    let lane = held.get(x.line);
+    const prev = last.get(x.line);
+    if (lane === undefined) { lane = take(); if (prev) arcs.push({ from: prev, line: x.line, toY: y + ROW / 2, toLane: lane }); }
+    else if (prev) segs.push({ lane, y1: prev.y, y2: y + ROW / 2, line: x.line });
+    const p = { i, lane, y: y + ROW / 2, s: x }; pts.push(p); last.set(x.line, p);
+    const nx = nextOf.get(i);
+    if (nx !== undefined && new Date(ss[nx].at) - new Date(x.end || x.at) < 24 * 3600e3) held.set(x.line, lane);
+    else { held.delete(x.line); free.push(lane); }
+    y += ROW;
+  });
+  return { rows, pts, segs, arcs, lanes: Math.max(1, lanes), H: y + 30 };
+}
+function renderTimeline() {
+  const box = $("#clist"); if (!box) return;
+  const T = S.tl, nArch = (S.allChats || []).filter((c) => c.archived).length + (T?.hidden || []).length;
+  const head = `<div class="ch"><b>${L("时间树", "Time tree")}</b><button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
+  if (!T) { box.innerHTML = head + `<div class="empty">…</div>`; return; }
+  if (!(T.sessions || []).length) { box.innerHTML = head + `<div class="empty" style="padding:20px 14px">${L("最近还没有对话。", "No conversations lately.")}</div>`; return; }
+  const G = tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 15, labelX = LX(Math.min(G.lanes, 12)) + 8;
+  const flip = S.dir !== "down", Y = (y) => (flip ? G.H - y : y), maxCh = Math.max(8, Math.floor((W - labelX - 14) / 12.5));
+  const sel = S.tlSel, selLine = (T.sessions.find((x) => x.item === sel) || {}).line;
+  const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
+  let g = "";
+  for (const r of G.rows) g += `<text class="tlday" x="${labelX}" y="${Y(r.y) + 4}">${esc(r.day.toLocaleDateString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", weekday: "short" }))}</text><line class="tlrule" x1="${labelX + 84}" x2="${W - 10}" y1="${Y(r.y)}" y2="${Y(r.y)}"/>`;
+  for (const sg of G.segs) g += `<line class="tlseg ${sg.line === selLine ? "on" : ""}" x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}" style="stroke:${col(sg.line)}"/>`;
+  for (const a of G.arcs) { const x1 = LX(a.from.lane), y1 = Y(a.from.y), x2 = LX(a.toLane), y2 = Y(a.toY), dy = (y2 - y1) * .5;
+    g += `<path class="tlarc ${a.line === selLine ? "on" : ""}" d="M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}" style="stroke:${col(a.line)}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
+  for (const p of G.pts) {
+    const x = p.s, r = Math.max(3.5, Math.min(7.5, 3 + Math.sqrt(x.turns || 1) * .7)), on = x.item === sel, line = T.lines[x.line] || {};
+    const t = x.title || L("（没有标题）", "(untitled)"), short = t.length > maxCh ? t.slice(0, maxCh - 1) + "…" : t;
+    const when2 = new Date(x.at).toLocaleTimeString(EN ? "en-GB" : "zh-CN", { hour: "2-digit", minute: "2-digit" });
+    const meta = [when2, x.kind === "tree" ? L("树", "tree") : x.agent && x.agent !== "-" ? x.agent : "", line.kind !== "single" ? "· " + line.title : "", x.turns > 1 ? L(`${x.turns} 轮`, `${x.turns} turns`) : ""].filter(Boolean).join(" ");
+    g += `<g class="tlpt ${x.kind} ${on ? "on" : ""}" data-ts="${esc(x.id)}"><circle cx="${LX(p.lane)}" cy="${Y(p.y)}" r="${r.toFixed(1)}" style="${line.kind !== "single" ? `stroke:${col(x.line)}` : ""}"/>
+      <text x="${labelX}" y="${Y(p.y) - 1}">${esc(short)}<tspan class="tm" x="${labelX}" dy="14">${esc(meta.length > maxCh * 1.4 ? meta.slice(0, Math.floor(maxCh * 1.4)) + "…" : meta)}</tspan></text></g>`;
+  }
+  const keep = $(".tlwrap", box)?.scrollTop;
+  box.innerHTML = head + `<div class="tlwrap"><svg id="tlSvg" width="${W}" height="${G.H}" viewBox="0 0 ${W} ${G.H}">${g}</svg></div>`
+    + `<div class="tlfoot">${T.pending ? `<span>${L("正在整理…", "Tidying…")}</span>` : T.organized_at ? `<span>${L("上次整理 ", "Tidied ")}${esc(ago(T.organized_at))}</span>` : ""}${nArch ? `<a href="#" id="archList">${L(`已归档 ${nArch}`, `${nArch} archived`)}</a>` : ""}</div>`;
+  const w = $(".tlwrap", box);
+  if (!S.tlScrolled) { S.tlScrolled = true; if (w) w.scrollTop = flip ? 0 : w.scrollHeight; } else if (w && keep != null) w.scrollTop = keep;
+}
+const tlSess = (id) => (S.tl?.sessions || []).find((x) => x.id === id);
+function openSession(id) {
+  const x = tlSess(id); if (!x) return;
+  if (x.kind === "tree") { show("tree", { aim: x.ref.tree, node: x.ref.node }); return; }
+  S.tlSel = x.item;
+  if (x.kind === "chat") { S.imp = null; S.chat = x.item; history.replaceState(null, "", qs()); renderTimeline(); renderChat(); loadChat(S.chat); return; }
+  S.chat = null; S.imp = { cid: x.ref.conversation, key: x.item, line: x.line }; renderTimeline(); renderChat(); loadImported(x.ref.conversation);
+}
+async function loadImported(cid) {
+  try { S.impData = await api(`/v1/users/${S.uid}/imported/${cid}`); } catch (e) { S.impData = { error: e.message }; }
+  if (S.imp?.cid === cid) renderChat();
+}
+function openTlCtx(x0, y0, id) {
+  closeCtx(); const x = tlSess(id); if (!x) return;
+  const line = S.tl.lines[x.line] || {}, m = document.createElement("div"); m.className = "ctx";
+  m.innerHTML = `<div class="ch">${esc(x.title)}</div><button data-tx="open">${x.kind === "tree" ? L("打开这棵树", "Open the tree") : L("打开", "Open")}</button>
+    ${x.kind !== "tree" ? `<hr><button data-tx="join">${L("接到另一条线上…", "Join another line…")}</button>${x.line !== x.item ? `<button data-tx="alone">${L("单独成一条线", "Put it on a line of its own")}</button>` : ""}` : ""}
+    ${line.kind === "topic" || line.kind === "project" ? `<button data-tx="rename">${L(`重命名这条线「${esc(line.title.slice(0, 12))}」…`, `Rename the line “${esc(line.title.slice(0, 14))}”…`)}</button>` : ""}
+    ${x.kind !== "tree" ? `<hr><button data-tx="hide">${x.kind === "chat" ? L("归档", "Archive") : L("从时间树里隐藏", "Hide from the time tree")}</button>` : ""}`;
+  m.dataset.ts = id; document.body.appendChild(m);
+  const r = m.getBoundingClientRect(); m.style.left = Math.min(x0, innerWidth - r.width - 8) + "px"; m.style.top = Math.min(y0, innerHeight - r.height - 8) + "px";
+}
+async function tlDo(op, id) {
+  closeCtx(); const x = tlSess(id); if (!x) return;
+  try {
+    if (op === "open") { openSession(id); return; }
+    if (op === "alone") { await api(`/v1/users/${S.uid}/timeline/items`, { method: "PUT", body: { key: x.item, line: x.item } }); }
+    if (op === "rename") { const t = prompt(L("这条线叫什么？", "Name this line"), S.tl.lines[x.line]?.title || ""); if (!t) return; await api(`/v1/users/${S.uid}/timeline/lines`, { method: "PUT", body: { line: x.line, title: t } }); }
+    if (op === "hide") { await api(`/v1/users/${S.uid}/chats/archive`, { body: { key: x.item, archived: true } }); toast(L("已收起：在左下角「已归档」里能找回", "Put away: find it under “archived” at the bottom")); await loadChats(); }
+    if (op === "join") {
+      const lines = Object.values(S.tl.lines).filter((l) => l.kind !== "single" && l.id !== x.line);
+      const trees = (S.forest?.trees || []).filter((t) => !lines.some((l) => l.id === `aim:${t.id}`)).map((t) => ({ id: `aim:${t.id}`, title: t.text }));
+      modal(`<h2>${L("接到哪条线上？", "Join which line?")}</h2><div class="muted" style="margin-bottom:12px">${esc(x.title)}</div>
+        <select id="joinTo" style="width:100%;height:34px"><option value="">${L("选一条线…", "Pick a line…")}</option>${[...lines, ...trees].map((l) => `<option value="${esc(l.id)}">${esc(l.title.slice(0, 50))}</option>`).join("")}</select>
+        <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="joinGo" data-key="${esc(x.item)}">${L("接上", "Join")}</button></div></div>`);
+      return;
+    }
+    await loadTimeline();
+  } catch (err) { toast(err.message); }
+}
+async function showImport() {
+  const h = await api(`/v1/users/${S.uid}/hub`).catch(() => ({ agents: [] }));
+  const T = S.tl || {};
+  modal(`<h2>${L("导入与整理", "Import and tidy")}</h2>
+    <div class="muted" style="margin-bottom:14px">${L("PGA 只读你本机上其他 AI 应用留下的对话记录（Claude Code、Codex、WorkBuddy、Hermes…），不改动它们。网页版 ChatGPT、Claude 的对话可以在「Agent 与连接」里上传导出文件。", "PGA only reads the conversation records other AI apps keep on this machine (Claude Code, Codex, WorkBuddy, Hermes…) and never changes them. ChatGPT and Claude web conversations can be uploaded as export files under “Agents and connections”.")}</div>
+    <div class="label">${L("来源", "Sources")}</div>
+    ${(h.agents || []).map((a) => `<div class="dim" style="grid-template-columns:150px 1fr 110px;cursor:default"><span class="k">${esc(a.name)}</span><span class="v">${L(`${a.conversation_count} 段对话 · ${a.message_count} 条消息`, `${a.conversation_count} conversations · ${a.message_count} messages`)}${a.last_activity_at ? L(" · 最近 ", " · latest ") + esc(ago(a.last_activity_at)) : ""}</span><span class="dimt" style="font-size:12px;text-align:right">${a.last_synced_at ? L("同步于 ", "synced ") + esc(ago(a.last_synced_at)) : L("还没同步", "not synced")}</span></div>`).join("") || `<div class="dimt">${L("还没有连接任何应用。", "No apps linked yet.")}</div>`}
+    <div style="display:flex;gap:8px;margin:12px 0 22px"><button id="hubSync">${L("现在同步本机的对话", "Sync this machine's conversations now")}</button><a href="/agents${asq}"><button class="ghost">${L("上传导出文件 →", "Upload an export →")}</button></a></div>
+    <div class="label">${L("整理", "Tidy")}</div>
+    <div style="font-size:13.5px;line-height:1.75;margin:6px 0 10px">${L("把零散的对话整理到一条条线上：在同一个项目文件夹里的会话自动接到那个项目（和用这个文件夹的抱负）；标题相同的先合成一条；剩下的交给模型读标题和开头，判断哪些是在接着之前的工作，哪些属于同一个话题。拿不准的不动。整理的结果随时可以在时间树上右键改。", "Gathers loose conversations onto lines: sessions held in one project folder join that project (and the motivation using that folder); identical titles join at once; a model reads the rest (titles and openings) and decides which continue earlier work and which share a topic. Anything unclear is left alone. Right-click on the time tree to change any of it.")}</div>
+    <div class="dimt" style="font-size:12.5px;margin-bottom:12px">${T.pending ? L("正在整理…", "Tidying…") : T.organized_at ? L("上次整理：", "Last tidied: ") + esc(ago(T.organized_at)) : L("还没整理过。", "Not tidied yet.")}</div>
+    <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("关闭", "Close")}</button><button class="primary" id="tidyGo">${L("开始整理", "Tidy now")}</button></div></div>`);
+}
+function showArchived() {
+  const xs = (S.allChats || []).filter((c) => c.archived), hid = S.tl?.hidden || [];
+  modal(`<h2>${L("已归档", "Archived")}</h2>${xs.map((c) => `<div class="item"><div class="x">${esc(c.title || "")}<div class="s">${esc(ago(c.last_at))}</div></div><button class="sm" data-arch="${esc(c.key)}" data-to="0">${L("放回", "Restore")}</button></div>`).join("")}
+    ${hid.length ? `<div class="item"><div class="x">${L(`${hid.length} 段从时间树里隐藏的导入对话`, `${hid.length} imported conversations hidden from the time tree`)}</div><button class="sm" id="unhideAll">${L("全部放回", "Restore all")}</button></div>` : ""}
+    ${xs.length || hid.length ? "" : `<div class="dimt">${L("没有。", "Nothing.")}</div>`}`);
+}
+function renderImported() {
+  const d = S.impData && S.impData.id === S.imp.cid ? S.impData : null, line = S.tl?.lines?.[S.imp.line];
+  $("#chead").innerHTML = `<span class="kind">${L("导入的对话", "Imported")}</span><h1>${esc(d?.title || "…")}</h1>${line && line.kind !== "single" ? `<span class="pill">${esc(line.title.slice(0, 24))}</span>` : ""}`;
+  $("#cdlgIn").innerHTML = !d ? `<div class="empty">…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
+    : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
+      + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md });
+  const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
+  $("#ccomp").innerHTML = `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（⌘/Ctrl + Enter）", "Carry on this conversation in PGA… (⌘/Ctrl + Enter)")}"></textarea>
+    <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === guess ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+    <button class="primary" id="impSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("接着聊", "Carry on")}</button></div></div>`;
+  autoGrow($("#chatText"));
+}
+/* carrying on an imported conversation: Codex / Claude Code resume the very session; others get its excerpt as history;
+   the new chat goes on the same line, so the time tree draws the path from the old conversation to now */
+async function impSend() {
+  const text = ($("#chatText")?.value || "").trim(); if (!text) { toast(L("先写点什么", "Write something first")); return; }
+  const d = S.impData, imp = S.imp; if (!d || !imp) return;
+  const agent = $("#chatAgent")?.value || "auto", name = agent !== "auto" ? agent : CONN[d.agent_type];
+  let key = null;
+  if (name) { try { key = (await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(name)}/past/${d.id}/continue`, { method: "POST" })).conversation; } catch {} }
+  key = key || `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  await api(`/v1/users/${S.uid}/timeline/items`, { method: "PUT", body: { key, line: imp.line } }).catch(() => {});
+  const turns = [];
+  for (const line of String(d.excerpt || "").split("\n")) { const m = line.match(/^(User|Assistant)\s*:\s?(.*)$/); if (m) turns.push({ role: m[1] === "User" ? "user" : "agent", text: m[2] }); else if (turns.length) turns[turns.length - 1].text += "\n" + line; }
+  S.chatTurns[key] = turns.slice(-6); S.chat = key; S.imp = null; S.tlSel = key;
+  S.chatAgent = agent !== "auto" ? agent : name || "auto";
+  renderChat(); $("#chatText").value = text; await chatSend(); S.chatTurns[key] = (S.chatTurns[key] || []);
 }
 function renderChat() {
+  if (S.imp) { renderImported(); return; }
   const c = chatOf(S.chat), turns = S.chatTurns[S.chat] || [];
   const cc = (S.allChats || []).find((x) => x.key === S.chat);
   $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
@@ -857,11 +1011,13 @@ async function chatSend() {
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
   finally { S.sending = false; }
-  await loadChats(); await loadChat(key);
+  await loadChats(); await loadChat(key); loadTimeline();
 }
 
 /* ------------------------------------------------ events */
 document.addEventListener("contextmenu", (e) => {
+  const ts = e.target.closest?.("[data-ts]");
+  if (ts && S.view === "chats") { e.preventDefault(); openTlCtx(e.clientX, e.clientY, ts.dataset.ts); return; }
   const t = e.target.closest?.("[data-tnode], [data-ctxnode]");
   if (!t || S.view !== "tree") { closeCtx(); return; }
   e.preventDefault();
@@ -872,8 +1028,9 @@ document.addEventListener("contextmenu", (e) => {
 document.addEventListener("click", async (e) => {
   if (DR.suppress) { DR.suppress = false; return; }
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
+  const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
   if (t.dataset.bar) { const id = t.dataset.bar; if (id === "chats") show("chats"); else show("tree", { aim: id }); return; }
@@ -888,7 +1045,19 @@ document.addEventListener("click", async (e) => {
   if (t.id === "ctxBtn") { showContext(); return; }
   if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
   if (t.id === "fold") { setMini(!S.mini); return; }
-  if (t.dataset.plus) { newNode(t.dataset.plus); return; }
+  if (t.closest?.("[data-ts]") && t.dataset.ts) { openSession(t.dataset.ts); return; }
+  if (t.id === "tlImport") { showImport(); return; }
+  if (t.id === "archList") { showArchived(); return; }
+  if (t.id === "impSend") { impSend(); return; }
+  if (t.id === "hubSync") { t.disabled = true; t.textContent = L("同步中…", "Syncing…");
+    try { const r = await api(`/v1/users/${S.uid}/hub/sync`, { method: "POST" }); toast(L("同步好了", "Synced") + (r?.new != null ? ` · ${r.new}` : "")); await loadTimeline(); showImport(); } catch (err) { toast(err.message); } return; }
+  if (t.id === "tidyGo") { try { const r = await api(`/v1/users/${S.uid}/timeline/organize`, { body: { use_model: true } });
+      toast(L(`先按标题合了 ${r.new_lines} 条线；模型在后台读剩下的`, `${r.new_lines} lines from matching titles; a model reads the rest in the background`)); document.querySelector(".modal")?.remove(); pollTidy(); await loadTimeline(); } catch (err) { toast(err.message); } return; }
+  if (t.id === "joinGo") { const to = $("#joinTo")?.value; if (!to) { toast(L("选一条线", "Pick a line")); return; }
+    try { await api(`/v1/users/${S.uid}/timeline/items`, { method: "PUT", body: { key: t.dataset.key, line: to } }); document.querySelector(".modal")?.remove(); toast(L("接上了", "Joined")); await loadTimeline(); } catch (err) { toast(err.message); } return; }
+  if (t.id === "unhideAll") { for (const k of S.tl?.hidden || []) await api(`/v1/users/${S.uid}/chats/archive`, { body: { key: k, archived: false } }).catch(() => {}); document.querySelector(".modal")?.remove(); await loadTimeline(); return; }
+  if (t.dataset.plus) { branchFrom(t.dataset.plus); return; }
+  if (t.id === "unbranch") { S.branchFrom = null; renderCont(); return; }
   if (t.id === "archToggle") { S.showArch = !S.showArch; renderChatList(); return; }
   if (t.dataset.arch) {
     e.stopPropagation(); const key = t.dataset.arch, to = t.dataset.to === "1";
@@ -898,7 +1067,7 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (t.dataset.chat) { S.chat = t.dataset.chat; history.replaceState(null, "", qs()); renderChatList(); renderChat(); loadChat(S.chat); return; }
-  if (t.id === "newChat") { S.chat = null; S.chatDraft = ""; history.replaceState(null, "", qs()); renderChatList(); renderChat(); $("#chatText")?.focus(); return; }
+  if (t.id === "newChat") { S.chat = null; S.imp = null; S.tlSel = null; renderTimeline(); S.chatDraft = ""; history.replaceState(null, "", qs()); renderChatList(); renderChat(); $("#chatText")?.focus(); return; }
   if (t.id === "chatSend") { chatSend(); return; }
   if (t.dataset.chrefdel) { S.chatRefs = S.chatRefs.filter((x) => x !== t.dataset.chrefdel); renderChat(); return; }
   if (t.id === "drawerBtn") { S.drawer = !S.drawer; if (!S.drawer) S.op = null; renderDrawer(); renderHead(); return; }
@@ -924,7 +1093,7 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.op !== undefined) {
     const op = t.dataset.op;
     if (["hide", "merge", "delete", "distill", "markdown"].includes(op)) { quickOp(op); return; }
-    if (op === "newnode") { newNode(S.node); return; }
+    if (op === "branchhere") { branchFrom(S.node); return; }
     if (!op) { S.op = null; renderDrawer(); return; }
     openOp(op); return;
   }
@@ -977,7 +1146,7 @@ document.addEventListener("change", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "tnText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
-  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); chatSend(); return; }
+  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); S.imp ? impSend() : chatSend(); return; }
   if (e.key === "Escape") { closeCtx(); document.querySelector(".modal")?.remove(); if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); } return; }
   if (e.target.closest?.("textarea, input, select") || S.view !== "tree") return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);
@@ -994,12 +1163,10 @@ function setMini(on) {
   $(".app").classList.toggle("mini", on); $("#fold").textContent = on ? "»" : "«"; $("#fold").title = on ? L("展开", "Expand") : L("收起", "Collapse");
   setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); }, 230);
 }
-async function newNode(id) {
-  const n = nodeOf(id); if (!n) return;
-  try { const b = await api(`/v1/thought-nodes/${id}/branch`, { body: { title: L("新节点", "New node") } });
-    await loadTree(true); select(b.id); S.drawer = false; renderDrawer(); renderHead(); $("#tnText")?.focus();
-    toast(L("新节点：写下第一句话，它就用这句话命名；也可以右键改名", "A new node: its first message names it (or right-click to rename)")); }
-  catch (err) { toast(err.message); }
+function branchFrom(id) {
+  if (!nodeOf(id)) return;
+  if (S.node !== id) select(id);
+  S.branchFrom = id; S.bud = null; S.drawer = false; renderDrawer(); renderHead(); renderCont(); $("#tnText")?.focus();
 }
 const svgScale = () => { const r = $("#treeSvg").getBoundingClientRect(); return (S.layout?.W || r.width) / (r.width || 1); };
 const nodeAt = (x, y, not) => { for (const el of document.elementsFromPoint(x, y)) { const g = el.closest?.("[data-tnode]"); if (g && g.dataset.tnode !== not) return g.dataset.tnode; } return null; };
@@ -1046,7 +1213,7 @@ async function boot() {
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {})]);
   show(S.view === "tree" && !S.aim ? "home" : S.view);
-  setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (S.view === "chats" && !S.sending) loadChats(); }, 20000);
+  setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (S.view === "chats" && !S.sending) { loadChats(); loadTimeline(); } }, 20000);
 }
 boot();
 </script>

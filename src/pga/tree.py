@@ -629,9 +629,10 @@ class ThoughtTree:
                 f"- {n.title}" + (f": {_clip(n.summary, 300)}" if n.summary else "") for n in rel) + "\n</related_branches>")
         return "\n\n".join(p for p in parts if p)
 
-    def branch_for(self, node: ThoughtNode, text: str, bud: str | None = None) -> ThoughtNode:
-        """Where your turn goes: a branch of yours continues in place; anywhere else a new branch grows."""
-        if node.kind == "user" and not bud:
+    def branch_for(self, node: ThoughtNode, text: str, bud: str | None = None, branch: bool = False) -> ThoughtNode:
+        """Where your turn goes: a branch of yours continues in place; anywhere else (or when you ask to branch) a new
+        branch grows from the node."""
+        if node.kind == "user" and not bud and not branch:
             if not node.note_ids and node.title in NEW_NODE:             # a node made with the +: its first question names it
                 node.title = _clip(text, 40)
             return node

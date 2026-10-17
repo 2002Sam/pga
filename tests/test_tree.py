@@ -384,6 +384,9 @@ def test_nodes_can_be_moved_linked_cut_and_added_by_hand(session_factory, policy
         new = c.post(f"/v1/thought-nodes/{b.id}/branch", json={"title": "新节点"}).json()
         r = c.post(f"/v1/thought-nodes/{new['id']}/continue", json={"text": "这个新方向怎么样", "agent": "auto"})
         assert r.status_code == 200 and r.json()["node"]["id"] == new["id"] and r.json()["node"]["title"] == "这个新方向怎么样"
+        same = c.post(f"/v1/thought-nodes/{new['id']}/continue", json={"text": "再说一点", "agent": "auto"}).json()["node"]
+        fork = c.post(f"/v1/thought-nodes/{new['id']}/continue", json={"text": "换个方向", "agent": "auto", "branch": True}).json()["node"]
+        assert same["id"] == new["id"] and fork["id"] != new["id"] and fork["parent"] == new["id"]   # continue in place; branch grows a child
 
 
 def test_usage_of_reads_every_agents_shape():

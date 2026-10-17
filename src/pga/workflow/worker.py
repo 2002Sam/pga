@@ -329,6 +329,21 @@ def _tree_rewrite(rt: "Runtime", job: Job, now: datetime) -> dict:
         raise Defer(_defer_default(now), str(exc)) from exc
 
 
+@handler("timeline.organize")
+def _timeline_organize(rt: "Runtime", job: Job, now: datetime) -> dict:
+    """Tidy the loose conversations of the time tree into lines (a few batches per job)."""
+    from pga.timeline import Timeline, TimelineDeferred, _prefs, _save
+    user = _user(rt, job)
+    try:
+        return Timeline(rt).organize(user, now)
+    except TimelineDeferred as exc:
+        tl = _prefs(user)
+        tl["pending"] = False
+        _save(user, tl)
+        rt.session.commit()
+        raise Defer(_defer_default(now), str(exc)) from exc
+
+
 @register_planner
 def _plan_tree(rt: "Runtime", user: User, now: datetime) -> list[dict]:
     """A motivation's tree grows when enough new dialogue has piled up (or some has waited for hours)."""
