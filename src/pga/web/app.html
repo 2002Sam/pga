@@ -75,8 +75,6 @@ select, input[type=text], input[type=number] { background: var(--raised); border
   background: var(--soft); color: var(--text); font-size: 13px; font-weight: 600; } .app.mini .rb.on .rt::before { background: var(--text); color: var(--onprimary); }
 .app.mini .rb.run .rt::before { box-shadow: inset 0 0 0 1.5px var(--accent); }
 .app.mini .rail .foot a, .app.mini .rail .foot .shell > button { justify-content: center; padding: 0; font-size: 0; gap: 0; } .app.mini .rail .foot .shell > button::before { margin: 0; }
-.cutline { position: fixed; inset: 0; pointer-events: none; z-index: 60; } .cutline polyline { fill: none; stroke: #e58c7e; stroke-width: 1.5; stroke-dasharray: 4 3; }
-.scis { position: fixed; z-index: 61; pointer-events: none; font-size: 20px; transform: translate(-50%, -60%) rotate(-90deg); color: #e58c7e; }
 .dragtip { position: fixed; z-index: 61; pointer-events: none; padding: 4px 9px; border-radius: 7px; background: var(--pop); border: 1px solid var(--line-2); font-size: 12px; color: var(--text); white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .ci2 { position: relative; } .ci2 .arch { position: absolute; right: 10px; bottom: 8px; display: none; height: 22px; font-size: 11.5px; padding: 0 8px; } .ci2:hover .arch { display: block; }
 .view { min-width: 0; min-height: 0; height: 100%; } .view[hidden] { display: none !important; }
@@ -416,7 +414,7 @@ function renderBar() {
     ${T.pending ? `<span class="act" id="curate">${L(`整理 ${T.pending} 轮新对话`, `Place ${T.pending} new turns`)}</span>` : ""}
     ${old ? `<span class="act" id="rewrite">${L(`重写 ${old} 个概括`, `Rewrite ${old} summaries`)}</span>` : ""}
     ${hidden ? `<label><input type="checkbox" id="showHidden" ${S.showHidden ? "checked" : ""}> ${L(`显示隐藏的 ${hidden} 个`, `Show ${hidden} hidden`)}</label>` : ""}`;
-  $("#hint").textContent = L("点节点看对话，点它旁边的 ＋ 新建节点 · 拖动节点移动，拖到另一个节点上链接 · 在空白处划过一条线剪断它 · 右键看更多", "Click a node to read it, its + adds a node · drag to move, drop on a node to link · swipe across a line to cut it · right-click for more");
+  $("#hint").textContent = L("点节点看对话，点它旁边的 ＋ 新建节点 · 拖动节点移动，拖到另一个节点上链接 · 右键看更多", "Click a node to read it, its + adds a node · drag to move, drop on a node to link · right-click for more");
 }
 function drawTree(scroll) {
   const side = $("#treeSide");
@@ -625,6 +623,7 @@ function renderCont() {
 function autoGrow(t) { if (!t) return; t.style.height = "36px"; t.style.height = Math.min(240, t.scrollHeight + 2) + "px"; }
 
 /* ------------------------------------------------ the right-click menu */
+const linksOf = (n) => (S.tree?.nodes || []).filter((o) => (n.links || []).includes(o.id) || (o.links || []).includes(n.id));
 function closeCtx() { document.querySelector(".ctx")?.remove(); }
 function openCtx(x, y, id) {
   closeCtx(); const n = nodeOf(id); if (!n) return;
@@ -637,7 +636,7 @@ function openCtx(x, y, id) {
     <button data-cx="exchange-pick">${L("和别的分支交流…", "Exchange with another branch…")}</button>
     <button data-cx="distill">${n.dataset ? L("重新沉淀为知识", "Distill again") : L("沉淀为知识", "Distill into knowledge")}</button>
     ${YOU() ? "" : `<button data-cx="focus">${S.tree?.focus === n.id ? L("不再让 PGA 沿这里想", "Stop following this branch") : L("让 PGA 沿这里想", "Let PGA follow this branch")}</button>`}
-    <hr><button data-cx="move">${L("移到…", "Move to…")}</button>${n.pos ? `<button data-cx="unpos">${L("放回原位", "Put back in place")}</button>` : ""}<button data-cx="hide">${n.hidden ? L("显示", "Show") : L("隐藏", "Hide")}</button>
+    <hr><button data-cx="move">${L("移到…", "Move to…")}</button>${linksOf(n).map((o) => `<button data-cx="unlink:${o.id}">${L("断开与「", "Unlink “")}${esc(o.title.slice(0, 14))}${L("」的链接", "”")}</button>`).join("")}${n.pos ? `<button data-cx="unpos">${L("放回原位", "Put back in place")}</button>` : ""}<button data-cx="hide">${n.hidden ? L("显示", "Show") : L("隐藏", "Hide")}</button>
     ${n.parent && n.kind === "segment" ? `<button data-cx="merge">${L("合并到上一级", "Merge into parent")}</button>` : ""}<button data-cx="markdown">${L("下载 Markdown", "Download Markdown")}</button>
     ${mine ? `<hr><button class="danger" data-cx="delete">${L("删除", "Delete")}</button>` : ""}`;
   m.dataset.node = id; document.body.appendChild(m);
@@ -649,6 +648,7 @@ async function ctxDo(op, id) {
   if (op === "continue") { S.drawer = false; renderDrawer(); renderHead(); $("#tnText")?.focus(); return; }
   if (op === "details") { S.drawer = true; renderDrawer(); renderHead(); return; }
   if (op === "newnode") { newNode(id); return; }
+  if (op.startsWith("unlink:")) { try { await api(`/v1/thought-nodes/${id}/links/${op.slice(7)}`, { method: "DELETE" }); await loadTree(true); drawTree(false); toast(L("已断开", "Unlinked")); } catch (err) { toast(err.message); } return; }
   if (op === "unpos") { try { await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { pos: null } }); await loadTree(true); drawTree(false); } catch (err) { toast(err.message); } return; }
   if (op === "focus") { const on = S.tree?.focus === id; focusOn(on ? "" : id); return; }
   if (["hide", "merge", "delete", "distill", "markdown"].includes(op)) { quickOp(op); return; }
@@ -836,7 +836,7 @@ document.addEventListener("click", async (e) => {
   if (DR.suppress) { DR.suppress = false; return; }
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-edge], [data-link], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
   if (t.dataset.bar) { const id = t.dataset.bar; if (id === "chats") show("chats"); else show("tree", { aim: id }); return; }
@@ -851,8 +851,6 @@ document.addEventListener("click", async (e) => {
   if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
   if (t.id === "fold") { setMini(!S.mini); return; }
   if (t.dataset.plus) { newNode(t.dataset.plus); return; }
-  if (t.dataset.edge) { cutEdges([t.dataset.edge], []); return; }
-  if (t.dataset.link) { cutEdges([], [t.dataset.link]); return; }
   if (t.id === "archToggle") { S.showArch = !S.showArch; renderChatList(); return; }
   if (t.dataset.arch) {
     e.stopPropagation(); const key = t.dataset.arch, to = t.dataset.to === "1";
@@ -965,33 +963,12 @@ async function newNode(id) {
     toast(L("新节点：写下第一句话，它就用这句话命名；也可以右键改名", "A new node: its first message names it (or right-click to rename)")); }
   catch (err) { toast(err.message); }
 }
-function undoToast(msg, undo) {
-  const t = $("#toast"); t.innerHTML = `${esc(msg)} <a href="#" style="margin-left:10px;color:var(--accent)">${L("撤销", "Undo")}</a>`; t.style.pointerEvents = "auto"; t.classList.add("on");
-  t.querySelector("a").onclick = async (e) => { e.preventDefault(); t.classList.remove("on"); t.style.pointerEvents = "none"; await undo(); };
-  clearTimeout(toast.t); toast.t = setTimeout(() => { t.classList.remove("on"); t.style.pointerEvents = "none"; }, 6000);
-}
-async function cutEdges(edges, links) {
-  const before = edges.map((id) => [id, nodeOf(id)?.parent]).filter(([, p]) => p);
-  try {
-    for (const [id] of before) await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { parent_id: null } });
-    for (const l of links) { const [a, b] = l.split("|"); await api(`/v1/thought-nodes/${a}/links/${b}`, { method: "DELETE" }); }
-    await loadTree(true); drawTree(false);
-    undoToast(L(`剪断了 ${before.length + links.length} 条线${before.length ? "（被剪下的节点挂回根上）" : ""}`, `Cut ${before.length + links.length} line(s)${before.length ? " (cut nodes now hang from the root)" : ""}`), async () => {
-      for (const [id, p] of before) await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { parent_id: p } });
-      for (const l of links) { const [a, b] = l.split("|"); await api(`/v1/thought-nodes/${a}/links`, { body: { to: b } }); }
-      await loadTree(true); drawTree(false); toast(L("已撤销", "Undone"));
-    });
-  } catch (err) { toast(err.message); }
-}
 const svgScale = () => { const r = $("#treeSvg").getBoundingClientRect(); return (S.layout?.W || r.width) / (r.width || 1); };
 const nodeAt = (x, y, not) => { for (const el of document.elementsFromPoint(x, y)) { const g = el.closest?.("[data-tnode]"); if (g && g.dataset.tnode !== not) return g.dataset.tnode; } return null; };
 $("#treeSvg").addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   const g = e.target.closest(".tn");
   if (g) { Object.assign(DR, { node: g.dataset.tnode, x0: e.clientX, y0: e.clientY, moving: false }); return; }
-  if (e.target.closest(".plus, .bud, .shadowend, text, .hit")) return;
-  DR.cut = { pts: [[e.clientX, e.clientY]], edges: new Set(), links: new Set() };                  // a swipe on the canvas: the scissors
-  e.preventDefault();
 });
 document.addEventListener("pointermove", (e) => {
   if (DR.node) {
@@ -1010,17 +987,6 @@ document.addEventListener("pointermove", (e) => {
     tip.textContent = over ? L(`放开：链接到「${(nodeOf(over)?.title || "").slice(0, 16)}」`, `Release: link to “${(nodeOf(over)?.title || "").slice(0, 20)}”`) : L("放开：移到这里", "Release: move it here");
     tip.style.left = e.clientX + 14 + "px"; tip.style.top = e.clientY + 14 + "px";
   }
-  if (DR.cut) {
-    DR.cut.pts.push([e.clientX, e.clientY]);
-    let ov = $(".cutline"); if (!ov) { ov = document.createElementNS("http://www.w3.org/2000/svg", "svg"); ov.setAttribute("class", "cutline"); ov.innerHTML = "<polyline/>"; document.body.appendChild(ov); }
-    ov.firstChild.setAttribute("points", DR.cut.pts.slice(-60).map((p) => p.join(",")).join(" "));
-    let sc = $(".scis"); if (!sc) { sc = document.createElement("div"); sc.className = "scis"; sc.textContent = "✂"; document.body.appendChild(sc); }
-    sc.style.left = e.clientX + "px"; sc.style.top = e.clientY + "px";
-    for (const el of document.elementsFromPoint(e.clientX, e.clientY)) {
-      if (el.dataset?.edge) { DR.cut.edges.add(el.dataset.edge); el.classList.add("cut"); }
-      if (el.dataset?.link) { DR.cut.links.add(el.dataset.link); el.classList.add("cut"); }
-    }
-  }
 });
 document.addEventListener("pointerup", async (e) => {
   if (DR.node) {
@@ -1034,10 +1000,6 @@ document.addEventListener("pointerup", async (e) => {
       } catch (err) { toast(err.message); }
       await loadTree(true); drawTree(false);
     }
-  }
-  if (DR.cut) {
-    const c = DR.cut; DR.cut = null; $(".cutline")?.remove(); $(".scis")?.remove();
-    if (c.edges.size || c.links.size) { DR.suppress = true; setTimeout(() => { DR.suppress = false; }, 50); cutEdges([...c.edges], [...c.links]); }
   }
 });
 

@@ -58,11 +58,7 @@
     const P = (n) => (n.p === "root" ? { x: L0.cx, y: L0.y0 } : L0.by.get(n.p));
     const sap = [], onTip = new Set();
     for (let x = L0.list.find((n) => n.tip) || L0.list[L0.list.length - 1]; x; x = x.p === "root" ? null : L0.by.get(x.p)) onTip.add(x.id);
-    let roots = "", edges = "", twigs = "", dots = "", labels = "", hits = "";
-    for (let i = 0; i < 7; i++) {
-      const a = -1 + i / 3, len = 30 + (i % 3) * 14;
-      roots += `<path class="root" d="M ${L0.cx} ${L0.y0} C ${L0.cx + a * 16} ${L0.y0 + 20}, ${L0.cx + a * 42} ${L0.y0 + len * .6}, ${L0.cx + a * 64} ${L0.y0 + len}"/>`;
-    }
+    let edges = "", twigs = "", dots = "", labels = "", hits = "";
     for (const n of L0.list) {
       const p = P(n), w = Math.max(1, 5.2 - n.depth * .36), d = delay(n), focus = foc.has(n.id), mine = n.kind === "user";
       let path;
@@ -76,7 +72,6 @@
         path = `M ${p.x} ${p.y} C ${p.x} ${p.y - Math.min(dy * .3, row * 1.6)}, ${n.x} ${p.y - Math.min(dy * .45, row * 2.2)}, ${n.x} ${p.y - Math.min(dy * .7, row * 3)} S ${n.x} ${n.y + row * .3}, ${n.x} ${n.y}`;
       }
       if (onTip.has(n.id)) sap.push(`<path class="sap" d="${path}" pathLength="1" style="animation-delay:${(sap.length * .34).toFixed(2)}s"/>`);
-      if (n.p !== "root") hits += `<path class="hit" data-edge="${n.id}" d="${path}"><title>${esc(L("划过或点击：剪断（挂回根上）", "Swipe or click: cut (it moves onto the root)"))}</title></path>`;
       edges += `<path class="br ${focus ? "focus" : ""} ${mine ? "mine" : ""} ${d !== null ? "grow" : ""}" d="${path}" pathLength="1" style="stroke-width:${w.toFixed(2)}${d !== null ? `;animation-delay:${d}ms` : ""}"/>`;
       const side = n.lane >= 0 ? -1 : 1;
       if (n.sampled) {
@@ -130,8 +125,7 @@
     let links = "";
     for (const n of L0.list) for (const o of (n.links || []).map((i) => L0.by.get(i)).filter(Boolean)) {   // links you drew between two nodes
       const mx = (n.x + o.x) / 2 + (Math.abs(n.x - o.x) < 30 ? 70 : 0), my = (n.y + o.y) / 2 - 20, d = `M ${n.x} ${n.y} Q ${mx} ${my}, ${o.x} ${o.y}`;
-      links += `<path class="lnk" d="${d}"/>`;
-      hits += `<path class="hit lk" data-link="${n.id}|${o.id}" d="${d}"><title>${esc(L("链接：", "Link: ") + n.title + " ↔ " + o.title + L(" · 划过或点击剪断", " · swipe or click to cut"))}</title></path>`;
+      links += `<path class="lnk" d="${d}"><title>${esc(L("链接：", "Link: ") + n.title + " ↔ " + o.title)}</title></path>`;
     }
     const sn = opts.plus && L0.by.get(sel.id);                                        // the + by the selected node: a new node, right away
     const plus = sn ? (() => { const r = Math.max(3.6, Math.min(9.5, 3.2 + Math.sqrt(sn.turns || 1) * .55)), px = sn.x + (sn.lane >= 0 ? -(r + 15) : r + 15);
@@ -140,8 +134,7 @@
     svg.setAttribute("viewBox", `0 0 ${L0.W} ${L0.H}`); svg.setAttribute("width", L0.W); svg.setAttribute("height", L0.H);
     svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="${C.accent}" stop-opacity=".35"/><stop offset="1" stop-color="${C.accent}" stop-opacity="0"/></radialGradient>
         <linearGradient id="ground" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".14"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-      <line x1="${L0.cx - 220}" x2="${L0.cx + 220}" y1="${Y(L0.y0 + 4)}" y2="${Y(L0.y0 + 4)}" stroke="url(#ground)"/>
-      <g ${flip ? `transform="translate(0 ${L0.H}) scale(1 -1)"` : ""}><g class="roots">${roots}</g><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
+      <g ${flip ? `transform="translate(0 ${L0.H}) scale(1 -1)"` : ""}><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
       <g class="seed"><circle r="22" cx="${L0.cx}" cy="${L0.y0}" fill="url(#seedGlow)"/><circle class="seedbody" r="7.5" cx="${L0.cx}" cy="${L0.y0}"/></g>
       <g>${links}</g><g class="hits">${hits}</g><g>${dots}</g>${plus}</g>
       <text class="rootlbl" x="${L0.cx}" y="${flip ? L0.H - L0.y0 - 52 : L0.y0 + 64}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L0.cx}" dy="15">${esc(L("根", "Root"))}</tspan></text>
