@@ -1382,6 +1382,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         Timeline(rt).move(user_or_404(rt, user_id), key, str(body.get("line") or "") or None)
         return {"key": key, "line": body.get("line") or None}
 
+    @app.put("/v1/users/{user_id}/timeline/pin")
+    def time_tree_pin(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Pin a line to the top of the list (or unpin it)."""
+        from pga.timeline import _prefs, _save
+        u = user_or_404(rt, user_id)
+        line = str(body.get("line") or "")[:120]
+        if not line:
+            raise HTTPException(422, "line is needed")
+        tl = _prefs(u)
+        pins = [x for x in tl.get("pinned") or [] if x != line]
+        if body.get("pinned", True):
+            pins.insert(0, line)
+        tl["pinned"] = pins[:50]
+        _save(u, tl)
+        return {"pinned": tl["pinned"]}
+
     @app.put("/v1/users/{user_id}/timeline/lines")
     def time_tree_rename(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         from pga.timeline import Timeline
@@ -1891,6 +1907,61 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         cat, why = (category, "指定的类别") if category else classify(text)
         return {"category": cat, "why": why, "ranking": AgentRouter(rt).rank(cat)}
 
+    # ---------------------------------------------------------------- what an agent may do in your conversations
+    # Per conversation (the button by the composer) and a default for new ones: the access level (read: read and search;
+    # write: also edit files; full: also run commands and start subagents), the folder it works in, and whether your own
+    # MCP servers are on. Read-only until you change it. PGA's own long-running work is not affected.
+    ACCESS_DEFAULT = {"access": "read", "folder": "", "mcp": False}
+
+    def _access_clean(d: dict) -> dict:
+        from pga.agents.routing import ACCESS
+        a = str(d.get("access") or "read")
+        if a not in ACCESS:
+            raise HTTPException(422, "access: read, write or full")
+        folder = str(d.get("folder") or "").strip()
+        if folder:
+            folder = os.path.abspath(os.path.expanduser(folder))
+            if not os.path.isdir(folder):
+                raise HTTPException(422, f"no such folder: {folder}")
+        return {"access": a, "folder": folder, "mcp": bool(d.get("mcp"))}
+
+    def access_for(u, key: str, body: dict | None = None) -> dict:
+        """What applies to this conversation: what you just sent with the message (and it is kept for the
+        conversation), what you set for it before, or your default."""
+        prefs = dict((u.preferences or {}).get("agent_access") or {})
+        if body is not None and "access" in body:
+            got = _access_clean(body)
+            if key:
+                keys = dict(prefs.get("keys") or {})
+                keys[key[:120]] = got
+                prefs["keys"] = dict(list(keys.items())[-500:])
+                u.preferences = {**(u.preferences or {}), "agent_access": prefs}
+            return got
+        return {**ACCESS_DEFAULT, **(prefs.get("default") or {}), **((prefs.get("keys") or {}).get(key[:120]) or {})}
+
+    @app.get("/v1/users/{user_id}/access")
+    def access_get(user_id: uuid.UUID, key: str = Query("", max_length=120), rt: Runtime = Depends(get_rt)):
+        from pga.agents.adapters import _mcp_rules
+        u = user_or_404(rt, user_id)
+        prefs = (u.preferences or {}).get("agent_access") or {}
+        return {"default": {**ACCESS_DEFAULT, **(prefs.get("default") or {})}, "current": access_for(u, key),
+                "mcp_servers": [x for x in _mcp_rules().split(",mcp__") if x]}
+
+    @app.put("/v1/users/{user_id}/access")
+    def access_put(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Set it for one conversation (`key`), or as the default for new ones (`as_default`)."""
+        u = user_or_404(rt, user_id)
+        got = _access_clean(body)
+        prefs = dict((u.preferences or {}).get("agent_access") or {})
+        if body.get("as_default"):
+            prefs["default"] = got
+        if body.get("key"):
+            keys = dict(prefs.get("keys") or {})
+            keys[str(body["key"])[:120]] = got
+            prefs["keys"] = dict(list(keys.items())[-500:])
+        u.preferences = {**(u.preferences or {}), "agent_access": prefs}
+        return got
+
     @app.post("/v1/users/{user_id}/agents/ask")
     def agents_ask(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """The agent chat: ask one agent (or `auto`: routed by category, preference and remaining usage)."""
@@ -1925,8 +1996,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 from pga.tree import refs_context
                 extra = refs_context(rt, [str(x) for x in body["refs"]][:8], u.id)
                 context = ((context or "") + "\n\n" + extra).strip() if extra else context
+            acc = access_for(u, str(body.get("conversation") or ""), body)
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
+                                           access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"],
                                            model=str(body["model"]) if body.get("model") else None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
                                            images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
@@ -2386,11 +2459,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         refs = [str(x) for x in (body.get("refs") or []) if x][:8]
         start = branch if branch.note_ids else n
         context, tail = tree.context_for(start), tree.tail_for(start, text, refs)
+        acc = access_for(u, f"tree:{n.aim_id or 'you'}", body)           # one setting per tree
         try:
             with rt.billing(user_ctx(u)):
                 reply = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
                                             category="serious" if str(body.get("agent") or "auto") == "auto" else None,
-                                            conversation=f"node:{branch.id}", project=None, tail=tail or None)
+                                            conversation=f"node:{branch.id}", project=None, tail=tail or None,
+                                            access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"])
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         tree.record(branch, aim, text, reply)
@@ -2701,7 +2776,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                                            AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
             d = r.data or {}
             key = str(d.get("conversation") or f"run:{r.id}")
-            if key.startswith(("node:", "exchange:")) or d.get("node"):
+            if key.startswith(("node:", "exchange:", "second:")) or d.get("node"):
                 continue
             c = convs.setdefault(key, {"key": key, "agent": d.get("agent") or r.agent, "turns": 0, "last_at": r.started_at.isoformat(),
                                        "title": "", "last": ""})
@@ -2728,24 +2803,51 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     @app.get("/v1/users/{user_id}/chats/{key:path}")
     def chats_one(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
-        """One short conversation, turn by turn."""
-        from pga.db.models import AgentRun
+        """One short conversation, turn by turn (each answer with its second opinion, if you asked for one); a branch
+        also carries the turns it grew from."""
+        from pga.chats import ChatError, branch_of, history, runs_of
         from pga.tree import _answer
-        user_or_404(rt, user_id)
-        q = select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None), AgentRun.workflow == "ask")
-        same = AgentRun.data["conversation"].as_string() == key
-        if key.startswith("run:"):                     # a chat that began without a key: that run, and what followed it
-            try:
-                same = or_(AgentRun.id == uuid.UUID(key[4:]), same)
-            except ValueError:
-                raise HTTPException(404, "no such chat") from None
-        q = q.where(same)
+        u = user_or_404(rt, user_id)
+        try:
+            runs = runs_of(rt, user_id, key)
+        except ChatError as exc:
+            raise HTTPException(404, str(exc)) from exc
         out = []
-        for r in rt.session.scalars(q.order_by(AgentRun.started_at)):
-            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat()})
+        for r in runs:
+            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id)})
             out.append({"role": "agent", "agent": (r.data or {}).get("agent") or r.agent, "text": _answer(r.output) or "", "error": r.error,
-                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model")})
-        return {"key": key, "turns": out}
+                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model"), "run": str(r.id),
+                        **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
+        b = branch_of(u, key)
+        ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []
+        return {"key": key, "turns": out, "branch": b, "context": ctx}
+
+    @app.post("/v1/users/{user_id}/chats/second")
+    def chats_second(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A second opinion on one reply: another agent answers the same question; then both are compared."""
+        from pga.chats import ChatError, second_opinion
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return second_opinion(rt, u, uuid.UUID(str(body.get("run"))), str(body.get("agent") or "") or None)
+        except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/chats/branch", status_code=201)
+    def chats_branch(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A new chat that grows from one reply of another; it goes on the same line of the time tree."""
+        from pga.chats import set_branch
+        from pga.timeline import Timeline
+        u = user_or_404(rt, user_id)
+        parent, upto = str(body.get("from") or ""), str(body.get("upto") or "")
+        if not parent or not upto:
+            raise HTTPException(422, "from and upto are needed")
+        key = str(body.get("key") or f"chat:{uuid.uuid4().hex[:10]}")[:120]
+        b = set_branch(u, key, parent, upto)
+        tl = Timeline(rt)
+        line = tl.lines_of(u, [it for it in tl.items(u, utcnow() - timedelta(days=730)) if it.key == parent]).get(parent, parent)
+        tl.move(u, key, line)
+        return {"key": key, **b, "line": line}
 
     @app.post("/v1/users/{user_id}/i18n")
     def i18n_texts(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

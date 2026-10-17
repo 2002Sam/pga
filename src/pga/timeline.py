@@ -96,7 +96,7 @@ class Timeline:
             d = r.data or {}
             conv = str(d.get("conversation") or "")
             nid = d.get("node") or (conv[5:] if conv.startswith("node:") else None)
-            if conv.startswith("exchange:"):
+            if conv.startswith(("exchange:", "second:")):
                 continue
             if nid:                                                 # a branch of a thought tree
                 if nid not in nodes:
@@ -187,7 +187,7 @@ class Timeline:
                                  "first": i == 0, "ref": it.ref})
         sessions.sort(key=lambda x: x["at"])
         hidden = [k for k in ((user.preferences or {}).get("archived_chats") or []) if str(k).startswith("c:")]
-        return {"days": days, "lines": meta, "sessions": sessions, "organized_at": tl.get("organized_at"), "hidden": hidden,
+        return {"days": days, "lines": meta, "sessions": sessions, "organized_at": tl.get("organized_at"), "hidden": hidden, "pinned": tl.get("pinned") or [],
                 "pending": tl.get("pending", False)}
 
     # -------------------------------------------------------------- one line, whole: what it was about, and pulling it out

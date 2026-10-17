@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, Any
 
 from pga.agents import quota as quotas
 from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE
+
+ACCESS = {"read": READ_ONLY, "write": WORKSPACE_WRITE, "full": FULL}     # the levels you can pick per conversation
 from pga.agents.pool import MODES, AgentPool, PoolResult, load
 from pga.db.types import utcnow
 
@@ -207,7 +209,8 @@ class AgentRouter:
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
-            project=None, tail: str | None = None) -> dict:
+            project=None, tail: str | None = None, access: str | None = None, folder: str | None = None,
+            mcp: bool = False) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -227,7 +230,7 @@ class AgentRouter:
         else:
             ranked = self.rank(cat, now)
             order = [x["agent"] for x in ranked if x["usable"]]
-            if project is not None:                       # a project: only agents that can open its files
+            if project is not None or folder or access in ("write", "full"):   # files to open or change: agents that can
                 order = [n for n in order if self.pool.adapters[n].type != "llm"]
             if images:                                    # pictures: only agents that can see them
                 order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]
@@ -241,7 +244,7 @@ class AgentRouter:
                 text = self.rt.gateway.to_canonical(text, user.id)[0] or text
             except Exception:  # noqa: BLE001 - untranslated is better than nothing
                 pass
-        hist = [h for h in (history or [])[-6:] if isinstance(h, dict)]
+        hist = [h for h in (history or [])[-12:] if isinstance(h, dict)]  # six exchanges: enough for an agent you switch to mid-chat
         convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         said_tail = f"\n\n{tail}" if tail else ""             # for this message only: after the question, so the opening stays cached
@@ -253,6 +256,10 @@ class AgentRouter:
             ad = self.pool.adapters[name]
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
             ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
+            if access in ACCESS:                          # what you set for this conversation (the button by the composer)
+                perms = ACCESS[access]
+            if folder:                                    # …and the folder it works in
+                ws = folder
             if project is not None:                       # the work happens in your project, whichever agent does it
                 ws, perms = project.path, (FULL if project.full_access else READ_ONLY)
             before = time.time()
@@ -265,7 +272,7 @@ class AgentRouter:
                 said = f"{text}\n\n{block}"
                 prompt_now = prompt.replace(text, said) if text in prompt else f"{prompt}\n\n{block}"
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
-                    "new_text": said + said_tail, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
+                    "new_text": said + said_tail, **({"conversation": conv} if conv else {}), **({"mcp": bool(mcp)} if access or mcp else {}), **({"model": model} if model else {}),
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
@@ -279,9 +286,9 @@ class AgentRouter:
                 break
             if step.result.ok:
                 result_text, used = step.result.text, name
-                if project is not None:
+                if project is not None or folder:            # a real folder: only what changed there, not a full walk
                     from pga.projects import changed_files
-                    files = changed_files(project.path, before - 1)
+                    files = changed_files(project.path if project is not None else folder, before - 1)
                 else:
                     files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
                              and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote

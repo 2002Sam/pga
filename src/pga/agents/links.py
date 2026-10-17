@@ -741,7 +741,7 @@ class StreamSession:
         self.session_id = session_for(ad.name, conv)
         self.resumed = bool(self.session_id)
         self.permissions, self.cwd = task.permissions, task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
-        self.choice = (task.meta.get("model"), task.meta.get("effort"))
+        self.choice = (task.meta.get("model"), task.meta.get("effort"), bool(task.meta.get("mcp")))
         exe = ad.exe()
         if not exe:
             raise LinkDown(f"{ad.binary} is not installed")
@@ -764,7 +764,7 @@ class StreamSession:
         key = f"{ad.name}|{conv}"
         with cls._ALL_LOCK:
             s = cls._ALL.get(key)
-            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"))
+            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"), bool(task.meta.get("mcp")))
                       or (task.workspace and s.cwd != task.workspace)):
                 s.close()
                 s = None

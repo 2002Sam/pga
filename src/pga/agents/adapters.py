@@ -173,6 +173,15 @@ class CLIAdapter(Adapter):
         return _prompt(task)
 
 
+def _mcp_rules() -> str:
+    """Allow rules for the MCP servers in your Claude Code config (~/.claude.json, user scope): ",mcp__a,mcp__b"."""
+    try:
+        servers = json.loads((Path.home() / ".claude.json").read_text(encoding="utf-8")).get("mcpServers") or {}
+    except (OSError, ValueError):
+        return ""
+    return "".join(f",mcp__{name}" for name in servers if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(name)))
+
+
 class ClaudeLocal(CLIAdapter):
     type, binary = "claude_local", "claude"
     strip_env = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN")      # use the Claude subscription, not API billing
@@ -182,15 +191,18 @@ class ClaudeLocal(CLIAdapter):
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns),
                "--no-session-persistence"]
-        if task.permissions == FULL:                  # a project you opened up: like Claude Code in your terminal, edits accepted
+        want = task.meta.get("mcp", task.permissions == FULL)   # your own MCP servers: on in a full-access project, else when you turn them on
+        mcp = _mcp_rules() if want else ""
+        if not want:
+            cmd.append("--strict-mcp-config")
+        if task.permissions == FULL:                  # you opened it up: like Claude Code in your terminal, edits accepted
             return cmd + ["--permission-mode", "acceptEdits", "--allowedTools",
-                          "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite"] + self.choice_flags(task)
-        cmd.append("--strict-mcp-config")
+                          "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite" + mcp] + self.choice_flags(task)
         if task.permissions == WORKSPACE_WRITE:
-            cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep",
+            cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep" + mcp,
                     "--disallowedTools", "Bash,WebFetch,WebSearch,NotebookEdit"]
         else:
-            cmd += ["--permission-mode", "default", "--allowedTools", "Read,Glob,Grep,WebSearch,WebFetch",
+            cmd += ["--permission-mode", "default", "--allowedTools", "Read,Glob,Grep,WebSearch,WebFetch" + mcp,
                     "--disallowedTools", "Bash,Edit,Write,NotebookEdit"]
         return cmd + self.choice_flags(task)
 
