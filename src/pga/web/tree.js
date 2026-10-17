@@ -230,7 +230,7 @@ const THEME = `
       if (x.kind === "conversation") {
         const nm = x.agent || d.vendor || "AI", h = hue(nm), [title, ...rest] = String(x.text || "").split("\n");
         const turns = convTurns(rest.join("\n"));
-        out += `<div class="cconv"><span>${L("导入的对话", "Imported conversation")} · <b>${esc(nm)}</b>${d.messages ? L(` · ${d.messages} 条消息`, ` · ${d.messages} messages`) : ""}${d.project ? ` · ${esc(d.project)}` : ""}</span><div class="cct" data-i18n="1">${esc(title.replace(/^\[[^\]]*\]\s*/, ""))}</div></div>`;
+        out += `<div class="cconv"><span>${L("导入的对话", "Imported conversation")} · <b>${esc(nm)}</b>${d.messages ? L(` · ${d.messages} 条消息`, ` · ${d.messages} messages`) : ""}${d.project ? ` · ${esc(d.project)}` : ""}</span><div class="cct" data-i18n="1">${esc(tidy(title.replace(/^\[[^\]]*\]\s*/, "")))}</div></div>`;
         if (!turns.length && rest.join("").trim()) out += `<div class="cmsg left conv"><div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody"><div class="cb"><div class="ct md" data-i18n="1">${md(rest.join("\n").trim())}</div></div></div></div>`;
         for (const t of turns) {
           if (t.gap) { out += `<div class="ctime">${esc(t.gap)}</div>`; continue; }
@@ -277,7 +277,18 @@ const THEME = `
       else if (gap) { out.push({ gap: gap[1] ? L(`… ${gap[1].replace(/more turns?/i, "轮省略").trim()}`, `… ${gap[1]}`) : "…" }); cur = null; }
       else if (cur) cur.text += "\n" + line;
     }
-    return out.filter((t) => t.gap || t.text.trim());
+    return out.filter((t) => t.gap || t.text.trim()).map((t) => (t.who === "user" ? { ...t, text: tidy(t.text) } : t)).filter((t) => t.gap || t.text);
+  }
+  /* what you actually wrote, without the wrapping apps put around it (same rules as timeline.tidy on the server) */
+  function tidy(text) {
+    let t = String(text || "");
+    const m = t.match(/<message\b[^>]*>([\s\S]*?)<\/message>/);
+    if (m && t.includes("<wake")) t = m[1];
+    t = t.replace(/<(system-reminder|environment_context|user_instructions|ide_selection|ide_opened_file)\b[^>]*>[\s\S]*?<\/\1>/g, "");
+    t = t.replace(/<\/?(user_query|long_text_quote|user_message|query|wake|project|thread|message|task-notification|task-id|tool-use-id|output-file|status|summary|cited|relay|note)\b[^>]*>/g, "");
+    if (/^\s*(\[SYSTEM NOTIFICATION|\w{8,10} toolu_\w+ )/.test(t)) return "";
+    t = t.replace(/^#\s*Files (pasted|mentioned) by the user:\s*##\s*/, "📎 ");
+    return t.trim();
   }
   add("pgaChatCss", `
 .chat .cconv { align-self: stretch; text-align: center; margin: 6px 0 2px; font-size: 11.5px; color: var(--t3); }
@@ -378,5 +389,5 @@ const THEME = `
 .bt-tool { font-size: 11.5px; min-width: 52px; }`);
 
   function setLang(l) { LANG = l === "en" ? "en" : "zh"; }
-  window.PGATree = { behaviorTree, layout, draw, esc, ROW, chat, summary, hue, setLang, L: (zh, en) => L(zh, en), cast, roleName, kindName };
+  window.PGATree = { tidy, behaviorTree, layout, draw, esc, ROW, chat, summary, hue, setLang, L: (zh, en) => L(zh, en), cast, roleName, kindName };
 })();

@@ -141,3 +141,21 @@ def test_codex_approval_reviews_are_not_conversations(policy, provider, backend,
                                        started_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1))])
     session.commit()
     assert [x["title"] for x in Timeline(rt).build(user, 3)["sessions"]] == ["整理视频"]
+
+
+def test_your_words_without_the_wrapping_and_no_machine_sessions(policy, provider, backend, user, session):
+    from pga.timeline import tidy
+    assert tidy("<user_query>帮我整理桌面</user_query>") == "帮我整理桌面"
+    assert tidy('<wake reason="mention"><message from="human">真正的话</message></wake>') == "真正的话"
+    assert tidy("<system-reminder>x</system-reminder>你好") == "你好"
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    now = datetime.now(timezone.utc)
+    la = LinkedAgent(user_id=user.id, name="Hermes", vendor="hermes", connector="import")
+    session.add(la)
+    session.flush()
+    session.add_all([AgentConversation(linked_agent_id=la.id, external_id=k, title=t, excerpt=f"User: {t}\nAssistant: ok", message_count=2,
+                                       started_at=now - timedelta(hours=h), updated_at=now - timedelta(hours=h))
+                     for k, t, h in [("a", "Reply with the single word OK.", 1), ("b", "[IMPORTANT: You are running as a scheduled cron job. x", 2),
+                                     ("c", "<user_query>帮我整理桌面</user_query>", 3)]])
+    session.commit()
+    assert [x["title"] for x in Timeline(rt).build(user, 3)["sessions"]] == ["帮我整理桌面"]

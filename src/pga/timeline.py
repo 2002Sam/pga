@@ -37,6 +37,26 @@ log = logging.getLogger(__name__)
 
 GAP = timedelta(hours=2)                       # turns closer than this are one session
 MACHINE = "The following is the Codex agent history"   # Codex's approval reviews, stored like conversations
+# sessions that are not you talking: PGA's own agent work, health checks and scheduled jobs that ended up in an app's history
+NOT_YOU = re.compile(r"^\s*(The following is the Codex agent history|Reply with the single word OK|\[IMPORTANT: You are running as a scheduled cron job"
+                     r"|You are answering the user directly in a quick chat inside PGA|You are the (researcher|reviewer|critic|lead|planner|engineer)\b"
+                     r"|You are reviewing anonymised answers|<instructions>|\[via PGA\])", re.I)
+
+
+def tidy(text: str) -> str:
+    """What you actually wrote, without the wrapping apps put around it: <user_query>, a remote session's <wake>
+    envelope (only the message body is yours), <system-reminder> and environment blocks, pasted-file headers."""
+    t = text or ""
+    m = re.search(r"<message\b[^>]*>(.*?)</message>", t, re.S)
+    if m and "<wake" in t:
+        t = m.group(1)
+    t = re.sub(r"<(system-reminder|environment_context|user_instructions|ide_selection|ide_opened_file)\b[^>]*>.*?</\1>", "", t, flags=re.S)
+    t = re.sub(r"</?(user_query|long_text_quote|user_message|query|wake|project|thread|message|task-notification|task-id|tool-use-id"
+               r"|output-file|status|summary|cited|relay|note)\b[^>]*>", "", t)      # the envelope's tags (an excerpt may cut the closing ones)
+    if re.match(r"^\s*(\[SYSTEM NOTIFICATION|\w{8,10} toolu_\w+ )", t):          # a tool finishing, not you
+        return ""
+    t = re.sub(r"^#\s*Files (pasted|mentioned) by the user:\s*##\s*", "📎 ", t)
+    return t.strip()
 NOISE = {"", "new project", "desktop", "downloads", "documents", "home", "x", "tmp", "temp", "untitled", "~"}
 
 
@@ -141,11 +161,12 @@ class Timeline:
             if end < since:
                 continue
             key = f"c:{c.id}"
-            if key in archived or re.sub(r"^\[[^\]]*\]\s*", "", c.title or "").startswith(MACHINE) or (c.excerpt or "").startswith(f"User: {MACHINE}"):
+            first_said = re.sub(r"^User:\s?", "", (c.excerpt or "").split("\n", 1)[0])
+            if key in archived or NOT_YOU.match(re.sub(r"^\[[^\]]*\]\s*", "", c.title or "")) or NOT_YOU.match(first_said):
                 continue                                            # Codex reviewing its own tool calls: not a conversation of yours
             proj = _norm(c.project)
             line = folders.get(proj) or (f"proj:{proj}" if proj not in NOISE else key)
-            title = re.sub(r"^\[[^\]]*\]\s*", "", c.title or "") or (c.excerpt or "")[:60]
+            title = tidy(re.sub(r"^\[[^\]]*\]\s*", "", c.title or "")) or tidy(first_said)[:60] or (c.excerpt or "")[:60]
             it = items[key] = Item(key, "import", title[:120], agent=a.name, project=c.project or "", excerpt=(c.excerpt or "")[:400],
                                    line=line, ref={"conversation": str(c.id), "messages": c.message_count})
             it.times = [start] + ([end] if end - start > GAP else [])
@@ -217,7 +238,7 @@ class Timeline:
     def line_items(self, user: User, line: str, days: int = 730, now: datetime | None = None) -> list[Item]:
         items = self.items(user, (now or utcnow()) - timedelta(days=days))
         lines = self.lines_of(user, items)
-        return sorted((it for it in items if lines[it.key] == line), key=lambda it: min(it.times))
+        return sorted((it for it in items if lines[it.key] == line), key=lambda it: max(it.times))   # by last word: the latest at the bottom
 
     def line_detail(self, user: User, line: str, days: int = 730) -> dict:
         its = self.line_items(user, line, days)
