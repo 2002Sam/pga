@@ -231,6 +231,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """森林: every motivation's thought tree, the user and world models, the shared knowledge; click into a tree."""
         return FileResponse(WEB / "forest.html")
 
+    @app.get("/agents", include_in_schema=False)
+    def web_agents() -> FileResponse:
+        """The agents PGA works with: connections, quota, what each is doing, and who gets each kind of work first."""
+        return FileResponse(WEB / "agents.html")
+
     @app.get("/tree", include_in_schema=False)
     def web_tree() -> FileResponse:
         """思考树: one motivation's thought tree on its own page, with every node's full data."""

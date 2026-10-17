@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/ui/shell.js"></script>
 <script src="/ui/tree.js"></script>
 <style>
 :root {
@@ -22,11 +23,11 @@ html, body { margin: 0; min-height: 100%; }
 body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); -webkit-font-smoothing: antialiased; letter-spacing: -.003em; }
 a { color: inherit; text-decoration: none; } button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s; }
-button:hover { border-color: var(--line-3); background: #1c1c21; } button.primary { background: var(--text); color: #0b0b0e; border-color: transparent; } button.primary:hover { background: #fff; }
+button:hover { border-color: var(--line-3); background: var(--hover); } button.primary { background: var(--text); color: var(--onprimary); border-color: transparent; } button.primary:hover { background: var(--text); opacity: .88; }
 button.ghost { background: transparent; border-color: transparent; color: var(--muted); } button.ghost:hover { color: var(--text); background: rgba(255,255,255,.04); }
 .label { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .num { font-variant-numeric: tabular-nums; }
-header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line); background: rgba(9,9,11,.82); backdrop-filter: blur(12px); }
+header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--hdr); backdrop-filter: blur(12px); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .02em; } .brand img { width: 18px; height: 18px; opacity: .9; }
 nav { display: flex; gap: 2px; } nav a { padding: 5px 10px; border-radius: 6px; color: var(--muted); font-size: 13px; } nav a.on { color: var(--text); background: rgba(255,255,255,.06); } nav a:hover { color: var(--text); }
 .hright { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--muted); }
@@ -37,7 +38,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 32px 24px 64px; }
 .intro { margin-bottom: 26px; } .intro h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -.02em; } .intro p { margin: 6px 0 0; color: var(--muted); max-width: 680px; }
 .models { display: grid; grid-template-columns: 1fr 1.35fr; gap: 16px; margin-bottom: 36px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
-.card.click { cursor: pointer; transition: border-color .2s, background .2s; } .card.click:hover { border-color: var(--line-2); background: #121216; }
+.card.click { cursor: pointer; transition: border-color .2s, background .2s; } .card.click:hover { border-color: var(--line-2); background: var(--hover); }
 .mh { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; } .mh .t { font-size: 15px; font-weight: 600; } .mh .s { font-size: 12px; color: var(--dim); }
 .world .g { font-size: 14.5px; line-height: 1.6; } .world .b { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.7; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .dims { display: grid; } .dim { display: grid; grid-template-columns: 120px 1fr 56px; gap: 14px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--line); cursor: pointer; }
@@ -48,19 +49,19 @@ main { max-width: 1240px; margin: 0 auto; padding: 32px 24px 64px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); gap: 16px; }
 .tree { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; cursor: pointer; transition: border-color .2s, transform .25s ease, opacity .35s; }
 .tree:hover { border-color: var(--line-2); transform: translateY(-2px); }
-.stage { position: relative; height: 230px; background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.07), transparent 65%), linear-gradient(#0c0c0f, #0f0f12); border-bottom: 1px solid var(--line); }
+.stage { position: relative; height: 230px; background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.07), transparent 65%), linear-gradient(var(--inset), var(--panel)); border-bottom: 1px solid var(--line); }
 .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .tree .info { padding: 14px 16px 16px; } .tree .name { font-size: 14px; font-weight: 600; line-height: 1.45; margin-bottom: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tree .meta { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--dim); }
 .tree .row { display: flex; align-items: center; gap: 10px; margin-top: 12px; min-height: 30px; } .tree .row .grow { flex: 1; font-size: 12px; color: var(--muted); }
 .pbar { width: 64px; height: 3px; background: rgba(255,255,255,.07); border-radius: 2px; } .pbar i { display: block; height: 100%; border-radius: 2px; background: var(--accent); }
-.badge { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 600; color: #0b0b0e; background: var(--accent); border-radius: 999px; padding: 1px 8px; z-index: 1; }
+.badge { position: absolute; top: 12px; right: 12px; font-size: 11px; font-weight: 600; color: var(--onprimary); background: var(--accent); border-radius: 999px; padding: 1px 8px; z-index: 1; }
 .tag { position: absolute; top: 12px; left: 14px; font-size: 10.5px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--green); z-index: 1; }
 .tree.paused .stage svg { opacity: .55; filter: grayscale(.4); }
-.mini .br { fill: none; stroke: rgba(236,236,239,.42); stroke-linecap: round; } .mini .br.mine { stroke: rgba(127,207,159,.7); } .mini .br.ex { stroke: rgba(143,180,255,.6); }
-.mini .dt { fill: #0b0b0e; stroke: rgba(236,236,239,.85); stroke-width: 1; } .mini .dt.tip { fill: var(--accent); stroke: var(--accent); }
-.mini .root { fill: none; stroke: rgba(214,167,92,.25); stroke-width: 1; } .mini .seed { fill: #0b0b0e; stroke: var(--accent); stroke-width: 1.2; }
-.mini .twig { fill: none; stroke: rgba(236,236,239,.25); stroke-width: .7; }
+.mini .br { fill: none; stroke: rgba(var(--ti),.42); stroke-linecap: round; } .mini .br.mine { stroke: rgba(127,207,159,.7); } .mini .br.ex { stroke: rgba(143,180,255,.6); }
+.mini .dt { fill: var(--tbg); stroke: rgba(var(--ti),.85); stroke-width: 1; } .mini .dt.tip { fill: var(--accent); stroke: var(--accent); }
+.mini .root { fill: none; stroke: rgba(214,167,92,.25); stroke-width: 1; } .mini .seed { fill: var(--tbg); stroke: var(--accent); stroke-width: 1.2; }
+.mini .twig { fill: none; stroke: rgba(var(--ti),.25); stroke-width: .7; }
 .mini .sap { fill: none; stroke: rgba(240,210,160,.85); stroke-width: 1.6; stroke-linecap: round; stroke-dasharray: .05 .95; stroke-dashoffset: 1; animation: sap 3.4s linear infinite; }
 @keyframes sap { to { stroke-dashoffset: 0; } }
 .tree.you .mini .br { stroke: rgba(127,207,159,.55); } .tree.you .mini .dt { stroke: rgba(150,220,178,.95); }
@@ -86,17 +87,22 @@ body.entering .tree:not(.going), body.entering .models, body.entering .lib, body
 .modal h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; } .md p { margin: .5em 0; line-height: 1.75; } .md h1, .md h2, .md h3 { font-weight: 600; letter-spacing: -.01em; }
 .dd { border-top: 1px solid var(--line); padding: 14px 0; } .dd:first-of-type { border-top: 0; } .dd .hh { display: flex; justify-content: space-between; align-items: baseline; }
 .dd .hh b { font-weight: 600; } .dd ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; } .dd .sm { margin: 4px 0; font-size: 13.5px; }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1c1c21; border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--pop); border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; }
 #toast.on { opacity: 1; }
 @media (max-width: 860px) { .models { grid-template-columns: 1fr; } .lr { grid-template-columns: 90px 1fr; } .lr .gi, .lr .us { display: none; } }
 @media (pointer: coarse) { #guide { display: none; } }
+
+:root { --hdr: rgba(9,9,11,.85); --canvas: #0a0a0c; --inset: #0c0c0f; --pop: #17171b; --hover: #1c1c21; --onprimary: #0b0b0e; }
+[data-theme=light] { --bg: #f6f6f7; --panel: #ffffff; --raised: #f1f1f3; --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.13); --line-3: rgba(0,0,0,.24);
+  --text: #18181b; --muted: #52525b; --dim: #8a8a93; --accent: #a8741f; --accent-soft: rgba(168,116,31,.10); --blue: #2563c9; --green: #1f8a4c; --bad: #c2412d;
+  --hdr: rgba(255,255,255,.88); --canvas: #fbfbfc; --inset: #f4f4f6; --pop: #ffffff; --hover: #ebebee; --onprimary: #ffffff; }
 </style>
 </head>
 <body>
 <header>
   <a class="brand" href="/" id="home"><img src="/icons/favicon-32.png?v=3" alt="">PGA</a>
   <nav><a class="on" href="#" data-l="森林|Forest">森林</a></nav>
-  <div class="hright"><span id="pulse"></span><span class="lang"><button data-lang="zh">中</button><button data-lang="en">EN</button></span></div>
+  <div class="hright"><span id="pulse"></span><a href="/agents" id="toAgents" style="color:var(--muted)">Agents</a><span id="shell"></span></div>
 </header>
 <main>
   <div class="intro"><h1 data-l="森林|Forest">森林</h1><p data-l="每个长期抱负是一棵思考树，你自己的对话是另一棵。它们共用两个模型：世界正在发生什么，以及你是谁。|Every long-range motivation grows a tree of thought; your own conversations grow another. They share two models: what is happening in the world, and who you are.">…</p></div>
@@ -128,7 +134,7 @@ async function api(path, opts = {}) {
   return data;
 }
 document.querySelectorAll("[data-l]").forEach((el) => { const [zh, en] = el.dataset.l.split("|"); el.textContent = L(zh, en); });
-document.querySelectorAll("[data-lang]").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
+PGAShell.mount($("#shell")); $("#toAgents").href = "/agents" + (AS_UID ? `?${asq}` : "");
 document.title = L("森林 · PGA", "Forest · PGA");
 
 /* one tree, small: its real shape (the same layout as the tree page), no labels */

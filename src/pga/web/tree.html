@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/ui/shell.js"></script>
 <script src="/ui/tree.js"></script>
 <style>
 :root {
@@ -21,8 +22,8 @@ html, body { height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); -webkit-font-smoothing: antialiased; overflow: hidden; letter-spacing: -.003em; }
 a { color: var(--blue); text-decoration: none; } a:hover { text-decoration: underline; } button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 13px; font-weight: 500; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
-button:hover { border-color: var(--line-3); background: #1c1c21; } button:disabled { opacity: .45; cursor: default; }
-button.primary { background: var(--text); color: #0b0b0e; border-color: transparent; } button.primary:hover { background: #fff; }
+button:hover { border-color: var(--line-3); background: var(--hover); } button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--text); color: var(--onprimary); border-color: transparent; } button.primary:hover { background: var(--text); opacity: .88; }
 button.accent { background: var(--accent-soft); color: var(--accent); border-color: rgba(214,167,92,.3); } button.accent:hover { background: rgba(214,167,92,.18); }
 button.ghost { background: transparent; border-color: transparent; color: var(--muted); } button.ghost:hover { color: var(--text); background: rgba(255,255,255,.05); }
 button.sm { height: 26px; padding: 0 9px; font-size: 12px; border-radius: 7px; } button.danger:hover { color: var(--bad); border-color: rgba(229,140,126,.4); }
@@ -30,7 +31,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .label { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); }
 .num { font-variant-numeric: tabular-nums; } .muted { color: var(--muted); } .dimt { color: var(--dim); }
 .app { display: grid; grid-template-rows: 52px minmax(0, 1fr); height: 100%; }
-header { display: flex; align-items: center; gap: 16px; padding: 0 18px; border-bottom: 1px solid var(--line); background: #0b0b0d; }
+header { display: flex; align-items: center; gap: 16px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--hdr); }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--text); letter-spacing: .02em; } .brand img { width: 18px; height: 18px; opacity: .9; } .brand:hover { text-decoration: none; }
 nav { display: flex; gap: 2px; align-items: center; } nav a { padding: 5px 10px; border-radius: 6px; color: var(--muted); font-size: 13px; } nav a:hover { color: var(--text); text-decoration: none; } nav .sep { color: var(--dim); }
 .pick { max-width: 300px; }
@@ -41,13 +42,13 @@ nav { display: flex; gap: 2px; align-items: center; } nav a { padding: 5px 10px;
 .lang { display: inline-flex; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; } .lang button { height: 26px; border: 0; border-radius: 0; background: transparent; color: var(--dim); padding: 0 9px; font-size: 12px; }
 .lang button.on { background: rgba(255,255,255,.08); color: var(--text); }
 main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); min-height: 0; }
-#treeSide { position: relative; overflow: auto; border-right: 1px solid var(--line); background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.06), transparent 60%), #0a0a0c; }
+#treeSide { position: relative; overflow: auto; border-right: 1px solid var(--line); background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.06), transparent 60%), var(--canvas); }
 #treeSide svg { display: block; margin: 0 auto; }
 .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; font-size: 12px; color: var(--muted);
-  background: linear-gradient(#0a0a0c 70%, rgba(10,10,12,0)); }
+  background: linear-gradient(var(--canvas) 70%, transparent); }
 .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
 .seg button { height: 24px; border: 0; background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px; border-radius: 6px; } .seg button.on { background: var(--raised); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.4); }
-.keys { display: inline-flex; gap: 12px; align-items: center; } .keys i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid rgba(236,236,239,.8); margin-right: 5px; vertical-align: 0; }
+.keys { display: inline-flex; gap: 12px; align-items: center; } .keys i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--muted); margin-right: 5px; vertical-align: 0; }
 .bar .act { color: var(--accent); cursor: pointer; } .bar .act:hover { text-decoration: underline; } .bar label { cursor: pointer; margin-left: auto; }
 #nodeSide { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-columns: minmax(0, 1fr); min-height: 0; min-width: 0; overflow: hidden; background: var(--panel); }
 #nodeSide > * { min-width: 0; } #treeSide { min-width: 0; }
@@ -56,14 +57,14 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); 
 .nh .t { display: flex; gap: 12px; align-items: baseline; margin: 6px 0 2px; } .nh h1 { margin: 0; font-size: 19px; font-weight: 600; letter-spacing: -.015em; line-height: 1.4; flex: 1; }
 .kind { font-size: 11px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
 .tools { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 12px; } .tools .sp { flex: 1; }
-.menu { position: relative; } .menu .pop { position: absolute; right: 0; top: 34px; z-index: 5; min-width: 200px; background: #17171b; border: 1px solid var(--line-2); border-radius: 10px; padding: 5px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+.menu { position: relative; } .menu .pop { position: absolute; right: 0; top: 34px; z-index: 5; min-width: 200px; background: var(--pop); border: 1px solid var(--line-2); border-radius: 10px; padding: 5px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
 .menu .pop button { display: flex; width: 100%; justify-content: flex-start; background: transparent; border: 0; height: 30px; font-weight: 400; color: var(--text); }
 .menu .pop button:hover { background: rgba(255,255,255,.06); } .menu .pop button.danger { color: var(--bad); } .menu .pop hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .navr { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .chip { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-2); background: transparent; font-size: 12px; color: var(--muted); cursor: pointer; font-weight: 400; }
 .chip:hover { color: var(--text); border-color: var(--line-3); background: transparent; } .chip.on { color: var(--text); border-color: var(--text); } .chip.user { color: var(--green); border-color: rgba(127,207,159,.35); } .chip.exchange { color: var(--blue); border-color: rgba(143,180,255,.35); }
 .form { margin-top: 12px; padding: 12px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--raised); display: grid; gap: 8px; }
-.form input[type=text], .form textarea, .form select { width: 100%; background: #0c0c0f; border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; height: auto; }
+.form input[type=text], .form textarea, .form select { width: 100%; background: var(--inset); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; height: auto; }
 .form textarea { min-height: 96px; resize: vertical; outline: none; } .form .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 .tabs { display: flex; gap: 2px; padding: 0 18px; border-bottom: 1px solid var(--line); }
 .tabs button { height: 40px; border: 0; border-radius: 0; background: transparent; border-bottom: 2px solid transparent; color: var(--muted); padding: 0 10px; font-weight: 500; }
@@ -71,7 +72,7 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); 
 .body { overflow: auto; padding: 20px 24px 36px; }
 .sec { margin: 24px 0 10px; } .sec:first-child { margin-top: 0; }
 .metarow { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--dim); margin-bottom: 14px; }
-.shift { margin: 0 0 16px; padding: 10px 14px; border-left: 2px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; color: #e8d3ad; font-size: 13.5px; line-height: 1.7; }
+.shift { margin: 0 0 16px; padding: 10px 14px; border-left: 2px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; color: var(--text); font-size: 13.5px; line-height: 1.7; }
 .points { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; } .points li { padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.015); font-size: 13.5px; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .stats div { background: var(--panel); padding: 10px 12px; } .stats b { display: block; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; } .stats span { font-size: 11.5px; color: var(--dim); }
@@ -83,20 +84,32 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); 
 .ty { font-size: 10.5px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase; color: var(--dim); }
 .commit, .file { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; } .commit:first-child, .file:first-child { border-top: 0; }
 .commit a, .file a { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; } .commit time { color: var(--dim); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; } .file span { color: var(--dim); margin-left: auto; }
-.cont { border-top: 1px solid var(--line); padding: 12px 24px 14px; background: #0c0c0f; }
+.cont { border-top: 1px solid var(--line); padding: 12px 24px 14px; background: var(--inset); }
 .cont textarea { width: 100%; min-height: 52px; max-height: 220px; resize: vertical; background: var(--raised); border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; outline: none; line-height: 1.6; }
 .cont textarea:focus { border-color: var(--line-3); } .cont .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; } .cont .grow { flex: 1; }
 .cont .refs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; font-size: 12px; color: var(--dim); } .cont .refs select { height: 24px; font-size: 12px; }
 .trnote { font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+.chainhead { font-size: 12px; color: var(--dim); margin: -4px 0 6px; }
+.seam { display: flex; align-items: center; gap: 10px; margin: 26px 0 12px; padding-top: 12px; border-top: 1px solid var(--line-2); font-size: 12.5px; scroll-margin-top: 8px; }
+.seam:first-of-type { margin-top: 8px; } .seam .sn { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--raised); color: var(--muted); border: 1px solid var(--line-2); flex: none; }
+.seam .st { color: var(--text); font-weight: 600; } .seam .sm { color: var(--dim); font-size: 12px; } .seam a.sm { color: var(--blue); }
+.seam.cur { border-top-color: var(--accent); } .seam.cur .sn { background: var(--accent); color: var(--onprimary); border-color: var(--accent); }
+.seamwhy { font-size: 12.5px; color: var(--muted); margin: -4px 0 12px 30px; }
+.fork-end { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 24px 0 8px; padding-top: 14px; border-top: 1px dashed var(--line-3); font-size: 12.5px; color: var(--muted); }
 .empty { padding: 40px 24px; color: var(--dim); }
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); display: grid; place-items: center; z-index: 30; }
 .modal .box { width: min(780px, 92vw); max-height: 86vh; overflow: auto; background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px; padding: 24px 28px; box-shadow: 0 30px 80px rgba(0,0,0,.5); }
 .modal h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; } .md p { margin: .5em 0; line-height: 1.75; } .md h1, .md h2, .md h3 { font-weight: 600; }
 .opt { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; cursor: pointer; } .opt input { margin-top: 4px; } .opt .d { font-size: 12.5px; color: var(--dim); }
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1c1c21; border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 40; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--pop); border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 40; }
 #toast.on { opacity: 1; }
 #enter { position: fixed; inset: 0; z-index: 50; pointer-events: none; background: var(--bg); animation: enter .7s ease forwards; } @keyframes enter { to { opacity: 0; } }
 @media (max-width: 960px) { body { overflow: auto; } .app { height: auto; } main { grid-template-columns: 1fr; } #treeSide { height: 60vh; border-right: 0; border-bottom: 1px solid var(--line); } #nodeSide { min-height: 70vh; } .run .pill.opt2 { display: none; } }
+
+:root { --hdr: rgba(9,9,11,.85); --canvas: #0a0a0c; --inset: #0c0c0f; --pop: #17171b; --hover: #1c1c21; --onprimary: #0b0b0e; }
+[data-theme=light] { --bg: #f6f6f7; --panel: #ffffff; --raised: #f1f1f3; --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.13); --line-3: rgba(0,0,0,.24);
+  --text: #18181b; --muted: #52525b; --dim: #8a8a93; --accent: #a8741f; --accent-soft: rgba(168,116,31,.10); --blue: #2563c9; --green: #1f8a4c; --bad: #c2412d;
+  --hdr: rgba(255,255,255,.88); --canvas: #fbfbfc; --inset: #f4f4f6; --pop: #ffffff; --hover: #ebebee; --onprimary: #ffffff; }
 </style>
 </head>
 <body>
@@ -104,10 +117,10 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 46%); 
 <div class="app">
   <header>
     <a class="brand" id="home" href="/"><img src="/icons/favicon-32.png?v=3" alt="">PGA</a>
-    <nav><a href="/" id="toForest" data-l="森林|Forest">森林</a><span class="sep">/</span></nav>
+    <nav><a href="/" id="toForest" data-l="森林|Forest">森林</a><a href="/agents" id="toAgents">Agents</a><span class="sep">/</span></nav>
     <select class="pick" id="aimPick"></select>
     <div class="run" id="run"></div>
-    <span class="lang"><button data-lang="zh">中</button><button data-lang="en">EN</button></span>
+    <span id="shell"></span>
   </header>
   <main>
     <section id="treeSide" class="treewrap"><div class="bar" id="bar"></div><svg id="treeSvg"></svg></section>
@@ -129,7 +142,7 @@ const LANG = Q.get("lang") || store.get("pga_lang") || "zh", EN = LANG === "en";
 PGATree.setLang(LANG); document.documentElement.lang = EN ? "en" : "zh-CN";
 const L = (zh, en) => (EN ? en : zh);
 const S = { uid: AS_UID || store.get("pga_uid"), aim: Q.get("you") ? "you" : Q.get("aim"), node: Q.get("node"), mode: store.get("pga_tree_mode") || "thought", beh: {}, contRefs: [],
-  bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab") || "overview", filter: "all", search: "", seen: new Set(), agents: [], aims: [], sending: false, op: null,
+  bud: null, tree: null, detail: {}, tab: store.get("pga_tree_tab2") || "turns", filter: "all", search: "", seen: new Set(), agents: [], aims: [], sending: false, op: null,
   showHidden: false, forest: null, draft: "", proc: null, menu: false, tr: {} };
 const YOU = () => S.aim === "you";
 const lq = (q) => (EN ? (q.includes("?") ? "&" : "?") + "lang=en" : "");
@@ -148,7 +161,7 @@ const md = (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked
 const qs = () => { const q = new URLSearchParams(); if (YOU()) q.set("you", "1"); else if (S.aim) q.set("aim", S.aim); if (S.node) q.set("node", S.node); if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang")); return "?" + q; };
 const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
 document.querySelectorAll("[data-l]").forEach((el) => { const [zh, en] = el.dataset.l.split("|"); el.textContent = L(zh, en); });
-document.querySelectorAll("[data-lang]").forEach((b) => b.classList.toggle("on", b.dataset.lang === LANG));
+PGAShell.mount($("#shell")); $("#toAgents").href = "/agents" + asq;
 
 /* ------------------------------------------------ loading */
 async function boot() {
@@ -171,7 +184,7 @@ async function loadTree(quiet) {
   const nodes = (S.tree.nodes || []).filter((n) => n.kind !== "bud");
   if (!S.node || !nodes.some((n) => n.id === S.node)) S.node = (nodes.find((n) => n.tip) || nodes[nodes.length - 1])?.id || null;
   renderRun(); renderBar(); drawTree(!quiet);
-  if (!quiet) { renderNode(); if (S.node) loadNode(S.node); }
+  if (!quiet) { renderNode(); if (S.node) loadNode(S.node); if (S.tab === "turns") scrollToSeam(); }
 }
 async function loadNode(id, force) {
   if (S.detail[id] && !force) { renderNode(); return; }
@@ -212,7 +225,7 @@ function renderRun() {
   $("#run").innerHTML = t ? `<span class="pill"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? L("运行中", "Running") : t.status === "paused" ? L("已暂停", "Paused") : L("已停止", "Stopped")}</b>${t.status === "running" ? " · " + esc(EN ? t.phase : t.phase_zh || t.phase) : ""}</span>
       <span class="pill opt2" title="${L("张力", "Pressure")}: ${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}">${L("张力", "Pressure")} <b class="num">${t.pressure.toFixed(2)}</b><span class="meter"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
       ${waiting ? `<button class="accent" id="waitBtn">${esc(waiting)}</button>` : ""}
-      <button class="ghost" id="setBtn">${L("设置", "Settings")}</button>
+      <button class="ghost" id="setBtn">${L("运行设置", "Run settings")}</button>
       ${T.project ? `<button id="runBtn" class="${t.status === "running" ? "" : "primary"}">${t.status === "running" ? L("暂停", "Pause") : L("开始", "Start")}</button>` : ""}`
     : `<span class="pill">${L("还没有在长期运行", "Not running yet")}${T.project ? "" : L("：先在存档的工作台里给它选一个工作文件夹", " — pick a working folder first")}</span>${T.project ? `<button id="runBtn" class="primary">${L("开始", "Start")}</button>` : ""}`;
 }
@@ -239,6 +252,32 @@ function select(id, bud = null) {
   S.node = id; S.bud = bud; S.op = null; S.menu = false;
   history.replaceState(null, "", qs());
   drawTree(false); renderNode(); loadNode(id);
+  if (S.tab === "turns") scrollToSeam();
+}
+/* the dialogue as one conversation: from the root down to this node, and on while it does not fork */
+function chainOf(id) {
+  const all = (S.tree?.nodes || []).filter((n) => n.kind !== "bud"), by = new Map(all.map((n) => [n.id, n]));
+  const kidsOf = (x) => all.filter((k) => k.parent === x.id && (S.showHidden || !k.hidden)).sort((a, b) => a.seq - b.seq);
+  const up = []; for (let x = by.get(id), i = 0; x && i < 400; x = by.get(x.parent), i++) up.unshift(x);
+  const down = []; let cur = by.get(id);
+  for (let i = 0; cur && i < 400; i++) { const k = kidsOf(cur); if (k.length !== 1) break; cur = k[0]; down.push(cur); }
+  return { nodes: [...up, ...down], fork: cur ? kidsOf(cur) : [] };
+}
+function loadChain() {
+  const { nodes } = chainOf(S.node), todo = nodes.filter((n) => !S.detail[n.id] && !n._loading);
+  let i = 0;
+  const next = async () => {
+    const n = todo[i++]; if (!n) return;
+    n._loading = true;
+    try { S.detail[n.id] = await api(`/v1/thought-nodes/${n.id}?full=true${EN ? "&lang=en" : ""}`); } catch (e) { S.detail[n.id] = { error: e.message }; }
+    if (EN && n.id === S.node) translateTurns(n.id);
+    if (S.tab === "turns") { renderBody(); if (n.id === S.node) scrollToSeam(); }
+    return next();
+  };
+  for (let k = 0; k < 4; k++) next();
+}
+function scrollToSeam() {
+  requestAnimationFrame(() => { const el = document.getElementById("seam-" + S.node), body = $("#body"); if (el && body) body.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" }); });
 }
 
 /* ------------------------------------------------ one node */
@@ -266,7 +305,7 @@ function renderNode() {
       ${bud ? `<button class="chip" data-go="${n.id}">${L("回到节点", "Back to the node")}</button>` : ""}</div>
     ${opForm(n)}`;
   const notes = d?.notes || [], sampled = notes.filter((x) => x.kind === "answer" && x.data?.samples?.length), g = d?.git || {};
-  const tabs = [["overview", L("概览", "Overview"), ""], ["turns", L("对话", "Dialogue"), notes.length || n.turns], ["behavior", L("行为", "Behaviour"), n.behavior?.runs || ""],
+  const tabs = [["overview", L("概览", "Overview"), ""], ["turns", L("对话", "Dialogue"), ""], ["behavior", L("行为", "Behaviour"), n.behavior?.runs || ""],
     ...(YOU() ? [] : [["samples", L("多次生成", "Samples"), sampled.length || ""]]), ["code", L("代码", "Code"), (g.commits || []).length + (g.files || []).length || ""],
     ["knowledge", L("知识", "Knowledge"), (n.dataset ? 1 : 0) + (n.refs || []).length || ""]];
   if (!tabs.some(([k]) => k === S.tab)) S.tab = "overview";
@@ -320,11 +359,24 @@ function budHtml(n, bud) {
   return `<div class="shift">${esc(bud.idea)}</div><div class="muted">${L(`这个想法出现在「${esc(n.title)}」的多次生成里，只有一部分样本想到了它。在下面写下你想沿它问什么，它就长成一条你的分支。`, `This idea came up in some of the samples in “${esc(n.title)}”. Write what you want to ask along it and it grows into a branch of yours.`)}</div>`;
 }
 function turnsHtml(n, d) {
-  const F = [["all", L("全部", "All")], ["question", L("提问", "Questions")], ["answer", L("回答", "Answers")], ["insight", L("发现与灵感", "Findings")], ["alternative", L("影子路线", "Shadow paths")], ["you", L("你的", "Yours")]], q = S.search.trim().toLowerCase();
+  const F0 = [["all", L("全部", "All")], ["question", L("提问", "Questions")], ["answer", L("回答", "Answers")], ["insight", L("发现与灵感", "Findings")], ["alternative", L("影子路线", "Shadow paths")], ["you", L("你的", "Yours")]], q = S.search.trim().toLowerCase();
   const pick = (x) => S.filter === "all" || (S.filter === "you" ? (x.agent === "you" || x.kind === "correction") : x.kind === S.filter);
-  const notes = (d.notes || []).filter(pick).filter((x) => !q || x.text.toLowerCase().includes(q) || String(x.data?.code || "").toLowerCase() === q);
-  return `<div class="filters">${F.map(([k, nm]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-filter="${k}">${nm}</button>`).join("")}<input type="text" id="search" placeholder="${L("搜索这一段，或输入 Q123", "Search, or type Q123")}" value="${esc(S.search)}"></div>
-    ${PGATree.chat(notes, { md })}`;
+  const keep = (x) => pick(x) && (!q || x.text.toLowerCase().includes(q) || String(x.data?.code || "").toLowerCase() === q);
+  const { nodes, fork } = chainOf(n.id), missing = nodes.some((x) => !S.detail[x.id]);
+  if (missing) setTimeout(loadChain, 0);
+  const name = PGATree.cast(nodes.flatMap((x) => S.detail[x.id]?.notes || []));
+  const parts = nodes.map((x, i) => {
+    const dd = S.detail[x.id], cur = x.id === n.id, notes = (dd?.notes || []).filter(keep);
+    const untranslated = EN && dd?.notes && !dd._tr && dd.notes.some((m) => /[\u3400-\u9fff]/.test(m.text));
+    return `<div class="seam ${cur ? "cur" : ""}" id="seam-${x.id}"><span class="sn num">${i + 1}</span><a href="#" data-go="${x.id}" class="st">${esc(x.title)}</a>
+        <span class="sm num">${L(`${x.turns} 轮`, `${x.turns} turns`)}${x.first_at ? " · " + esc(when(x.first_at)) : ""}</span>${untranslated ? `<a href="#" data-trnode="${x.id}" class="sm">${L("", "Translate")}</a>` : ""}</div>
+      ${x.shift && i > 0 ? `<div class="seamwhy">${esc(x.shift)}</div>` : ""}
+      ${!dd ? `<div class="dimt" style="font-size:12.5px;padding:8px 0">${L("载入…", "Loading…")}</div>` : dd.error ? `<div class="dimt">${esc(dd.error)}</div>` : notes.length ? PGATree.chat(notes, { md, name }) : `<div class="dimt" style="font-size:12.5px;padding:6px 0 14px">${q || S.filter !== "all" ? L("这一段没有符合的。", "Nothing matches in this stretch.") : L("这一段还没有对话。", "No dialogue in this stretch yet.")}</div>`}`;
+  }).join("");
+  const forkNote = fork.length > 1 ? `<div class="fork-end"><span>${L(`这里分叉成 ${fork.length} 条，选一条接着看：`, `It forks into ${fork.length} branches here — pick one to read on:`)}</span>${fork.map((k) => `<button class="chip ${k.kind}" data-go="${k.id}">${esc(k.title.length > 22 ? k.title.slice(0, 21) + "…" : k.title)}</button>`).join("")}</div>` : "";
+  return `<div class="filters">${F0.map(([k, nm]) => `<button class="chip ${S.filter === k ? "on" : ""}" data-filter="${k}">${nm}</button>`).join("")}<input type="text" id="search" placeholder="${L("在这条对话里搜索，或输入 Q123", "Search this conversation, or type Q123")}" value="${esc(S.search)}"></div>
+    <div class="chainhead">${L(`从根到这里一共 ${nodes.length} 段，是一条连续的对话；节点之间用线隔开。`, `${nodes.length} stretches from the root, read as one conversation; a line marks each node.`)}</div>
+    ${parts}${forkNote}`;
 }
 function behaviorHtml(n) {
   const B = S.beh[n.id];
@@ -489,7 +541,7 @@ async function showDoc(id) {
 }
 document.addEventListener("click", async (e) => {
   if (S.menu && !e.target.closest(".menu")) { S.menu = false; renderNode(); }
-  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-lang], #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings");
+  const t = e.target.closest("[data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-filter], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-lang], #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings");
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim) e.preventDefault();
   if (t.dataset.lang) { store.set("pga_lang", t.dataset.lang); const q = new URLSearchParams(location.search); q.delete("lang"); location.search = q.toString(); return; }
@@ -499,7 +551,8 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.tnode) { select(t.dataset.tnode); return; }
   if (t.dataset.go) { select(t.dataset.go); return; }
   if (t.dataset.goaim) { const q = t.dataset.goaim === "you" ? "you=1" : `aim=${t.dataset.goaim}`; if (t.dataset.goaim === S.aim) { select(t.dataset.gonode); return; } location.href = `/tree?${q}&node=${t.dataset.gonode}${AS_UID ? `&as=${AS_UID}` : ""}`; return; }
-  if (t.dataset.tab) { S.tab = t.dataset.tab; store.set("pga_tree_tab", S.tab); renderNode(); return; }
+  if (t.dataset.tab) { S.tab = t.dataset.tab; store.set("pga_tree_tab2", S.tab); renderNode(); if (S.tab === "turns") scrollToSeam(); return; }
+  if (t.dataset.trnode) { translateTurns(t.dataset.trnode); return; }
   if (t.dataset.filter) { S.filter = t.dataset.filter; renderBody(); return; }
   if (t.dataset.bud !== undefined) { S.bud = Number(t.dataset.bud); drawTree(false); renderNode(); $("#tnText")?.focus(); return; }
   if (t.dataset.refadd || t.dataset.unrefnode) {

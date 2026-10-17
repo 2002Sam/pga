@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agents · PGA</title>
+<link rel="icon" href="/icons/favicon-32.png?v=3">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="/ui/shell.js"></script>
+<style>
+:root {
+  --bg: #09090b; --panel: #0f0f12; --raised: #16161a; --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12); --line-3: rgba(255,255,255,.2);
+  --text: #ececef; --muted: #a1a1aa; --dim: #71717a; --accent: #d6a75c; --accent-soft: rgba(214,167,92,.12); --blue: #8fb4ff; --green: #7fcf9f; --bad: #e58c7e;
+  --hdr: rgba(9,9,11,.85); --inset: #0c0c0f; --pop: #17171b; --hover: #1c1c21; --onprimary: #0b0b0e;
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+}
+[data-theme=light] { --bg: #f6f6f7; --panel: #ffffff; --raised: #f1f1f3; --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.13); --line-3: rgba(0,0,0,.24);
+  --text: #18181b; --muted: #52525b; --dim: #8a8a93; --accent: #a8741f; --accent-soft: rgba(168,116,31,.10); --blue: #2563c9; --green: #1f8a4c; --bad: #c2412d;
+  --hdr: rgba(255,255,255,.88); --inset: #f4f4f6; --pop: #ffffff; --hover: #ebebee; --onprimary: #ffffff; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; } button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; height: 28px; padding: 0 11px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); font-size: 12.5px; font-weight: 500; white-space: nowrap; }
+button:hover { border-color: var(--line-3); background: var(--hover); } button:disabled { opacity: .45; cursor: default; }
+button.primary { background: var(--text); color: var(--onprimary); border-color: transparent; } button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--text); background: var(--hover); }
+header { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 20px; height: 52px; padding: 0 24px; border-bottom: 1px solid var(--line); background: var(--hdr); backdrop-filter: blur(12px); }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; } .brand img { width: 18px; height: 18px; }
+nav { display: flex; gap: 2px; } nav a { padding: 5px 10px; border-radius: 6px; color: var(--muted); font-size: 13px; } nav a.on { color: var(--text); background: var(--raised); } nav a:hover { color: var(--text); }
+.hright { margin-left: auto; display: flex; align-items: center; gap: 14px; font-size: 13px; color: var(--muted); }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -.02em; } .lead { margin: 6px 0 26px; color: var(--muted); max-width: 720px; }
+.sect { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 30px 0 12px; } .sect h2 { margin: 0; font-size: 15px; font-weight: 600; } .sect .r { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--dim); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.ag { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; } .ag.off { opacity: .6; }
+.ag .h { display: flex; align-items: center; gap: 10px; white-space: nowrap; } .ag .h b { font-size: 15px; font-weight: 600; } .ag .h .via { font-size: 12px; color: var(--dim); margin-left: auto; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: #52525b; flex: none; } .dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(127,207,159,.15); }
+.dot.degraded, .dot.login { background: var(--accent); } .dot.offline, .dot.error { background: var(--bad); }
+.ag .role { font-size: 13px; color: var(--muted); margin: 6px 0 10px; } .ag .detail { font-size: 12px; color: var(--dim); margin-top: 4px; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.q { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); margin: 6px 0; } .q .bar { flex: 1; height: 4px; background: var(--raised); border-radius: 2px; } .q .bar i { display: block; height: 100%; border-radius: 2px; background: var(--text); opacity: .7; }
+.work { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--accent-soft); font-size: 12.5px; } .work .t { color: var(--muted); white-space: pre-wrap; max-height: 64px; overflow: hidden; margin-top: 4px; font-size: 12px; }
+.acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; } .res { font-size: 12px; margin-top: 8px; color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.cat { display: grid; grid-template-columns: 150px 1fr; gap: 16px; padding: 14px 18px; border-top: 1px solid var(--line); } .cat:first-child { border-top: 0; }
+.cat .k { font-weight: 600; font-size: 13.5px; } .cat .k small { display: block; color: var(--dim); font-weight: 400; font-size: 12px; margin-top: 2px; }
+.order { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; } .slot { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 4px 0 10px; border-radius: 8px; border: 1px solid var(--line-2); font-size: 12.5px; background: var(--raised); }
+.slot .n { color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; } .slot button { height: 22px; padding: 0 6px; font-size: 11px; border: 0; background: transparent; color: var(--dim); } .slot button:hover { color: var(--text); background: var(--hover); }
+.slot.unusable { opacity: .5; } .why { font-size: 12px; color: var(--dim); margin-top: 6px; }
+.hub { display: grid; grid-template-columns: 1.1fr .7fr .7fr 1.2fr; gap: 16px; align-items: baseline; padding: 12px 18px; border-top: 1px solid var(--line); font-size: 13px; } .hub:first-child { border-top: 0; }
+.hub b { font-weight: 600; } .hub span { color: var(--muted); font-variant-numeric: tabular-nums; } .hub .hd { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty { padding: 20px 18px; color: var(--dim); font-size: 13px; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--pop); border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 50; }
+#toast.on { opacity: 1; }
+@media (max-width: 760px) { .cat { grid-template-columns: 1fr; } .hub { grid-template-columns: 1fr 1fr; } .hub .hd { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/" id="home"><img src="/icons/favicon-32.png?v=3" alt="">PGA</a>
+  <nav><a href="/" id="toForest">森林</a><a class="on" href="#">Agents</a></nav>
+  <div class="hright"><span id="spent"></span><span id="shell"></span></div>
+</header>
+<main>
+  <h1 id="h1">Agents</h1><p class="lead" id="lead"></p>
+  <div class="sect"><h2 id="hPool"></h2><div class="r"><span id="linkNote"></span><button id="checkAll"></button></div></div>
+  <section class="grid" id="pool"></section>
+  <div class="sect"><h2 id="hRoute"></h2><div class="r" id="routeNote"></div></div>
+  <section class="card" id="routing"></section>
+  <div class="sect"><h2 id="hHub"></h2><div class="r"><button id="syncHub"></button></div></div>
+  <section class="card" id="hub"></section>
+</main>
+<div id="toast"></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } } };
+const Q = new URLSearchParams(location.search), AS_UID = Q.get("as"), asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
+const L = PGAShell.L, EN = PGAShell.LANG === "en";
+const A = { uid: AS_UID || store.get("pga_uid"), view: null, links: {}, live: [], hub: [], res: {}, busy: new Set() };
+const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
+  return s < 60 ? L("刚刚", "just now") : s < 3600 ? L(`${Math.floor(s / 60)} 分钟前`, `${Math.floor(s / 60)}m ago`) : s < 86400 ? L(`${Math.floor(s / 3600)} 小时前`, `${Math.floor(s / 3600)}h ago`) : L(`${Math.floor(s / 86400)} 天前`, `${Math.floor(s / 86400)}d ago`); };
+const until = (iso) => { if (!iso) return ""; const s = (new Date(iso) - Date.now()) / 1000; return s <= 0 ? "" : s < 3600 ? L(`${Math.ceil(s / 60)} 分钟后重置`, `resets in ${Math.ceil(s / 60)}m`) : s < 86400 ? L(`${Math.round(s / 3600)} 小时后重置`, `resets in ${Math.round(s / 3600)}h`) : L(`${Math.round(s / 86400)} 天后重置`, `resets in ${Math.round(s / 86400)}d`); };
+function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3200); }
+async function api(path, opts = {}) {
+  const res = await fetch(path, { method: opts.method || (opts.body ? "POST" : "GET"), headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) throw new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText);
+  return data;
+}
+document.title = L("Agent 与连接 · PGA", "Agents · PGA");
+$("#toForest").textContent = L("森林", "Forest"); $("#toForest").href = $("#home").href = "/" + asq;
+$("#h1").textContent = L("Agent 与连接", "Agents and connections");
+$("#lead").textContent = L("PGA 把工作分给这些 agent：你电脑上的 Claude Code、ChatGPT/Codex、Hermes、WorkBuddy，以及它自己的模型。这里看它们是否连着、还剩多少额度、正在做什么，并决定每类工作先交给谁。", "PGA shares its work among these agents — Claude Code, ChatGPT/Codex, Hermes and WorkBuddy on this Mac, and its own model. See whether each is connected, how much quota is left and what it is doing, and decide who gets each kind of work first.");
+$("#hPool").textContent = L("agent 池", "The pool"); $("#checkAll").textContent = L("检查所有连接", "Check all connections");
+$("#hRoute").textContent = L("调度：每类工作先交给谁", "Routing: who gets each kind of work first"); $("#routeNote").textContent = L("按顺序尝试；用不了的（没连上、额度不够）会被跳过", "Tried in order; agents that cannot be used right now are skipped");
+$("#hHub").textContent = L("导入的对话", "Imported conversations"); $("#syncHub").textContent = L("现在同步", "Sync now");
+PGAShell.mount($("#shell"));
+
+const STATE = { online: [L("在线", "Online"), "online"], degraded: [L("勉强能用", "Degraded"), "degraded"], login: [L("需要登录", "Needs login"), "login"],
+                offline: [L("离线", "Offline"), "offline"], error: [L("出错", "Error"), "error"], unknown: [L("未知", "Unknown"), ""] };
+function render() {
+  const V = A.view; if (!V) return;
+  $("#spent").textContent = V.spent_today ? L(`今天花了 $${V.spent_today.toFixed(2)}`, `$${V.spent_today.toFixed(2)} today`) : "";
+  $("#linkNote").textContent = V.links_active ? L("每 30 分钟自动检查一次", "Checked every 30 minutes") : L("连接检查没有在运行", "Link checks are not running");
+  const live = (A.live || []).filter((r) => r.running);
+  $("#pool").innerHTML = Object.entries(V.agents).map(([name, cfg]) => {
+    const st = V.status?.[name] || {}, link = A.links[name] || st.link || {}, q = st.quota || {}, on = st.enabled !== false;
+    const [label, cls] = STATE[link.state] || STATE.unknown, work = live.filter((r) => r.agent === name), busy = A.busy.has(name), res = A.res[name];
+    return `<div class="ag ${on ? "" : "off"}"><div class="h"><span class="dot ${cls}"></span><b>${esc(name)}</b><span>${esc(label)}${link.via_label ? " · " + esc(link.via_label) : ""}</span><span class="via">${esc(cfg.adapter || "")}${cfg.clone_of ? L(` · ${cfg.clone_of} 的另一个账号`, ` · another account of ${cfg.clone_of}`) : ""}</span></div>
+      <div class="role">${esc(cfg.role || "")}</div>
+      ${q.remaining != null ? `<div class="q"><span>${L("额度", "Quota")}</span><span class="bar"><i style="width:${Math.round(Math.max(0, Math.min(1, q.remaining)) * 100)}%"></i></span><span>${Math.round(q.remaining * 100)}%</span></div>` : ""}
+      ${q.detail || q.resets_at ? `<div class="detail">${esc(q.detail || "")}${q.resets_at ? " · " + esc(until(q.resets_at)) : ""}</div>` : ""}
+      ${link.detail ? `<div class="detail">${esc(link.detail)}${link.checked_at ? " · " + L("检查于 ", "checked ") + esc(ago(link.checked_at)) : ""}</div>` : st.detail ? `<div class="detail">${esc(st.detail)}</div>` : ""}
+      ${work.map((r) => `<div class="work">${L("正在工作", "Working")} · ${esc(r.workflow || "")}${r.step ? " · " + esc(r.step) : ""} · ${Math.round(r.elapsed_s || 0)}s<div class="t">${esc((r.text || "").slice(-240))}</div></div>`).join("")}
+      <div class="acts"><button data-test="${esc(name)}" ${busy ? "disabled" : ""}>${busy ? L("测试中…", "Testing…") : L("测试", "Test")}</button><button class="ghost" data-check="${esc(name)}">${L("检查连接", "Check link")}</button>
+        <button class="ghost" data-enable="${esc(name)}" data-on="${on ? 0 : 1}">${on ? L("停用", "Disable") : L("启用", "Enable")}</button>${work.length ? `<button class="ghost" data-stop="${esc(name)}">${L("停止当前工作", "Stop current work")}</button>` : ""}</div>
+      ${res ? `<div class="res">${esc(res)}</div>` : ""}</div>`;
+  }).join("");
+  const cats = V.routing?.categories || {};
+  $("#routing").innerHTML = Object.entries(cats).map(([k, c]) => {
+    const rank = V.ranking?.[k] || [], byName = new Map(rank.map((r) => [r.agent, r]));
+    return `<div class="cat"><div class="k">${esc(c.label || k)}<small>${esc(k)}</small></div><div><div class="order">${(c.prefer || []).map((n, i) => { const r = byName.get(n);
+        return `<span class="slot ${r && !r.usable ? "unusable" : ""}" title="${esc(r?.why || "")}"><span class="n">${i + 1}</span>${esc(n)}${i > 0 ? `<button data-up="${k}|${i}" title="${L("往前", "Earlier")}">↑</button>` : ""}${i < c.prefer.length - 1 ? `<button data-down="${k}|${i}" title="${L("往后", "Later")}">↓</button>` : ""}</span>`; }).join("")}</div>
+      ${rank[0] ? `<div class="why">${L("现在会先交给", "Right now it goes to")} <b>${esc(rank.find((r) => r.usable)?.agent || "—")}</b>${rank.find((r) => r.usable)?.why ? " · " + esc(rank.find((r) => r.usable).why) : ""}</div>` : ""}</div></div>`;
+  }).join("") || `<div class="empty">${L("没有配置调度。", "No routing configured.")}</div>`;
+  $("#hub").innerHTML = (A.hub || []).map((h) => `<div class="hub"><b>${esc(h.name)}</b><span>${L(`${h.conversation_count} 段对话`, `${h.conversation_count} conversations`)}</span><span>${h.last_synced_at ? L("同步于 ", "synced ") + esc(ago(h.last_synced_at)) : L("还没同步", "not synced")}</span>
+      <span class="hd">${esc(h.summary_display?.headline || h.summary?.headline || "")}</span></div>`).join("") || `<div class="empty">${L("还没有导入任何应用的对话。", "No conversations imported yet.")}</div>`;
+}
+async function load() {
+  if (!A.uid) { try { A.uid = (await api("/healthz")).owner; } catch {} }
+  const [view, links, live, hub] = await Promise.all([api("/v1/agents"), api("/v1/agents/links").catch(() => ({ links: {} })), api("/v1/agents/live").catch(() => []), api(`/v1/users/${A.uid}/hub`).catch(() => ({ agents: [] }))]);
+  A.view = view; A.links = links.links || {}; A.live = live || []; A.hub = hub.agents || [];
+  render();
+}
+async function reorder(cat, i, delta) {
+  const V = A.view, data = { agents: V.agents, workflows: V.workflows, routing: JSON.parse(JSON.stringify(V.routing)), run: V.run };
+  const list = data.routing.categories[cat].prefer, j = i + delta; if (j < 0 || j >= list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  try { A.view = await api("/v1/agents", { method: "PUT", body: data }); render(); toast(L("调度顺序已保存", "Order saved")); } catch (err) { toast(err.message); }
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  try {
+    if (b.dataset.test) { const n = b.dataset.test; A.busy.add(n); render();
+      try { const r = await api("/v1/agents/test", { body: { agent: n } }); A.res[n] = r.ok ? L(`能用：回答「${r.reply}」，用时 ${r.duration_s}s`, `Works: answered “${r.reply}” in ${r.duration_s}s`) : (r.available ? L("没有回答：", "No answer: ") + (r.error || "") : L("没装好：", "Not installed: ") + (r.detail || "")); }
+      finally { A.busy.delete(n); } await load(); return; }
+    if (b.dataset.check) { await api("/v1/agents/links/check", { body: { agent: b.dataset.check } }); toast(L("已检查", "Checked")); await load(); return; }
+    if (b.id === "checkAll") { b.disabled = true; await api("/v1/agents/links/check", { body: {} }); toast(L("所有连接都检查过了", "All links checked")); await load(); return; }
+    if (b.dataset.enable) { await api(`/v1/agents/${encodeURIComponent(b.dataset.enable)}/enabled`, { body: { enabled: b.dataset.on === "1" } }); await load(); return; }
+    if (b.dataset.stop) { await api(`/v1/agents/${encodeURIComponent(b.dataset.stop)}/stop`, { method: "POST" }); toast(L("已停止", "Stopped")); await load(); return; }
+    if (b.dataset.up) { const [k, i] = b.dataset.up.split("|"); reorder(k, Number(i), -1); return; }
+    if (b.dataset.down) { const [k, i] = b.dataset.down.split("|"); reorder(k, Number(i), 1); return; }
+    if (b.id === "syncHub") { b.disabled = true; await api(`/v1/users/${A.uid}/hub/sync`, { method: "POST" }); toast(L("开始同步：几分钟内会更新", "Syncing: updates in a few minutes")); setTimeout(load, 4000); return; }
+  } catch (err) { toast(err.message); }
+});
+load(); setInterval(() => load().catch(() => {}), 15000);
+</script>
+</body>
+</html>
