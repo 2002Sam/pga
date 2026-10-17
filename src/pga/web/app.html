@@ -180,11 +180,19 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .clist { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden !important; } .tlwrap { overflow: auto; min-height: 0; }
 .clist .ch button { flex: none; } .tlfoot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); } .tlfoot a { color: var(--muted); margin-left: auto; }
 .clist .ch .seg button { height: 24px; } .lrows { overflow: auto; min-height: 0; }
-.lrow { padding: 10px 14px 9px; border-top: 1px solid var(--line); cursor: pointer; } .lrow:hover { background: var(--soft); } .lrow.on { background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
-.lrow .lr1 { display: flex; gap: 8px; align-items: center; } .lrow .lr1 i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.lrow .lr1 b { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .lrow .lr1 .dimt { font-size: 11.5px; white-space: nowrap; }
-.lrow .lr2 { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--dim); margin: 2px 0 6px 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .lrow .lr2 .kind { font-size: 10.5px; }
-.lrow .strip { display: block; width: calc(100% - 15px); height: 5px; margin-left: 15px; } .lrow .strip .bg { fill: var(--line-2); }
+.lrow { display: flex; gap: 10px; padding: 8px 14px 8px 12px; cursor: pointer; align-items: flex-start; } .lrow:hover { background: var(--soft); }
+.lrow.on { background: var(--accent-soft); } .lrow .ldot { flex: none; margin-top: 1px; } .lrow .ldot circle { fill: var(--panel); stroke-width: 1.8; }
+.lrow.on .ldot circle { fill: var(--accent); stroke: var(--accent) !important; } .lrow .lbody { min-width: 0; flex: 1; }
+.lrow .lt { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .lrow.on .lt { color: var(--accent); }
+.lrow .lm { font-size: 11px; color: var(--dim); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lrow .strip { display: block; width: 100%; height: 4px; margin-top: 5px; opacity: .8; } .lrow .strip .bg { fill: var(--line); }
+.lgrp span { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: auto; }
+.dirs { border: 1px solid var(--line-2); border-radius: 10px; max-height: 260px; overflow: auto; margin-bottom: 10px; } .dirs .dh { display: flex; gap: 6px; align-items: center; padding: 8px 10px; position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--line); }
+.dirs .dh b { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .dirs .dr { padding: 5px 12px; font-size: 13px; cursor: pointer; } .dirs .dr:hover { background: var(--soft); }
+.steps { margin: 10px 0 4px; padding-left: 0; list-style: none; } .steps > li { position: relative; padding: 0 0 10px 18px; border-left: 1px solid var(--line-2); margin-left: 5px; }
+.steps > li::before { content: ""; position: absolute; left: -5px; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--panel); border: 1.5px solid var(--accent); }
+.steps b { font-size: 13px; font-weight: 600; } .steps .ss { font-size: 12.5px; color: var(--muted); margin-top: 2px; } .steps ul { list-style: none; padding-left: 12px; margin: 6px 0 0; }
+.steps ul li { font-size: 12.5px; padding: 2px 0; color: var(--muted); } .steps ul li b { font-size: 12.5px; font-weight: 500; color: var(--text); }
 .work { margin: 6px 0 18px; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 14px; background: var(--raised); font-size: 13px; }
 .work .wh { display: flex; gap: 10px; align-items: center; } .work .wst { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
 .spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--line-3); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; } @keyframes spin { to { transform: rotate(360deg); } }
@@ -195,8 +203,8 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .rmeta { margin: -8px 0 4px 38px; font-size: 11.5px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; } .rmeta details { display: inline; } .rmeta summary { cursor: pointer; display: inline; color: var(--muted); }
 .rmeta .wacts { margin-left: 0; max-height: 220px; overflow: auto; }
 .envbar { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--dim); margin: 0 2px 6px; flex-wrap: wrap; } .envbar a { color: var(--muted); }
-.ctxm { display: inline-flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; } .ctxm i { width: 54px; height: 4px; border-radius: 2px; background: var(--line-2); display: inline-block; overflow: hidden; }
-.ctxm b { display: block; height: 100%; background: var(--green); } .ctxm b.hi { background: var(--bad); }
+.ctxm { display: inline-flex; gap: 5px; align-items: center; font-variant-numeric: tabular-nums; cursor: default; } .ctxm .rbg { fill: none; stroke: var(--line-2); stroke-width: 5; }
+.ctxm .rfg { fill: none; stroke: var(--green); stroke-width: 5; stroke-linecap: round; } .ctxm .rfg.hi { stroke: var(--bad); }
 .tacts { display: flex; gap: 4px; margin: -6px 0 8px 38px; } .tacts button { height: 22px; font-size: 11.5px; padding: 0 7px; color: var(--dim); }
 .swap { align-self: center; text-align: center; font-size: 11.5px; color: var(--accent); margin: 8px 0; }
 .second { margin: 0 0 16px 38px; border: 1px solid var(--line-2); border-left: 2px solid var(--blue); border-radius: 0 12px 12px 0; padding: 10px 14px; background: var(--raised); font-size: 13px; }
@@ -727,11 +735,18 @@ function showAcc(key) {
     <div class="muted" style="margin-bottom:12px">${key.startsWith("tree:") ? L("对这棵树上你发起的对话生效。", "For the conversations you start on this tree.") : key ? L("只对这段对话生效。", "For this conversation only.") : L("对这段新对话生效。", "For this new conversation.")} ${L("PGA 自己的长期运行不受影响，始终只读。", "PGA's own long-running work is not affected and stays read-only.")}</div>
     ${Object.entries(ACC).map(([k, v]) => `<label class="opt"><input type="radio" name="accLvl" value="${k}" ${a.access === k ? "checked" : ""}><span><b style="font-weight:500">${L(v[0], v[1])}</b><div class="d">${L(v[2], v[3])}</div></span></label>`).join("")}
     <div class="label" style="margin-top:12px">${L("工作文件夹", "Working folder")}</div>
-    <input type="text" id="accFolder" style="width:100%;margin:6px 0 4px" placeholder="${L("留空：这段对话自己的空文件夹（例如 ~/Documents/PGA/pga）", "Empty: this conversation's own empty folder (e.g. ~/Documents/PGA/pga)")}" value="${esc(a.folder || "")}">
+    <div style="display:flex;gap:6px;margin:6px 0 4px"><input type="text" id="accFolder" style="flex:1" placeholder="${L("留空：这段对话自己的空文件夹（例如 ~/Documents/PGA/pga）", "Empty: this conversation's own empty folder (e.g. ~/Documents/PGA/pga)")}" value="${esc(a.folder || "")}"><button class="sm" id="accBrowse">${L("选择…", "Browse…")}</button></div><div id="dirBox"></div>
     <div class="dimt" style="font-size:12px;margin-bottom:10px">${L("在这个文件夹里，agent 能读到你的 CLAUDE.md 和项目配置。", "In this folder agents read your CLAUDE.md and project settings.")}</div>
     <label class="opt"><input type="checkbox" id="accMcp" ${a.mcp ? "checked" : ""}><span>${L("使用你自己的 MCP 工具", "Use your own MCP tools")}<div class="d">${(S.mcpServers || []).length ? esc(S.mcpServers.join(", ")) : L("你的 Claude Code 里没有配置 MCP 服务器（~/.claude.json）", "No MCP servers in your Claude Code config (~/.claude.json)")}${L(" · 目前对 Claude Code 生效", " · applies to Claude Code for now")}</div></span></label>
     <label class="opt"><input type="checkbox" id="accDef"><span>${L("也设为以后新对话的默认", "Also the default for new conversations")}</span></label>
     <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="accSave" data-key="${esc(key)}">${L("保存", "Save")}</button></div></div>`);
+}
+/* picking a folder: browse your home folder level by level */
+async function browseDirs(path) {
+  const box = $("#dirBox"); if (!box) return;
+  const d = await api(`/v1/users/${S.uid}/dirs?path=${encodeURIComponent(path || "")}`).catch(() => null); if (!d) return;
+  box.innerHTML = `<div class="dirs"><div class="dh"><b title="${esc(d.path)}">${esc(d.path.replace(d.home, "~") || "~")}</b>${d.git ? `<span class="pill">git</span>` : ""}${d.claude_md ? `<span class="pill">CLAUDE.md</span>` : ""}<span class="grow"></span><button class="sm primary" data-usedir="${esc(d.path)}">${L("用这个文件夹", "Use this folder")}</button></div>
+    ${d.parent ? `<div class="dr" data-dir="${esc(d.parent)}">↑ ${L("上一级", "Up")}</div>` : ""}${d.dirs.map((x) => `<div class="dr" data-dir="${esc(d.path + "/" + x)}">📁 ${esc(x)}</div>`).join("") || `<div class="dimt" style="padding:6px">${L("这里没有子文件夹", "No folders inside")}</div>`}</div>`;
 }
 async function saveAcc(key) {
   if (!key && S.view === "chats" && !S.lineView) { S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; key = S.chat; }
@@ -965,17 +980,23 @@ function renderLines() {
   const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
   const strip = (g) => { let r = ""; for (const d of g.days) { const k = Math.round((today - new Date(d + "T00:00:00")) / 864e5); if (k >= 0 && k < DAYS) r += `<rect x="${DAYS - 1 - k}" y="0" width="1" height="4"/>`; }
     return `<svg class="strip" viewBox="0 0 ${DAYS} 4" preserveAspectRatio="none" style="fill:${col(g.id)}"><rect class="bg" x="0" y="1.6" width="${DAYS}" height=".8"/>${r}</svg>`; };
-  const keep = $(".lrows", box)?.scrollTop;
-  const row = (g) => { const m = T.lines[g.id] || {};
-      return `<div class="lrow ${S.tlLine === g.id ? "on" : ""}" data-tline="${esc(g.id)}"><div class="lr1"><i style="background:${col(g.id)}"></i><b>${esc(m.title || "")}</b><span class="dimt num">${esc(ago(g.last))}</span></div>
-        <div class="lr2">${m.kind !== "single" ? `<span class="kind">${L(...(LK[m.kind] || LK.single))}</span>` : ""}${L(`${g.items.size} 段对话`, `${g.items.size} conversations`)}${g.days.size > 1 ? L(` · ${g.days.size} 天`, ` · ${g.days.size} days`) : ""}${g.agents.size ? " · " + esc([...g.agents].slice(0, 3).join(", ")) : ""}</div>${strip(g)}</div>`; };
-  const pins = T.pinned || [], P = pins.map((id) => rows.find((g) => g.id === id)).filter(Boolean);
-  const ongoing = rows.filter((g) => !pins.includes(g.id) && (T.lines[g.id] || {}).kind !== "single");
-  const loose = rows.filter((g) => !pins.includes(g.id) && (T.lines[g.id] || {}).kind === "single"), LOOSE = 8;
-  box.innerHTML = tlHead() + `<div class="lrows">${P.length ? `<div class="lgrp">${L("置顶", "Pinned")}</div>${P.map(row).join("")}` : ""}
-    ${ongoing.length ? `<div class="lgrp">${L("进行中的事 · 几段对话连成的线", "Ongoing · lines of several conversations")}</div>${ongoing.map(row).join("")}` : ""}
-    ${loose.length ? `<div class="lgrp">${L("零散对话", "One-off conversations")}</div>${(S.showLoose ? loose : loose.slice(0, LOOSE)).map(row).join("")}
-      ${loose.length > LOOSE ? `<div class="lgrp fold" id="looseToggle">${S.showLoose ? L("收起", "Show fewer") : L(`还有 ${loose.length - LOOSE} 段 ▾`, `${loose.length - LOOSE} more ▾`)}</div>` : ""}` : ""}</div>
+  const keep = $(".lrows", box)?.scrollTop, now = Date.now(), W = (g) => (T.lines[g.id] || {}).weight || 0;
+  /* drawn like the time view: a dot (bigger = weightier), the title, one quiet line of facts, the strip of active days */
+  const row = (g) => { const m = T.lines[g.id] || {}, r = Math.max(3.5, Math.min(8, 3 + W(g) * .9));
+    const facts = [m.kind !== "single" ? L(...(LK[m.kind] || LK.single)) : "", L(`${g.items.size} 段`, `${g.items.size} conv.`), g.days.size > 1 ? L(`${g.days.size} 天`, `${g.days.size} days`) : "",
+      m.chars ? L(`你写了 ${kfmt(m.chars)} 字`, `you wrote ${kfmt(m.chars)} chars`) : "", [...g.agents].slice(0, 2).join(", "), ago(g.last)].filter(Boolean).join(" · ");
+    return `<div class="lrow ${S.tlLine === g.id ? "on" : ""}" data-tline="${esc(g.id)}"><svg class="ldot" width="18" height="18"><circle cx="9" cy="9" r="${r.toFixed(1)}" style="stroke:${col(g.id)}"/></svg>
+      <div class="lbody"><div class="lt">${esc(m.title || "")}</div><div class="lm">${esc(facts)}</div>${g.days.size > 1 ? strip(g) : ""}</div></div>`; };
+  const pins = T.pinned || [], rest = rows.filter((g) => !pins.includes(g.id)), P = pins.map((id) => rows.find((g) => g.id === id)).filter(Boolean);
+  const long = rest.filter((g) => (T.lines[g.id] || {}).kind !== "single" && g.days.size >= 2).sort((a, b) => W(b) - W(a));
+  const recent = rest.filter((g) => !long.includes(g) && now - new Date(g.last) < 7 * 864e5);
+  const older = rest.filter((g) => !long.includes(g) && !recent.includes(g)).sort((a, b) => W(b) - W(a)), MORE = 6;
+  const grp = (title, hint, xs) => (xs.length ? `<div class="lgrp">${title}<span>${hint}</span></div>${xs.map(row).join("")}` : "");
+  box.innerHTML = tlHead() + `<div class="lrows">${grp(L("置顶", "Pinned"), "", P)}
+    ${grp(L("长期的事", "Long-running"), L("按分量：持续多久、回来几天、你写了多少", "by weight: how long, how many days, how much you wrote"), long)}
+    ${grp(L("最近 7 天", "Last 7 days"), "", recent)}
+    ${older.length ? `<div class="lgrp">${L("更早的零散对话", "Older one-offs")}<span>${L("按分量", "by weight")}</span></div>${(S.showLoose ? older : older.slice(0, MORE)).map(row).join("")}
+      ${older.length > MORE ? `<div class="lgrp fold" id="looseToggle">${S.showLoose ? L("收起", "Show fewer") : L(`还有 ${older.length - MORE} 段 ▾`, `${older.length - MORE} more ▾`)}</div>` : ""}` : ""}</div>
     <div class="tlfoot">${T.pending ? `<span>${L("正在整理…", "Tidying…")}</span>` : T.organized_at ? `<span>${L("上次整理 ", "Tidied ")}${esc(ago(T.organized_at))}</span>` : ""}<span class="dimt">${L(`细条：最近 ${DAYS} 天里活跃的日子`, `Strip: active days in the last ${DAYS}`)}</span>${nArch ? `<a href="#" id="archList">${L(`已归档 ${nArch}`, `${nArch} archived`)}</a>` : ""}</div>`;
   if (keep != null) $(".lrows", box).scrollTop = keep;
 }
@@ -1099,8 +1120,9 @@ function lineCard(compact) {
   const sum = d.summary || (!many && d.items[0]?.summary) || "";
   return `<details class="lcard" ${S.lineOpen ? "open" : ""}><summary><span class="kind">${L(...(LK[d.kind] || LK.single))}</span><b>${esc(d.title)}</b><span class="dimt num">${esc(span)} · ${L(`${d.items.length} 段对话`, `${d.items.length} conversations`)}</span></summary>
     <div class="lsum">${sum ? PGATree.summary(sum) : `<span class="dimt">${L("还没有整条线的概括。", "No summary of the whole line yet.")}</span>`}</div>
+    ${(d.steps || []).length ? `<div class="label" style="margin-top:12px">${L("一步一步", "Step by step")}${d.steps_at ? ` · ${esc(ago(d.steps_at))}` : ""}</div><ol class="steps">${d.steps.map((x) => `<li><b>${esc(x.title)}</b>${x.summary ? `<div class="ss">${esc(x.summary)}</div>` : ""}${(x.children || []).length ? `<ul>${x.children.map((c) => `<li><b>${esc(c.title)}</b>${c.summary ? ` · ${esc(c.summary)}` : ""}</li>`).join("")}</ul>` : ""}</li>`).join("")}</ol>` : ""}
     ${many ? `<div class="litems">${d.items.map((x, i) => `<div class="li ${x.key === S.tlSel ? "on" : ""}" data-litem="${esc(x.key)}"><span class="dimt num">${esc(when(x.first))}</span><span class="lt">${esc(x.title)}</span>${x.summary && x.summary !== d.items[i - 1]?.summary ? `<span class="ls">${esc(x.summary.replace(/\n+/g, " · ").slice(0, 140))}</span>` : ""}</div>`).join("")}</div>` : ""}
-    <div class="lact">${many || !d.summary ? `<button class="sm" id="lineSum">${d.summary ? L("重新概括", "Summarize again") : L("概括这条线", "Summarize this line")}</button>` : ""}
+    <div class="lact"><button class="sm" id="lineSteps">${(d.steps || []).length ? L("重新压缩成步骤", "Redo the steps") : L("压缩成步骤", "Compress into steps")}</button>${many || !d.summary ? `<button class="sm" id="lineSum">${d.summary ? L("重新概括", "Summarize again") : L("概括这条线", "Summarize this line")}</button>` : ""}
       ${aim ? `<button class="sm primary" data-opentree="${esc(aim)}" data-node="${esc(S.treeItem?.ref?.node || "")}">${L("打开这棵树", "Open the tree")}</button>`
         : `<button class="sm primary" id="lineOut" title="${L("把这条线变成一棵自己的树：每段对话一个节点，按时间连起来；之后可以在树上分支、沉淀", "Turn this line into a tree of its own: one node per conversation, chained in time; then branch and distill on it")}">${L("抽离成一棵树", "Pull out as a tree")}</button>`}
       <span class="grow"></span>${compact ? "" : `<a href="#" id="lineClear" class="dimt" style="font-size:12px">${L("取消高亮", "Clear highlight")}</a>`}</div></details>`;
@@ -1198,6 +1220,7 @@ async function impSend() {
   for (const line of String(d.excerpt || "").split("\n")) { const m = line.match(/^(User|Assistant)\s*:\s?(.*)$/); if (m) turns.push({ role: m[1] === "User" ? "user" : "agent", text: m[2] }); else if (turns.length) turns[turns.length - 1].text += "\n" + line; }
   S.chatTurns[key] = turns.slice(-6); S.chat = key; S.imp = null; S.tlSel = key;
   S.chatAgent = agent !== "auto" ? agent : name || "auto";
+  if (d.model && (agent === "auto" || agent === CONN[d.agent_type])) S.chatModel = { ...(S.chatModel || {}), [key]: d.model };   // the model it was imported with
   renderChat(); $("#chatText").value = text; await chatSend(); S.chatTurns[key] = (S.chatTurns[key] || []);
 }
 function renderChat() {
@@ -1315,9 +1338,9 @@ function envBar(key, turns) {
   const a = S.acc[key || "*new"] || {}, last = [...(turns || [])].reverse().find((x) => x.role !== "user" && x.how);
   const u = last?.how?.usage, win = last?.how?.window || (String(last?.agent || "").startsWith("claude") ? 200000 : 258400), used = u?.input || 0, pct = Math.min(100, Math.round(100 * used / win));
   const fold = a.folder || L("这段对话自己的文件夹", "this chat's own folder");
-  return `<div class="envbar"><span title="${esc(a.folder || "")}">📁 ${esc(fold.split("/").filter(Boolean).pop() || fold)}</span><span>${a.access ? L(ACC[a.access][0], ACC[a.access][1]) : ""}</span>${a.mcp ? "<span>MCP</span>" : ""}
+  return `<div class="envbar"><a href="#" data-pickdir="${esc(key)}" title="${esc(a.folder || L("点击选择 agent 工作的文件夹", "Click to pick the folder the agent works in"))}">📁 ${esc(fold.split("/").filter(Boolean).pop() || fold)}</a><span>${a.access ? L(ACC[a.access][0], ACC[a.access][1]) : ""}</span>${a.mcp ? "<span>MCP</span>" : ""}
     ${last ? `<span>${esc(last.agent || "")}${last.model ? " · " + esc(last.model) : ""}</span>` : ""}<span class="grow"></span>
-    <span class="ctxm" title="${L("上一轮 agent 读入的内容占它上下文窗口的比例", "How much of its context window the agent read last turn")}">${L("上下文", "Context")} <i><b style="width:${pct}%" class="${pct > 80 ? "hi" : ""}"></b></i> ${kfmt(used)} / ${kfmt(win)}</span>
+    <span class="ctxm" title="${L(`上下文：上一轮 agent 读入 ${kfmt(used)}，窗口 ${kfmt(win)}`, `Context: the agent read ${kfmt(used)} last turn, of a ${kfmt(win)} window`)}"><svg width="18" height="18" viewBox="0 0 36 36"><circle cx="18" cy="18" r="14" class="rbg"/><circle cx="18" cy="18" r="14" class="rfg ${pct > 80 ? "hi" : ""}" stroke-dasharray="${(88 * pct / 100).toFixed(1)} 88" transform="rotate(-90 18 18)"/></svg>${pct}%</span>
     <a href="#" id="usageBtn">${L("用量", "Usage")}</a></div>`;
 }
 async function showUsage() {
@@ -1350,7 +1373,7 @@ async function chatSend() {
   S.chatTurns[key] = [...prev, { role: "user", text, at: new Date().toISOString() }];
   S.sending = true; S.chatDraft = ""; window.history.replaceState(null, "", qs()); startLive(key); renderChat(); $("#chatText").value = "";
   try {
-    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: $("#chatAgent")?.value || "auto", conversation: key, history: hist, refs: S.chatRefs } });
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: $("#chatAgent")?.value || "auto", conversation: key, history: hist, refs: S.chatRefs, ...(S.chatModel?.[key] ? { model: S.chatModel[key] } : {}) } });
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
   finally { S.sending = false; stopLive(); }
@@ -1375,7 +1398,7 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #moveGo, [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1395,6 +1418,10 @@ document.addEventListener("click", async (e) => {
   if (t.id === "tlImport") { showImport(); return; }
   if (t.dataset.tline) { pickLine(t.dataset.tline); return; }
   if (t.id === "looseToggle") { S.showLoose = !S.showLoose; renderTimeline(); return; }
+  if (t.id === "accBrowse") { browseDirs($("#accFolder").value || ""); return; }
+  if (t.dataset.dir) { browseDirs(t.dataset.dir); return; }
+  if (t.dataset.usedir) { $("#accFolder").value = t.dataset.usedir; $("#dirBox").innerHTML = ""; return; }
+  if (t.dataset.pickdir !== undefined) { await loadAcc(t.dataset.pickdir); showAcc(t.dataset.pickdir); setTimeout(() => browseDirs($("#accFolder")?.value || ""), 50); return; }
   if (t.dataset.stoplive) { api(`/v1/agents/live/${t.dataset.stoplive}/stop`, { method: "POST" }).then(() => toast(L("已让它停下，已经写出的内容会保留", "Stopping; what it wrote so far is kept"))).catch((err) => toast(err.message)); return; }
   if (t.id === "usageBtn") { showUsage(); return; }
   if (t.dataset.second) { secondOpinion(t.dataset.second, t.dataset.ckey); return; }
@@ -1409,6 +1436,8 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }
   if (t.dataset.opentree) { show("tree", { aim: t.dataset.opentree, node: t.dataset.node || null }); return; }
   if (t.id === "lineClear") { S.lineView = null; S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
+  if (t.id === "lineSteps") { t.disabled = true; t.textContent = L("压缩中…", "Compressing…"); S.lineOpen = true;
+    try { await api(`/v1/users/${S.uid}/timeline/line/steps`, { body: { id: S.tlLine } }); await loadLine(S.tlLine); } catch (err) { toast(err.message); t.disabled = false; } return; }
   if (t.id === "lineSum") { t.disabled = true; t.textContent = L("概括中…", "Summarizing…");
     try { await api(`/v1/users/${S.uid}/timeline/line/summarize`, { body: { id: S.tlLine } }); await loadLine(S.tlLine); } catch (err) { toast(err.message); t.disabled = false; } return; }
   if (t.id === "lineOut") { const d = S.lineD?.[S.tlLine]; const title = prompt(L("这棵树叫什么？（也就是这个抱负）", "Name the tree (the motivation)"), d?.title || ""); if (!title) return;

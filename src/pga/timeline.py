@@ -16,6 +16,7 @@ What tidying and you decide is kept in the user's preferences under "timeline"; 
 from __future__ import annotations
 
 import logging
+import math
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -54,6 +55,8 @@ class Item:
     line: str = ""                             # by rule
     ref: dict = field(default_factory=dict)
     runs: list[str] = field(default_factory=list)
+    chars: int = 0                              # how much you wrote in it (your own words, not the agents')
+    model: str = ""
     times: list[datetime] = field(default_factory=list)
     turns: list[int] = field(default_factory=list)
 
@@ -124,6 +127,7 @@ class Timeline:
                                            line=key, ref={"chat": key})
             it.times.append(r.started_at)
             it.runs.append(str(r.id))
+            it.chars += len(r.prompt or "")
         folders = {}
         for p in self.s.scalars(select(Project).where(Project.user_id == user.id)):
             if p.aim_id:
@@ -145,6 +149,9 @@ class Timeline:
             it = items[key] = Item(key, "import", title[:120], agent=a.name, project=c.project or "", excerpt=(c.excerpt or "")[:400],
                                    line=line, ref={"conversation": str(c.id), "messages": c.message_count})
             it.times = [start] + ([end] if end - start > GAP else [])
+            mine = sum(len(m.group(1)) for m in re.finditer(r"^User:\s?(.*)$", c.excerpt or "", re.M))
+            it.chars = max(mine, (c.message_count or 0) // 2 * 120) if c.message_count else mine   # the excerpt is cut: estimate the rest
+            it.model = c.model or ""
             it.turns = [c.message_count] if len(it.times) == 1 else [max(1, c.message_count // 2), c.message_count - max(1, c.message_count // 2)]
         return list(items.values())
 
@@ -176,7 +183,14 @@ class Timeline:
             k2 = {"aim": "tree", "you": "tree", "proj": "project", "topic": "topic"}.get(kind, "single")
             if k2 == "project" and len(its) == 1:                    # a folder used once is not yet a line of work
                 k2 = "single"
-            meta[lid] = {"id": lid, "title": title[:80], "kind": k2,
+            first, last = min(min(x.times) for x in its), max(max(x.times) for x in its)
+            days = {t.date() for x in its for t in x.times}
+            chars = sum(x.chars for x in its)
+            span = (last - first).total_seconds() / 86400
+            # weight: how long it ran, on how many days you came back to it, and how much you wrote (each on a log scale)
+            weight = round(math.log1p(span) * 1.0 + math.log1p(len(days)) * 1.2 + math.log1p(chars / 200) * 1.0, 3)
+            meta[lid] = {"id": lid, "title": title[:80], "kind": k2, "weight": weight, "chars": chars, "days": len(days), "span": round(span, 1),
+                         "steps": bool(((tl.get("lines") or {}).get(lid) or {}).get("steps")),
                          "items": len(its), **({"tree": lid[4:]} if kind == "aim" else {"tree": "you"} if lid == "you" else {})}
         sessions = []
         for it in items:
@@ -222,7 +236,71 @@ class Timeline:
         return {"line": line, "title": (built["lines"].get(line) or {}).get("title") or meta.get("title") or (its[0].title if its else ""),
                 "kind": (built["lines"].get(line) or {}).get("kind", "single"), "items": out, "summary": meta.get("summary") or "",
                 "summarized_at": meta.get("summarized_at"), "extracted": meta.get("extracted"),
+                "steps": meta.get("steps") or [], "steps_at": meta.get("steps_at"),
+                "model": next((it.model for it in reversed(its) if it.model), ""),
                 "first": out[0]["first"] if out else None, "last": out[-1]["last"] if out else None}
+
+    def steps_line(self, user: User, line: str, now: datetime | None = None) -> list:
+        """A long discussion, compressed into a tree of steps: what was asked or tried at each stage, what came of it,
+        and the sub-steps under it. Written once (on request) and kept; it can stand in for the old turns."""
+        from pga.chats import history
+        from pga.tree import STYLE, _lang
+        now = now or utcnow()
+        its = self.line_items(user, line)
+        if not its:
+            return []
+        lang, style = _lang(user)
+        parts = []
+        for it in its[-30:]:
+            if it.kind == "chat":
+                turns = history(self.rt, user, it.key)
+                body = "\n".join(f"{'USER' if t['role'] == 'user' else 'AGENT'}: {re.sub(r'\s+', ' ', t['text'])[:500]}" for t in turns[-24:])
+            else:
+                body = it.excerpt[:1500]
+            parts.append(f"## {min(it.times):%Y-%m-%d} · {it.title}\n{body}")
+        system = ("Compress a long discussion between a person and AI agents into a tree of steps, like an outline of how "
+                  "the work went: each top-level step is a stage (what was asked or tried, what came of it); sub-steps "
+                  "are the turns inside it that changed something. Skip greetings and repetition. "
+                  f"Write in {lang}, in this style: {STYLE[style]} At most 8 top-level steps and 4 sub-steps each; "
+                  'each "title" at most 12 words, each "summary" at most 40 words. Reply with JSON only: '
+                  '{"steps": [{"title": "…", "summary": "…", "children": [{"title": "…", "summary": "…"}]}]}. ' + UNTRUSTED_NOTE)
+        prompt = fence("discussion", "\n\n".join(parts), 60000, kind="the person's conversations on one line, oldest first")
+        decision = self.rt.allocator.allocate(RunRequest(
+            user_id=user.id, kind="synthesis",
+            justification=Justification(why_now="you asked for the steps of this discussion",
+                                        expected_gain="a long discussion you can read in a minute, and a compact context to continue from",
+                                        decision_affected="where you pick the discussion up",
+                                        budget={"max_units": 60_000, "max_output_tokens": 1800}, stop_condition="the steps are written"),
+            estimates=Estimates(information_gain=.5, decision_impact=.4, user_relevance=.9, reuse_value=.7,
+                                input_tokens=len(prompt) // 3, output_tokens=1200)), now=now)
+        if not decision.allowed:
+            raise TimelineDeferred("; ".join(decision.reasons))
+        try:
+            with self.rt.runs.track(decision, now) as guard:
+                res = self.rt.router.complete(decision.tier, system=system, messages=[{"role": "user", "content": prompt}],
+                                              max_tokens=1800, usage=guard.usage_context())
+                try:
+                    d = parse_json(res.text)
+                except ModelOutputError:
+                    guard.stop("steps were not JSON")
+                    d = {}
+                guard.stop("steps written")
+        except TimelineDeferred:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise TimelineDeferred(f"the model could not be reached: {exc}"[:300]) from exc
+
+        def clean(xs, depth=0):
+            return [{"title": str(x.get("title") or "")[:80], "summary": str(x.get("summary") or "")[:400],
+                     **({"children": clean(x.get("children") or [], 1)} if depth == 0 else {})}
+                    for x in (xs or []) if isinstance(x, dict) and x.get("title")][: 8 if depth == 0 else 4]
+        steps = clean(d.get("steps") if isinstance(d, dict) else [])
+        tl = _prefs(user)
+        lines = dict(tl.get("lines") or {})
+        lines[line] = {**lines.get(line, {}), "steps": steps, "steps_at": now.isoformat()}
+        tl["lines"] = lines
+        _save(user, tl)
+        return steps
 
     def summarize_line(self, user: User, line: str, now: datetime | None = None) -> str:
         """The whole line in a few readable lines (问 / 发现 / 定), from its conversations' summaries and openings."""

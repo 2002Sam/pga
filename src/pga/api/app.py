@@ -1422,6 +1422,33 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except TimelineDeferred as exc:
             raise HTTPException(429, str(exc)) from exc
 
+    @app.post("/v1/users/{user_id}/timeline/line/steps")
+    def time_tree_line_steps(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A long discussion as a tree of steps (written by a model, then kept)."""
+        from pga.timeline import Timeline, TimelineDeferred
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return {"steps": Timeline(rt).steps_line(u, str(body.get("id") or "")[:160])}
+        except TimelineDeferred as exc:
+            raise HTTPException(429, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/dirs")
+    def dirs(user_id: uuid.UUID, path: str = Query("", max_length=1000), rt: Runtime = Depends(get_rt)):
+        """Folders on this machine, for picking the one an agent works in: only folders (no files), only under your
+        home folder, hidden ones left out."""
+        user_or_404(rt, user_id)
+        home = os.path.realpath(os.path.expanduser("~"))
+        p = os.path.realpath(os.path.expanduser(path or "~"))
+        if not (p == home or p.startswith(home + os.sep)) or not os.path.isdir(p):
+            p = home
+        try:
+            kids = sorted((e.name for e in os.scandir(p) if e.is_dir(follow_symlinks=False) and not e.name.startswith(".")), key=str.lower)
+        except OSError:
+            kids = []
+        return {"path": p, "home": home, "parent": os.path.dirname(p) if p != home else None, "dirs": kids[:400],
+                "git": os.path.isdir(os.path.join(p, ".git")), "claude_md": os.path.isfile(os.path.join(p, "CLAUDE.md"))}
+
     @app.post("/v1/users/{user_id}/timeline/line/extract", status_code=201)
     def time_tree_line_extract(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """Pull a line out into a tree of its own (a new motivation, not started: nothing runs until you press Start)."""
