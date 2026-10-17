@@ -51,6 +51,8 @@
   function draw(svg, T, W, opts = {}) {
     const L0 = layout(T, W, opts.row || ROW, (opts.labelChars || 22) * (LANG === "en" ? 7 : 12.5) + 20, !!opts.showHidden), row = L0.row;
     const seen = opts.seen || new Set(), first = !seen.size, sel = opts.sel || {}, foc = focusPath(T);
+    const flip = opts.dir === "down", Y = (y) => (flip ? L0.H - y : y);      // "down": the root on top, growing downward (drawn flipped; text stays upright)
+    L0.flip = flip; L0.list.forEach((n) => { n.sy = Y(n.y); });
     let fresh = 0;
     const delay = (n) => (seen.has(n.id) ? null : (first ? n.row * 40 : (fresh++) * 150));
     const P = (n) => (n.p === "root" ? { x: L0.cx, y: L0.y0 } : L0.by.get(n.p));
@@ -118,7 +120,7 @@
         : [n.kind === "exchange" ? L("交流", "exchange") : "", n.codes?.length ? n.codes.join("–") : "", L(`${n.turns} 轮`, `${n.turns} turns`),
            n.samples ? L(`${n.samples} 次生成`, `${n.samples} samples`) : "", (n.shadows || []).filter((x) => x.status !== "dropped").length ? L(`影子 ${(n.shadows || []).filter((x) => x.status !== "dropped").length}`, `${(n.shadows || []).filter((x) => x.status !== "dropped").length} shadow`) : "",
            n.dataset ? L("已沉淀", "distilled") : "", L0.folded.get(n.id) ? L(`收起 ${L0.folded.get(n.id)}`, `${L0.folded.get(n.id)} folded`) : "", n.hidden ? L("已隐藏", "hidden") : ""].filter(Boolean).join(" · ");
-      labels += `<text class="tl ${n.kind} ${sel.id === n.id ? "sel" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" x="${lx.toFixed(1)}" y="${(n.y - 1).toFixed(1)}" text-anchor="${right ? "start" : "end"}" style="${d !== null ? `animation-delay:${d + 320}ms` : ""}">${esc(short)}<tspan class="tm" x="${lx.toFixed(1)}" dy="14">${esc(meta)}</tspan></text>`;
+      labels += `<text class="tl ${n.kind} ${sel.id === n.id ? "sel" : ""} ${d !== null ? "pop" : ""}" data-tnode="${n.id}" x="${lx.toFixed(1)}" y="${(Y(n.y) - 1).toFixed(1)}" text-anchor="${right ? "start" : "end"}" style="${d !== null ? `animation-delay:${d + 320}ms` : ""}">${esc(short)}<tspan class="tm" x="${lx.toFixed(1)}" dy="14">${esc(meta)}</tspan></text>`;
     }
     let arcs = "";
     for (const n of L0.list) if (n.kind === "exchange" && n.with && L0.by.has(n.with)) {
@@ -138,11 +140,12 @@
     svg.setAttribute("viewBox", `0 0 ${L0.W} ${L0.H}`); svg.setAttribute("width", L0.W); svg.setAttribute("height", L0.H);
     svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="${C.accent}" stop-opacity=".35"/><stop offset="1" stop-color="${C.accent}" stop-opacity="0"/></radialGradient>
         <linearGradient id="ground" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".14"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient></defs>
-      <line x1="${L0.cx - 220}" x2="${L0.cx + 220}" y1="${L0.y0 + 4}" y2="${L0.y0 + 4}" stroke="url(#ground)"/>
-      <g class="roots">${roots}</g><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
+      <line x1="${L0.cx - 220}" x2="${L0.cx + 220}" y1="${Y(L0.y0 + 4)}" y2="${Y(L0.y0 + 4)}" stroke="url(#ground)"/>
+      <g ${flip ? `transform="translate(0 ${L0.H}) scale(1 -1)"` : ""}><g class="roots">${roots}</g><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
       <g class="seed"><circle r="22" cx="${L0.cx}" cy="${L0.y0}" fill="url(#seedGlow)"/><circle class="seedbody" r="7.5" cx="${L0.cx}" cy="${L0.y0}"/></g>
-      <text class="rootlbl" x="${L0.cx}" y="${L0.y0 + 64}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L0.cx}" dy="15">${esc(L("根", "Root"))}</tspan></text>
-      <g>${links}</g><g class="hits">${hits}</g><g>${dots}</g><g>${labels}</g>${plus}`;
+      <g>${links}</g><g class="hits">${hits}</g><g>${dots}</g>${plus}</g>
+      <text class="rootlbl" x="${L0.cx}" y="${flip ? L0.H - L0.y0 - 52 : L0.y0 + 64}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L0.cx}" dy="15">${esc(L("根", "Root"))}</tspan></text>
+      <g>${labels}</g>`;
     L0.list.forEach((n) => seen.add(n.id));
     return L0;
   }

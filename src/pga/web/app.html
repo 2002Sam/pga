@@ -244,7 +244,7 @@ const LANG = Q.get("lang") || store.get("pga_lang") || "zh", EN = LANG === "en";
 PGATree.setLang(LANG); document.documentElement.lang = EN ? "en" : "zh-CN";
 const L = (zh, en) => (EN ? en : zh);
 const S = { uid: AS_UID || store.get("pga_uid"), view: Q.get("view") || (Q.get("tree") ? "tree" : "home"), aim: Q.get("tree"), node: Q.get("node"),
-  mode: store.get("pga_tree_mode") || "thought", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
+  mode: store.get("pga_tree_mode") || "thought", dir: store.get("pga_tree_dir") || "down", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
   drawer: false, search: "", seen: new Set(), agents: [], sending: false, op: null, showHidden: false, forest: null, draft: "", proc: null, live: [],
   chats: null, chat: Q.get("c"), chatTurns: {}, chatDraft: "", chatRefs: [], chatAgent: store.get("pga_chat_agent") || "auto", planting: false };
 const YOU = () => S.aim === "you";
@@ -409,6 +409,7 @@ function renderBar() {
   const T = S.tree, nodes = (T.nodes || []).filter((n) => n.kind !== "bud"), old = nodes.filter((n) => n.kind === "segment" && n.style !== 2 && !n.edited).length;
   const hidden = nodes.filter((n) => n.hidden).length, turns = nodes.reduce((a, n) => a + (n.turns || 0), 0);
   $("#bar").innerHTML = `<span class="seg"><button class="${S.mode === "thought" ? "on" : ""}" data-mode="thought">${L("思维", "Thought")}</button><button class="${S.mode === "behavior" ? "on" : ""}" data-mode="behavior">${L("行为", "Behaviour")}</button></span>
+    <button class="sm ghost" id="dirBtn" title="${L("切换树的生长方向", "Switch which way the tree grows")}">${S.dir === "down" ? L("↓ 向下长", "↓ Grows down") : L("↑ 向上长", "↑ Grows up")}</button>
     <span class="num">${L(`${nodes.length} 个节点 · ${turns} 轮`, `${nodes.length} nodes · ${turns} turns`)}</span>
     ${S.mode === "behavior" ? `<span class="keys"><span><i style="border-color:#7aa7e6"></i>${L("读", "read")}</span><span><i style="border-color:#6cc4b6"></i>${L("查", "search")}</span><span><i style="border-color:#d6a75c"></i>${L("命令", "cmd")}</span><span><i style="border-color:#e58c7e"></i>${L("改", "edit")}</span><span><i style="border-color:#f0d38c"></i>${L("提交", "commit")}</span></span>`
       : `<span class="keys"><span><i style="border-color:#7fcf9f"></i>${L("你的分支", "yours")}</span><span><i style="border-radius:1px;transform:rotate(45deg);border-style:dashed"></i>${L("影子路线", "shadow")}</span></span>`}
@@ -419,8 +420,8 @@ function renderBar() {
 }
 function drawTree(scroll) {
   const side = $("#treeSide");
-  const L0 = PGATree.draw($("#treeSvg"), S.tree, Math.max(380, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: EN ? 26 : 15, showHidden: S.showHidden, mode: S.mode, plus: S.bud == null });
-  if (scroll) { const n = L0.list.find((x) => x.id === S.node) || L0.list[L0.list.length - 1]; if (n) side.scrollTop = Math.max(0, n.y - side.clientHeight * .42); }
+  const L0 = PGATree.draw($("#treeSvg"), S.tree, Math.max(380, side.clientWidth), { sel: { id: S.node, bud: S.bud }, seen: S.seen, aimText: S.tree.aim?.text, labelChars: EN ? 26 : 15, showHidden: S.showHidden, mode: S.mode, plus: S.bud == null, dir: S.dir });
+  if (scroll) { const n = L0.list.find((x) => x.id === S.node) || L0.list[L0.list.length - 1]; if (n) side.scrollTop = Math.max(0, n.sy - side.clientHeight * .42); }
   S.layout = L0;
 }
 function select(id, bud = null) {
@@ -835,7 +836,7 @@ document.addEventListener("click", async (e) => {
   if (DR.suppress) { DR.suppress = false; return; }
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-edge], [data-link], #archToggle, #fold, #send, #curate, #rewrite, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-edge], [data-link], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
   if (t.dataset.bar) { const id = t.dataset.bar; if (id === "chats") show("chats"); else show("tree", { aim: id }); return; }
@@ -847,6 +848,7 @@ document.addEventListener("click", async (e) => {
     try { const a = await api(`/v1/users/${S.uid}/aims`, { body: { text } }); S.planting = false; toast(L("种下了：选一个工作文件夹，按开始", "Planted: choose a folder, press Start")); await loadForest(); if (a?.id) show("tree", { aim: a.id }); } catch (err) { toast(err.message); }
     return;
   }
+  if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
   if (t.id === "fold") { setMini(!S.mini); return; }
   if (t.dataset.plus) { newNode(t.dataset.plus); return; }
   if (t.dataset.edge) { cutEdges([t.dataset.edge], []); return; }
@@ -997,7 +999,7 @@ document.addEventListener("pointermove", (e) => {
     DR.moving = true; closeCtx();
     const k = svgScale(), dx = (e.clientX - DR.x0) * k, dy = (e.clientY - DR.y0) * k, n = S.layout.by.get(DR.node); if (!n) return;
     document.querySelectorAll(`[data-tnode="${CSS.escape(DR.node)}"]`).forEach((el) => {
-      if (el.classList.contains("tn")) { el.setAttribute("transform", `translate(${n.x + dx},${n.y + dy})`); el.classList.add("drag"); }
+      if (el.classList.contains("tn")) { el.setAttribute("transform", `translate(${n.x + dx},${n.y + (S.layout.flip ? -dy : dy)})`); el.classList.add("drag"); }
       else if (el.tagName === "text") el.setAttribute("transform", `translate(${dx},${dy})`);
     });
     const over = nodeAt(e.clientX, e.clientY, DR.node);
@@ -1028,7 +1030,7 @@ document.addEventListener("pointerup", async (e) => {
       const n = nodeOf(id), k = svgScale(), dx = (e.clientX - DR.x0) * k, dy = (e.clientY - DR.y0) * k;
       try {
         if (over) { await api(`/v1/thought-nodes/${id}/links`, { body: { to: over } }); toast(L("已链接：从其中一个继续时，agent 会读到另一个", "Linked: continuing from one, agents read the other")); }
-        else { const p = n?.pos || { dx: 0, dy: 0 }; await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { pos: { dx: (p.dx || 0) + dx, dy: (p.dy || 0) + dy } } }); }
+        else { const p = n?.pos || { dx: 0, dy: 0 }; await api(`/v1/thought-nodes/${id}`, { method: "PATCH", body: { pos: { dx: (p.dx || 0) + dx, dy: (p.dy || 0) + (S.layout.flip ? -dy : dy) } } }); }
       } catch (err) { toast(err.message); }
       await loadTree(true); drawTree(false);
     }
