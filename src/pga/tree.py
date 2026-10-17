@@ -569,6 +569,10 @@ class ThoughtTree:
         for i, n in enumerate(self.path(node)):
             lines.append(f"{'  ' * i}- {n.title}" + (f": {n.summary}" if n.summary else "")
                          + (f" (key: {'; '.join(n.key_thoughts)})" if n.key_thoughts else ""))
+        links = [x for x in (self.s.get(ThoughtNode, i) for i in self.linked(node)) if x is not None]
+        if links:
+            lines.append("Lines of thought the user linked to this node:")
+            lines += [f"- {x.title}" + (f": {x.summary}" if x.summary else "") for x in links[:6]]
         recent = [n for n in self.notes_of(node) if n.kind in ("answer", "insight", "question", "conversation")][-6:]
         if recent:
             lines.append("The latest turns on this node:")
@@ -587,6 +591,8 @@ class ThoughtTree:
     def branch_for(self, node: ThoughtNode, text: str, bud: str | None = None) -> ThoughtNode:
         """Where your turn goes: a branch of yours continues in place; anywhere else a new branch grows."""
         if node.kind == "user" and not bud:
+            if not node.note_ids and node.title in NEW_NODE:             # a node made with the +: its first question names it
+                node.title = _clip(text, 40)
             return node
         seq = self._max_seq(self.root_of(node)) + 1
         title = _clip(bud or text, 40)
@@ -705,8 +711,10 @@ class ThoughtTree:
     # -------------------------------------------------------------- operations on a node
 
     def update(self, node: ThoughtNode, *, title: str | None = None, summary: str | None = None,
-               key_thoughts: list | None = None, hidden: bool | None = None, parent: ThoughtNode | None | str = "keep") -> ThoughtNode:
-        """Rename, rewrite, hide / show, or move a node. What you write is never overwritten by the curator."""
+               key_thoughts: list | None = None, hidden: bool | None = None, parent: ThoughtNode | None | str = "keep",
+               pos: dict | None | str = "keep") -> ThoughtNode:
+        """Rename, rewrite, hide / show, or move a node (in the tree, or only where it is drawn: `pos`, an offset from
+        its place in the layout; None puts it back). What you write is never overwritten by the curator."""
         edited = False
         if title is not None and title.strip():
             node.title, edited = _clip(title, 120), True
@@ -719,6 +727,12 @@ class ThoughtTree:
             d["edited"] = True
         if hidden is not None:
             d["hidden"] = bool(hidden)
+        if pos != "keep":
+            if pos:
+                d["pos"] = {"dx": round(max(-4000.0, min(4000.0, float(pos.get("dx") or 0))), 1),
+                            "dy": round(max(-4000.0, min(4000.0, float(pos.get("dy") or 0))), 1)}
+            else:
+                d.pop("pos", None)
         node.data = d
         if parent != "keep":
             if parent is not None:
@@ -730,6 +744,33 @@ class ThoughtTree:
         node.updated_at = utcnow()
         self.s.flush()
         return node
+
+    def link(self, a: ThoughtNode, b: ThoughtNode) -> ThoughtNode:
+        """Link two nodes of one tree that are not parent and child: each is read when continuing from the other."""
+        if a.id == b.id:
+            raise TreeError("不能链接到自己")
+        if a.aim_id != b.aim_id or a.scope != b.scope:
+            raise TreeError("只能链接同一棵树里的节点")
+        if b.id in self.linked(a):
+            return a
+        a.data = {**(a.data or {}), "links": [*((a.data or {}).get("links") or []), str(b.id)][-20:]}
+        self.s.flush()
+        return a
+
+    def unlink(self, a: ThoughtNode, b: ThoughtNode) -> None:
+        for x, y in ((a, b), (b, a)):
+            links = (x.data or {}).get("links") or []
+            if str(y.id) in links:
+                x.data = {**(x.data or {}), "links": [i for i in links if i != str(y.id)]}
+        self.s.flush()
+
+    def linked(self, node: ThoughtNode) -> list[uuid.UUID]:
+        """The nodes linked to this one, either way."""
+        out = [uuid.UUID(i) for i in ((node.data or {}).get("links") or [])]
+        for n in self.nodes(self.root_of(node)):
+            if str(node.id) in ((n.data or {}).get("links") or []) and n.id not in out:
+                out.append(n.id)
+        return out
 
     def merge_up(self, node: ThoughtNode) -> ThoughtNode:
         """Fold a node into its parent: its turns join the parent, its children hang from the parent."""
@@ -1006,6 +1047,9 @@ class TreeDeferred(Exception):
     """The allocator said not now; the planner tries again later."""
 
 
+NEW_NODE = ("新节点", "New node")
+
+
 def node_out(n: ThoughtNode, full: bool = False) -> dict:
     d = n.data or {}
     out = {"id": str(n.id), "parent": str(n.parent_id) if n.parent_id else None, "kind": n.kind, "seq": n.seq,
@@ -1017,6 +1061,7 @@ def node_out(n: ThoughtNode, full: bool = False) -> dict:
            "hidden": bool(d.get("hidden")), "edited": bool(d.get("edited")), "dataset": d.get("dataset"), "style": d.get("style"),
            "behavior": d.get("behavior") or {}, "refs": d.get("refs") or [], "scope": n.scope, "shadows": d.get("shadows") or [],
            "with": d.get("with"), "with_aim": d.get("with_aim"), "with_title": d.get("with_title"), "exchanges": d.get("exchanges") or [],
+           "pos": d.get("pos"), "links": d.get("links") or [],
            "git": {"commits": len((n.git or {}).get("commits") or []), "files": len((n.git or {}).get("files") or []),
                    "head": (n.git or {}).get("head")}}
     if full:

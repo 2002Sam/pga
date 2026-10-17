@@ -347,3 +347,40 @@ def test_everyday_chats_are_listed_apart_from_the_trees(session_factory, policy,
         assert [t["role"] for t in one] == ["user", "agent", "user", "agent"] and one[1]["text"] == "答：帮我写个正则"
         assert len(c.get(f"/v1/users/{user.id}/chats/run:{lone.id}").json()["turns"]) == 4
         assert c.get(f"/v1/users/{user.id}/chats/run:nope").status_code == 404
+        assert c.post(f"/v1/users/{user.id}/chats/archive", json={"key": "chat:a"}).json()["archived"] is True
+        assert [x["key"] for x in c.get(f"/v1/users/{user.id}/chats").json()] == [f"run:{lone.id}"]
+        both = c.get(f"/v1/users/{user.id}/chats?archived=true").json()
+        assert [(x["key"], x["archived"]) for x in both] == [(f"run:{lone.id}", False), ("chat:a", True)]
+        c.post(f"/v1/users/{user.id}/chats/archive", json={"key": "chat:a", "archived": False})
+        assert len(c.get(f"/v1/users/{user.id}/chats").json()) == 2
+
+
+def test_nodes_can_be_moved_linked_cut_and_added_by_hand(session_factory, policy, provider, backend, user, session):
+    """Drag a node (pos), drop it on another (link, read when continuing), cut the link, and the + node takes its first question as name."""
+    from pga.db.models import Aim
+    from pga.tree import ThoughtTree
+
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    aim = Aim(user_id=user.id, text="一个抱负", text_en="a motivation")
+    session.add(aim)
+    session.flush()
+    tree = ThoughtTree(rt)
+    a = tree._make(aim, kind="segment", seq=1, title="甲", summary="甲的概括", note_ids=[], data={})
+    b = tree._make(aim, kind="segment", seq=2, title="乙", summary="乙的概括", note_ids=[], data={})
+    session.add_all([a, b])
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        assert c.patch(f"/v1/thought-nodes/{a.id}", json={"pos": {"dx": 30, "dy": -12.5}}).json()["pos"] == {"dx": 30.0, "dy": -12.5}
+        assert c.patch(f"/v1/thought-nodes/{a.id}", json={"pos": None}).json()["pos"] is None
+        assert c.post(f"/v1/thought-nodes/{a.id}/links", json={"to": str(b.id)}).json()["links"] == [str(b.id)]
+        assert c.post(f"/v1/thought-nodes/{a.id}/links", json={"to": str(a.id)}).status_code >= 400
+        with session_factory() as s2:
+            ctx = ThoughtTree(Runtime(s2, policy=policy, provider=provider, translation_backend=backend)).context_for(s2.get(type(b), b.id), intro=False)
+        assert "linked" in ctx and "甲的概括" in ctx                                  # linked either way
+        assert c.delete(f"/v1/thought-nodes/{b.id}/links/{a.id}").status_code == 204
+        assert c.get(f"/v1/thought-nodes/{a.id}").json()["links"] == []
+        new = c.post(f"/v1/thought-nodes/{b.id}/branch", json={"title": "新节点"}).json()
+        r = c.post(f"/v1/thought-nodes/{new['id']}/continue", json={"text": "这个新方向怎么样", "agent": "auto"})
+        assert r.status_code == 200 and r.json()["node"]["id"] == new["id"] and r.json()["node"]["title"] == "这个新方向怎么样"

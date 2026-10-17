@@ -2331,9 +2331,28 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         try:
             return node_out(ThoughtTree(rt).update(n, title=body.get("title"), summary=body.get("summary"),
                                                    key_thoughts=body.get("key_thoughts") if isinstance(body.get("key_thoughts"), list) else None,
-                                                   hidden=body.get("hidden") if "hidden" in body else None, parent=parent))
+                                                   hidden=body.get("hidden") if "hidden" in body else None, parent=parent,
+                                                   pos=body["pos"] if "pos" in body and (body["pos"] is None or isinstance(body["pos"], dict)) else "keep"))
+        except (TreeError, ValueError, TypeError) as exc:
+            raise tree_err(exc) if isinstance(exc, TreeError) else HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/thought-nodes/{node_id}/links")
+    def tree_node_link(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Link two nodes (dragged one onto the other)."""
+        from pga.tree import ThoughtTree, TreeError, node_out
+        try:
+            other = tree_node_or_404(rt, uuid.UUID(str(body.get("to"))))
+            return node_out(ThoughtTree(rt).link(tree_node_or_404(rt, node_id), other))
+        except ValueError as exc:
+            raise HTTPException(422, "to: a node id") from exc
         except TreeError as exc:
             raise tree_err(exc) from exc
+
+    @app.delete("/v1/thought-nodes/{node_id}/links/{other_id}", status_code=204)
+    def tree_node_unlink(node_id: uuid.UUID, other_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Cut a link (the scissors)."""
+        from pga.tree import ThoughtTree
+        ThoughtTree(rt).unlink(tree_node_or_404(rt, node_id), tree_node_or_404(rt, other_id))
 
     @app.post("/v1/thought-nodes/{node_id}/merge")
     def tree_node_merge(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
@@ -2554,11 +2573,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     # everyday short conversations: chats that do not belong to any tree
     @app.get("/v1/users/{user_id}/chats")
-    def chats_list(user_id: uuid.UUID, limit: int = Query(80, le=300), rt: Runtime = Depends(get_rt)):
+    def chats_list(user_id: uuid.UUID, limit: int = Query(80, le=300), archived: bool = False, rt: Runtime = Depends(get_rt)):
         """Your one-off conversations with agents, newest first (a conversation = the chats that share one key)."""
         from pga.db.models import AgentRun
         from pga.tree import _answer
-        user_or_404(rt, user_id)
+        u = user_or_404(rt, user_id)
+        gone = set((u.preferences or {}).get("archived_chats") or [])
         convs: dict[str, dict] = {}
         for r in rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None),
                                                            AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
@@ -2572,7 +2592,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             c["title"] = " ".join((r.prompt or "").split())[:80] or c["title"]          # the first thing you said (oldest wins)
             if not c["last"]:
                 c["last"] = " ".join(_answer(r.output).split())[:120]
-        return sorted(convs.values(), key=lambda c: c["last_at"], reverse=True)[:limit]
+        for c in convs.values():
+            c["archived"] = c["key"] in gone
+        return [c for c in sorted(convs.values(), key=lambda c: c["last_at"], reverse=True) if archived or not c["archived"]][:limit]
+
+    @app.post("/v1/users/{user_id}/chats/archive")
+    def chats_archive(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Archive an everyday chat (it leaves the list; nothing is deleted), or bring it back."""
+        u = user_or_404(rt, user_id)
+        key = str(body.get("key") or "")[:120]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        keys = [k for k in ((u.preferences or {}).get("archived_chats") or []) if k != key]
+        if body.get("archived", True):
+            keys.append(key)
+        u.preferences = {**(u.preferences or {}), "archived_chats": keys[-2000:]}
+        return {"key": key, "archived": key in keys}
 
     @app.get("/v1/users/{user_id}/chats/{key:path}")
     def chats_one(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):

@@ -37,7 +37,8 @@
     }
     const maxL = Math.max(1, ...[...lane.values()].map(Math.abs)), gap = Math.max(26, Math.min(64, (W / 2 - (labelW || 170)) / maxL));
     const H = (list.length + 1) * row + 150, cx = W / 2, y0 = H - 112;
-    for (const n of list) { n.lane = lane.get(n.id); n.depth = depth.get(n.id); n.x = cx + n.lane * gap; n.y = y0 - (n.row + 1) * row; n.p = pid(n); }
+    for (const n of list) { n.lane = lane.get(n.id); n.depth = depth.get(n.id); n.x = cx + n.lane * gap; n.y = y0 - (n.row + 1) * row; n.p = pid(n);
+      if (n.pos) { n.x += n.pos.dx || 0; n.y += n.pos.dy || 0; } }                // where you dragged it
     return { list, by, kids, H, W, cx, y0, row, folded: vis.folded };
   }
   function focusPath(T) {
@@ -55,7 +56,7 @@
     const P = (n) => (n.p === "root" ? { x: L0.cx, y: L0.y0 } : L0.by.get(n.p));
     const sap = [], onTip = new Set();
     for (let x = L0.list.find((n) => n.tip) || L0.list[L0.list.length - 1]; x; x = x.p === "root" ? null : L0.by.get(x.p)) onTip.add(x.id);
-    let roots = "", edges = "", twigs = "", dots = "", labels = "";
+    let roots = "", edges = "", twigs = "", dots = "", labels = "", hits = "";
     for (let i = 0; i < 7; i++) {
       const a = -1 + i / 3, len = 30 + (i % 3) * 14;
       roots += `<path class="root" d="M ${L0.cx} ${L0.y0} C ${L0.cx + a * 16} ${L0.y0 + 20}, ${L0.cx + a * 42} ${L0.y0 + len * .6}, ${L0.cx + a * 64} ${L0.y0 + len}"/>`;
@@ -73,6 +74,7 @@
         path = `M ${p.x} ${p.y} C ${p.x} ${p.y - Math.min(dy * .3, row * 1.6)}, ${n.x} ${p.y - Math.min(dy * .45, row * 2.2)}, ${n.x} ${p.y - Math.min(dy * .7, row * 3)} S ${n.x} ${n.y + row * .3}, ${n.x} ${n.y}`;
       }
       if (onTip.has(n.id)) sap.push(`<path class="sap" d="${path}" pathLength="1" style="animation-delay:${(sap.length * .34).toFixed(2)}s"/>`);
+      if (n.p !== "root") hits += `<path class="hit" data-edge="${n.id}" d="${path}"><title>${esc(L("划过或点击：剪断（挂回根上）", "Swipe or click: cut (it moves onto the root)"))}</title></path>`;
       edges += `<path class="br ${focus ? "focus" : ""} ${mine ? "mine" : ""} ${d !== null ? "grow" : ""}" d="${path}" pathLength="1" style="stroke-width:${w.toFixed(2)}${d !== null ? `;animation-delay:${d}ms` : ""}"/>`;
       const side = n.lane >= 0 ? -1 : 1;
       if (n.sampled) {
@@ -123,6 +125,15 @@
       const o = L0.by.get(n.with), mx = (n.x + o.x) / 2 + (n.lane >= o.lane ? 60 : -60), my = (n.y + o.y) / 2;
       arcs += `<path class="xarc" d="M ${n.x} ${n.y} Q ${mx} ${my}, ${o.x} ${o.y}"><title>${esc(L("交流：", "Exchange: ") + n.title)}</title></path>`;
     }
+    let links = "";
+    for (const n of L0.list) for (const o of (n.links || []).map((i) => L0.by.get(i)).filter(Boolean)) {   // links you drew between two nodes
+      const mx = (n.x + o.x) / 2 + (Math.abs(n.x - o.x) < 30 ? 70 : 0), my = (n.y + o.y) / 2 - 20, d = `M ${n.x} ${n.y} Q ${mx} ${my}, ${o.x} ${o.y}`;
+      links += `<path class="lnk" d="${d}"/>`;
+      hits += `<path class="hit lk" data-link="${n.id}|${o.id}" d="${d}"><title>${esc(L("链接：", "Link: ") + n.title + " ↔ " + o.title + L(" · 划过或点击剪断", " · swipe or click to cut"))}</title></path>`;
+    }
+    const sn = opts.plus && L0.by.get(sel.id);                                        // the + by the selected node: a new node, right away
+    const plus = sn ? (() => { const r = Math.max(3.6, Math.min(9.5, 3.2 + Math.sqrt(sn.turns || 1) * .55)), px = sn.x + (sn.lane >= 0 ? -(r + 15) : r + 15);
+      return `<g class="plus" data-plus="${sn.id}" transform="translate(${px.toFixed(1)},${sn.y.toFixed(1)})"><circle r="9"/><path d="M -4 0 H 4 M 0 -4 V 4"/><title>${esc(L("新建一个子节点", "Add a child node"))}</title></g>`; })() : "";
     const aimText = opts.aimText || T?.aim?.text || "", short = aimText.length > 30 ? aimText.slice(0, 29) + "…" : aimText;
     svg.setAttribute("viewBox", `0 0 ${L0.W} ${L0.H}`); svg.setAttribute("width", L0.W); svg.setAttribute("height", L0.H);
     svg.innerHTML = `<defs><radialGradient id="seedGlow"><stop offset="0" stop-color="${C.accent}" stop-opacity=".35"/><stop offset="1" stop-color="${C.accent}" stop-opacity="0"/></radialGradient>
@@ -131,7 +142,7 @@
       <g class="roots">${roots}</g><g>${edges}</g><g>${arcs}</g><g>${sap.reverse().join("")}</g><g>${twigs}</g>
       <g class="seed"><circle r="22" cx="${L0.cx}" cy="${L0.y0}" fill="url(#seedGlow)"/><circle class="seedbody" r="7.5" cx="${L0.cx}" cy="${L0.y0}"/></g>
       <text class="rootlbl" x="${L0.cx}" y="${L0.y0 + 64}" text-anchor="middle">${esc(short)}<tspan class="tm" x="${L0.cx}" dy="15">${esc(L("根", "Root"))}</tspan></text>
-      <g>${dots}</g><g>${labels}</g>`;
+      <g>${links}</g><g class="hits">${hits}</g><g>${dots}</g><g>${labels}</g>${plus}`;
     L0.list.forEach((n) => seen.add(n.id));
     return L0;
   }
@@ -165,6 +176,13 @@
   stroke: rgba(var(--tbgr),.94); stroke-width: 4px; stroke-linejoin: round; cursor: pointer; letter-spacing: -.005em; }
 .treewrap text.user { fill: rgba(var(--tgr),.95); } .treewrap text.sel { fill: var(--t1); font-weight: 600; }
 .treewrap text .tm { font: 400 10.5px "Inter", -apple-system, "PingFang SC", sans-serif; fill: rgba(var(--t3r),.75); font-variant-numeric: tabular-nums; }
+.treewrap .hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke;
+  cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='26'><text x='3' y='20' font-size='19'>✂</text></svg>") 13 13, crosshair; }
+.treewrap .hit:hover, .treewrap .hit.cut { stroke: rgba(229,140,126,.35); }
+.treewrap .lnk { fill: none; stroke: rgba(214,167,92,.7); stroke-width: 1.4; stroke-dasharray: 5 4; pointer-events: none; }
+.treewrap .plus { cursor: pointer; } .treewrap .plus circle { fill: var(--tbg); stroke: #d6a75c; stroke-width: 1.3; } .treewrap .plus path { stroke: #d6a75c; stroke-width: 1.6; stroke-linecap: round; }
+.treewrap .plus:hover circle { fill: #d6a75c; } .treewrap .plus:hover path { stroke: var(--tbg); }
+.treewrap .tn.drag { opacity: .35; } .treewrap .tn.drop .body { stroke: #d6a75c; stroke-width: 2.4; }
 .treewrap .rootlbl { font-size: 12.5px; fill: rgba(214,167,92,.9); cursor: default; }`;
 const THEME = `
 :root { --ti: 236,236,239; --tf: 255,255,255; --tbgr: 9,9,11; --t3r: 161,161,170; --tgr: 150,220,178; --t1: #ececef; --t2: #a1a1aa; --t3: #71717a; --tbg: #0b0b0e; --tb1: #141418; --tb2: #1a1a20; }
@@ -215,9 +233,15 @@ const THEME = `
       const me = x.agent === "you" || x.kind === "correction";
       if (x.kind === "conversation") {
         const nm = x.agent || d.vendor || "AI", h = hue(nm), [title, ...rest] = String(x.text || "").split("\n");
-        out += `<div class="cmsg left conv"><div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody">
-          <div class="cwho"><b>${esc(nm)}</b><span>${L("导入的对话", "Imported conversation")}${d.messages ? L(` · ${d.messages} 条消息`, ` · ${d.messages} messages`) : ""}${d.project ? ` · ${esc(d.project)}` : ""}</span></div>
-          <div class="cb"><div class="ct" data-i18n="1"><b>${esc(title)}</b>${rest.join(" ").trim() ? `\n${esc(rest.join("\n").trim())}` : ""}</div></div></div></div>`;
+        const turns = convTurns(rest.join("\n"));
+        out += `<div class="cconv"><span>${L("导入的对话", "Imported conversation")} · <b>${esc(nm)}</b>${d.messages ? L(` · ${d.messages} 条消息`, ` · ${d.messages} messages`) : ""}${d.project ? ` · ${esc(d.project)}` : ""}</span><div class="cct" data-i18n="1">${esc(title.replace(/^\[[^\]]*\]\s*/, ""))}</div></div>`;
+        if (!turns.length && rest.join("").trim()) out += `<div class="cmsg left conv"><div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody"><div class="cb"><div class="ct md" data-i18n="1">${md(rest.join("\n").trim())}</div></div></div></div>`;
+        for (const t of turns) {
+          if (t.gap) { out += `<div class="ctime">${esc(t.gap)}</div>`; continue; }
+          const you = t.who === "user";
+          out += `<div class="cmsg ${you ? "right me" : "left"} conv"><div class="cav" style="--h:${h}">${you ? L("你", "Y") : esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody">
+            <div class="cb"><div class="ct md" data-i18n="1">${md(t.text)}</div></div></div></div>`;
+        }
         continue;
       }
       if (!me && !["question", "answer"].includes(x.kind)) {
@@ -225,7 +249,7 @@ const THEME = `
         const label = alt ? `${L("影子路线", "Shadow path")} ${d.alt || ""} · ${{ shadow: L("待重新考虑", "kept for later"), promoted: L("已被提上来", "promoted"), dropped: L("已放下", "dropped") }[x.status] || ""}`
           : insp ? L("灵感", "Idea") : d.promoted ? L("重新考虑", "Reconsidered") : kindName(x.kind);
         out += `<div class="cnote ${insp ? "insp" : alt ? "alt" : x.kind}"><span class="ci">${esc(label)}${x.agent ? ` · ${esc(name(x))}` : ""}</span>
-          <div data-i18n="1">${esc(x.text)}</div>${alt && d.assumption ? `<div class="asm"><span>${L("前提", "Assumption")}</span><span data-i18n="1">${esc(d.assumption)}</span></div>` : ""}${alt && d.why ? `<div class="asm"><span>${L("回顾", "Review")}</span><span data-i18n="1">${esc(d.why)}</span></div>` : ""}</div>`;
+          <div class="ct md" data-i18n="1">${md(x.text)}</div>${alt && d.assumption ? `<div class="asm"><span>${L("前提", "Assumption")}</span><span data-i18n="1">${esc(d.assumption)}</span></div>` : ""}${alt && d.why ? `<div class="asm"><span>${L("回顾", "Review")}</span><span data-i18n="1">${esc(d.why)}</span></div>` : ""}</div>`;
         continue;
       }
       // who hands out the task (asks) sits on the right; who takes it on (answers) on the left
@@ -243,12 +267,28 @@ const THEME = `
       out += `<div class="cmsg ${right ? "right" : "left"} ${me ? "me" : ""} ${x.kind}">
         <div class="cav" style="--h:${h}" title="${esc(nm)}">${esc(me ? L("你", "Y") : nm.slice(0, 1).toUpperCase())}</div>
         <div class="cbody"><div class="cwho"><b>${esc(nm)}</b>${!me && x.agent ? `<span>${esc(x.agent)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : ""}<span class="ck">${esc(tag)}</span></div>
-          <div class="cb">${quote}<div class="ct ${x.kind === "answer" ? "md" : ""}" data-i18n="1">${x.kind === "answer" ? md(x.text) : esc(x.text)}</div>
+          <div class="cb">${quote}<div class="ct md" data-i18n="1">${md(x.text)}</div>
             ${subs.length ? `<div class="csub">${subs.join(" · ")}</div>` : ""}${samples(d)}</div></div></div>`;
     }
     return `<div class="chat">${out || `<div class="ctime">${L("还没有对话", "No dialogue yet")}</div>`}</div>`;
   }
+  /* an imported conversation's excerpt ("User: …" / "Assistant: …", "[... 3 more turns ...]") as its turns */
+  function convTurns(text) {
+    const out = []; let cur = null;
+    for (const line of String(text || "").split("\n")) {
+      const m = line.match(/^\s*(User|Human|用户|你|Assistant|AI|Claude|ChatGPT|助手|Model)\s*[:：]\s?(.*)$/i), gap = line.match(/^\s*\[\s*(?:\.\.\.|…)\s*(.*?)\s*(?:\.\.\.|…)?\s*\]\s*$/);
+      if (m) { cur = { who: /^(user|human|用户|你)$/i.test(m[1]) ? "user" : "ai", text: m[2] }; out.push(cur); }
+      else if (gap) { out.push({ gap: gap[1] ? L(`… ${gap[1].replace(/more turns?/i, "轮省略").trim()}`, `… ${gap[1]}`) : "…" }); cur = null; }
+      else if (cur) cur.text += "\n" + line;
+    }
+    return out.filter((t) => t.gap || t.text.trim());
+  }
   add("pgaChatCss", `
+.chat .cconv { align-self: stretch; text-align: center; margin: 6px 0 2px; font-size: 11.5px; color: var(--t3); }
+.chat .cconv b { color: var(--t2); font-weight: 600; } .chat .cconv .cct { font-size: 13px; color: var(--t1); font-weight: 600; margin-top: 2px; }
+.chat .ct.md h1, .chat .ct.md h2, .chat .ct.md h3, .chat .ct.md h4 { font-size: 1em; margin: .6em 0 .3em; } .chat .ct.md strong { font-weight: 650; color: var(--t1); }
+.chat .ct.md table { border-collapse: collapse; margin: .4em 0; font-size: 12.5px; } .chat .ct.md td, .chat .ct.md th { border: 1px solid rgba(var(--tf),.1); padding: 3px 7px; }
+.chat .ct.md blockquote { margin: .4em 0; padding-left: 10px; border-left: 2px solid rgba(var(--tf),.15); color: var(--t2); }
 .chat { display: flex; flex-direction: column; gap: 14px; padding: 2px 0 8px; }
 .chat .ctime { align-self: center; font-size: 11px; color: var(--t3); padding: 2px 0; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
 .chat .cmsg { display: flex; gap: 10px; align-items: flex-start; max-width: 88%; }
