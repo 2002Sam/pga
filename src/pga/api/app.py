@@ -1390,6 +1390,41 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         Timeline(rt).rename(user_or_404(rt, user_id), str(body["line"])[:120], str(body["title"]))
         return {"ok": True}
 
+    @app.get("/v1/users/{user_id}/timeline/line")
+    def time_tree_line(user_id: uuid.UUID, id: str = Query(..., max_length=160), rt: Runtime = Depends(get_rt)):
+        """One line, whole: its conversations in order, each with the summary your conversation tree wrote for it."""
+        from pga.timeline import Timeline
+        return Timeline(rt).line_detail(user_or_404(rt, user_id), id)
+
+    @app.post("/v1/users/{user_id}/timeline/line/summarize")
+    def time_tree_line_summarize(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.timeline import Timeline, TimelineDeferred
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return {"summary": Timeline(rt).summarize_line(u, str(body.get("id") or "")[:160])}
+        except TimelineDeferred as exc:
+            raise HTTPException(429, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/timeline/line/extract", status_code=201)
+    def time_tree_line_extract(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Pull a line out into a tree of its own (a new motivation, not started: nothing runs until you press Start)."""
+        from pga.timeline import Timeline
+        u = user_or_404(rt, user_id)
+        line = str(body.get("id") or "")[:160]
+        tl = Timeline(rt)
+        d = tl.line_detail(u, line)
+        if not d["items"]:
+            raise HTTPException(404, "this line has no conversations")
+        if line.startswith("aim:"):
+            raise HTTPException(409, "this line is already a tree")
+        title = str(body.get("title") or d["title"] or "").strip()[:200]
+        aims = AimService(rt.session)
+        aims.list(u)
+        a = aims.create(u, title, canonical(rt, u, title)[0])
+        relayer(rt, u, f"aim:{a.id}")
+        return {**tl.extract(u, line, a), "title": a.text}
+
     @app.get("/v1/users/{user_id}/imported/{cid}")
     def imported_one(user_id: uuid.UUID, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
         """One conversation imported from another app: its title, where it ran, and the excerpt PGA keeps."""

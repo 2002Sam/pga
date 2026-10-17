@@ -52,6 +52,7 @@ class Item:
     excerpt: str = ""
     line: str = ""                             # by rule
     ref: dict = field(default_factory=dict)
+    runs: list[str] = field(default_factory=list)
     times: list[datetime] = field(default_factory=list)
     turns: list[int] = field(default_factory=list)
 
@@ -121,6 +122,7 @@ class Timeline:
                     it = items[key] = Item(key, "chat", " ".join((r.prompt or "").split())[:80], agent=str(d.get("agent") or r.agent or ""),
                                            line=key, ref={"chat": key})
             it.times.append(r.started_at)
+            it.runs.append(str(r.id))
         folders = {}
         for p in self.s.scalars(select(Project).where(Project.user_id == user.id)):
             if p.aim_id:
@@ -186,6 +188,114 @@ class Timeline:
         hidden = [k for k in ((user.preferences or {}).get("archived_chats") or []) if str(k).startswith("c:")]
         return {"days": days, "lines": meta, "sessions": sessions, "organized_at": tl.get("organized_at"), "hidden": hidden,
                 "pending": tl.get("pending", False)}
+
+    # -------------------------------------------------------------- one line, whole: what it was about, and pulling it out
+    def _you_index(self, user: User) -> dict[str, ThoughtNode]:
+        """Your conversation tree, read backwards: which of its nodes holds a given chat run or imported conversation."""
+        from pga.tree import ThoughtTree, YouRoot
+        idx: dict[str, ThoughtNode] = {}
+        for n in ThoughtTree(self.rt).nodes(YouRoot(user)):
+            for x in n.note_ids or []:
+                idx[str(x)] = n
+        return idx
+
+    def line_items(self, user: User, line: str, days: int = 730, now: datetime | None = None) -> list[Item]:
+        items = self.items(user, (now or utcnow()) - timedelta(days=days))
+        lines = self.lines_of(user, items)
+        return sorted((it for it in items if lines[it.key] == line), key=lambda it: min(it.times))
+
+    def line_detail(self, user: User, line: str, days: int = 730) -> dict:
+        its = self.line_items(user, line, days)
+        idx = self._you_index(user)
+        tl = _prefs(user)
+        meta = (tl.get("lines") or {}).get(line) or {}
+        out = []
+        for it in its:
+            ids = [f"r:{r}" for r in it.runs] + ([f"c:{it.ref['conversation']}"] if it.ref.get("conversation") else [])
+            n = next((idx[i] for i in ids if i in idx), None)
+            out.append({"key": it.key, "kind": it.kind, "title": it.title, "agent": it.agent, "first": min(it.times).isoformat(),
+                        "last": max(it.times).isoformat(), "turns": len(it.runs) or (it.ref.get("messages") or 0),
+                        "summary": (n.summary if n is not None else "") or "", "node": str(n.id) if n is not None else None,
+                        "node_title": n.title if n is not None else None, "ref": it.ref})
+        built = self.build(user, days)
+        return {"line": line, "title": (built["lines"].get(line) or {}).get("title") or meta.get("title") or (its[0].title if its else ""),
+                "kind": (built["lines"].get(line) or {}).get("kind", "single"), "items": out, "summary": meta.get("summary") or "",
+                "summarized_at": meta.get("summarized_at"), "extracted": meta.get("extracted"),
+                "first": out[0]["first"] if out else None, "last": out[-1]["last"] if out else None}
+
+    def summarize_line(self, user: User, line: str, now: datetime | None = None) -> str:
+        """The whole line in a few readable lines (问 / 发现 / 定), from its conversations' summaries and openings."""
+        from pga.tree import STYLE, _lang
+        now = now or utcnow()
+        d = self.line_detail(user, line)
+        if not d["items"]:
+            return ""
+        lang, style = _lang(user)
+        its = {it.key: it for it in self.line_items(user, line)}
+        rows = "\n".join(f"- {x['first'][:10]} {x['title']}: " + (x["summary"] or re.sub(r"\s+", " ", its[x["key"]].excerpt)[:300])
+                         for x in d["items"][-40:])
+        system = ("Summarize one line of a person's work with AI agents: several conversations about one thing, over time. "
+                  f"Write in {lang}, for the person, in this style: {STYLE[style]} Keep it under 120 words. "
+                  "Say where it started, what was found or decided, and where it stands now. Plain text only. " + UNTRUSTED_NOTE)
+        prompt = fence("conversations", f"Line: {d['title']}\n{rows}", 30000, kind="the person's conversations, oldest first")
+        decision = self.rt.allocator.allocate(RunRequest(
+            user_id=user.id, kind="synthesis",
+            justification=Justification(why_now="you asked what this line of conversations was about",
+                                        expected_gain="one readable summary instead of reading every conversation",
+                                        decision_affected="whether you pick this line up again or pull it out as a tree",
+                                        budget={"max_units": 20_000, "max_output_tokens": 600}, stop_condition="the summary is written"),
+            estimates=Estimates(information_gain=.4, decision_impact=.4, user_relevance=.9, reuse_value=.6,
+                                input_tokens=len(prompt) // 3, output_tokens=400)), now=now)
+        if not decision.allowed:
+            raise TimelineDeferred("; ".join(decision.reasons))
+        try:
+            with self.rt.runs.track(decision, now) as guard:
+                res = self.rt.router.complete(decision.tier, system=system, messages=[{"role": "user", "content": prompt}],
+                                              max_tokens=600, usage=guard.usage_context())
+                guard.stop("line summarized")
+        except Exception as exc:  # noqa: BLE001
+            raise TimelineDeferred(f"the model could not be reached: {exc}"[:300]) from exc
+        text = (res.text or "").strip()[:2000]
+        tl = _prefs(user)
+        lines = dict(tl.get("lines") or {})
+        lines[line] = {**lines.get(line, {}), "summary": text, "summarized_at": now.isoformat()}
+        tl["lines"] = lines
+        _save(user, tl)
+        return text
+
+    def extract(self, user: User, line: str, aim: Aim) -> dict:
+        """Pull a line out into a tree of its own: the motivation `aim` (made by the caller) gets one node per
+        conversation, chained in time, each holding that conversation's turns; the line now draws as that tree."""
+        its = self.line_items(user, line)
+        idx = self._you_index(user)
+        parent, seq, made = None, 0, []
+        for it in its:
+            ids = [f"r:{r}" for r in it.runs] + ([f"c:{it.ref['conversation']}"] if it.ref.get("conversation") else [])
+            if not ids:
+                continue
+            src = next((idx[i] for i in ids if i in idx), None)
+            seq += 1
+            n = ThoughtNode(user_id=user.id, aim_id=aim.id, scope="aim", kind="segment", seq=seq, parent_id=parent.id if parent else None,
+                            title=(it.title or "…")[:60], summary=(src.summary if src is not None else "") or "", note_ids=ids,
+                            key_thoughts=list(src.key_thoughts or []) if src is not None else [],
+                            first_at=min(it.times), last_at=max(it.times),
+                            data={"turns": len(it.runs) or 1, "from_line": line, "tip": False}, created_at=utcnow())
+            self.s.add(n)
+            self.s.flush()
+            made.append(n)
+            parent = n
+        if made:
+            made[-1].data = {**made[-1].data, "tip": True}
+        tl = _prefs(user)
+        items = dict(tl.get("items") or {})
+        for it in its:
+            items[it.key] = f"aim:{aim.id}"
+        lines = dict(tl.get("lines") or {})
+        lines[line] = {**lines.get(line, {}), "extracted": str(aim.id)}
+        tl.update(items=items, lines=lines)
+        _save(user, tl)
+        self.s.flush()
+        return {"aim": str(aim.id), "nodes": len(made)}
 
     # -------------------------------------------------------------- you, by hand
     def move(self, user: User, key: str, line: str | None) -> None:

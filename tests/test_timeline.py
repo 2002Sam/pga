@@ -94,3 +94,36 @@ def test_tidying_takes_the_models_joins_and_topics(policy, provider, backend, us
     assert line["实验部分怎么写"] == f"aim:{aim.id}" and line["相关工作怎么组织"] == "chat:1"
     assert line["推荐一部电影"] == line["电影里的配乐"] and out["lines"][line["电影里的配乐"]]["title"] == "电影"
     assert Timeline(rt).organize(user, now)["looked_at"] == 0                      # what it has looked at is not sent again
+
+
+def test_a_line_shows_its_summaries_and_can_be_pulled_out(session_factory, policy, provider, backend, user, session):
+    from pga.tree import ThoughtTree, YouRoot
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    now = datetime.now(timezone.utc)
+    runs = [_run(user, "周报模板怎么写", now - timedelta(days=6), {"conversation": "chat:w1"}),
+            _run(user, "周报再改改", now - timedelta(days=1), {"conversation": "chat:w2"})]
+    session.add_all(runs)
+    session.flush()
+    session.add(ThoughtNode(user_id=user.id, aim_id=None, scope="user", kind="segment", seq=1, title="周报", summary="问：周报怎么写",
+                            note_ids=[f"r:{runs[0].id}"], data={}))
+    session.commit()
+    tl = Timeline(rt)
+    tl.move(user, "chat:w2", "chat:w1")                                            # you joined them by hand
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        d = c.get(f"/v1/users/{user.id}/timeline/line", params={"id": "chat:w1"}).json()
+        assert [x["key"] for x in d["items"]] == ["chat:w1", "chat:w2"] and d["items"][0]["summary"] == "问：周报怎么写"
+        r = c.post(f"/v1/users/{user.id}/timeline/line/extract", json={"id": "chat:w1", "title": "写周报"})
+        assert r.status_code == 201, r.text
+        aim = r.json()["aim"]
+        assert r.json()["nodes"] == 2
+        t = c.get(f"/v1/aims/{aim}/tree").json()
+        nodes = sorted(t["nodes"], key=lambda n: n["seq"])
+        assert [n["title"] for n in nodes] == ["周报模板怎么写", "周报再改改"] and nodes[1]["parent"] == nodes[0]["id"] and nodes[1]["tip"]
+        assert c.get(f"/v1/thought-nodes/{nodes[0]['id']}?full=true").json()["notes"][0]["kind"] == "question"
+        out = c.get(f"/v1/users/{user.id}/timeline", params={"days": 30}).json()
+        assert {x["line"] for x in out["sessions"] if x["item"] in ("chat:w1", "chat:w2")} == {f"aim:{aim}"}
+        assert c.post(f"/v1/users/{user.id}/timeline/line/extract", json={"id": f"aim:{aim}"}).status_code == 409
+    assert ThoughtTree(rt).nodes(YouRoot(user))                                      # your conversation tree is left as it was

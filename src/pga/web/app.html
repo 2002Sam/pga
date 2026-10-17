@@ -37,7 +37,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .num { font-variant-numeric: tabular-nums; } .muted { color: var(--muted); } .dimt { color: var(--dim); }
 
 /* the frame: the bars on the left, one view on the right */
-.app { display: grid; grid-template-columns: 252px minmax(0, 1fr); height: 100%; }
+.app { --railw: 252px; position: relative; display: grid; grid-template-columns: var(--railw) minmax(0, 1fr); height: 100%; }
 .rail { display: flex; flex-direction: column; min-height: 0; background: var(--rail); border-right: 1px solid var(--line); }
 .rail .brand { display: flex; align-items: center; gap: 10px; padding: 16px 18px 12px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
 .rail .brand img { width: 18px; height: 18px; opacity: .9; } .rail .brand:hover { text-decoration: none; }
@@ -66,7 +66,15 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .plantbox textarea { width: 100%; min-height: 72px; resize: vertical; background: var(--inset); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 9px; outline: none; font-size: 13px; }
 .plantbox .row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
 .rail .brand .fold { margin-left: 6px; width: 24px; height: 24px; padding: 0; border-radius: 6px; font-size: 13px; color: var(--dim); }
-.app { transition: grid-template-columns .2s ease; } .app.mini { grid-template-columns: 58px minmax(0, 1fr); }
+.app { transition: grid-template-columns .2s ease; } .app.mini { grid-template-columns: 0 minmax(0, 1fr); } .app.mini .rail { visibility: hidden; overflow: hidden; }
+.app.resizing, .app.resizing * { transition: none !important; user-select: none; cursor: col-resize !important; }
+#unfold { position: fixed; left: 8px; top: 10px; z-index: 40; width: 28px; height: 28px; padding: 0; border-radius: 8px; display: none; font-size: 13px; color: var(--muted); background: var(--raised); border: 1px solid var(--line-2); }
+.app.mini #unfold { display: block; } .app.mini .split[data-split="railw"] { display: none; }
+.split { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; z-index: 25; cursor: col-resize; }
+.split::after { content: ""; position: absolute; left: 4px; top: 0; bottom: 0; width: 1px; background: transparent; transition: background .15s; }
+.split:hover::after, .resizing .split.on::after { background: var(--accent); width: 2px; }
+.split[data-split="railw"] { left: var(--railw); } #vTree, #vChats { position: relative; }
+#vTree .split { left: var(--treew, 36%); } #vChats .split { left: var(--tlw, 36%); }
 .app.mini .rail .brand { flex-direction: column; padding: 14px 0 8px; gap: 10px; } .app.mini .rail .brand .t, .app.mini .rail .brand .pulse { display: none; }
 .app.mini .rail .brand .fold { margin: 0; }
 .app.mini .grp { display: none; } .app.mini .bars { padding: 4px 0 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
@@ -84,9 +92,9 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .view { min-width: 0; min-height: 0; height: 100%; } .view[hidden] { display: none !important; }
 
 /* a tree: the tree on one side, its dialogue taking most of the room */
-#vTree { display: grid; grid-template-columns: minmax(300px, 36%) minmax(0, 1fr); }
+#vTree { display: grid; grid-template-columns: var(--treew, minmax(300px, 36%)) minmax(0, 1fr); }
 #treeSide { position: relative; overflow: auto; border-right: 1px solid var(--line); background: radial-gradient(ellipse at 50% 100%, rgba(214,167,92,.06), transparent 60%), var(--canvas); min-width: 0; }
-#treeSide svg { display: block; margin: 0 auto; }
+#treeSide svg { display: block; margin: 0 auto; } .app.mini .bar, .app.mini .clist .ch { padding-left: 44px; }
 .bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; font-size: 12px; color: var(--muted); background: linear-gradient(var(--canvas) 70%, transparent); }
 .seg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--soft); border: 1px solid var(--line); }
 .seg button { height: 24px; border: 0; background: transparent; color: var(--muted); padding: 0 10px; font-size: 12px; border-radius: 6px; } .seg button.on { background: var(--raised); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
@@ -167,13 +175,21 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .ctx hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 /* everyday chats: no tree, just the conversations */
-#vChats { display: grid; grid-template-columns: minmax(320px, 36%) minmax(0, 1fr); }
+#vChats { display: grid; grid-template-columns: var(--tlw, minmax(320px, 36%)) minmax(0, 1fr); }
 .clist { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden !important; } .tlwrap { overflow: auto; min-height: 0; }
 .clist .ch button { flex: none; } .tlfoot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); } .tlfoot a { color: var(--muted); margin-left: auto; }
+.lcard { border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 16px; margin: 4px 0 20px; background: var(--raised); }
+.lcard summary { display: flex; gap: 10px; align-items: baseline; cursor: pointer; list-style: none; flex-wrap: wrap; } .lcard summary::-webkit-details-marker { display: none; }
+.lcard summary b { font-size: 14.5px; font-weight: 600; } .lcard summary .dimt { font-size: 12px; } .lcard .lsum { margin: 12px 0 6px; }
+.litems { display: grid; gap: 2px; margin: 10px 0 4px; max-height: 260px; overflow: auto; border-top: 1px solid var(--line); padding-top: 8px; }
+.li { display: grid; grid-template-columns: 96px 1fr; gap: 2px 12px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 13px; } .li:hover { background: var(--soft); } .li.on { background: var(--accent-soft); }
+.li .lt { font-weight: 500; } .li .ls { grid-column: 2; color: var(--dim); font-size: 12px; } .li .dimt { font-size: 11.5px; padding-top: 1px; }
+.lact { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 #tlSvg { display: block; } #tlSvg text { font: 500 12.5px/1 var(--font); fill: var(--text); cursor: pointer; } #tlSvg text .tm { font: 400 10.5px var(--font); fill: var(--dim); }
 #tlSvg .tlday { font: 600 11px var(--font) !important; fill: var(--dim) !important; cursor: default; letter-spacing: .02em; } #tlSvg .tlrule { stroke: var(--line); }
 #tlSvg .tlseg { stroke-width: 2; opacity: .55; stroke-linecap: round; } #tlSvg .tlarc { fill: none; stroke-width: 1.4; stroke-dasharray: 4 4; opacity: .6; }
-#tlSvg .tlseg.on, #tlSvg .tlarc.on { opacity: 1; stroke-width: 2.4; }
+#tlSvg .tlseg.on, #tlSvg .tlarc.on { opacity: 1; stroke-width: 2.6; } #tlSvg .tlseg.dim, #tlSvg .tlarc.dim { opacity: .07; } #tlSvg .tlpt.dim { opacity: .16; }
+#tlSvg .tlpt.dim:hover { opacity: .6; } #tlSvg .tlpt, #tlSvg .tlseg, #tlSvg .tlarc { transition: opacity .2s; }
 #tlSvg .tlpt { cursor: pointer; } #tlSvg .tlpt circle { fill: var(--panel); stroke: var(--muted); stroke-width: 1.6; }
 #tlSvg .tlpt.chat circle { stroke: var(--blue); } #tlSvg .tlpt.tree circle { stroke: var(--green); fill: rgba(127,207,159,.15); }
 #tlSvg .tlpt:hover text { fill: var(--accent); } #tlSvg .tlpt.on circle { fill: var(--accent); stroke: var(--accent); } #tlSvg .tlpt.on text { fill: var(--accent); }
@@ -222,6 +238,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 </head>
 <body>
 <div class="app">
+  <button id="unfold" title="展开">»</button><div class="split" data-split="railw"></div>
   <aside class="rail">
     <div class="brand"><a id="home" href="/" style="display:contents;color:inherit"><img src="/icons/favicon-32.png?v=3" alt=""><span class="t">PGA</span></a><span class="pulse" id="pulse"></span><button class="ghost fold" id="fold" title="收起 / 展开">«</button></div>
     <div class="bars" id="bars"></div>
@@ -234,7 +251,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 
   <main class="view" id="vHome" hidden><div class="home" id="homeBody"></div></main>
 
-  <main class="view" id="vTree" hidden>
+  <main class="view" id="vTree" hidden><div class="split" data-split="treew"></div>
     <section id="treeSide" class="treewrap"><div class="bar" id="bar"></div><svg id="treeSvg"></svg><div class="hint" id="hint"></div></section>
     <section id="dialog">
       <div class="dh" id="dh"></div>
@@ -244,7 +261,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
     </section>
   </main>
 
-  <main class="view" id="vChats" hidden>
+  <main class="view" id="vChats" hidden><div class="split" data-split="tlw"></div>
     <section class="clist" id="clist"></section>
     <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><div class="ccomp" id="ccomp"></div></section>
   </main>
@@ -298,7 +315,7 @@ function renderRail() {
       <span class="rt" data-ini="${esc(ini || [...String(name)][0] || "·")}" title="${esc(name)}">${extra}<span class="n">${esc(name)}</span></span><span class="line"><i style="width:${fill}"></i></span>${sub ? `<span class="rs">${sub}</span>` : ""}</a>`;
   let html = `<div class="grp"><span class="label">${L("对话", "Conversations")}</span></div>`
     + bar("chats", L("时间树 · 日常对话", "Time tree · everyday chats"), chats.length ? L(`${chats.length} 段 · 最近 ${ago(chats[0].last_at)}`, `${chats.length} · latest ${ago(chats[0].last_at)}`) : L("一次性的提问，不用长成树", "One-off questions, no tree needed"), "chat", chats.length ? width(Math.min(maxN, chats.length)) : "4%", "", L("日", "D"))
-    + (F.you ? bar("you", L("你的对话树", "Your conversation tree"), L(`${(F.you.nodes || []).length} 个节点`, `${(F.you.nodes || []).length} nodes`) + (F.you.pending ? L(` · ${F.you.pending} 轮待整理`, ` · ${F.you.pending} to place`) : ""), "mine", width((F.you.nodes || []).length), "", L("你", "Y")) : "")
+    + (false && F.you ? bar("you", L("你的对话树", "Your conversation tree"), L(`${(F.you.nodes || []).length} 个节点`, `${(F.you.nodes || []).length} nodes`) + (F.you.pending ? L(` · ${F.you.pending} 轮待整理`, ` · ${F.you.pending} to place`) : ""), "mine", width((F.you.nodes || []).length), "", L("你", "Y")) : "")
     + `<div class="grp"><span class="label">${L("抱负 · 每一棵树", "Motivations · the trees")}</span><button class="ghost" id="plant" title="${L("新的抱负", "New motivation")}">+</button></div>`
     + (S.planting ? `<div class="plantbox"><textarea id="seedText" placeholder="${L("一个长期的抱负：你想让 PGA 一直朝什么方向努力？", "A long-range motivation: what should PGA keep working towards?")}"></textarea>
         <div class="row"><button class="sm ghost" id="seedCancel">${L("取消", "Cancel")}</button><button class="sm primary" id="seedGo">${L("种下", "Plant")}</button></div></div>` : "")
@@ -837,7 +854,7 @@ const renderChatList = () => renderTimeline();
 /* rows go by time; each line holds a lane while it keeps talking (next session within a day); when it comes back later
    it takes a free lane and a path is drawn from where it stopped */
 function tlLayout() {
-  const T = S.tl || { sessions: [] }, ss = T.sessions || [], rows = [], ROW = 40, DAY = 30;
+  const T = S.tl || { sessions: [] }, ss = T.sessions || [], rows = [], ROW = 48, DAY = 34;
   const nextOf = new Map(), byLine = new Map();
   ss.forEach((x, i) => { if (!byLine.has(x.line)) byLine.set(x.line, []); byLine.get(x.line).push(i); });
   for (const idx of byLine.values()) idx.forEach((i, k) => nextOf.set(i, idx[k + 1]));
@@ -865,21 +882,21 @@ function renderTimeline() {
   const head = `<div class="ch"><b>${L("时间树", "Time tree")}</b><button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
   if (!T) { box.innerHTML = head + `<div class="empty">…</div>`; return; }
   if (!(T.sessions || []).length) { box.innerHTML = head + `<div class="empty" style="padding:20px 14px">${L("最近还没有对话。", "No conversations lately.")}</div>`; return; }
-  const G = tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 15, labelX = LX(Math.min(G.lanes, 12)) + 8;
+  const G = tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 18, labelX = LX(Math.min(G.lanes, 12)) + 10;
   const flip = S.dir !== "down", Y = (y) => (flip ? G.H - y : y), maxCh = Math.max(8, Math.floor((W - labelX - 14) / 12.5));
-  const sel = S.tlSel, selLine = (T.sessions.find((x) => x.item === sel) || {}).line;
+  const sel = S.tlSel, selLine = S.tlLine || (T.sessions.find((x) => x.item === sel) || {}).line, dimOf = (line) => (selLine ? (line === selLine ? "on" : "dim") : "");
   const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
   let g = "";
   for (const r of G.rows) g += `<text class="tlday" x="${labelX}" y="${Y(r.y) + 4}">${esc(r.day.toLocaleDateString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", weekday: "short" }))}</text><line class="tlrule" x1="${labelX + 84}" x2="${W - 10}" y1="${Y(r.y)}" y2="${Y(r.y)}"/>`;
-  for (const sg of G.segs) g += `<line class="tlseg ${sg.line === selLine ? "on" : ""}" x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}" style="stroke:${col(sg.line)}"/>`;
+  for (const sg of G.segs) g += `<line class="tlseg ${dimOf(sg.line)}" x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}" style="stroke:${col(sg.line)}"/>`;
   for (const a of G.arcs) { const x1 = LX(a.from.lane), y1 = Y(a.from.y), x2 = LX(a.toLane), y2 = Y(a.toY), dy = (y2 - y1) * .5;
-    g += `<path class="tlarc ${a.line === selLine ? "on" : ""}" d="M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}" style="stroke:${col(a.line)}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
+    g += `<path class="tlarc ${dimOf(a.line)}" d="M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}" style="stroke:${col(a.line)}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
   for (const p of G.pts) {
     const x = p.s, r = Math.max(3.5, Math.min(7.5, 3 + Math.sqrt(x.turns || 1) * .7)), on = x.item === sel, line = T.lines[x.line] || {};
     const t = x.title || L("（没有标题）", "(untitled)"), short = t.length > maxCh ? t.slice(0, maxCh - 1) + "…" : t;
     const when2 = new Date(x.at).toLocaleTimeString(EN ? "en-GB" : "zh-CN", { hour: "2-digit", minute: "2-digit" });
     const meta = [when2, x.kind === "tree" ? L("树", "tree") : x.agent && x.agent !== "-" ? x.agent : "", line.kind !== "single" ? "· " + line.title : "", x.turns > 1 ? L(`${x.turns} 轮`, `${x.turns} turns`) : ""].filter(Boolean).join(" ");
-    g += `<g class="tlpt ${x.kind} ${on ? "on" : ""}" data-ts="${esc(x.id)}"><circle cx="${LX(p.lane)}" cy="${Y(p.y)}" r="${r.toFixed(1)}" style="${line.kind !== "single" ? `stroke:${col(x.line)}` : ""}"/>
+    g += `<g class="tlpt ${x.kind} ${on ? "on" : ""} ${selLine && x.line !== selLine ? "dim" : ""}" data-ts="${esc(x.id)}"><circle cx="${LX(p.lane)}" cy="${Y(p.y)}" r="${r.toFixed(1)}" style="${line.kind !== "single" ? `stroke:${col(x.line)}` : ""}"/>
       <text x="${labelX}" y="${Y(p.y) - 1}">${esc(short)}<tspan class="tm" x="${labelX}" dy="14">${esc(meta.length > maxCh * 1.4 ? meta.slice(0, Math.floor(maxCh * 1.4)) + "…" : meta)}</tspan></text></g>`;
   }
   const keep = $(".tlwrap", box)?.scrollTop;
@@ -891,10 +908,31 @@ function renderTimeline() {
 const tlSess = (id) => (S.tl?.sessions || []).find((x) => x.id === id);
 function openSession(id) {
   const x = tlSess(id); if (!x) return;
-  if (x.kind === "tree") { show("tree", { aim: x.ref.tree, node: x.ref.node }); return; }
-  S.tlSel = x.item;
+  S.tlSel = x.item; S.tlLine = x.line; S.lineOpen = true; loadLine(x.line);
+  if (x.kind === "tree") { S.chat = null; S.imp = null; S.treeItem = x; renderTimeline(); renderChat(); return; }
+  S.treeItem = null;
   if (x.kind === "chat") { S.imp = null; S.chat = x.item; history.replaceState(null, "", qs()); renderTimeline(); renderChat(); loadChat(S.chat); return; }
   S.chat = null; S.imp = { cid: x.ref.conversation, key: x.item, line: x.line }; renderTimeline(); renderChat(); loadImported(x.ref.conversation);
+}
+async function loadLine(id) {
+  if (!id) return;
+  try { S.lineD = { ...(S.lineD || {}), [id]: await api(`/v1/users/${S.uid}/timeline/line?id=${encodeURIComponent(id)}`) }; } catch { return; }
+  if (S.tlLine === id && S.view === "chats") renderChat();
+}
+const LK = { tree: ["树", "Tree"], project: ["项目", "Project"], topic: ["话题", "Topic"], single: ["一段对话", "One conversation"] };
+/* the whole line on top of the dialogue: what it was about (your conversation tree's summaries), its conversations, pull it out */
+function lineCard() {
+  const id = S.tlLine, d = S.lineD?.[id]; if (!id || !d) return "";
+  const many = d.items.length > 1, aim = id.startsWith("aim:") ? id.slice(4) : id === "you" ? "you" : d.extracted;
+  const span = d.first ? `${when(d.first)}${d.last && d.last.slice(0, 10) !== d.first.slice(0, 10) ? " – " + when(d.last) : ""}` : "";
+  const sum = d.summary || (!many && d.items[0]?.summary) || "";
+  return `<details class="lcard" ${S.lineOpen ? "open" : ""}><summary><span class="kind">${L(...(LK[d.kind] || LK.single))}</span><b>${esc(d.title)}</b><span class="dimt num">${esc(span)} · ${L(`${d.items.length} 段对话`, `${d.items.length} conversations`)}</span></summary>
+    <div class="lsum">${sum ? PGATree.summary(sum) : `<span class="dimt">${L("还没有整条线的概括。", "No summary of the whole line yet.")}</span>`}</div>
+    ${many ? `<div class="litems">${d.items.map((x, i) => `<div class="li ${x.key === S.tlSel ? "on" : ""}" data-litem="${esc(x.key)}"><span class="dimt num">${esc(when(x.first))}</span><span class="lt">${esc(x.title)}</span>${x.summary && x.summary !== d.items[i - 1]?.summary ? `<span class="ls">${esc(x.summary.replace(/\n+/g, " · ").slice(0, 140))}</span>` : ""}</div>`).join("")}</div>` : ""}
+    <div class="lact">${many || !d.summary ? `<button class="sm" id="lineSum">${d.summary ? L("重新概括", "Summarize again") : L("概括这条线", "Summarize this line")}</button>` : ""}
+      ${aim ? `<button class="sm primary" data-opentree="${esc(aim)}" data-node="${esc(S.treeItem?.ref?.node || "")}">${L("打开这棵树", "Open the tree")}</button>`
+        : `<button class="sm primary" id="lineOut" title="${L("把这条线变成一棵自己的树：每段对话一个节点，按时间连起来；之后可以在树上分支、沉淀", "Turn this line into a tree of its own: one node per conversation, chained in time; then branch and distill on it")}">${L("抽离成一棵树", "Pull out as a tree")}</button>`}
+      <span class="grow"></span><a href="#" id="lineClear" class="dimt" style="font-size:12px">${L("取消高亮", "Clear highlight")}</a></div></details>`;
 }
 async function loadImported(cid) {
   try { S.impData = await api(`/v1/users/${S.uid}/imported/${cid}`); } catch (e) { S.impData = { error: e.message }; }
@@ -950,9 +988,9 @@ function showArchived() {
 function renderImported() {
   const d = S.impData && S.impData.id === S.imp.cid ? S.impData : null, line = S.tl?.lines?.[S.imp.line];
   $("#chead").innerHTML = `<span class="kind">${L("导入的对话", "Imported")}</span><h1>${esc(d?.title || "…")}</h1>${line && line.kind !== "single" ? `<span class="pill">${esc(line.title.slice(0, 24))}</span>` : ""}`;
-  $("#cdlgIn").innerHTML = !d ? `<div class="empty">…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
+  $("#cdlgIn").innerHTML = lineCard() + (!d ? `<div class="empty">…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
     : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
-      + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md });
+      + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md }));
   const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
   $("#ccomp").innerHTML = `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（⌘/Ctrl + Enter）", "Carry on this conversation in PGA… (⌘/Ctrl + Enter)")}"></textarea>
     <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === guess ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
@@ -977,14 +1015,20 @@ async function impSend() {
 }
 function renderChat() {
   if (S.imp) { renderImported(); return; }
+  if (S.treeItem) {
+    const x = S.treeItem;
+    $("#chead").innerHTML = `<span class="kind">${L("树上的对话", "On a tree")}</span><h1>${esc(x.title)}</h1>`;
+    $("#cdlgIn").innerHTML = lineCard() + `<div class="chello" style="margin-top:6vh"><div>${L("这段对话长在一棵树上。", "This conversation grew on a tree.")}</div><button class="primary" style="margin-top:12px" data-opentree="${esc(x.ref.tree)}" data-node="${esc(x.ref.node)}">${L("到树上的这个节点", "Go to this node on the tree")}</button></div>`;
+    $("#ccomp").innerHTML = ""; return;
+  }
   const c = chatOf(S.chat), turns = S.chatTurns[S.chat] || [];
   const cc = (S.allChats || []).find((x) => x.key === S.chat);
   $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
     ${cc ? `<button class="sm ghost" data-arch="${esc(cc.key)}" data-to="${cc.archived ? "0" : "1"}">${cc.archived ? L("取消归档", "Unarchive") : L("归档", "Archive")}</button>` : ""}`;
   const notes = turns.flatMap((t) => t.role === "user" ? [{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }]
     : [{ agent: t.agent && t.agent !== "-" ? t.agent : "AI", kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }]);
-  $("#cdlgIn").innerHTML = !S.chat && !notes.length ? `<div class="chello"><h2>${L("问点什么", "Ask anything")}</h2><div>${L("一次性的、日常的问题在这里问：不会长成树。哪天它变成了一个长期的方向，再把它种成一棵树。", "Everyday, one-off questions go here and do not grow a tree. If one turns into a long-range direction, plant it as a tree.")}</div></div>`
-    : PGATree.chat(notes, { md, name: (x) => x.agent }) + (S.sending && S.view === "chats" ? `<div class="typing">${L("思考中…", "Thinking…")}</div>` : "");
+  $("#cdlgIn").innerHTML = (S.chat ? lineCard() : "") + (!S.chat && !notes.length ? `<div class="chello"><h2>${L("问点什么", "Ask anything")}</h2><div>${L("一次性的、日常的问题在这里问：不会长成树。哪天它变成了一个长期的方向，再把它种成一棵树。", "Everyday, one-off questions go here and do not grow a tree. If one turns into a long-range direction, plant it as a tree.")}</div></div>`
+    : PGATree.chat(notes, { md, name: (x) => x.agent }) + (S.sending && S.view === "chats" ? `<div class="typing">${L("思考中…", "Thinking…")}</div>` : ""));
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
   $("#ccomp").innerHTML = `<div class="inner"><div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
     <div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
@@ -992,7 +1036,7 @@ function renderChat() {
       <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#chatText"));
-  const box2 = $("#cdlg"); requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; });
+  const box2 = $("#cdlg"); if (S.sending || S.scrollChat) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); }
 }
 async function loadChat(key) {
   if (!key || key.startsWith("new:")) { renderChat(); return; }
@@ -1011,7 +1055,7 @@ async function chatSend() {
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
   finally { S.sending = false; }
-  await loadChats(); await loadChat(key); loadTimeline();
+  S.scrollChat = true; await loadChats(); await loadChat(key); loadTimeline();
 }
 
 /* ------------------------------------------------ events */
@@ -1030,7 +1074,8 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
   if (t.dataset.bar) { const id = t.dataset.bar; if (id === "chats") show("chats"); else show("tree", { aim: id }); return; }
@@ -1044,9 +1089,17 @@ document.addEventListener("click", async (e) => {
   }
   if (t.id === "ctxBtn") { showContext(); return; }
   if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
-  if (t.id === "fold") { setMini(!S.mini); return; }
+  if (t.id === "fold" || t.id === "unfold") { setMini(!S.mini); return; }
   if (t.closest?.("[data-ts]") && t.dataset.ts) { openSession(t.dataset.ts); return; }
   if (t.id === "tlImport") { showImport(); return; }
+  if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }
+  if (t.dataset.opentree) { show("tree", { aim: t.dataset.opentree, node: t.dataset.node || null }); return; }
+  if (t.id === "lineClear") { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
+  if (t.id === "lineSum") { t.disabled = true; t.textContent = L("概括中…", "Summarizing…");
+    try { await api(`/v1/users/${S.uid}/timeline/line/summarize`, { body: { id: S.tlLine } }); await loadLine(S.tlLine); } catch (err) { toast(err.message); t.disabled = false; } return; }
+  if (t.id === "lineOut") { const d = S.lineD?.[S.tlLine]; const title = prompt(L("这棵树叫什么？（也就是这个抱负）", "Name the tree (the motivation)"), d?.title || ""); if (!title) return;
+    try { const r = await api(`/v1/users/${S.uid}/timeline/line/extract`, { body: { id: S.tlLine, title } });
+      toast(L(`抽离好了：${r.nodes} 个节点`, `Pulled out: ${r.nodes} nodes`)); await loadForest(); show("tree", { aim: r.aim }); } catch (err) { toast(err.message); } return; }
   if (t.id === "archList") { showArchived(); return; }
   if (t.id === "impSend") { impSend(); return; }
   if (t.id === "hubSync") { t.disabled = true; t.textContent = L("同步中…", "Syncing…");
@@ -1137,6 +1190,7 @@ document.addEventListener("click", async (e) => {
     catch (err) { toast(err.message); }
   }
 });
+document.addEventListener("toggle", (e) => { if (e.target.classList?.contains("lcard")) S.lineOpen = e.target.open; }, true);
 document.addEventListener("input", (e) => { if (e.target.id === "search") { S.search = e.target.value; renderDialog(); } if (e.target.id === "tnText" || e.target.id === "chatText") autoGrow(e.target); });
 document.addEventListener("change", (e) => {
   if (e.target.id === "crefAdd" && e.target.value) { S.contRefs = [...S.contRefs, e.target.value]; renderCont(); return; }
@@ -1158,10 +1212,22 @@ window.addEventListener("pga:theme", () => { if (S.tree && S.view === "tree") dr
 
 /* ------------------------------------------------ the tree by hand: + for a new node, drag to move or link, swipe to cut */
 const DR = {};
+/* the borders between panes: hold and drag; each width is remembered */
+const SPLITS = { railw: [".app", 180, 420], treew: ["#vTree", 240, -380], tlw: ["#vChats", 260, -380] };
+function applySplits() { for (const k of Object.keys(SPLITS)) { const v = store.get("pga_split_" + k); if (v) $(SPLITS[k][0]).style.setProperty("--" + k, v + "px"); } }
+document.addEventListener("pointerdown", (e) => {
+  const sp = e.target.closest?.(".split"); if (!sp || e.button !== 0) return;
+  e.preventDefault(); const k = sp.dataset.split, [sel, min, maxR] = SPLITS[k], box = $(sel), r = box.getBoundingClientRect();
+  $(".app").classList.add("resizing"); sp.classList.add("on");
+  const move = (ev) => { const max = maxR < 0 ? r.width + maxR : maxR, v = Math.round(Math.max(min, Math.min(max, ev.clientX - r.left))); box.style.setProperty("--" + k, v + "px"); store.set("pga_split_" + k, v); };
+  const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); $(".app").classList.remove("resizing"); sp.classList.remove("on");
+    if (S.view === "tree" && S.tree) drawTree(false); if (S.view === "chats") renderTimeline(); };
+  document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+});
 function setMini(on) {
   S.mini = on; store.set("pga_rail_mini", on ? "1" : "0");
-  $(".app").classList.toggle("mini", on); $("#fold").textContent = on ? "»" : "«"; $("#fold").title = on ? L("展开", "Expand") : L("收起", "Collapse");
-  setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); }, 230);
+  $(".app").classList.toggle("mini", on); $("#fold").textContent = "«"; $("#fold").title = on ? L("展开", "Expand") : L("收起", "Collapse");
+  setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); if (S.view === "chats") renderTimeline(); }, 230);
 }
 function branchFrom(id) {
   if (!nodeOf(id)) return;
@@ -1209,7 +1275,7 @@ document.addEventListener("pointerup", async (e) => {
 });
 
 async function boot() {
-  setMini(store.get("pga_rail_mini") === "1");
+  setMini(store.get("pga_rail_mini") === "1"); applySplits();
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {})]);
   show(S.view === "tree" && !S.aim ? "home" : S.view);
