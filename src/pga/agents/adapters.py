@@ -408,8 +408,22 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
         if e.get("type") == "message_stop" and task is not None and task.meta.get("_streamed"):
             return RAW + "\n"
         return None
+    lid = task.meta.get("live_id") if task is not None else None
+    if isinstance(ev, dict) and ev.get("type") == "system" and ev.get("subtype") == "init":    # where and how it runs
+        from pga.agents import live
+        live.set_extra(lid, "env", {"model": ev.get("model"), "cwd": ev.get("cwd"), "permission": ev.get("permissionMode"),
+                                    "tools": len(ev.get("tools") or []), "session": ev.get("session_id"),
+                                    "mcp": [m.get("name") for m in ev.get("mcp_servers") or [] if isinstance(m, dict)]})
+        return None
+    if isinstance(ev, dict) and ev.get("type") == "result" and isinstance(ev.get("usage"), dict):
+        from pga.agents import live
+        live.set_extra(lid, "usage", ev["usage"])
+        return None
     if not isinstance(ev, dict) or ev.get("type") != "assistant":
         return None
+    if isinstance((ev.get("message") or {}).get("usage"), dict):            # tokens so far, message by message
+        from pga.agents import live
+        live.set_extra(lid, "usage", ev["message"]["usage"])
     out = []
     streamed = bool(task is not None and task.meta.get("_streamed"))   # the words already came token by token
     for b in (ev.get("message") or {}).get("content") or []:
@@ -419,7 +433,11 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
             out.append(b["text"])
         elif b.get("type") == "tool_use":
             arg = b.get("input") or {}
-            hint = arg.get("file_path") or arg.get("pattern") or arg.get("query") or arg.get("url") or ""
+            if b.get("name") == "TodoWrite" and isinstance(arg.get("todos"), list):
+                from pga.agents import live
+                live.set_extra(lid, "todos", [{"content": str(t.get("content") or ""), "status": t.get("status")} for t in arg["todos"] if isinstance(t, dict)])
+            hint = (arg.get("file_path") or arg.get("pattern") or arg.get("query") or arg.get("url") or arg.get("command")
+                    or arg.get("description") or "")
             out.append(f"→ {b.get('name')} {str(hint)[:120]}".rstrip())
     return "\n".join(out) or None
 

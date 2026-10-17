@@ -705,12 +705,18 @@ class CodexServer:
                     if kind == "agentMessage":
                         finals.append(str(item.get("text") or ""))
                         live.append(lid, "\n")
+                    elif kind == "fileChange":
+                        live.append(lid, "→ Edit " + ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200] + "\n")
                     elif kind == "commandExecution":
                         live.append(lid, f"$ {str(item.get('command') or '')[:200]}\n")
                     elif kind == "webSearch":
                         live.append(lid, f"（搜索）{str(item.get('query') or '')[:200]}\n")
                 elif meth == "thread/tokenUsage/updated":
                     usage = p.get("tokenUsage")
+                    live.set_extra(lid, "usage", usage)
+                elif meth == "turn/plan/updated":                # Codex's plan: the working card shows it as a to-do list
+                    live.set_extra(lid, "todos", [{"content": str(x.get("step") or ""), "status": {"inProgress": "in_progress"}.get(x.get("status"), x.get("status"))}
+                                                  for x in p.get("plan") or [] if isinstance(x, dict)])
                 elif meth == "error" and not p.get("willRetry"):
                     err = str((p.get("error") or {}).get("message") or "error")[:500]
                 elif meth == "turn/completed":

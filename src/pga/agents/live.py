@@ -39,6 +39,17 @@ def append(lid: str | None, text: str) -> None:
             r["text"] = (r["text"] + text)[-MAX_TEXT:]
 
 
+def set_extra(lid: str | None, key: str, value) -> None:
+    """Something structured about a running answer, for the working card: the environment the agent reports (model,
+    folder, tools, MCP servers), its to-do list, its token usage so far."""
+    if not lid:
+        return
+    with _LOCK:
+        r = _RUNS.get(lid)
+        if r is not None:
+            r[key] = value
+
+
 def finish(lid: str | None, ok: bool, text: str | None = None, error: str | None = None) -> None:
     if not lid:
         return

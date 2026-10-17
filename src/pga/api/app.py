@@ -2812,11 +2812,26 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             runs = runs_of(rt, user_id, key)
         except ChatError as exc:
             raise HTTPException(404, str(exc)) from exc
+        from pga.db.models import AgentRun
+        from pga.tree import parse_actions, usage_of
+        kids: dict = {}
+        if runs:
+            for k in rt.session.scalars(select(AgentRun).where(AgentRun.parent_id.in_([r.id for r in runs])).order_by(AgentRun.started_at)):
+                kids[k.parent_id] = k                                   # the step that answered (the last one)
+
+        def how(r) -> dict:
+            k = kids.get(r.id)
+            kd = (k.data or {}) if k is not None else {}
+            u = usage_of(kd) or {}
+            win = ((kd.get("usage") or {}).get("modelContextWindow") if isinstance(kd.get("usage"), dict) else None)
+            return {"seconds": round(float(k.duration_s or 0), 1) if k is not None else None, "usage": u or None, "window": win,
+                    "via": kd.get("via"), "continued": kd.get("continued"), "model": (r.data or {}).get("model"),
+                    "actions": parse_actions(kd.get("trace") or "")[:80]}
         out = []
         for r in runs:
             out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id)})
             out.append({"role": "agent", "agent": (r.data or {}).get("agent") or r.agent, "text": _answer(r.output) or "", "error": r.error,
-                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model"), "run": str(r.id),
+                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model"), "run": str(r.id), "how": how(r),
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
         b = branch_of(u, key)
         ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []

@@ -185,6 +185,18 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .lrow .lr1 b { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .lrow .lr1 .dimt { font-size: 11.5px; white-space: nowrap; }
 .lrow .lr2 { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--dim); margin: 2px 0 6px 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .lrow .lr2 .kind { font-size: 10.5px; }
 .lrow .strip { display: block; width: calc(100% - 15px); height: 5px; margin-left: 15px; } .lrow .strip .bg { fill: var(--line-2); }
+.work { margin: 6px 0 18px; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 14px; background: var(--raised); font-size: 13px; }
+.work .wh { display: flex; gap: 10px; align-items: center; } .work .wst { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+.spin { width: 11px; height: 11px; border-radius: 50%; border: 2px solid var(--line-3); border-top-color: var(--accent); animation: spin .8s linear infinite; flex: none; } @keyframes spin { to { transform: rotate(360deg); } }
+.work .wenv { font-size: 11.5px; color: var(--dim); margin: 6px 0 0 21px; } .work .wtext { margin: 8px 0 0 21px; color: var(--muted); max-height: 220px; overflow: auto; }
+.todo { list-style: none; margin: 8px 0 0 21px; padding: 0; font-size: 12.5px; } .todo li { display: flex; gap: 8px; padding: 1px 0; color: var(--muted); }
+.todo li.completed { color: var(--dim); text-decoration: line-through; } .todo li.in_progress { color: var(--text); font-weight: 500; }
+.wacts { margin: 8px 0 0 21px; font: 11.5px/1.7 "JetBrains Mono", ui-monospace, monospace; color: var(--muted); } .wacts > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rmeta { margin: -8px 0 4px 38px; font-size: 11.5px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; } .rmeta details { display: inline; } .rmeta summary { cursor: pointer; display: inline; color: var(--muted); }
+.rmeta .wacts { margin-left: 0; max-height: 220px; overflow: auto; }
+.envbar { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--dim); margin: 0 2px 6px; flex-wrap: wrap; } .envbar a { color: var(--muted); }
+.ctxm { display: inline-flex; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; } .ctxm i { width: 54px; height: 4px; border-radius: 2px; background: var(--line-2); display: inline-block; overflow: hidden; }
+.ctxm b { display: block; height: 100%; background: var(--green); } .ctxm b.hi { background: var(--bad); }
 .tacts { display: flex; gap: 4px; margin: -6px 0 8px 38px; } .tacts button { height: 22px; font-size: 11.5px; padding: 0 7px; color: var(--dim); }
 .swap { align-self: center; text-align: center; font-size: 11.5px; color: var(--accent); margin: 8px 0; }
 .second { margin: 0 0 16px 38px; border: 1px solid var(--line-2); border-left: 2px solid var(--blue); border-radius: 0 12px 12px 0; padding: 10px 14px; background: var(--raised); font-size: 13px; }
@@ -1049,7 +1061,7 @@ function renderLineDialog() {
     return `<div class="seam ${x.key === S.focusItem ? "cur" : ""}" id="li-${esc(x.key)}"><span class="sn num">${i + 1}</span><span class="st">${esc(x.title)}</span>
         <span class="sm num">${esc(app)} · ${esc(when(x.first))}${x.last.slice(0, 10) !== x.first.slice(0, 10) ? " – " + esc(when(x.last)) : ""}</span>${x.kind === "tree" ? `<a href="#" class="sm" data-opentree="${esc(x.ref.tree)}" data-node="${esc(x.ref.node)}">${L("到树上", "Open on the tree")}</a>` : ""}</div>
       ${notes == null ? `<div class="dimt" style="font-size:12.5px;padding:8px 0">${L("载入…", "Loading…")}</div>` : x.kind === "chat" && notes.length ? chatTurnsHtml(S.chatTurns[x.key], x.key) : notes.length ? PGATree.chat(notes, { md, name: (n) => n.agent }) : `<div class="dimt" style="font-size:12.5px;padding:6px 0">${L("没有内容。", "Nothing here.")}</div>`}`;
-  }).join("") + (S.sending ? `<div class="typing">${L("思考中…", "Thinking…")}</div>` : "");
+  }).join("") + (S.sending ? workCard() : "");
   wrap.dataset.line = id;
   if (!S.focusDone && S.focusItem) {                    // once every conversation is in, open at the one you picked
     const el = S.focusItem === "__end__" ? null : document.getElementById("li-" + S.focusItem);
@@ -1060,7 +1072,7 @@ function renderLineDialog() {
   else if (keep != null) wrap.scrollTop = keep;
   const last = d.items[d.items.length - 1], box = $("#chatText"); if (box) S.chatDraft = box.value;
   $("#ccomp").innerHTML = last.kind === "tree" ? `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(last.ref.tree)}" data-node="${esc(last.ref.node)}">${L("到树上接着说", "Carry on on the tree")}</button></div>`
-    : `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L(`接着这条线最近的一段（「${last.title.slice(0, 16)}」）说…（⌘/Ctrl + Enter）`, `Carry on the latest conversation of this line (“${last.title.slice(0, 20)}”)… (⌘/Ctrl + Enter)`))}">${esc(S.chatDraft || "")}</textarea>
+    : `<div class="inner">${envBar(last.kind === "chat" ? last.key : "", last.kind === "chat" ? S.chatTurns[last.key] || [] : [])}<div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L(`接着这条线最近的一段（「${last.title.slice(0, 16)}」）说…（⌘/Ctrl + Enter）`, `Carry on the latest conversation of this line (“${last.title.slice(0, 20)}”)… (⌘/Ctrl + Enter)`))}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(last.kind === "chat" ? last.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#chatText"));
@@ -1204,9 +1216,9 @@ function renderChat() {
   $("#chead").innerHTML += headActs();
   const notes = turns;
   $("#cdlgIn").innerHTML = (S.chat ? lineCard() : "") + branchCtx(S.chat) + (!S.chat && !notes.length ? `<div class="chello"><h2>${L("问点什么", "Ask anything")}</h2><div>${L("一次性的、日常的问题在这里问：不会长成树。哪天它变成了一个长期的方向，再把它种成一棵树。", "Everyday, one-off questions go here and do not grow a tree. If one turns into a long-range direction, plant it as a tree.")}</div></div>`
-    : chatTurnsHtml(turns) + (S.sending && S.view === "chats" ? `<div class="typing">${L("思考中…", "Thinking…")}</div>` : ""));
+    : chatTurnsHtml(turns) + (S.sending && S.view === "chats" ? workCard() : ""));
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
-  $("#ccomp").innerHTML = `<div class="inner"><div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
+  $("#ccomp").innerHTML = `<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
     <div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
       <textarea id="chatText" rows="1" placeholder="${L("写点什么…（⌘/Ctrl + Enter）", "Write something… (⌘/Ctrl + Enter)")}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
@@ -1226,6 +1238,7 @@ function chatTurnsHtml(turns, key = S.chat) {
     prevAgent = who;
     out += PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
     if (!t.run) continue;
+    out += replyMeta(t);
     const sec = t.second, busy = S.secondBusy === t.run;
     out += `<div class="tacts">${sec ? "" : `<button class="sm ghost" data-second="${t.run}" data-ckey="${esc(key)}" ${busy ? "disabled" : ""}>${busy ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
       <button class="sm ghost" data-cbranch="${t.run}" data-ckey="${esc(key)}">${L("从这里分支", "Branch from here")}</button></div>`;
@@ -1257,6 +1270,64 @@ async function chatBranch(run, from) {
     toast(L("分出了一段新对话：前面的内容 agent 都看得到，原来那段不受影响", "A new branch: the agent sees what came before; the original stays as it was")); }
   catch (err) { toast(err.message); }
 }
+/* ------------------------------------------------ like Claude Code: what is happening while it works, and what it cost */
+const kfmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + "M" : n >= 1000 ? (n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "k" : String(n || 0));
+function usageJs(u) {                       // Claude: input without the cache; Codex: input with it, per turn under "last"
+  if (!u) return null; const x = u.last || u.total || u;
+  const cached = x.cache_read_input_tokens ?? x.cachedInputTokens ?? x.cached ?? 0, written = x.cache_creation_input_tokens ?? x.cacheWriteInputTokens ?? x.written ?? 0;
+  let inp = x.input_tokens ?? x.inputTokens ?? x.input ?? 0; if ("cache_read_input_tokens" in x || "cache_creation_input_tokens" in x) inp += cached + written;
+  return { input: inp, cached, output: x.output_tokens ?? x.outputTokens ?? x.output ?? 0, window: u.modelContextWindow };
+}
+let LIVE = null;
+function startLive(key) {
+  stopLive(); const t0 = Date.now(); S.live = { key, run: null, t0 };
+  LIVE = setInterval(async () => {
+    try { const xs = await api(`/v1/agents/live`);
+      const mine = xs.filter((r) => String(r.tags?.conversation || "").endsWith(":" + key) && r.started * 1000 >= t0 - 3000).pop();
+      if (mine) S.live.run = mine;
+    } catch {}
+    const box = document.getElementById("workCard"); if (box) box.outerHTML = workCard();
+  }, 1000);
+}
+function stopLive() { if (LIVE) clearInterval(LIVE); LIVE = null; S.live = null; }
+function workCard() {
+  const lv = S.live || {}, r = lv.run, el = Math.round(r ? (r.elapsed_s ?? 0) : (Date.now() - (lv.t0 || Date.now())) / 1000);
+  const lines = String(r?.text || "").split("\n"), acts = lines.filter((l) => /^(→ |\$ |（搜索）)/.test(l)), words = lines.filter((l) => !/^(→ |\$ |（搜索）)/.test(l)).join("\n").trim();
+  const u = usageJs(r?.usage), env = r?.env || {}, todos = r?.todos || [];
+  const status = acts.length ? acts[acts.length - 1].replace(/^→ /, "") : words ? L("正在写回答…", "Writing the answer…") : r ? L("在想…", "Thinking…") : L("正在分配 agent…", "Picking an agent…");
+  return `<div id="workCard" class="work"><div class="wh"><span class="spin"></span><b>${esc(r?.agent || "…")}</b><span class="wst">${esc(status)}</span><span class="grow"></span>
+      <span class="num dimt">${el}s${u ? ` · ↑ ${kfmt(u.input)} ↓ ${kfmt(u.output)}` : ""}</span>${r ? `<button class="sm ghost" data-stoplive="${r.id}">${L("停止", "Stop")}</button>` : ""}</div>
+    ${env.model || env.cwd ? `<div class="wenv">${esc([env.model, env.cwd, env.permission, env.tools ? L(`${env.tools} 个工具`, `${env.tools} tools`) : "", (env.mcp || []).length ? "MCP " + env.mcp.join(", ") : ""].filter(Boolean).join(" · "))}</div>` : ""}
+    ${todos.length ? `<ul class="todo">${todos.map((t) => `<li class="${t.status}"><span>${t.status === "completed" ? "☑" : t.status === "in_progress" ? "◐" : "☐"}</span>${esc(t.content)}</li>`).join("")}</ul>` : ""}
+    ${acts.length ? `<div class="wacts">${acts.slice(-8).map((a) => `<div>${esc(a.slice(0, 160))}</div>`).join("")}${acts.length > 8 ? `<div class="dimt">${L(`…前面还有 ${acts.length - 8} 步`, `… ${acts.length - 8} earlier`)}</div>` : ""}</div>` : ""}
+    ${words ? `<div class="wtext md">${md(words.slice(-1500))}</div>` : ""}</div>`;
+}
+/* under each answer: who, which model, how long, how many tokens (and how many came from the cache), new or continued session, and the steps it took */
+function replyMeta(t) {
+  const h = t.how || {}, u = h.usage, n = (h.actions || []).length;
+  const bits = [t.model || h.model, h.seconds != null ? `${h.seconds}s` : "", u ? L(`读入 ${kfmt(u.input)}${u.input ? `（${Math.round(100 * u.cached / u.input)}% 缓存）` : ""} · 写出 ${kfmt(u.output)}`, `in ${kfmt(u.input)}${u.input ? ` (${Math.round(100 * u.cached / u.input)}% cached)` : ""} · out ${kfmt(u.output)}`) : "",
+    h.via === "session" || h.via === "app-server" ? (h.continued ? L("接着上次的会话", "continued session") : L("新会话", "new session")) : ""].filter(Boolean);
+  if (!bits.length && !n) return "";
+  return `<div class="rmeta">${esc(bits.join(" · "))}${n ? ` · <details><summary>${L(`过程 ${n} 步`, `${n} steps`)}</summary><div class="wacts">${h.actions.map((a) => `<div><span class="dimt">${esc(a.tool)}</span> ${esc(String(a.target || "").slice(0, 160))}</div>`).join("")}</div></details>` : ""}</div>`;
+}
+/* above the composer: where the agent works and how full its context is */
+function envBar(key, turns) {
+  const a = S.acc[key || "*new"] || {}, last = [...(turns || [])].reverse().find((x) => x.role !== "user" && x.how);
+  const u = last?.how?.usage, win = last?.how?.window || (String(last?.agent || "").startsWith("claude") ? 200000 : 258400), used = u?.input || 0, pct = Math.min(100, Math.round(100 * used / win));
+  const fold = a.folder || L("这段对话自己的文件夹", "this chat's own folder");
+  return `<div class="envbar"><span title="${esc(a.folder || "")}">📁 ${esc(fold.split("/").filter(Boolean).pop() || fold)}</span><span>${a.access ? L(ACC[a.access][0], ACC[a.access][1]) : ""}</span>${a.mcp ? "<span>MCP</span>" : ""}
+    ${last ? `<span>${esc(last.agent || "")}${last.model ? " · " + esc(last.model) : ""}</span>` : ""}<span class="grow"></span>
+    <span class="ctxm" title="${L("上一轮 agent 读入的内容占它上下文窗口的比例", "How much of its context window the agent read last turn")}">${L("上下文", "Context")} <i><b style="width:${pct}%" class="${pct > 80 ? "hi" : ""}"></b></i> ${kfmt(used)} / ${kfmt(win)}</span>
+    <a href="#" id="usageBtn">${L("用量", "Usage")}</a></div>`;
+}
+async function showUsage() {
+  const [rt, c] = await Promise.all([api(`/v1/agents/route?category=general`).catch(() => ({ ranking: [] })), api(`/v1/users/${S.uid}/cache?days=7`).catch(() => null)]);
+  modal(`<h2>${L("用量", "Usage")}</h2><div class="muted" style="margin-bottom:12px">${L("每个 agent 还剩多少额度（自动选 agent 时按这个排），以及最近 7 天读入的 token 里有多少来自缓存。", "How much each agent has left (auto routing goes by this), and how much of what they read in the last 7 days came from the cache.")}</div>
+    ${(rt.ranking || []).map((x) => `<div class="dim" style="grid-template-columns:110px 1fr 120px;cursor:default"><span class="k">${esc(x.agent)}</span><span class="v">${esc(x.quota?.detail || "")}${x.quota?.resets_at ? L(" · 重置于 ", " · resets ") + esc(when(x.quota.resets_at)) : ""}${x.usable ? "" : ` · <span style="color:var(--bad)">${esc(x.why_not || L("不可用", "unavailable"))}</span>`}</span>
+      <span class="conf" style="align-self:center"><i style="width:${Math.round((x.remaining ?? 0) * 100)}%"></i></span></div>`).join("")}
+    ${c?.all?.calls ? `<div class="label" style="margin-top:18px">${L("提示词缓存 · 最近 7 天", "Prompt cache · last 7 days")}</div>${cacheLine(c.all)}` : ""}`);
+}
+
 /* the right-hand header: pin the line, put it on another line, archive */
 function headActs() {
   const key = S.lineView ? null : S.chat || S.imp?.key, line = S.lineView || (S.tl?.sessions || []).find((x) => x.item === key)?.line;
@@ -1277,12 +1348,12 @@ async function chatSend() {
   const key = S.chat, prev = S.chatTurns[key] || [], ctx = S.chatCtx?.[key]?.context || [];
   const hist = [...ctx, ...prev].slice(-12).map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text }));
   S.chatTurns[key] = [...prev, { role: "user", text, at: new Date().toISOString() }];
-  S.sending = true; S.chatDraft = ""; window.history.replaceState(null, "", qs()); renderChat(); $("#chatText").value = "";
+  S.sending = true; S.chatDraft = ""; window.history.replaceState(null, "", qs()); startLive(key); renderChat(); $("#chatText").value = "";
   try {
     const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: $("#chatAgent")?.value || "auto", conversation: key, history: hist, refs: S.chatRefs } });
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
-  finally { S.sending = false; }
+  finally { S.sending = false; stopLive(); }
   S.scrollChat = true; await loadChats(); await loadChat(key); loadTimeline();
 }
 
@@ -1304,7 +1375,7 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #moveGo, [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #moveGo, [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1324,6 +1395,8 @@ document.addEventListener("click", async (e) => {
   if (t.id === "tlImport") { showImport(); return; }
   if (t.dataset.tline) { pickLine(t.dataset.tline); return; }
   if (t.id === "looseToggle") { S.showLoose = !S.showLoose; renderTimeline(); return; }
+  if (t.dataset.stoplive) { api(`/v1/agents/live/${t.dataset.stoplive}/stop`, { method: "POST" }).then(() => toast(L("已让它停下，已经写出的内容会保留", "Stopping; what it wrote so far is kept"))).catch((err) => toast(err.message)); return; }
+  if (t.id === "usageBtn") { showUsage(); return; }
   if (t.dataset.second) { secondOpinion(t.dataset.second, t.dataset.ckey); return; }
   if (t.dataset.cbranch) { chatBranch(t.dataset.cbranch, t.dataset.ckey); return; }
   if (t.dataset.pin) { try { const r = await api(`/v1/users/${S.uid}/timeline/pin`, { method: "PUT", body: { line: t.dataset.pin, pinned: t.dataset.to === "1" } }); S.tl.pinned = r.pinned; renderTimeline(); renderChat(); toast(t.dataset.to === "1" ? L("已置顶", "Pinned") : L("已取消置顶", "Unpinned")); } catch (err) { toast(err.message); } return; }
