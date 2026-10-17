@@ -178,6 +178,12 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 #vChats { display: grid; grid-template-columns: var(--tlw, minmax(320px, 36%)) minmax(0, 1fr); }
 .clist { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden !important; } .tlwrap { overflow: auto; min-height: 0; }
 .clist .ch button { flex: none; } .tlfoot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--dim); } .tlfoot a { color: var(--muted); margin-left: auto; }
+.clist .ch .seg button { height: 24px; } .lrows { overflow: auto; min-height: 0; }
+.lrow { padding: 10px 14px 9px; border-top: 1px solid var(--line); cursor: pointer; } .lrow:hover { background: var(--soft); } .lrow.on { background: var(--raised); box-shadow: inset 2px 0 0 var(--accent); }
+.lrow .lr1 { display: flex; gap: 8px; align-items: center; } .lrow .lr1 i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.lrow .lr1 b { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .lrow .lr1 .dimt { font-size: 11.5px; white-space: nowrap; }
+.lrow .lr2 { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--dim); margin: 2px 0 6px 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; } .lrow .lr2 .kind { font-size: 10.5px; }
+.lrow .strip { display: block; width: calc(100% - 15px); height: 5px; margin-left: 15px; } .lrow .strip .bg { fill: var(--line-2); }
 .lcard { border: 1px solid var(--line-2); border-radius: 14px; padding: 12px 16px; margin: 4px 0 20px; background: var(--raised); }
 .lcard summary { display: flex; gap: 10px; align-items: baseline; cursor: pointer; list-style: none; flex-wrap: wrap; } .lcard summary::-webkit-details-marker { display: none; }
 .lcard summary b { font-size: 14.5px; font-weight: 600; } .lcard summary .dimt { font-size: 12px; } .lcard .lsum { margin: 12px 0 6px; }
@@ -315,7 +321,7 @@ function renderRail() {
   const bar = (id, name, sub, cls, fill, extra = "", ini = "") => `<a class="rb ${cls} ${(S.view === "tree" && S.aim === id) || (id === "chats" && S.view === "chats") ? "on" : ""}" href="${id === "chats" ? "?view=chats" : "?tree=" + id}" data-bar="${id}">
       <span class="rt" data-ini="${esc(ini || [...String(name)][0] || "·")}" title="${esc(name)}">${extra}<span class="n">${esc(name)}</span></span><span class="line"><i style="width:${fill}"></i></span>${sub ? `<span class="rs">${sub}</span>` : ""}</a>`;
   let html = `<div class="grp"><span class="label">${L("对话", "Conversations")}</span></div>`
-    + bar("chats", L("时间树 · 日常对话", "Time tree · everyday chats"), chats.length ? L(`${chats.length} 段 · 最近 ${ago(chats[0].last_at)}`, `${chats.length} · latest ${ago(chats[0].last_at)}`) : L("一次性的提问，不用长成树", "One-off questions, no tree needed"), "chat", chats.length ? width(Math.min(maxN, chats.length)) : "4%", "", L("日", "D"))
+    + bar("chats", L("所有对话", "All conversations"), chats.length ? L(`${chats.length} 段 · 最近 ${ago(chats[0].last_at)}`, `${chats.length} · latest ${ago(chats[0].last_at)}`) : L("一次性的提问，不用长成树", "One-off questions, no tree needed"), "chat", chats.length ? width(Math.min(maxN, chats.length)) : "4%", "", L("日", "D"))
     + (false && F.you ? bar("you", L("你的对话树", "Your conversation tree"), L(`${(F.you.nodes || []).length} 个节点`, `${(F.you.nodes || []).length} nodes`) + (F.you.pending ? L(` · ${F.you.pending} 轮待整理`, ` · ${F.you.pending} to place`) : ""), "mine", width((F.you.nodes || []).length), "", L("你", "Y")) : "")
     + `<div class="grp"><span class="label">${L("抱负 · 每一棵树", "Motivations · the trees")}</span><button class="ghost" id="plant" title="${L("新的抱负", "New motivation")}">+</button></div>`
     + (S.planting ? `<div class="plantbox"><textarea id="seedText" placeholder="${L("一个长期的抱负：你想让 PGA 一直朝什么方向努力？", "A long-range motivation: what should PGA keep working towards?")}"></textarea>
@@ -343,7 +349,7 @@ function show(view, opts = {}) {
   history.replaceState(null, "", qs()); renderRail();
   if (view === "home") { document.title = "PGA"; renderHome(); }
   if (view === "tree") { $("#dlgIn").innerHTML = `<div class="empty">…</div>`; loadTree(); }
-  if (view === "chats") { document.title = L("时间树 · PGA", "Time tree · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }
+  if (view === "chats") { document.title = L("所有对话 · PGA", "All conversations · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }
 }
 
 /* ------------------------------------------------ home: the two models and the library */
@@ -877,10 +883,37 @@ function tlLayout() {
   });
   return { rows, pts, segs, arcs, lanes: Math.max(1, lanes), H: y + 30 };
 }
-function renderTimeline() {
+const tlMode = () => store.get("pga_tl_mode") || "lines";
+function renderTimeline() { if (tlMode() === "lines") renderLines(); else renderTimeAxis(); }
+const tlHead = () => `<div class="ch"><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span><span class="grow"></span>
+  <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
+/* one row per line (one piece of ongoing work), the latest first; the strip under it marks the days it was active */
+function renderLines() {
   const box = $("#clist"); if (!box) return;
   const T = S.tl, nArch = (S.allChats || []).filter((c) => c.archived).length + (T?.hidden || []).length;
-  const head = `<div class="ch"><b>${L("时间树", "Time tree")}</b><button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
+  if (!T) { box.innerHTML = tlHead() + `<div class="empty">…</div>`; return; }
+  const by = new Map();
+  for (const x of T.sessions || []) {
+    const g = by.get(x.line) || { id: x.line, items: new Set(), agents: new Set(), days: new Set(), first: x.at, last: x.end || x.at, turns: 0 };
+    g.items.add(x.item); if (x.agent && x.agent !== "-") g.agents.add(x.kind === "tree" ? L("树", "tree") : x.agent);
+    g.days.add(x.at.slice(0, 10)); g.turns += x.turns || 0; if ((x.end || x.at) > g.last) g.last = x.end || x.at; if (x.at < g.first) g.first = x.at;
+    by.set(x.line, g);
+  }
+  const rows = [...by.values()].sort((a, b) => (a.last < b.last ? 1 : -1)), DAYS = 60, today = new Date(); today.setHours(0, 0, 0, 0);
+  const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
+  const strip = (g) => { let r = ""; for (const d of g.days) { const k = Math.round((today - new Date(d + "T00:00:00")) / 864e5); if (k >= 0 && k < DAYS) r += `<rect x="${DAYS - 1 - k}" y="0" width="1" height="4"/>`; }
+    return `<svg class="strip" viewBox="0 0 ${DAYS} 4" preserveAspectRatio="none" style="fill:${col(g.id)}"><rect class="bg" x="0" y="1.6" width="${DAYS}" height=".8"/>${r}</svg>`; };
+  const keep = $(".lrows", box)?.scrollTop;
+  box.innerHTML = tlHead() + `<div class="lrows">${rows.map((g) => { const m = T.lines[g.id] || {};
+      return `<div class="lrow ${S.tlLine === g.id ? "on" : ""}" data-tline="${esc(g.id)}"><div class="lr1"><i style="background:${col(g.id)}"></i><b>${esc(m.title || "")}</b><span class="dimt num">${esc(ago(g.last))}</span></div>
+        <div class="lr2">${m.kind !== "single" ? `<span class="kind">${L(...(LK[m.kind] || LK.single))}</span>` : ""}${L(`${g.items.size} 段对话`, `${g.items.size} conversations`)}${g.days.size > 1 ? L(` · ${g.days.size} 天`, ` · ${g.days.size} days`) : ""}${g.agents.size ? " · " + esc([...g.agents].slice(0, 3).join(", ")) : ""}</div>${strip(g)}</div>`; }).join("")}</div>
+    <div class="tlfoot">${T.pending ? `<span>${L("正在整理…", "Tidying…")}</span>` : T.organized_at ? `<span>${L("上次整理 ", "Tidied ")}${esc(ago(T.organized_at))}</span>` : ""}<span class="dimt">${L(`细条：最近 ${DAYS} 天里活跃的日子`, `Strip: active days in the last ${DAYS}`)}</span>${nArch ? `<a href="#" id="archList">${L(`已归档 ${nArch}`, `${nArch} archived`)}</a>` : ""}</div>`;
+  if (keep != null) $(".lrows", box).scrollTop = keep;
+}
+function renderTimeAxis() {
+  const box = $("#clist"); if (!box) return;
+  const T = S.tl, nArch = (S.allChats || []).filter((c) => c.archived).length + (T?.hidden || []).length;
+  const head = tlHead();
   if (!T) { box.innerHTML = head + `<div class="empty">…</div>`; return; }
   if (!(T.sessions || []).length) { box.innerHTML = head + `<div class="empty" style="padding:20px 14px">${L("最近还没有对话。", "No conversations lately.")}</div>`; return; }
   const G = tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 18, labelX = LX(Math.min(G.lanes, 12)) + 10;
@@ -914,7 +947,10 @@ function renderTimeline() {
 const tlSess = (id) => (S.tl?.sessions || []).find((x) => x.id === id);
 function openSession(id) {
   const x = tlSess(id); if (!x) return;
-  S.tlSel = x.item; S.tlLine = x.line; S.lineOpen = true; loadLine(x.line);
+  S.tlSel = x.item; S.tlLine = x.line; S.lineOpen = false; loadLine(x.line);
+  const many = new Set((S.tl?.sessions || []).filter((y) => y.line === x.line).map((y) => y.item)).size > 1;
+  if (many) { S.lineView = x.line; S.focusItem = x.item; S.focusDone = false; S.chat = null; S.imp = null; S.treeItem = null; renderTimeline(); renderChat(); return; }
+  S.lineView = null;
   if (x.kind === "tree") { S.chat = null; S.imp = null; S.treeItem = x; renderTimeline(); renderChat(); return; }
   S.treeItem = null;
   if (x.kind === "chat") { S.imp = null; S.chat = x.item; history.replaceState(null, "", qs()); renderTimeline(); renderChat(); loadChat(S.chat); return; }
@@ -924,6 +960,61 @@ function openSession(id) {
 function pickLine(id) {
   const xs = (S.tl?.sessions || []).filter((x) => x.line === id); if (!xs.length) return;
   openSession(xs[xs.length - 1].id);
+  if (S.lineView === id) S.focusItem = "__end__";              // a whole line opens at its latest words
+}
+/* a whole line as one dialogue: its conversations in time order, a divider before each (which app, which day) */
+S.impCache = {}; S.nodeNotes = {};
+function itemNotes(x) {
+  if (x.kind === "chat") { const t = S.chatTurns[x.key]; return t && t.flatMap((u) => u.role === "user" ? [{ agent: "you", kind: "question", text: u.text, at: u.at, data: {} }]
+    : [{ agent: u.agent && u.agent !== "-" ? u.agent : "AI", kind: "answer", text: u.text || (u.error ? "⚠ " + u.error : ""), at: u.at, data: {} }]); }
+  if (x.kind === "import") { const d = S.impCache[x.ref.conversation]; return d && [{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }]; }
+  const d = S.nodeNotes[x.ref.node]; return d && (d.notes || []).slice(-30);
+}
+function loadLineItems(d) {
+  const todo = d.items.filter((x) => itemNotes(x) == null && !x._loading); let i = 0;
+  const next = async () => { const x = todo[i++]; if (!x) return; x._loading = true;
+    try {
+      if (x.kind === "chat") S.chatTurns[x.key] = (await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(x.key)}`)).turns;
+      else if (x.kind === "import") S.impCache[x.ref.conversation] = await api(`/v1/users/${S.uid}/imported/${x.ref.conversation}`);
+      else S.nodeNotes[x.ref.node] = await api(`/v1/thought-nodes/${x.ref.node}?full=true`);
+    } catch { if (x.kind === "chat") S.chatTurns[x.key] = []; else if (x.kind === "import") S.impCache[x.ref.conversation] = { title: x.title, excerpt: "", agent: x.agent }; else S.nodeNotes[x.ref.node] = { notes: [] }; }
+    if (S.lineView === d.line) renderLineDialog(); return next(); };
+  for (let k = 0; k < 4; k++) next();
+}
+function renderLineDialog() {
+  const id = S.lineView, d = S.lineD?.[id], m = S.tl?.lines?.[id] || {};
+  $("#chead").innerHTML = `<span class="kind">${L(...(LK[m.kind] || LK.single))}</span><h1>${esc(m.title || d?.title || "")}</h1>${d ? `<span class="pill">${L(`${d.items.length} 段对话`, `${d.items.length} conversations`)}</span>` : ""}`;
+  if (!d) { $("#cdlgIn").innerHTML = `<div class="empty">…</div>`; $("#ccomp").innerHTML = ""; return; }
+  loadLineItems(d);
+  const wrap = $("#cdlg"), keep = wrap.dataset.line === id ? wrap.scrollTop : null;
+  $("#cdlgIn").innerHTML = lineCard(true) + d.items.map((x, i) => {
+    const notes = itemNotes(x), app = x.kind === "tree" ? L("树上的分支", "a tree branch") : x.kind === "chat" ? `PGA · ${x.agent && x.agent !== "-" ? x.agent : "AI"}` : x.agent;
+    return `<div class="seam ${x.key === S.focusItem ? "cur" : ""}" id="li-${esc(x.key)}"><span class="sn num">${i + 1}</span><span class="st">${esc(x.title)}</span>
+        <span class="sm num">${esc(app)} · ${esc(when(x.first))}${x.last.slice(0, 10) !== x.first.slice(0, 10) ? " – " + esc(when(x.last)) : ""}</span>${x.kind === "tree" ? `<a href="#" class="sm" data-opentree="${esc(x.ref.tree)}" data-node="${esc(x.ref.node)}">${L("到树上", "Open on the tree")}</a>` : ""}</div>
+      ${notes == null ? `<div class="dimt" style="font-size:12.5px;padding:8px 0">${L("载入…", "Loading…")}</div>` : notes.length ? PGATree.chat(notes, { md, name: (n) => n.agent }) : `<div class="dimt" style="font-size:12.5px;padding:6px 0">${L("没有内容。", "Nothing here.")}</div>`}`;
+  }).join("") + (S.sending ? `<div class="typing">${L("思考中…", "Thinking…")}</div>` : "");
+  wrap.dataset.line = id;
+  if (!S.focusDone && S.focusItem) {                    // once every conversation is in, open at the one you picked
+    const el = S.focusItem === "__end__" ? null : document.getElementById("li-" + S.focusItem);
+    if ((el || S.focusItem === "__end__") && d.items.every((x) => itemNotes(x) != null)) { S.focusDone = true;
+      requestAnimationFrame(() => wrap.scrollTo({ top: el ? el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop - 8 : wrap.scrollHeight })); }
+  }
+  else if (S.scrollChat) { S.scrollChat = false; requestAnimationFrame(() => { wrap.scrollTop = wrap.scrollHeight; }); }
+  else if (keep != null) wrap.scrollTop = keep;
+  const last = d.items[d.items.length - 1], box = $("#chatText"); if (box) S.chatDraft = box.value;
+  $("#ccomp").innerHTML = last.kind === "tree" ? `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(last.ref.tree)}" data-node="${esc(last.ref.node)}">${L("到树上接着说", "Carry on on the tree")}</button></div>`
+    : `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L(`接着这条线最近的一段（「${last.title.slice(0, 16)}」）说…（⌘/Ctrl + Enter）`, `Carry on the latest conversation of this line (“${last.title.slice(0, 20)}”)… (⌘/Ctrl + Enter)`))}">${esc(S.chatDraft || "")}</textarea>
+      <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+      <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
+  autoGrow($("#chatText"));
+}
+async function lineSend() {
+  const d = S.lineD?.[S.lineView]; if (!d) return;
+  const last = d.items[d.items.length - 1], text = ($("#chatText")?.value || "").trim(); if (!text) { toast(L("先写点什么", "Write something first")); return; }
+  const line = S.lineView;
+  if (last.kind === "chat") { S.chat = last.key; await chatSend(); }
+  else if (last.kind === "import") { S.impData = S.impCache[last.ref.conversation] || await api(`/v1/users/${S.uid}/imported/${last.ref.conversation}`); S.imp = { cid: last.ref.conversation, key: last.key, line }; S.lineView = null; await impSend(); }
+  S.lineView = line; S.chat = null; S.imp = null; S.scrollChat = true; await loadLine(line); renderChat();
 }
 async function loadLine(id) {
   if (!id) return;
@@ -932,9 +1023,9 @@ async function loadLine(id) {
 }
 const LK = { tree: ["树", "Tree"], project: ["项目", "Project"], topic: ["话题", "Topic"], single: ["一段对话", "One conversation"] };
 /* the whole line on top of the dialogue: what it was about (your conversation tree's summaries), its conversations, pull it out */
-function lineCard() {
+function lineCard(compact) {
   const id = S.tlLine, d = S.lineD?.[id]; if (!id || !d) return "";
-  const many = d.items.length > 1, aim = id.startsWith("aim:") ? id.slice(4) : id === "you" ? "you" : d.extracted;
+  const many = d.items.length > 1 && !compact, aim = id.startsWith("aim:") ? id.slice(4) : id === "you" ? "you" : d.extracted;
   const span = d.first ? `${when(d.first)}${d.last && d.last.slice(0, 10) !== d.first.slice(0, 10) ? " – " + when(d.last) : ""}` : "";
   const sum = d.summary || (!many && d.items[0]?.summary) || "";
   return `<details class="lcard" ${S.lineOpen ? "open" : ""}><summary><span class="kind">${L(...(LK[d.kind] || LK.single))}</span><b>${esc(d.title)}</b><span class="dimt num">${esc(span)} · ${L(`${d.items.length} 段对话`, `${d.items.length} conversations`)}</span></summary>
@@ -943,7 +1034,7 @@ function lineCard() {
     <div class="lact">${many || !d.summary ? `<button class="sm" id="lineSum">${d.summary ? L("重新概括", "Summarize again") : L("概括这条线", "Summarize this line")}</button>` : ""}
       ${aim ? `<button class="sm primary" data-opentree="${esc(aim)}" data-node="${esc(S.treeItem?.ref?.node || "")}">${L("打开这棵树", "Open the tree")}</button>`
         : `<button class="sm primary" id="lineOut" title="${L("把这条线变成一棵自己的树：每段对话一个节点，按时间连起来；之后可以在树上分支、沉淀", "Turn this line into a tree of its own: one node per conversation, chained in time; then branch and distill on it")}">${L("抽离成一棵树", "Pull out as a tree")}</button>`}
-      <span class="grow"></span><a href="#" id="lineClear" class="dimt" style="font-size:12px">${L("取消高亮", "Clear highlight")}</a></div></details>`;
+      <span class="grow"></span>${compact ? "" : `<a href="#" id="lineClear" class="dimt" style="font-size:12px">${L("取消高亮", "Clear highlight")}</a>`}</div></details>`;
 }
 async function loadImported(cid) {
   try { S.impData = await api(`/v1/users/${S.uid}/imported/${cid}`); } catch (e) { S.impData = { error: e.message }; }
@@ -1025,6 +1116,7 @@ async function impSend() {
   renderChat(); $("#chatText").value = text; await chatSend(); S.chatTurns[key] = (S.chatTurns[key] || []);
 }
 function renderChat() {
+  if (S.lineView) { renderLineDialog(); return; }
   if (S.imp) { renderImported(); return; }
   if (S.treeItem) {
     const x = S.treeItem;
@@ -1071,6 +1163,8 @@ async function chatSend() {
 
 /* ------------------------------------------------ events */
 document.addEventListener("contextmenu", (e) => {
+  const lr = e.target.closest?.(".lrow[data-tline]");
+  if (lr && S.view === "chats") { e.preventDefault(); const xs = (S.tl?.sessions || []).filter((x) => x.line === lr.dataset.tline); if (xs.length) openTlCtx(e.clientX, e.clientY, xs[xs.length - 1].id); return; }
   const ts = e.target.closest?.("[data-ts]");
   if (ts && S.view === "chats") { e.preventDefault(); openTlCtx(e.clientX, e.clientY, ts.dataset.ts); return; }
   const t = e.target.closest?.("[data-tnode], [data-ctxnode]");
@@ -1085,7 +1179,7 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-tline], [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-tline], [data-tlmode], #lineSend, [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1104,9 +1198,11 @@ document.addEventListener("click", async (e) => {
   if (t.closest?.("[data-ts]") && t.dataset.ts) { openSession(t.dataset.ts); return; }
   if (t.id === "tlImport") { showImport(); return; }
   if (t.dataset.tline) { pickLine(t.dataset.tline); return; }
+  if (t.dataset.tlmode) { store.set("pga_tl_mode", t.dataset.tlmode); S.tlScrolled = false; renderTimeline(); return; }
+  if (t.id === "lineSend") { lineSend(); return; }
   if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }
   if (t.dataset.opentree) { show("tree", { aim: t.dataset.opentree, node: t.dataset.node || null }); return; }
-  if (t.id === "lineClear") { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
+  if (t.id === "lineClear") { S.lineView = null; S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (t.id === "lineSum") { t.disabled = true; t.textContent = L("概括中…", "Summarizing…");
     try { await api(`/v1/users/${S.uid}/timeline/line/summarize`, { body: { id: S.tlLine } }); await loadLine(S.tlLine); } catch (err) { toast(err.message); t.disabled = false; } return; }
   if (t.id === "lineOut") { const d = S.lineD?.[S.tlLine]; const title = prompt(L("这棵树叫什么？（也就是这个抱负）", "Name the tree (the motivation)"), d?.title || ""); if (!title) return;
@@ -1132,7 +1228,7 @@ document.addEventListener("click", async (e) => {
     return;
   }
   if (t.dataset.chat) { S.chat = t.dataset.chat; history.replaceState(null, "", qs()); renderChatList(); renderChat(); loadChat(S.chat); return; }
-  if (t.id === "newChat") { S.chat = null; S.imp = null; S.tlSel = null; renderTimeline(); S.chatDraft = ""; history.replaceState(null, "", qs()); renderChatList(); renderChat(); $("#chatText")?.focus(); return; }
+  if (t.id === "newChat") { S.chat = null; S.imp = null; S.tlSel = null; S.lineView = null; S.tlLine = null; renderTimeline(); S.chatDraft = ""; history.replaceState(null, "", qs()); renderChatList(); renderChat(); $("#chatText")?.focus(); return; }
   if (t.id === "chatSend") { chatSend(); return; }
   if (t.dataset.chrefdel) { S.chatRefs = S.chatRefs.filter((x) => x !== t.dataset.chrefdel); renderChat(); return; }
   if (t.id === "drawerBtn") { S.drawer = !S.drawer; if (!S.drawer) S.op = null; renderDrawer(); renderHead(); return; }
@@ -1212,7 +1308,7 @@ document.addEventListener("change", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.target.id === "tnText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
-  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); S.imp ? impSend() : chatSend(); return; }
+  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return; }
   if (e.key === "Escape") { closeCtx(); document.querySelector(".modal")?.remove(); if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); } return; }
   if (e.target.closest?.("textarea, input, select") || S.view !== "tree") return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);

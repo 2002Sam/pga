@@ -127,3 +127,17 @@ def test_a_line_shows_its_summaries_and_can_be_pulled_out(session_factory, polic
         assert {x["line"] for x in out["sessions"] if x["item"] in ("chat:w1", "chat:w2")} == {f"aim:{aim}"}
         assert c.post(f"/v1/users/{user.id}/timeline/line/extract", json={"id": f"aim:{aim}"}).status_code == 409
     assert ThoughtTree(rt).nodes(YouRoot(user))                                      # your conversation tree is left as it was
+
+
+def test_codex_approval_reviews_are_not_conversations(policy, provider, backend, user, session):
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    now = datetime.now(timezone.utc)
+    la = LinkedAgent(user_id=user.id, name="Codex", vendor="chatgpt", connector="import")
+    session.add(la)
+    session.flush()
+    session.add_all([AgentConversation(linked_agent_id=la.id, external_id="r", title="[dji] The following is the Codex agent history whose request…",
+                                       excerpt="", message_count=3, started_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1)),
+                     AgentConversation(linked_agent_id=la.id, external_id="k", title="[dji] 整理视频", excerpt="", message_count=3,
+                                       started_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1))])
+    session.commit()
+    assert [x["title"] for x in Timeline(rt).build(user, 3)["sessions"]] == ["整理视频"]

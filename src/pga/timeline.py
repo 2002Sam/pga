@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 GAP = timedelta(hours=2)                       # turns closer than this are one session
+MACHINE = "The following is the Codex agent history"   # Codex's approval reviews, stored like conversations
 NOISE = {"", "new project", "desktop", "downloads", "documents", "home", "x", "tmp", "temp", "untitled", "~"}
 
 
@@ -136,8 +137,8 @@ class Timeline:
             if end < since:
                 continue
             key = f"c:{c.id}"
-            if key in archived:
-                continue
+            if key in archived or re.sub(r"^\[[^\]]*\]\s*", "", c.title or "").startswith(MACHINE) or (c.excerpt or "").startswith(f"User: {MACHINE}"):
+                continue                                            # Codex reviewing its own tool calls: not a conversation of yours
             proj = _norm(c.project)
             line = folders.get(proj) or (f"proj:{proj}" if proj not in NOISE else key)
             title = re.sub(r"^\[[^\]]*\]\s*", "", c.title or "") or (c.excerpt or "")[:60]
