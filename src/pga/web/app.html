@@ -190,6 +190,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 #tlSvg .tlseg { stroke-width: 2; opacity: .55; stroke-linecap: round; } #tlSvg .tlarc { fill: none; stroke-width: 1.4; stroke-dasharray: 4 4; opacity: .6; }
 #tlSvg .tlseg.on, #tlSvg .tlarc.on { opacity: 1; stroke-width: 2.6; } #tlSvg .tlseg.dim, #tlSvg .tlarc.dim { opacity: .07; } #tlSvg .tlpt.dim { opacity: .16; }
 #tlSvg .tlpt.dim:hover { opacity: .6; } #tlSvg .tlpt, #tlSvg .tlseg, #tlSvg .tlarc { transition: opacity .2s; }
+#tlSvg .tlhit { fill: none; stroke: transparent; stroke-width: 12; cursor: pointer; pointer-events: stroke; } #tlSvg .tlhit:hover { stroke: var(--soft); }
 #tlSvg .tlpt { cursor: pointer; } #tlSvg .tlpt circle { fill: var(--panel); stroke: var(--muted); stroke-width: 1.6; }
 #tlSvg .tlpt.chat circle { stroke: var(--blue); } #tlSvg .tlpt.tree circle { stroke: var(--green); fill: rgba(127,207,159,.15); }
 #tlSvg .tlpt:hover text { fill: var(--accent); } #tlSvg .tlpt.on circle { fill: var(--accent); stroke: var(--accent); } #tlSvg .tlpt.on text { fill: var(--accent); }
@@ -888,9 +889,14 @@ function renderTimeline() {
   const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
   let g = "";
   for (const r of G.rows) g += `<text class="tlday" x="${labelX}" y="${Y(r.y) + 4}">${esc(r.day.toLocaleDateString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", weekday: "short" }))}</text><line class="tlrule" x1="${labelX + 84}" x2="${W - 10}" y1="${Y(r.y)}" y2="${Y(r.y)}"/>`;
-  for (const sg of G.segs) g += `<line class="tlseg ${dimOf(sg.line)}" x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}" style="stroke:${col(sg.line)}"/>`;
+  let hits = "";                                                   // wide invisible strokes: a click on a line picks the line
+  for (const sg of G.segs) { const at = `x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}"`;
+    g += `<line class="tlseg ${dimOf(sg.line)}" ${at} style="stroke:${col(sg.line)}"/>`; hits += `<line class="tlhit" data-tline="${esc(sg.line)}" ${at}><title>${esc(T.lines[sg.line]?.title || "")}</title></line>`; }
   for (const a of G.arcs) { const x1 = LX(a.from.lane), y1 = Y(a.from.y), x2 = LX(a.toLane), y2 = Y(a.toY), dy = (y2 - y1) * .5;
-    g += `<path class="tlarc ${dimOf(a.line)}" d="M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}" style="stroke:${col(a.line)}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
+    const d = `M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}`;
+    g += `<path class="tlarc ${dimOf(a.line)}" d="${d}" style="stroke:${col(a.line)}"/>`;
+    hits += `<path class="tlhit" data-tline="${esc(a.line)}" d="${d}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
+  g += hits;
   for (const p of G.pts) {
     const x = p.s, r = Math.max(3.5, Math.min(7.5, 3 + Math.sqrt(x.turns || 1) * .7)), on = x.item === sel, line = T.lines[x.line] || {};
     const t = x.title || L("（没有标题）", "(untitled)"), short = t.length > maxCh ? t.slice(0, maxCh - 1) + "…" : t;
@@ -913,6 +919,11 @@ function openSession(id) {
   S.treeItem = null;
   if (x.kind === "chat") { S.imp = null; S.chat = x.item; history.replaceState(null, "", qs()); renderTimeline(); renderChat(); loadChat(S.chat); return; }
   S.chat = null; S.imp = { cid: x.ref.conversation, key: x.item, line: x.line }; renderTimeline(); renderChat(); loadImported(x.ref.conversation);
+}
+/* a click on a line: the line and all its points light up; the card shows the whole line, its latest conversation below */
+function pickLine(id) {
+  const xs = (S.tl?.sessions || []).filter((x) => x.line === id); if (!xs.length) return;
+  openSession(xs[xs.length - 1].id);
 }
 async function loadLine(id) {
   if (!id) return;
@@ -1074,7 +1085,7 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-tline], [data-litem], [data-opentree], #lineClear, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1092,6 +1103,7 @@ document.addEventListener("click", async (e) => {
   if (t.id === "fold" || t.id === "unfold") { setMini(!S.mini); return; }
   if (t.closest?.("[data-ts]") && t.dataset.ts) { openSession(t.dataset.ts); return; }
   if (t.id === "tlImport") { showImport(); return; }
+  if (t.dataset.tline) { pickLine(t.dataset.tline); return; }
   if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }
   if (t.dataset.opentree) { show("tree", { aim: t.dataset.opentree, node: t.dataset.node || null }); return; }
   if (t.id === "lineClear") { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
