@@ -21,7 +21,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -209,8 +209,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     @app.get("/", include_in_schema=False)
     def web_app() -> FileResponse:
-        """PGA opens on the forest: every motivation's thought tree, your own conversation tree, the shared knowledge."""
-        return FileResponse(WEB / "forest.html")
+        """PGA: the trees as bars on the left; a tree beside its dialogue; everyday chats; the two models and the library."""
+        return FileResponse(WEB / "app.html")
 
     # the pages before the forest, kept as they were (the old workbench embeds the old sky as its map)
     @app.get("/archive/console", include_in_schema=False)
@@ -227,9 +227,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return RedirectResponse("/archive/console" + (f"?{request.url.query}" if request.url.query else ""))
 
     @app.get("/forest", include_in_schema=False)
-    def web_forest() -> FileResponse:
-        """森林: every motivation's thought tree, the user and world models, the shared knowledge; click into a tree."""
-        return FileResponse(WEB / "forest.html")
+    def web_forest(request: Request):
+        return RedirectResponse("/" + (f"?{request.url.query}" if request.url.query else ""))
 
     @app.get("/agents", include_in_schema=False)
     def web_agents() -> FileResponse:
@@ -237,9 +236,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return FileResponse(WEB / "agents.html")
 
     @app.get("/tree", include_in_schema=False)
-    def web_tree() -> FileResponse:
-        """思考树: one motivation's thought tree on its own page, with every node's full data."""
-        return FileResponse(WEB / "tree.html")
+    def web_tree(request: Request):
+        """Old links to a tree open it in the app."""
+        q = dict(request.query_params)
+        tree = "you" if q.pop("you", None) else q.pop("aim", "")
+        from urllib.parse import urlencode
+        return RedirectResponse("/?" + urlencode({**({"tree": tree} if tree else {}), **q}))
 
     @app.get("/ui/{name}", include_in_schema=False)
     def web_script(name: str) -> FileResponse:
@@ -251,7 +253,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.get("/v1/version", include_in_schema=False)
     def web_version() -> dict:
         """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
-        st = (WEB / "forest.html").stat()
+        st = (WEB / "app.html").stat()
         return {"ui": f"{int(st.st_mtime)}-{st.st_size}"}
 
     ICONS = Path(__file__).resolve().parent.parent / "web" / "icons"
@@ -2549,6 +2551,49 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if (node and node.user_id != b.user_id) or (aim and aim.user_id != b.user_id):
             raise HTTPException(404, "not found")
         return body_out(ThoughtTree(rt).move_dataset(b, node=node, aim=aim))
+
+    # everyday short conversations: chats that do not belong to any tree
+    @app.get("/v1/users/{user_id}/chats")
+    def chats_list(user_id: uuid.UUID, limit: int = Query(80, le=300), rt: Runtime = Depends(get_rt)):
+        """Your one-off conversations with agents, newest first (a conversation = the chats that share one key)."""
+        from pga.db.models import AgentRun
+        from pga.tree import _answer
+        user_or_404(rt, user_id)
+        convs: dict[str, dict] = {}
+        for r in rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None),
+                                                           AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
+            d = r.data or {}
+            key = str(d.get("conversation") or f"run:{r.id}")
+            if key.startswith(("node:", "exchange:")) or d.get("node"):
+                continue
+            c = convs.setdefault(key, {"key": key, "agent": d.get("agent") or r.agent, "turns": 0, "last_at": r.started_at.isoformat(),
+                                       "title": "", "last": ""})
+            c["turns"] += 1
+            c["title"] = " ".join((r.prompt or "").split())[:80] or c["title"]          # the first thing you said (oldest wins)
+            if not c["last"]:
+                c["last"] = " ".join(_answer(r.output).split())[:120]
+        return sorted(convs.values(), key=lambda c: c["last_at"], reverse=True)[:limit]
+
+    @app.get("/v1/users/{user_id}/chats/{key:path}")
+    def chats_one(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
+        """One short conversation, turn by turn."""
+        from pga.db.models import AgentRun
+        from pga.tree import _answer
+        user_or_404(rt, user_id)
+        q = select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None), AgentRun.workflow == "ask")
+        same = AgentRun.data["conversation"].as_string() == key
+        if key.startswith("run:"):                     # a chat that began without a key: that run, and what followed it
+            try:
+                same = or_(AgentRun.id == uuid.UUID(key[4:]), same)
+            except ValueError:
+                raise HTTPException(404, "no such chat") from None
+        q = q.where(same)
+        out = []
+        for r in rt.session.scalars(q.order_by(AgentRun.started_at)):
+            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat()})
+            out.append({"role": "agent", "agent": (r.data or {}).get("agent") or r.agent, "text": _answer(r.output) or "", "error": r.error,
+                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model")})
+        return {"key": key, "turns": out}
 
     @app.post("/v1/users/{user_id}/i18n")
     def i18n_texts(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

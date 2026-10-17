@@ -321,3 +321,29 @@ def test_english_pages_translate_once_and_keep_it(rt, user, provider):
     out = translate_many(rt, ["缓存太短", "already English", "按主题设阈值"], "en")
     assert out == ["EN:缓存太短", "already English", "EN:按主题设阈值"] and len(calls) == 1
     assert translate_many(rt, ["缓存太短"], "en") == ["EN:缓存太短"] and len(calls) == 1            # kept, not asked again
+
+
+def test_everyday_chats_are_listed_apart_from_the_trees(session_factory, policy, provider, backend, user, session):
+    """One-off chats (no tree): grouped by their conversation key; tree and exchange chats stay out."""
+    from pga.db.models import AgentRun
+
+    t0 = datetime.now(timezone.utc) - timedelta(hours=3)
+    mk = lambda prompt, data, m: AgentRun(user_id=user.id, workflow="ask", pattern="single", step="run", agent="claude", adapter="claude_local",
+                                          status="SUCCEEDED", prompt=prompt, output=json.dumps({"answer": "答：" + prompt}), data=data,
+                                          started_at=t0 + timedelta(minutes=m))
+    lone = mk("今天天气怎么样", {}, 0)
+    session.add_all([lone, mk("帮我写个正则", {"conversation": "chat:a"}, 5), mk("再加上邮箱", {"conversation": "chat:a"}, 6),
+                     mk("这一条在树上", {"conversation": "node:x"}, 7), mk("交流", {"conversation": "exchange:y"}, 8)])
+    session.flush()
+    session.add(mk("那明天呢", {"conversation": f"run:{lone.id}"}, 9))                 # a follow-up to a chat that began without a key
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        xs = c.get(f"/v1/users/{user.id}/chats").json()
+        assert [x["key"] for x in xs] == [f"run:{lone.id}", "chat:a"]
+        assert xs[0]["title"] == "今天天气怎么样" and xs[0]["turns"] == 2 and xs[1]["turns"] == 2 and xs[1]["title"] == "帮我写个正则"
+        one = c.get(f"/v1/users/{user.id}/chats/chat:a").json()["turns"]
+        assert [t["role"] for t in one] == ["user", "agent", "user", "agent"] and one[1]["text"] == "答：帮我写个正则"
+        assert len(c.get(f"/v1/users/{user.id}/chats/run:{lone.id}").json()["turns"]) == 4
+        assert c.get(f"/v1/users/{user.id}/chats/run:nope").status_code == 404

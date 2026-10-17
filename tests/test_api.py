@@ -91,8 +91,12 @@ def test_glossary_correction_endpoint(client):
 
 
 def test_web_app_is_served_at_root(client):
-    r = client.get("/")                                              # PGA opens on the forest
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "森林" in r.text
+    r = client.get("/")                                              # one app: the projects as bars, a tree beside its dialogue
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "日常对话" in r.text and "contextmenu" in r.text
+    t = client.get("/tree?aim=abc&node=n1", follow_redirects=False)  # old links open the tree in the app
+    assert t.status_code in (302, 307) and t.headers["location"] == "/?tree=abc&node=n1"
+    assert client.get("/tree?you=1", follow_redirects=False).headers["location"] == "/?tree=you"
+    assert client.get("/forest", follow_redirects=False).headers["location"] == "/"
     old = client.get("/console")                                     # the old workbench lives on as an archive
     assert old.status_code == 200 and old.url.path == "/archive/console" and "工作台" in old.text
     assert client.get("/archive/sky").status_code == 200
