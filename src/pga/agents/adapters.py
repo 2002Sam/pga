@@ -257,6 +257,8 @@ class ClaudeLocal(CLIAdapter):
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=None,
                            session_id=d.get("session_id"), error=None if ok else why[:500], model=model,
                            data={"turns": d.get("num_turns"), "notional_cost_usd": d.get("total_cost_usd"),
+                                 **({"usage": {k: d["usage"].get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")}}
+                                    if isinstance(d.get("usage"), dict) else {}),
                                  **({"effort": task.meta.get("effort")} if task.meta.get("effort") else {})})
 
 

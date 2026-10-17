@@ -562,31 +562,72 @@ class ThoughtTree:
     # -------------------------------------------------------------- continuing from a branch
 
     def context_for(self, node: ThoughtNode, intro: bool = True) -> str:
+        """What an agent reads when a conversation starts on this node. Ordered from what changes least to what
+        changes most, and written the same way every time (no clocks, fixed order), so that every branch started from
+        the same node opens with the same text and the providers' prompt caches can serve it: the motivation, the two
+        models and the knowledge the tree refers to, the path from the root, the links, the code, and last this node's
+        latest turns. What belongs to one message only (knowledge you pinned to it, related bits of other branches)
+        goes after the question instead: see `tail_for`. Inside a running session the agent hears only the new message."""
         aim = self.root_of(node)
         what = "the user's motivation" if _scope(aim) == "aim" else "the user's own conversations"
         lines = [f"You are continuing one branch of the thought tree of {what}: {aim.text_en or aim.text}" if intro
-                 else f"Root: {aim.text_en or aim.text}", "The branch, from the root to the chosen node:"]
+                 else f"Root: {aim.text_en or aim.text}"]
+        if intro:
+            lines.append(knowledge_context(self.rt, aim))
+            refs = [r for n in self.path(node) for r in ((n.data or {}).get("refs") or [])]
+            lines.append(refs_context(self.rt, list(dict.fromkeys(refs)), node.user_id))
+        lines.append("The branch, from the root to the chosen node:")
         for i, n in enumerate(self.path(node)):
             lines.append(f"{'  ' * i}- {n.title}" + (f": {n.summary}" if n.summary else "")
                          + (f" (key: {'; '.join(n.key_thoughts)})" if n.key_thoughts else ""))
-        links = [x for x in (self.s.get(ThoughtNode, i) for i in self.linked(node)) if x is not None]
+        links = sorted((x for x in (self.s.get(ThoughtNode, i) for i in self.linked(node)) if x is not None), key=lambda x: x.seq)
         if links:
             lines.append("Lines of thought the user linked to this node:")
             lines += [f"- {x.title}" + (f": {x.summary}" if x.summary else "") for x in links[:6]]
+        if (node.git or {}).get("head"):
+            lines.append(f"The code at that point: commit {node.git['head']}" +
+                         (f"; files it relied on: {', '.join(f['path'] for f in node.git.get('files') or [])}" if node.git.get("files") else ""))
         recent = [n for n in self.notes_of(node) if n.kind in ("answer", "insight", "question", "conversation")][-6:]
         if recent:
             lines.append("The latest turns on this node:")
             lines += [f"- {n.kind}: {_clip(n.text, 500)}" for n in recent]
-        if (node.git or {}).get("head"):
-            lines.append(f"The code at that point: commit {node.git['head']}" +
-                         (f"; files it relied on: {', '.join(f['path'] for f in node.git.get('files') or [])}" if node.git.get("files") else ""))
-        if not intro:
-            return "\n".join(lines)
-        lines.append(knowledge_context(self.rt, aim))
-        refs = [r for n in self.path(node) for r in ((n.data or {}).get("refs") or [])]
-        lines.append(refs_context(self.rt, list(dict.fromkeys(refs)), node.user_id))
-        lines.append("Continue this line of thought with the user. Answer in the user's language.")
+        if intro:
+            lines.append("Continue this line of thought with the user. Answer in the user's language.")
         return "\n".join(x for x in lines if x)
+
+    def related(self, node: ThoughtNode, question: str, k: int = 3) -> list[ThoughtNode]:
+        """Nodes elsewhere in the tree (not on this path, not linked) that talk about what the question asks: by shared
+        words and character pairs — cheap, no model."""
+        def grams(t: str) -> set[str]:
+            t = (t or "").lower()
+            words = set(re.findall(r"[a-z0-9_]{3,}", t))
+            han = re.sub(r"[^\u3400-\u9fff]", "", t)
+            return words | {han[i:i + 2] for i in range(len(han) - 1)}
+        q = grams(question)
+        if len(q) < 2:
+            return []
+        skip = {x.id for x in self.path(node)} | set(self.linked(node))
+        scored = []
+        for n in self.nodes(self.root_of(node)):
+            if n.id in skip or (n.data or {}).get("hidden"):
+                continue
+            g = grams(" ".join([n.title, n.summary or "", " ".join(n.key_thoughts or [])]))
+            hit = len(q & g)
+            if hit >= 2:
+                scored.append((hit / (len(q) ** .5 * max(1, len(g)) ** .5), n))
+        return [n for _, n in sorted(scored, key=lambda x: -x[0])[:k]]
+
+    def tail_for(self, node: ThoughtNode, question: str, refs: list[str] | None = None) -> str:
+        """What goes after this one message: the knowledge you pinned to it and up to three related nodes from other
+        branches. It sits at the end, so the cached opening stays the same."""
+        parts = []
+        if refs:
+            parts.append(refs_context(self.rt, refs, node.user_id))
+        rel = self.related(node, question)
+        if rel:
+            parts.append("<related_branches note=\"other branches of this tree that touched on the same thing\">\n" + "\n".join(
+                f"- {n.title}" + (f": {_clip(n.summary, 300)}" if n.summary else "") for n in rel) + "\n</related_branches>")
+        return "\n\n".join(p for p in parts if p)
 
     def branch_for(self, node: ThoughtNode, text: str, bud: str | None = None) -> ThoughtNode:
         """Where your turn goes: a branch of yours continues in place; anywhere else a new branch grows."""
@@ -962,7 +1003,8 @@ class ThoughtTree:
                                "role": d.get("role"), "error": _clip(r.error or "", 200) if not ok else None,
                                "conversation": d.get("conversation"), "actions": actions[:80], "more": max(0, len(actions) - 80)})
         g = node.git or {}
-        return {"agents": sorted(agents.values(), key=lambda a: -len(a["runs"])), "totals": totals, "runs": len(runs),
+        cache = cache_totals([c.data for r in runs for c in (steps.get(r.id) or [r])])
+        return {"agents": sorted(agents.values(), key=lambda a: -len(a["runs"])), "totals": totals, "runs": len(runs), "cache": cache,
                 "proposals": (node.data or {}).get("proposals") or [], "commits": g.get("commits") or [],
                 "traced": sum(1 for r in runs if any((c.data or {}).get("trace") for c in steps.get(r.id, [])))}
 
@@ -1048,6 +1090,39 @@ class TreeDeferred(Exception):
 
 
 NEW_NODE = ("新节点", "New node")
+
+
+def usage_of(data: dict | None) -> dict | None:
+    """One call's tokens, whatever shape the agent reported them in: all input (cached included), the part read from
+    the provider's prompt cache, the part written to it, and output. Claude reports input without the cache; Codex with it."""
+    u = (data or {}).get("usage")
+    if not isinstance(u, dict):
+        return None
+    if isinstance(u.get("last"), dict):                      # Codex app-server: this turn, and the thread's running total
+        u = u["last"]
+
+    def g(*keys) -> int:
+        return next((int(u[k]) for k in keys if isinstance(u.get(k), (int, float))), 0)
+    cached = g("cache_read_input_tokens", "cachedInputTokens", "cached_input_tokens", "prompt_cache_hit_tokens")
+    written = g("cache_creation_input_tokens", "cacheWriteInputTokens")
+    inp = g("input_tokens", "inputTokens", "prompt_tokens", "input")
+    if "cache_read_input_tokens" in u or "cache_creation_input_tokens" in u:
+        inp += cached + written
+    if not inp:
+        return None
+    return {"input": inp, "cached": cached, "written": written, "output": g("output_tokens", "outputTokens", "completion_tokens", "output")}
+
+
+def cache_totals(rows) -> dict:
+    t = {"calls": 0, "input": 0, "cached": 0, "written": 0, "output": 0}
+    for d in rows:
+        u = usage_of(d)
+        if u:
+            t["calls"] += 1
+            for k in ("input", "cached", "written", "output"):
+                t[k] += u[k]
+    t["hit"] = round(t["cached"] / t["input"], 3) if t["input"] else None
+    return t
 
 
 def node_out(n: ThoughtNode, full: bool = False) -> dict:

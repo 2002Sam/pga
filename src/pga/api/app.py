@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
 import threading
 import urllib.parse
 import uuid
@@ -2298,14 +2299,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         aim = tree.root_of(n)
         u = user_or_404(rt, aim.user_id)
         branch = tree.branch_for(n, text, bud=str(body.get("bud") or "") or None)
-        from pga.tree import refs_context
         refs = [str(x) for x in (body.get("refs") or []) if x][:8]
-        context = tree.context_for(branch if branch.note_ids else n) + ("\n\n" + refs_context(rt, refs, u.id) if refs else "")
+        start = branch if branch.note_ids else n
+        context, tail = tree.context_for(start), tree.tail_for(start, text, refs)
         try:
             with rt.billing(user_ctx(u)):
                 reply = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
                                             category="serious" if str(body.get("agent") or "auto") == "auto" else None,
-                                            conversation=f"node:{branch.id}", project=None)
+                                            conversation=f"node:{branch.id}", project=None, tail=tail or None)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         tree.record(branch, aim, text, reply)
@@ -2316,6 +2317,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             except TreeError:
                 pass
         return {"node": node_out(branch), "reply": {k: reply.get(k) for k in ("agent", "text", "error", "model")}}
+
+    @app.get("/v1/thought-nodes/{node_id}/context")
+    def tree_node_context(node_id: uuid.UUID, q: str = Query("", max_length=4000), refs: str = Query("", max_length=2000),
+                          rt: Runtime = Depends(get_rt)):
+        """What an agent would read if you sent `q` from this node now: the opening (the same for every branch started
+        here, so it can come from the provider's cache) and what goes after your message. In a running branch of yours
+        the agent already has the opening and hears only your message and what follows it."""
+        from pga.tree import ThoughtTree
+        n = tree_node_or_404(rt, node_id)
+        tree = ThoughtTree(rt)
+        warm = n.kind == "user" and bool(n.note_ids)
+        opening = tree.context_for(n)
+        tail = tree.tail_for(n, q, [x for x in refs.split(",") if x][:8]) if q.strip() or refs else ""
+        est = lambda t: round(len(re.sub(r"[\u3400-\u9fff]", "", t)) / 4 + len(re.findall(r"[\u3400-\u9fff]", t)) * .8)
+        return {"opening": opening, "tail": tail, "opening_tokens": est(opening), "tail_tokens": est(tail), "continues": warm,
+                "related": [{"id": str(x.id), "title": x.title} for x in (tree.related(n, q) if q.strip() else [])]}
 
     def tree_err(exc) -> HTTPException:
         return HTTPException(409, str(exc))
@@ -2540,6 +2557,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """Recount every node (behaviour, code, twigs) — no model involved."""
         from pga.tree import ThoughtTree
         return {"nodes": ThoughtTree(rt).refresh(aim_or_404(rt, aim_id))}
+
+    @app.get("/v1/users/{user_id}/cache")
+    def cache_stats(user_id: uuid.UUID, days: int = Query(7, ge=1, le=90), rt: Runtime = Depends(get_rt)):
+        """How much of what the agents read came from the providers' prompt caches, per agent, over the last days."""
+        from datetime import timedelta
+
+        from pga.db.models import AgentRun
+        from pga.tree import cache_totals
+        user_or_404(rt, user_id)
+        since = utcnow() - timedelta(days=days)
+        rows = rt.session.execute(select(AgentRun.agent, AgentRun.data).where(AgentRun.user_id == user_id, AgentRun.started_at >= since,
+                                                                                AgentRun.data["usage"].isnot(None))).all()
+        per: dict[str, list] = {}
+        for agent, data in rows:
+            per.setdefault(agent, []).append(data)
+        return {"days": days, "all": cache_totals([d for _, d in rows]), "agents": {a: cache_totals(ds) for a, ds in sorted(per.items())}}
 
     @app.get("/v1/thought-nodes/{node_id}/behavior")
     def tree_node_behavior(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):

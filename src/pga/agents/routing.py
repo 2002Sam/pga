@@ -207,7 +207,7 @@ class AgentRouter:
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
-            project=None) -> dict:
+            project=None, tail: str | None = None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -244,7 +244,8 @@ class AgentRouter:
         hist = [h for h in (history or [])[-6:] if isinstance(h, dict)]
         convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
-        prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text)
+        said_tail = f"\n\n{tail}" if tail else ""             # for this message only: after the question, so the opening stays cached
+        prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text) + said_tail
         run_id, t0, steps = uuid.uuid4(), utcnow(), []
         result_text, used, docs, attached = "", None, files, []
         files = []
@@ -264,7 +265,7 @@ class AgentRouter:
                 said = f"{text}\n\n{block}"
                 prompt_now = prompt.replace(text, said) if text in prompt else f"{prompt}\n\n{block}"
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
-                    "new_text": said, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
+                    "new_text": said + said_tail, **({"conversation": conv} if conv else {}), **({"model": model} if model else {}),
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}

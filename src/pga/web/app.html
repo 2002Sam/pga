@@ -67,14 +67,18 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .plantbox .row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 8px; }
 .rail .brand .fold { margin-left: 6px; width: 24px; height: 24px; padding: 0; border-radius: 6px; font-size: 13px; color: var(--dim); }
 .app { transition: grid-template-columns .2s ease; } .app.mini { grid-template-columns: 58px minmax(0, 1fr); }
-.app.mini .rail .brand { padding: 14px 0 10px; justify-content: center; flex-wrap: wrap; gap: 6px; } .app.mini .rail .brand .t, .app.mini .rail .brand .pulse { display: none; }
+.app.mini .rail .brand { flex-direction: column; padding: 14px 0 8px; gap: 10px; } .app.mini .rail .brand .t, .app.mini .rail .brand .pulse { display: none; }
 .app.mini .rail .brand .fold { margin: 0; }
-.app.mini .grp .label, .app.mini .rb .n, .app.mini .rb .rs, .app.mini .rb .line, .app.mini .rb .badge, .app.mini .rb .dot, .app.mini .foot span:not(.shell), .app.mini .plantbox { display: none; }
-.app.mini .grp { justify-content: center; padding: 8px 0 4px; } .app.mini .bars { padding: 0 6px; }
-.app.mini .rb { padding: 6px 0; display: flex; justify-content: center; } .app.mini .rb .rt::before { content: attr(data-ini); width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center;
-  background: var(--soft); color: var(--text); font-size: 13px; font-weight: 600; } .app.mini .rb.on .rt::before { background: var(--text); color: var(--onprimary); }
-.app.mini .rb.run .rt::before { box-shadow: inset 0 0 0 1.5px var(--accent); }
-.app.mini .rail .foot a, .app.mini .rail .foot .shell > button { justify-content: center; padding: 0; font-size: 0; gap: 0; } .app.mini .rail .foot .shell > button::before { margin: 0; }
+.app.mini .grp { display: none; } .app.mini .bars { padding: 4px 0 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.app.mini .rb .n, .app.mini .rb .rs, .app.mini .rb .line, .app.mini .rb .badge, .app.mini .rb .rt > .dot, .app.mini .plantbox { display: none; }
+.app.mini .rb, .app.mini .rb.on, .app.mini .rb:hover { width: 40px; height: 40px; padding: 0; margin: 0; display: grid; place-items: center; background: transparent; box-shadow: none; border-radius: 10px; }
+.app.mini .rb .rt { display: block; } .app.mini .rb .rt::before { content: attr(data-ini); width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--soft); color: var(--muted); font-size: 13px; font-weight: 600; transition: background .15s, color .15s; }
+.app.mini .rb:hover .rt::before { color: var(--text); background: var(--raised); } .app.mini .rb.on .rt::before { background: var(--text); color: var(--onprimary); }
+.app.mini .rb.run .rt::before { box-shadow: inset 0 0 0 1.5px var(--accent); } .app.mini .rb.mine .rt::before { box-shadow: inset 0 0 0 1.5px rgba(127,207,159,.6); }
+.app.mini .rb.chat .rt::before { box-shadow: inset 0 0 0 1.5px rgba(143,180,255,.55); }
+.app.mini .rail .foot { justify-items: center; } .app.mini .rail .foot a, .app.mini .rail .foot .shell > button { width: 40px; justify-content: center; padding: 0; font-size: 0; gap: 0; }
+.app.mini .rail .foot span:not(.shell) { display: none; } .app.mini .rail .foot .shell { display: block; width: 40px; } .app.mini .rail .foot .shell > button::before { margin: 0; }
 .dragtip { position: fixed; z-index: 61; pointer-events: none; padding: 4px 9px; border-radius: 7px; background: var(--pop); border: 1px solid var(--line-2); font-size: 12px; color: var(--text); white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,.25); }
 .ci2 { position: relative; } .ci2 .arch { position: absolute; right: 10px; bottom: 8px; display: none; height: 22px; font-size: 11.5px; padding: 0 8px; } .ci2:hover .arch { display: block; }
 .view { min-width: 0; min-height: 0; height: 100%; } .view[hidden] { display: none !important; }
@@ -150,6 +154,10 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .commit, .file { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; } .commit:first-child, .file:first-child { border-top: 0; }
 .commit a, .file a { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; } .commit time { color: var(--dim); margin-left: auto; white-space: nowrap; font-variant-numeric: tabular-nums; } .file span { color: var(--dim); margin-left: auto; }
 .empty { padding: 40px 24px; color: var(--dim); }
+.cache { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; } .cache .ch1 { display: flex; gap: 10px; align-items: baseline; font-size: 12.5px; color: var(--dim); }
+.cache .ch1 span { flex: 1; } .cache .ch1 b { color: var(--text); font-weight: 600; } .cbarx { height: 3px; border-radius: 2px; background: var(--line-2); margin-top: 8px; } .cbarx i { display: block; height: 100%; border-radius: 2px; background: var(--green); }
+.ctxv pre { white-space: pre-wrap; word-break: break-word; font: 12px/1.6 "JetBrains Mono", ui-monospace, monospace; background: var(--inset); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 280px; overflow: auto; color: var(--muted); }
+.ctxv .lay { display: flex; gap: 10px; align-items: baseline; margin: 14px 0 6px; } .ctxv .lay b { font-weight: 600; } .ctxv .lay span { color: var(--dim); font-size: 12.5px; }
 
 /* the right-click menu */
 .ctx { position: fixed; z-index: 70; min-width: 220px; padding: 5px; border-radius: 11px; background: var(--pop); border: 1px solid var(--line-2); box-shadow: 0 18px 48px rgba(0,0,0,.35); }
@@ -313,6 +321,12 @@ function show(view, opts = {}) {
 
 /* ------------------------------------------------ home: the two models and the library */
 const DIMS = [["background", "背景", "Background"], ["goals", "目标", "Goals"], ["preferences", "偏好", "Preferences"], ["abilities", "能力", "Knowledge & skills"], ["state", "状态", "Current state"]];
+async function fillCacheHome() {
+  try { const c = await api(`/v1/users/${S.uid}/cache?days=7`); const box = $("#cacheHome"); if (!box || !c.all.calls) return;
+    box.innerHTML = `<div class="sect"><h3>${L("提示词缓存 · 最近 7 天", "Prompt cache · last 7 days")}</h3><span>${L("agent 读入的内容里，有多少是模型厂商从缓存里直接给的（按缓存价计）", "How much of what the agents read the providers served from their caches (billed at the cache price)")}</span></div>
+      <div class="card" style="margin-bottom:32px">${cacheLine(c.all)}${Object.entries(c.agents).filter(([, x]) => x.calls).map(([a, x]) => `<div class="dim" style="grid-template-columns:110px 1fr 56px;cursor:default"><span class="k">${esc(a)}</span><span class="v">${L(`${x.calls} 次 · 读入 ${kTok(x.input)}，缓存 ${kTok(x.cached)}`, `${x.calls} calls · ${kTok(x.input)} read, ${kTok(x.cached)} cached`)}</span><span class="num" style="text-align:right">${Math.round((x.hit || 0) * 100)}%</span></div>`).join("")}</div>`;
+  } catch {}
+}
 function renderHome() {
   const D = S.forest; if (!D) { $("#homeBody").innerHTML = `<div class="empty">…</div>`; return; }
   const K = D.knowledge || [], world = K.find((k) => k.system === "world"), user = K.find((k) => k.system === "user"), P = D.personal;
@@ -327,10 +341,12 @@ function renderHome() {
         ${P ? `<div class="dims">${DIMS.map(([k, zh, en]) => { const x = P[k] || {}; return `<div class="dim" data-doc="${user?.id || ""}"><span class="k">${L(zh, en)}</span><span class="v">${esc(x.summary || L("还看不出来", "Not enough to tell yet"))}</span><span class="conf" title="${L("把握", "confidence")} ${Math.round((x.confidence || 0) * 100)}%"><i style="width:${Math.round((x.confidence || 0) * 100)}%"></i></span></div>`; }).join("")}</div>`
           : `<div class="dimt" style="font-size:13px">${L("还没有按五个维度整理过：背景、目标、偏好、能力、状态。", "Not compiled into its five dimensions yet.")} ${user ? `<a href="#" data-compile="${user.id}" style="color:var(--accent)">${L("现在整理", "Compile now")}</a>` : ""}</div>`}</div>
     </div>
+    <div id="cacheHome"></div>
     <div class="sect"><h3>${L("知识库", "Library")}</h3><span>${L("从树上沉淀出的思路、数据集和技能；在树里右键一个节点就能沉淀", "Lines of thought, datasets and skills distilled from the trees; right-click a node in a tree to distill it")}</span></div>
     <div class="rows">${rows.map((k) => `<div class="lr" data-doc="${k.id}"><span class="ty">${TY[k.system] ? L(...TY[k.system]) : k.kind === "skill" ? L("技能", "Skill") : L("数据集", "Dataset")}</span>
       <span class="ti">${esc(k.title)}</span><span class="gi">${esc(k.gist || "")}</span><span class="us">${(k.used_by || []).length ? L("被参考：", "Used by: ") + k.used_by.map((id) => esc((names.get(id) || "").slice(0, 18))).join(", ") : k.aim_id ? esc((names.get(k.aim_id) || "").slice(0, 24)) : ""}</span></div>`).join("")
       || `<div class="empty">${L("还没有。", "Nothing yet.")}</div>`}</div>`;
+  fillCacheHome();
 }
 
 /* ------------------------------------------------ a tree */
@@ -562,7 +578,14 @@ function behaviorHtml(n) {
   const B = S.beh[n.id];
   if (!B) return `<div class="empty" style="padding:20px 0">${L("读取这一段里 agent 的动作…", "Reading what the agents did…")}</div>`;
   if (B.error) return `<div class="empty">${esc(B.error)}</div>`;
-  return `<div class="muted" style="font-size:13px;margin-bottom:14px">${L("行为树：这一段里每个 agent 做了什么。往下依次是 agent、它的每次运行（哪一步、回答哪个问题、结果如何）、运行里的每个动作。", "Behaviour tree: what each agent did here — each agent, each of its runs (step, question, outcome), and the actions in each run.")}</div>` + PGATree.behaviorTree(B, n);
+  return cacheLine(B.cache) + `<div class="muted" style="font-size:13px;margin-bottom:14px">${L("行为树：这一段里每个 agent 做了什么。往下依次是 agent、它的每次运行（哪一步、回答哪个问题、结果如何）、运行里的每个动作。", "Behaviour tree: what each agent did here — each agent, each of its runs (step, question, outcome), and the actions in each run.")}</div>` + PGATree.behaviorTree(B, n);
+}
+const kTok = (n) => (n >= 10000 ? (EN ? `${(n / 1000).toFixed(0)}k` : `${(n / 10000).toFixed(1)} 万`) : String(n));
+function cacheLine(c) {
+  if (!c || !c.calls) return "";
+  const pct = Math.round((c.hit || 0) * 100);
+  return `<div class="cache"><div class="ch1"><b>${L("提示词缓存", "Prompt cache")}</b><span>${L(`${c.calls} 次调用 · 读入 ${kTok(c.input)} token，其中 ${kTok(c.cached)} 来自缓存`, `${c.calls} calls · ${kTok(c.input)} tokens read, ${kTok(c.cached)} from the cache`)}</span><b class="num">${pct}%</b></div>
+    <div class="cbarx"><i style="width:${pct}%"></i></div></div>`;
 }
 function samplesHtml(n, d) {
   const xs = (d.notes || []).filter((x) => x.kind === "answer" && x.data?.samples?.length);
@@ -616,6 +639,7 @@ function renderCont() {
     <div class="refs">${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-crefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}${S.tree?.focus === n.id && !YOU() ? `<span style="color:var(--accent)">${L("PGA 正沿着这里想", "PGA is following this branch")}</span><a href="#" data-focus="">${L("取消", "Stop")}</a>` : ""}</div>
     <div class="cbar"><select id="crefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
       <textarea id="tnText" rows="1" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : L(`从「${n.title.length > 14 ? n.title.slice(0, 13) + "…" : n.title}」继续…（⌘/Ctrl + Enter）`, `Continue from “${n.title.length > 20 ? n.title.slice(0, 19) + "…" : n.title}”… (⌘/Ctrl + Enter)`)}">${esc(S.draft || "")}</textarea>
+      <button class="ghost" id="ctxBtn" style="height:36px" title="${L("这次会带上什么上下文", "What context this message carries")}">${L("上下文", "Context")}</button>
       <select id="tnAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option>${esc(a.name)}</option>`).join("")}</select>
       <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : bud ? L("长出", "Grow") : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#tnText"));
@@ -763,6 +787,19 @@ async function saveSettings() {
   try { await api(`/v1/aims/${S.aim}/perpetual`, { method: "PATCH", body: { settings } }); document.querySelector(".modal")?.remove(); toast(L("已保存", "Saved")); await loadTree(true); }
   catch (err) { toast(err.message); }
 }
+async function showContext() {
+  const n = nodeOf(S.node); if (!n) return;
+  const q = ($("#tnText")?.value || "").trim();
+  const r = await api(`/v1/thought-nodes/${n.id}/context?q=${encodeURIComponent(q)}&refs=${S.contRefs.join(",")}`).catch((e) => ({ error: e.message }));
+  if (r.error) { toast(r.error); return; }
+  modal(`<div class="ctxv"><h2>${L("这次发送会带上的上下文", "The context this message carries")}</h2>
+    <div class="muted" style="font-size:13px">${r.continues ? L("你在自己的这条分支里接着聊：agent 的会话里已经有开头和之前的对话，这次只会收到你的新消息和它后面附带的内容。", "You are continuing your own branch: the agent's session already holds the opening and the earlier turns, so it only gets your new message and what follows it.")
+      : L("这会开一条新分支：agent 先读开头，再读你的消息。从同一个节点开出的分支，开头一字不差，所以能命中模型厂商的提示词缓存。", "This starts a new branch: the agent reads the opening, then your message. Every branch started from this node opens with exactly the same text, so it can come from the provider's prompt cache.")}</div>
+    <div class="lay"><b>${L("① 开头", "① Opening")}</b><span>${L(`约 ${r.opening_tokens} token · 从稳定到易变：目标、两个模型和引用的知识、从根到这里的路径、链接、代码、这个节点最近几轮`, `≈${r.opening_tokens} tokens · stable to changing: the goal, the two models and referenced knowledge, the path from the root, links, code, this node's latest turns`)}${r.continues ? L("（这次不会再发）", " (not sent again this time)") : ""}</span></div><pre>${esc(r.opening)}</pre>
+    <div class="lay"><b>${L("② 你的消息", "② Your message")}</b><span>${esc(q || L("（还没写）", "(not written yet)"))}</span></div>
+    <div class="lay"><b>${L("③ 消息后面附带", "③ After your message")}</b><span>${r.tail ? L(`约 ${r.tail_tokens} token · 这条消息引用的知识，和别的分支里相关的节点`, `≈${r.tail_tokens} tokens · knowledge pinned to this message, and related nodes from other branches`) : L("没有：写下问题后，这里会显示别的分支里相关的节点", "Nothing: once you write a question, related nodes from other branches show here")}</span></div>
+    ${r.tail ? `<pre>${esc(r.tail)}</pre>` : ""}</div>`);
+}
 async function showDoc(id) {
   if (!id) return;
   const d = await api(`/v1/bodies/${id}/document${EN ? "?lang=en" : ""}`).catch((e) => ({ error: e.message }));
@@ -836,7 +873,7 @@ document.addEventListener("click", async (e) => {
   if (DR.suppress) { DR.suppress = false; return; }
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel");
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
   if (t.dataset.bar) { const id = t.dataset.bar; if (id === "chats") show("chats"); else show("tree", { aim: id }); return; }
@@ -848,6 +885,7 @@ document.addEventListener("click", async (e) => {
     try { const a = await api(`/v1/users/${S.uid}/aims`, { body: { text } }); S.planting = false; toast(L("种下了：选一个工作文件夹，按开始", "Planted: choose a folder, press Start")); await loadForest(); if (a?.id) show("tree", { aim: a.id }); } catch (err) { toast(err.message); }
     return;
   }
+  if (t.id === "ctxBtn") { showContext(); return; }
   if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
   if (t.id === "fold") { setMini(!S.mini); return; }
   if (t.dataset.plus) { newNode(t.dataset.plus); return; }

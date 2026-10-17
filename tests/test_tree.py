@@ -384,3 +384,44 @@ def test_nodes_can_be_moved_linked_cut_and_added_by_hand(session_factory, policy
         new = c.post(f"/v1/thought-nodes/{b.id}/branch", json={"title": "新节点"}).json()
         r = c.post(f"/v1/thought-nodes/{new['id']}/continue", json={"text": "这个新方向怎么样", "agent": "auto"})
         assert r.status_code == 200 and r.json()["node"]["id"] == new["id"] and r.json()["node"]["title"] == "这个新方向怎么样"
+
+
+def test_usage_of_reads_every_agents_shape():
+    from pga.tree import cache_totals, usage_of
+    claude = {"usage": {"input_tokens": 10, "cache_read_input_tokens": 900, "cache_creation_input_tokens": 90, "output_tokens": 50}}
+    codex = {"usage": {"last": {"inputTokens": 1000, "cachedInputTokens": 800, "outputTokens": 20}, "total": {"inputTokens": 5000}}}
+    assert usage_of(claude) == {"input": 1000, "cached": 900, "written": 90, "output": 50}
+    assert usage_of(codex) == {"input": 1000, "cached": 800, "written": 0, "output": 20}
+    assert usage_of({}) is None and usage_of({"usage": "x"}) is None
+    t = cache_totals([claude, codex, {}])
+    assert t["calls"] == 2 and t["input"] == 2000 and t["hit"] == 0.85
+
+
+def test_context_opens_the_same_way_and_extras_go_last(session_factory, policy, provider, backend, user, session):
+    """The opening is stable for every branch from one node; related nodes from other branches go after the question."""
+    from pga.db.models import Aim
+    from pga.tree import ThoughtTree
+
+    rt = Runtime(session, policy=policy, provider=provider, translation_backend=backend)
+    aim = Aim(user_id=user.id, text="做一个永续运行的智能体", text_en="a perpetual agent")
+    session.add(aim)
+    session.flush()
+    tree = ThoughtTree(rt)
+    a = tree._make(aim, kind="segment", seq=1, title="上下文管理", summary="问：怎么省 token\n发现：前缀缓存", note_ids=[], data={})
+    b = tree._make(aim, kind="segment", seq=2, title="界面设计", summary="左边一条条横线", note_ids=[], data={})
+    c = tree._make(aim, kind="segment", seq=3, title="缓存命中率", summary="前缀缓存命中时只算十分之一的价钱", note_ids=[], data={})
+    session.add_all([a, b, c])
+    session.flush()
+    b.parent_id = a.id
+    session.commit()
+    one, two = tree.context_for(b), tree.context_for(b)
+    assert one == two and one.index("上下文管理") < one.index("界面设计")
+    tail = tree.tail_for(b, "前缀缓存到底能省多少？")
+    assert "缓存命中率" in tail and "上下文管理" not in tail                      # on the path already: not repeated
+    assert tree.tail_for(b, "好") == ""
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as cl:
+        r = cl.get(f"/v1/thought-nodes/{b.id}/context", params={"q": "前缀缓存到底能省多少？"}).json()
+        assert r["opening"] == one and "缓存命中率" in r["tail"] and r["related"][0]["title"] == "缓存命中率" and r["opening_tokens"] > 0
+        assert cl.get(f"/v1/users/{user.id}/cache").json()["all"]["calls"] == 0
