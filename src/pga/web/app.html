@@ -205,6 +205,12 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .envbar { display: flex; gap: 12px; align-items: center; font-size: 11.5px; color: var(--dim); margin: 0 2px 6px; flex-wrap: wrap; } .envbar a { color: var(--muted); }
 .ctxm { display: inline-flex; gap: 5px; align-items: center; font-variant-numeric: tabular-nums; cursor: default; } .ctxm .rbg { fill: none; stroke: var(--line-2); stroke-width: 5; }
 .ctxm .rfg { fill: none; stroke: var(--green); stroke-width: 5; stroke-linecap: round; } .ctxm .rfg.hi { stroke: var(--bad); }
+.lseg { display: flex; gap: 8px; align-items: baseline; margin: 18px 0 8px; padding: 5px 10px; border-radius: 8px; font-size: 12px; color: var(--dim); cursor: pointer; border: 1px solid transparent; }
+.lseg:hover { background: var(--soft); } .lseg.on { border-color: var(--accent); background: var(--accent-soft); } .lseg i { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: center; }
+.lseg b { color: var(--text); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; } .lseg span { white-space: nowrap; } .lseg em { margin-left: auto; font-style: normal; color: var(--accent); white-space: nowrap; opacity: 0; } .lseg:hover em, .lseg.on em { opacity: 1; }
+.ltgt { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); margin: 0 2px 6px; } .ltgt i { width: 8px; height: 8px; border-radius: 50%; } .ltgt b { color: var(--text); font-weight: 500; }
+.mynote { align-self: flex-end; max-width: 80%; margin: 6px 0 12px auto; padding: 8px 12px; border-radius: 10px; border: 1px dashed var(--accent); background: var(--accent-soft); font-size: 13px; }
+.mynote span { display: block; font-size: 11px; color: var(--accent); margin-bottom: 2px; }
 .tacts { display: flex; gap: 4px; margin: -6px 0 8px 38px; } .tacts button { height: 22px; font-size: 11.5px; padding: 0 7px; color: var(--dim); }
 .swap { align-self: center; text-align: center; font-size: 11.5px; color: var(--accent); margin: 8px 0; }
 .second { margin: 0 0 16px 38px; border: 1px solid var(--line-2); border-left: 2px solid var(--blue); border-radius: 0 12px 12px 0; padding: 10px 14px; background: var(--raised); font-size: 13px; }
@@ -1071,40 +1077,73 @@ function loadLineItems(d) {
     if (S.lineView === d.line) renderLineDialog(); return next(); };
   for (let k = 0; k < 4; k++) next();
 }
+/* a whole line as ONE dialogue, every message in time order whichever conversation it came from; a slim label marks
+   where the speaker's conversation changes. Imported conversations only keep excerpts: their opening turns sit at the
+   time they started, the closing ones at their last update. Click a label (or a message) to carry on that conversation. */
+function lineEntries(d) {
+  const out = [];
+  d.items.forEach((x, n) => {
+    if (x.kind === "chat") (S.chatTurns[x.key] || []).forEach((t, i) => out.push({ at: t.at || x.first, x, n, i, turn: t }));
+    else if (x.kind === "import") {
+      const c = S.impCache[x.ref.conversation]; if (!c) return;
+      let late = false;
+      PGATree.convTurns(c.excerpt || "").forEach((t, i) => { if (t.gap) { late = true; out.push({ at: c.updated_at || x.last, x, n, i, gap: t.gap }); return; }
+        out.push({ at: late ? c.updated_at || x.last : c.started_at || x.first, x, n, i, conv: t, agent: c.agent }); });
+    } else ((S.nodeNotes[x.ref.node] || {}).notes || []).slice(-30).forEach((m, i) => out.push({ at: m.at || x.first, x, n, i, note: m }));
+  });
+  return out.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.n - b.n || a.i - b.i));
+}
 function renderLineDialog() {
   const id = S.lineView, d = S.lineD?.[id], m = S.tl?.lines?.[id] || {};
-  $("#chead").innerHTML = `<span class="kind">${L(...(LK[m.kind] || LK.single))}</span><h1>${esc(m.title || d?.title || "")}</h1>${d ? `<span class="pill">${L(`${d.items.length} 段对话`, `${d.items.length} conversations`)}</span>` : ""}` + headActs();
+  $("#chead").innerHTML = `<span class="kind">${L(...(LK[m.kind] || LK.single))}</span><h1>${esc(m.title || d?.title || "")}</h1>${d ? `<span class="pill">${L(`${d.items.length} 段对话 · 按时间排`, `${d.items.length} conversations · by time`)}</span>` : ""}` + headActs();
   if (!d) { $("#cdlgIn").innerHTML = `<div class="empty">…</div>`; $("#ccomp").innerHTML = ""; return; }
   loadLineItems(d);
-  const wrap = $("#cdlg"), keep = wrap.dataset.line === id ? wrap.scrollTop : null;
-  $("#cdlgIn").innerHTML = lineCard(true) + d.items.map((x, i) => {
-    const notes = itemNotes(x), app = x.kind === "tree" ? L("树上的分支", "a tree branch") : x.kind === "chat" ? `PGA · ${x.agent && x.agent !== "-" ? x.agent : "AI"}` : x.agent;
-    return `<div class="seam ${x.key === S.focusItem ? "cur" : ""}" id="li-${esc(x.key)}"><span class="sn num">${i + 1}</span><span class="st">${esc(x.title)}</span>
-        <span class="sm num">${esc(app)} · ${esc(when(x.first))}${x.last.slice(0, 10) !== x.first.slice(0, 10) ? " – " + esc(when(x.last)) : ""}</span>${x.kind === "tree" ? `<a href="#" class="sm" data-opentree="${esc(x.ref.tree)}" data-node="${esc(x.ref.node)}">${L("到树上", "Open on the tree")}</a>` : ""}</div>
-      ${notes == null ? `<div class="dimt" style="font-size:12.5px;padding:8px 0">${L("载入…", "Loading…")}</div>` : x.kind === "chat" && notes.length ? chatTurnsHtml(S.chatTurns[x.key], x.key) : notes.length ? PGATree.chat(notes, { md, name: (n) => n.agent }) : `<div class="dimt" style="font-size:12.5px;padding:6px 0">${L("没有内容。", "Nothing here.")}</div>`}`;
-  }).join("") + (S.sending ? workCard() : "");
-  wrap.dataset.line = id;
-  if (!S.focusDone && S.focusItem) {                    // once every conversation is in, open at the one you picked
-    const el = S.focusItem === "__end__" ? null : document.getElementById("li-" + S.focusItem);
-    if ((el || S.focusItem === "__end__") && d.items.every((x) => itemNotes(x) != null)) { S.focusDone = true;
-      requestAnimationFrame(() => wrap.scrollTo({ top: el ? el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop - 8 : wrap.scrollHeight })); }
+  const wrap = $("#cdlg"), keep = wrap.dataset.line === id ? wrap.scrollTop : null, loading = d.items.filter((x) => itemNotes(x) == null).length;
+  if (!S.lineTarget || !d.items.some((x) => x.key === S.lineTarget)) S.lineTarget = d.items[d.items.length - 1].key;
+  const es = lineEntries(d);
+  let html = "", prev = null, buf = [];
+  const flush = () => { if (!buf.length) return; const x = buf[0].x;
+    if (x.kind === "chat") html += chatTurnsHtml(buf.map((e) => e.turn), x.key);
+    else if (x.kind === "import") html += buf.map((e) => e.gap ? `<div class="ctime">${esc(e.gap)}</div>` : PGATree.chat([e.conv.who === "user" ? { agent: "you", kind: "question", text: e.conv.text, at: null, data: {} } : { agent: e.agent || "AI", kind: "answer", text: e.conv.text, at: null, data: {} }], { md, name: (n) => n.agent })).join("");
+    else html += PGATree.chat(buf.map((e) => e.note), { md });
+    buf = []; };
+  for (const e of es) {
+    if (!prev || prev.x.key !== e.x.key || new Date(e.at) - new Date(prev.at) > 6 * 3600e3) {
+      flush();
+      const x = e.x, app = x.kind === "tree" ? L("树上的分支", "tree branch") : x.kind === "chat" ? "PGA" : x.agent, on = x.key === S.lineTarget;
+      html += `<div class="lseg ${on ? "on" : ""}" data-ltarget="${esc(x.key)}" title="${L("点一下：接着这段对话说", "Click: carry on this conversation")}"><i style="background:hsl(${hueOf(x.key)} 55% 58%)"></i><b>${esc(x.title.slice(0, 60))}</b><span>${esc(app)} · ${esc(when(e.at))}</span><em>${on ? L("正在接着这段", "carrying on this one") : L("接着这段说", "carry on this one")}</em></div>`;
+    }
+    buf.push(e); prev = e;
   }
+  flush();
+  $("#cdlgIn").innerHTML = lineCard(true) + (loading ? `<div class="trnote">${L(`还在载入 ${loading} 段对话…`, `Loading ${loading} more conversations…`)}</div>` : "") + html + (S.sending ? workCard() : "");
+  wrap.dataset.line = id;
+  if (!S.focusDone && !loading) { S.focusDone = true; const el = S.focusItem && S.focusItem !== "__end__" ? document.querySelector(`.lseg[data-ltarget="${CSS.escape(S.focusItem)}"]:last-of-type`) : null;
+    requestAnimationFrame(() => wrap.scrollTo({ top: el ? el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop - 8 : wrap.scrollHeight })); }
   else if (S.scrollChat) { S.scrollChat = false; requestAnimationFrame(() => { wrap.scrollTop = wrap.scrollHeight; }); }
   else if (keep != null) wrap.scrollTop = keep;
-  const last = d.items[d.items.length - 1], box = $("#chatText"); if (box) S.chatDraft = box.value;
-  $("#ccomp").innerHTML = last.kind === "tree" ? `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(last.ref.tree)}" data-node="${esc(last.ref.node)}">${L("到树上接着说", "Carry on on the tree")}</button></div>`
-    : `<div class="inner">${envBar(last.kind === "chat" ? last.key : "", last.kind === "chat" ? S.chatTurns[last.key] || [] : [])}<div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L(`接着这条线最近的一段（「${last.title.slice(0, 16)}」）说…（⌘/Ctrl + Enter）`, `Carry on the latest conversation of this line (“${last.title.slice(0, 20)}”)… (⌘/Ctrl + Enter)`))}">${esc(S.chatDraft || "")}</textarea>
-      ${accBtn(last.kind === "chat" ? last.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+  const tg = d.items.find((x) => x.key === S.lineTarget), box = $("#chatText"); if (box) S.chatDraft = box.value;
+  if (tg.kind === "tree") { $("#ccomp").innerHTML = `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(tg.ref.tree)}" data-node="${esc(tg.ref.node)}">${L(`到树上接着「${esc(tg.title.slice(0, 16))}」说`, `Carry on “${esc(tg.title.slice(0, 20))}” on the tree`)}</button></div>`; return; }
+  $("#ccomp").innerHTML = `<div class="inner">${envBar(tg.kind === "chat" ? tg.key : "", tg.kind === "chat" ? S.chatTurns[tg.key] || [] : [])}
+    <div class="ltgt"><i style="background:hsl(${hueOf(tg.key)} 55% 58%)"></i>${L("接着：", "Carrying on: ")}<b>${esc(tg.title.slice(0, 40))}</b><span>${L("（点上面任意一段的标签可以换）", "(click any label above to switch)")}</span></div>
+    <div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（⌘/Ctrl + Enter 发给 agent）", "Your response, next step, or a question… (⌘/Ctrl + Enter sends to the agent)"))}">${esc(S.chatDraft || "")}</textarea>
+      ${accBtn(tg.kind === "chat" ? tg.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option ${a.name === S.chatAgent ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
+      <button class="ghost" id="lineNote" ${S.sending ? "disabled" : ""} title="${L("只记下来，不问 agent：之后接着聊时 agent 会读到", "Just write it down, no agent: agents read it when the conversation goes on")}">${L("只记下来", "Just note")}</button>
       <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#chatText"));
 }
-async function lineSend() {
+async function lineSend(noteOnly) {
   const d = S.lineD?.[S.lineView]; if (!d) return;
-  const last = d.items[d.items.length - 1], text = ($("#chatText")?.value || "").trim(); if (!text) { toast(L("先写点什么", "Write something first")); return; }
+  const tg = d.items.find((x) => x.key === S.lineTarget) || d.items[d.items.length - 1], text = ($("#chatText")?.value || "").trim();
+  if (!text) { toast(L("先写点什么", "Write something first")); return; }
   const line = S.lineView;
-  if (last.kind === "chat") { S.chat = last.key; await chatSend(); }
-  else if (last.kind === "import") { S.impData = S.impCache[last.ref.conversation] || await api(`/v1/users/${S.uid}/imported/${last.ref.conversation}`); S.imp = { cid: last.ref.conversation, key: last.key, line }; S.lineView = null; await impSend(); }
-  S.lineView = line; S.chat = null; S.imp = null; S.scrollChat = true; await loadLine(line); renderChat();
+  if (noteOnly) {                                             // your own words, kept in that conversation; no agent
+    const key = tg.kind === "chat" ? tg.key : null;
+    try { const r = await api(`/v1/users/${S.uid}/chats/note`, { body: { conversation: key, text, line } }); S.chatDraft = ""; $("#chatText").value = ""; S.lineTarget = r.key;
+      toast(L("记下了：之后接着这段聊时，agent 会读到", "Noted: agents read it when this goes on")); } catch (err) { toast(err.message); return; }
+  } else if (tg.kind === "chat") { S.chat = tg.key; await chatSend(); }
+  else if (tg.kind === "import") { S.impData = S.impCache[tg.ref.conversation] || await api(`/v1/users/${S.uid}/imported/${tg.ref.conversation}`); S.imp = { cid: tg.ref.conversation, key: tg.key, line }; S.lineView = null; await impSend(); S.lineTarget = S.chat; }
+  S.lineView = line; S.chat = null; S.imp = null; S.scrollChat = true; await loadTimeline(); await loadLine(line); renderChat();
 }
 async function loadLine(id) {
   if (!id) return;
@@ -1255,7 +1294,7 @@ function chatTurnsHtml(turns, key = S.chat) {
   let out = "", prevAgent = null;
   for (let i = 0; i < turns.length; i += 1) {
     const t = turns[i];
-    if (t.role === "user") { out += PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }); continue; }
+    if (t.role === "user") { out += t.note ? `<div class="mynote"><span>${L("你记下的", "Your note")}</span><div class="md">${md(t.text)}</div></div>` : PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }); continue; }
     const who = t.agent && t.agent !== "-" ? t.agent : "AI";
     if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
@@ -1398,7 +1437,7 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1431,6 +1470,8 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.archall !== undefined) { archiveHere(t.dataset.archall, t.dataset.line); return; }
   if (t.dataset.tlmode) { store.set("pga_tl_mode", t.dataset.tlmode); S.tlScrolled = false; renderTimeline(); return; }
   if (t.id === "lineSend") { lineSend(); return; }
+  if (t.id === "lineNote") { lineSend(true); return; }
+  if (t.dataset.ltarget) { S.lineTarget = t.dataset.ltarget; renderChat(); $("#chatText")?.focus(); return; }
   if (t.dataset.acc !== undefined) { showAcc(t.dataset.acc); return; }
   if (t.id === "accSave") { saveAcc(t.dataset.key); return; }
   if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }

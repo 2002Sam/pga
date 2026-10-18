@@ -389,5 +389,5 @@ const THEME = `
 .bt-tool { font-size: 11.5px; min-width: 52px; }`);
 
   function setLang(l) { LANG = l === "en" ? "en" : "zh"; }
-  window.PGATree = { tidy, behaviorTree, layout, draw, esc, ROW, chat, summary, hue, setLang, L: (zh, en) => L(zh, en), cast, roleName, kindName };
+  window.PGATree = { tidy, convTurns, behaviorTree, layout, draw, esc, ROW, chat, summary, hue, setLang, L: (zh, en) => L(zh, en), cast, roleName, kindName };
 })();

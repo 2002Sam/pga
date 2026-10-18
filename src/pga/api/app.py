@@ -2856,7 +2856,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     "actions": parse_actions(kd.get("trace") or "")[:80]}
         out = []
         for r in runs:
-            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id)})
+            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
+            if (r.data or {}).get("note"):                       # your own note: no answer to show
+                continue
             out.append({"role": "agent", "agent": (r.data or {}).get("agent") or r.agent, "text": _answer(r.output) or "", "error": r.error,
                         "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model"), "run": str(r.id), "how": how(r),
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
@@ -2874,6 +2876,26 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 return second_opinion(rt, u, uuid.UUID(str(body.get("run"))), str(body.get("agent") or "") or None)
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/chats/note", status_code=201)
+    def chats_note(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Your own response or next step, written into a conversation without asking any agent. It stays in the
+        conversation (agents read it next time) and on its line of the time tree."""
+        from pga.db.models import AgentRun
+        from pga.timeline import Timeline
+        u = user_or_404(rt, user_id)
+        text = str(body.get("text") or "").strip()
+        key = str(body.get("conversation") or "")[:120] or f"chat:{uuid.uuid4().hex[:10]}"
+        if not text:
+            raise HTTPException(422, "text is needed")
+        now = utcnow()
+        r = AgentRun(user_id=u.id, workflow="ask", pattern="single", step="note", agent="you", adapter="note", status="SUCCEEDED",
+                     prompt=text[:20000], output="", data={"conversation": key, "note": True, "agent": "you"}, started_at=now, finished_at=now)
+        rt.session.add(r)
+        if body.get("line"):
+            Timeline(rt).move(u, key, str(body["line"])[:120])
+        rt.session.flush()
+        return {"key": key, "run": str(r.id)}
 
     @app.post("/v1/users/{user_id}/chats/branch", status_code=201)
     def chats_branch(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

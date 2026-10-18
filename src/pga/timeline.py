@@ -161,12 +161,17 @@ class Timeline:
             if end < since:
                 continue
             key = f"c:{c.id}"
-            first_said = re.sub(r"^User:\s?", "", (c.excerpt or "").split("\n", 1)[0])
-            if key in archived or NOT_YOU.match(re.sub(r"^\[[^\]]*\]\s*", "", c.title or "")) or NOT_YOU.match(first_said):
+            m_user = re.search(r"^User:\s?(.+)$", c.excerpt or "", re.M)
+            first_said = m_user.group(1) if m_user else ""
+            if (c.title or "").startswith("ant: "):            # an untitled import named after the agent's line ("Assistant: …" cut short)
+                c_title = ""
+            else:
+                c_title = c.title or ""
+            if key in archived or NOT_YOU.match(re.sub(r"^\[[^\]]*\]\s*", "", c_title)) or NOT_YOU.match(first_said):
                 continue                                            # Codex reviewing its own tool calls: not a conversation of yours
             proj = _norm(c.project)
             line = folders.get(proj) or (f"proj:{proj}" if proj not in NOISE else key)
-            title = tidy(re.sub(r"^\[[^\]]*\]\s*", "", c.title or "")) or tidy(first_said)[:60] or (c.excerpt or "")[:60]
+            title = tidy(re.sub(r"^\[[^\]]*\]\s*", "", c_title)) or tidy(first_said)[:60] or (c.excerpt or "")[:60]
             it = items[key] = Item(key, "import", title[:120], agent=a.name, project=c.project or "", excerpt=(c.excerpt or "")[:400],
                                    line=line, ref={"conversation": str(c.id), "messages": c.message_count})
             it.times = [start] + ([end] if end - start > GAP else [])

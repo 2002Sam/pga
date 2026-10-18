@@ -62,8 +62,9 @@ def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, 
     if b and depth < 5:
         out += history(rt, user, b["from"], uuid.UUID(b["upto"]), depth + 1)
     for r in runs_of(rt, user.id, key):
-        out += [{"role": "user", "text": r.prompt or "", "run": str(r.id)},
-                {"role": "assistant", "text": _answer(r.output) or "", "agent": (r.data or {}).get("agent") or r.agent, "run": str(r.id)}]
+        out.append({"role": "user", "text": (("[the user's own note] " if (r.data or {}).get("note") else "") + (r.prompt or "")), "run": str(r.id)})
+        if not (r.data or {}).get("note"):
+            out.append({"role": "assistant", "text": _answer(r.output) or "", "agent": (r.data or {}).get("agent") or r.agent, "run": str(r.id)})
         if upto is not None and r.id == upto:
             break
     return out
