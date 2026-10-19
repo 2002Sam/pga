@@ -376,7 +376,7 @@ function chatTurnsHtml(turns, key = S.chat) {
     const who = t.agent && t.agent !== "-" ? agentLabel(t.agent) : "AI";
     if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
-    out += S.sideBy?.[t.run] && (t.versions || []).length > 1 && typeof sideBySide === "function" ? sideBySide(t)
+    out += typeof sideOn === "function" && sideOn(t) ? sideBySide(t)
       : procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
     if (!t.run) continue;
     out += replyMeta(t) + replyActs(t, key);

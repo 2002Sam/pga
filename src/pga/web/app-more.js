@@ -37,6 +37,8 @@ async function multiSend() {
   if (root) S.sideBy[root] = true;
   S.scrollChat = true; await loadChats(); await loadChat(key); loadTimeline();
 }
+/* answers from different agents are read side by side unless you fold them back; versions of one agent's answer are flipped through */
+const sideOn = (t) => (t.versions || []).length > 1 && (S.sideBy[t.run] ?? new Set(t.versions.map((v) => v.agent)).size > 1);
 function sideBySide(t) {
   const vs = t.versions || [];
   return `<div class="sbs" style="--n:${Math.min(3, vs.length)}">${vs.map((v) => `<div class="sbc ${v.run === t.version ? "cur" : ""}"><div class="sbh"><b>${esc(agentLabel(v.agent || "AI"))}</b>${v.model ? `<span>${esc(v.model)}</span>` : ""}${v.how?.seconds != null ? `<span>${v.how.seconds}s</span>` : ""}<span class="grow"></span>
@@ -210,7 +212,7 @@ document.addEventListener("click", async (e) => {
   else if (a === "multidone") { document.querySelector(".fmenu")?.remove(); if (S.multi.length === 1) S.multi = []; renderChat(); toast(S.multi.length > 1 ? L(`下一条会同时问 ${S.multi.join("、")}`, `The next message goes to ${S.multi.join(", ")} at once`) : L("恢复成一次问一个", "Back to one agent at a time")); }
   else if (a === "web") { S.web = !S.web; renderChat(); toast(S.web ? L("联网：下一条会先上网查", "Web on: the next message looks it up first") : L("不联网了", "Web off")); }
   else if (a === "runcode") runCode(b.closest("pre"));
-  else if (a === "sideby") { S.sideBy[b.dataset.run] = !S.sideBy[b.dataset.run]; renderChat(); }
+  else if (a === "sideby") { const t = (S.chatTurns[S.chat] || []).find((x) => x.role === "agent" && x.run === b.dataset.run); S.sideBy[b.dataset.run] = !(t ? sideOn(t) : S.sideBy[b.dataset.run]); renderChat(); }
   else if (a === "tonote") toNote(b, b.dataset.text || "");
   else if (a === "newnote") { try { const r = await api(`/v1/users/${S.uid}/notes`, { body: { title: L("新笔记", "New note"), text: "" } }); await loadNotes(); S.note = r.id; S.nprev = false; renderNotes(); $("#ntext")?.focus(); } catch (err) { toast(err.message); } }
   else if (a === "nedit") { S.nprev = false; renderNotes(); }

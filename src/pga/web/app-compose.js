@@ -85,7 +85,7 @@ function replyActs(t, key) {
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === 1 ? 0 : 1}" class="${t.rating === 1 ? "on" : ""}" title="${L("好回答", "Good answer")}">${I.up}</button>
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === -1 ? 0 : -1}" class="${t.rating === -1 ? "on bad" : ""}" title="${L("不好的回答", "Bad answer")}">${I.down}</button>
     <button data-act="tonote" data-text="${esc(t.text)}" title="${L("存进笔记", "Save into a note")}">${typeof MI === "object" ? MI.note : "✎"}</button>
-    ${vs.length > 1 ? `<button class="txt ${S.sideBy?.[t.run] ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
+    ${vs.length > 1 ? `<button class="txt ${typeof sideOn === "function" && sideOn(t) ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
     <span class="sep"></span>
     ${sec ? "" : `<button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""}>${sb ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
     <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}">${L("从这里分支", "Branch from here")}</button></div>`;
