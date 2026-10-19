@@ -655,6 +655,10 @@ class CodexServer:
             if conv:
                 _put("threads", f"{self.name}|{conv}", tid)
         text = (task.meta.get("new_text") if not fresh and task.meta.get("new_text") else task.prompt).strip()
+        if conv and not fresh and _SEEN_PERMS.get(f"{self.name}|{conv}") != task.permissions:   # resumed with other access: say so
+            text = f"{_perm_note(task.permissions, cwd)}\n\n{text}"
+        if conv:
+            _SEEN_PERMS[f"{self.name}|{conv}"] = task.permissions
         if task.want_json:
             text += "\n\nReply with JSON only."
         q: queue.Queue = queue.Queue()
@@ -736,6 +740,17 @@ class CodexServer:
 # ---------------------------------------------------------------- stream-json sessions (Claude Code / CodeBuddy)
 
 
+_SEEN_PERMS: dict[str, str] = {}             # agent|conversation → the access level its session last ran with
+
+
+def _perm_note(perms: str, cwd: str) -> str:
+    from pga.agents.base import FULL, WORKSPACE_WRITE
+    what = {FULL: "you can read and edit files, run shell commands (Bash) and start subagents",
+            WORKSPACE_WRITE: "you can read and edit files, but not run shell commands"}.get(perms, "you can read and search files and the web, but not edit files or run commands")
+    return (f"[PGA note — access for this conversation, as of now: {what}. Working folder: {cwd}. "
+            "Earlier turns may have had other tools; go by your tools now. If a tool is listed, use it.]")
+
+
 class StreamSession:
     """One conversation kept running: `claude -p --input-format stream-json …` reads a user message per line and
     answers each with events ending in a `result`. Idle ones close; the next message resumes them by session id."""
@@ -779,6 +794,11 @@ class StreamSession:
                 s = cls._ALL[key] = cls(ad, conv, task)
         cont = warm or s.resumed
         text = task.meta.get("new_text") if cont and task.meta.get("new_text") else None
+        if text and not warm and _SEEN_PERMS.get(key) != task.permissions:
+            # a resumed session (or one whose access you just changed): its earlier turns may have had fewer tools, and
+            # the model goes by them — say plainly what it can do now, so it does not refuse what it is now allowed
+            text = f"{_perm_note(task.permissions, s.cwd)}\n\n{text}"
+        _SEEN_PERMS[key] = task.permissions
         return s.send(ad, task, text)
 
     @classmethod
