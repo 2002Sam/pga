@@ -1667,6 +1667,24 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.put("/v1/agents/{name}/account")
+    def agents_account(name: str, body: dict, rt: Runtime = Depends(get_rt)):
+        """Which account an agent copy is signed in with (e.g. the e-mail), as a label shown next to its name. A
+        Claude Code token from `claude setup-token` cannot tell its own account, so you say which one it is."""
+        from pga.agents import pool as ap
+        cfg = ap.load()
+        if name not in cfg["agents"]:
+            raise HTTPException(404, "unknown agent")
+        label = str(body.get("account") or "").strip()[:80]
+        cfg["agents"][name] = {**cfg["agents"][name], **({"account": label} if label else {})}
+        if not label:
+            cfg["agents"][name].pop("account", None)
+        try:
+            ap.save(cfg)
+        except ap.PoolError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"name": name, "account": label or None}
+
     @app.put("/v1/agents/secrets")
     def agents_secrets(body: dict, rt: Runtime = Depends(get_rt)):
         """Tokens an agent CLI needs (e.g. CLAUDE_CODE_OAUTH_TOKEN): written to pga/.env only, never returned."""
