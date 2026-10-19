@@ -88,14 +88,22 @@ def messages(session: "Session", user_id: uuid.UUID, conversation: str) -> list[
     else:
         runs = [r for r in _asks(session, user_id) if (r.data or {}).get("conversation") == conversation]
         runs.sort(key=lambda x: x.started_at)
+    from pga.hub.connectors import redact_how
+    from pga.hub.steps import run_how
+    last: dict = {}
+    if runs:
+        for k in session.scalars(select(AgentRun).where(AgentRun.parent_id.in_([r.id for r in runs])).order_by(AgentRun.started_at)):
+            last[k.parent_id] = k                                    # the run that answered (the last one)
     out: list[dict] = []
     for r in runs:
         d = r.data or {}
+        how = run_how(last[r.id]) if r.id in last else None          # every step, when the agent kept its session
         out.append({"role": "user", "text": r.prompt, "at": r.started_at.isoformat(), "images": d.get("images") or 0,
                     "attachments": [a.get("name") for a in d.get("attachments") or [] if isinstance(a, dict)]})
         out.append({"role": "agent", "agent": d.get("agent") or (d.get("tried") or ["—"])[-1], "text": r.output or "",
                     "model": d.get("model"), "effort": d.get("effort"), "stopped": bool(d.get("stopped")),
                     "original": d.get("original"), "sent": d.get("sent"),
                     "ok": r.status == "SUCCEEDED", "error": r.error, "duration_s": r.duration_s, "files": d.get("files") or [],
-                    "project": d.get("project"), "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat()})
+                    "project": d.get("project"), "category": d.get("category"), "at": (r.finished_at or r.started_at).isoformat(),
+                    **({"how": redact_how(how)} if how and how.get("steps") else {})})
     return out

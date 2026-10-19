@@ -189,8 +189,9 @@ class ClaudeLocal(CLIAdapter):
     secrets = ("CLAUDE_CODE_OAUTH_TOKEN",)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns),
-               "--no-session-persistence"]
+        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns)]
+        if not _pga_workspace(task):                  # PGA's own folders keep the session, so its steps can be shown later
+            cmd.append("--no-session-persistence")
         want = task.meta.get("mcp", task.permissions == FULL)   # your own MCP servers: on in a full-access project, else when you turn them on
         mcp = _mcp_rules() if want else ""
         if not want:
@@ -269,6 +270,7 @@ class ClaudeLocal(CLIAdapter):
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=None,
                            session_id=d.get("session_id"), error=None if ok else why[:500], model=model,
                            data={"turns": d.get("num_turns"), "notional_cost_usd": d.get("total_cost_usd"),
+                                 **({"session": d["session_id"]} if d.get("session_id") and _pga_workspace(task) else {}),
                                  **({"usage": {k: d["usage"].get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")}}
                                     if isinstance(d.get("usage"), dict) else {}),
                                  **({"effort": task.meta.get("effort")} if task.meta.get("effort") else {})})
@@ -282,8 +284,9 @@ class CodebuddyLocal(ClaudeLocal):
     secrets = ("CODEBUDDY_API_KEY",)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns),
-               "--no-session-persistence"]
+        cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--max-turns", str(task.max_turns)]
+        if not _pga_workspace(task):                  # PGA's own folders keep the session, so its steps can be shown later
+            cmd.append("--no-session-persistence")
         if task.permissions == FULL:
             return cmd + ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch"] + self.choice_flags(task)
         cmd.append("--strict-mcp-config")
@@ -333,7 +336,7 @@ class CodexLocal(CLIAdapter):
     def command(self, task: AgentTask, exe: str) -> list[str]:
         task.meta["_codex_out"] = out = os.path.join(task.workspace or tempfile.gettempdir(), f".codex-last-{os.getpid()}-{id(task)}.txt")
         sandbox = "workspace-write" if task.permissions in (WORKSPACE_WRITE, FULL) else "read-only"
-        cmd = [exe, "exec", "--json", "--skip-git-repo-check", "--ephemeral", "-s", sandbox, "-o", out]
+        cmd = [exe, "exec", "--json", "--skip-git-repo-check", *([] if _pga_workspace(task) else ["--ephemeral"]), "-s", sandbox, "-o", out]
         if task.workspace:
             cmd += ["-C", task.workspace]
         if self.config.get("model"):
@@ -374,7 +377,7 @@ class CodexLocal(CLIAdapter):
             out.unlink(missing_ok=True)
         except OSError:
             pass
-        usage, err = None, None
+        usage, err, thread = None, None, None
         for line in stdout.splitlines():
             try:
                 ev = json.loads(line)
@@ -382,10 +385,19 @@ class CodexLocal(CLIAdapter):
                 continue
             if isinstance(ev, dict):
                 usage = ev.get("usage") or usage
+                if ev.get("type") == "thread.started":
+                    thread = ev.get("thread_id") or thread
                 if ev.get("type") in ("error", "turn.failed"):
                     err = str(ev.get("message") or ev.get("error") or ev)[:500]
         return AgentResult(ok=bool(text) and not err, text=text, error=err, status="SUCCEEDED" if text and not err else "FAILED",
-                           data={"usage": usage} if usage else {})
+                           data={**({"usage": usage} if usage else {}), **({"thread": thread} if thread and _pga_workspace(task) else {})})
+
+
+def _pga_workspace(task: AgentTask) -> bool:
+    """The run works in one of PGA's own folders: its session is kept (it stays out of your imported history)."""
+    from pga.hub.connectors import pga_started
+    ws = str(task.workspace or "")
+    return bool(ws) and pga_started(ws) and not ws.startswith(("/private/tmp", "/tmp", "/var/folders", "/private/var/folders"))
 
 
 RAW = "\x00"                                  # a progress piece to append as it is (a token stream), not as a line
@@ -419,6 +431,9 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
         from pga.agents import live
         live.set_extra(lid, "usage", ev["usage"])
         return None
+    if isinstance(ev, dict) and ev.get("type") == "user" and lid:            # a tool came back: its time, failure, screenshots
+        _stream_json_results(lid, ev)
+        return None
     if not isinstance(ev, dict) or ev.get("type") != "assistant":
         return None
     if isinstance((ev.get("message") or {}).get("usage"), dict):            # tokens so far, message by message
@@ -431,8 +446,17 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
             continue
         if b.get("type") == "text" and b.get("text") and not streamed:
             out.append(b["text"])
+        elif b.get("type") == "thinking" and str(b.get("thinking") or "").strip() and lid:
+            from pga.agents import live
+            live.step(lid, {"t": "think", "text": str(b["thinking"]).strip()[:4000]})
         elif b.get("type") == "tool_use":
             arg = b.get("input") or {}
+            if lid:
+                from pga.agents import live
+                from pga.hub.steps import title_of, tool_parts
+                tool, server = tool_parts(str(b.get("name") or ""))
+                live.step(lid, {"t": "tool", "tool": tool, **({"server": server} if server else {}), "id": str(b.get("id") or ""),
+                                "title": title_of(str(b.get("name") or ""), arg)})
             if b.get("name") == "TodoWrite" and isinstance(arg.get("todos"), list):
                 from pga.agents import live
                 live.set_extra(lid, "todos", [{"content": str(t.get("content") or ""), "status": t.get("status")} for t in arg["todos"] if isinstance(t, dict)])
@@ -440,6 +464,24 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
                     or arg.get("description") or "")
             out.append(f"→ {b.get('name')} {str(hint)[:120]}".rstrip())
     return "\n".join(out) or None
+
+
+def _stream_json_results(lid: str, ev: dict) -> None:
+    import base64
+
+    from pga.agents import live
+    for b in (ev.get("message") or {}).get("content") or []:
+        if not isinstance(b, dict) or b.get("type") != "tool_result":
+            continue
+        pics = []
+        for x in b.get("content") if isinstance(b.get("content"), list) else []:
+            src = x.get("source") if isinstance(x, dict) and x.get("type") == "image" else None
+            if isinstance(src, dict) and src.get("type") == "base64" and src.get("data"):
+                try:
+                    pics.append((base64.b64decode(src["data"]), str(src.get("media_type") or "image/png")))
+                except (ValueError, TypeError):
+                    pass
+        live.step_done(lid, str(b.get("tool_use_id") or ""), error=bool(b.get("is_error")), images=pics)
 
 
 class HermesLocal(CLIAdapter):

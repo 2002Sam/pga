@@ -984,11 +984,15 @@ class ThoughtTree:
                 steps.setdefault(c.parent_id, []).append(c)
         agents: dict[str, dict] = {}
         totals: dict[str, int] = {}
+        from pga.hub.connectors import redact_how
+        from pga.hub.steps import merge, run_how
         for r in runs:
             d = r.data or {}
-            actions = []
-            for c in steps.get(r.id, []):
-                actions += parse_actions((c.data or {}).get("trace") or "")
+            actions, how = [], None
+            for c in steps.get(r.id, []) or [r]:
+                if c is not r:
+                    actions += parse_actions((c.data or {}).get("trace") or "")
+                how = merge(how, run_how(c))                         # every step, when the agent kept its session
             for a in actions:
                 totals[a["kind"]] = totals.get(a["kind"], 0) + 1
             code = re.search(r'<question code="([^"]+)"', r.prompt or "")
@@ -1002,7 +1006,8 @@ class ThoughtTree:
             ag["runs"].append({"id": str(r.id), "step": step, "step_zh": STEP_ZH.get(step, step), "code": code.group(1) if code else None,
                                "status": r.status, "seconds": round(float(r.duration_s or 0), 1), "at": r.started_at.isoformat(),
                                "role": d.get("role"), "error": _clip(r.error or "", 200) if not ok else None,
-                               "conversation": d.get("conversation"), "actions": actions[:80], "more": max(0, len(actions) - 80)})
+                               "conversation": d.get("conversation"), "actions": actions[:80], "more": max(0, len(actions) - 80),
+                               **({"how": redact_how(how)} if how and how.get("steps") else {})})
         g = node.git or {}
         cache = cache_totals([c.data for r in runs for c in (steps.get(r.id) or [r])])
         return {"agents": sorted(agents.values(), key=lambda a: -len(a["runs"])), "totals": totals, "runs": len(runs), "cache": cache,

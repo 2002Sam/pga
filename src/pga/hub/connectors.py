@@ -40,10 +40,25 @@ class Conv:
     project: str | None = None
     model: str | None = None                                     # the model that answered most (when the store says)
     stamps: list[datetime | None] = field(default_factory=list)  # when each turn was said, alongside turns (when the store says)
+    extras: list[dict] = field(default_factory=list)             # alongside turns: an answer's "how" (steps, time, tokens), your "images"
 
     @property
     def message_count(self) -> int:
         return sum(1 for r, _ in self.turns if r != "aside")
+
+    def spans(self, gap_s: float = 2 * 3600) -> list[list] | None:
+        """When the conversation was actually going on: [start, end, turns] for each stretch of back-and-forth
+        (a pause longer than `gap_s` starts a new one), or None when the store keeps no times per turn."""
+        times = sorted(t for (r, _), t in zip(self.turns, self.stamps) if t is not None and r != "aside") if len(self.stamps) == len(self.turns) else []
+        if not times:
+            return None
+        out: list[list] = []
+        for t in times:
+            if out and (t - out[-1][1]).total_seconds() <= gap_s:
+                out[-1][1], out[-1][2] = t, out[-1][2] + 1
+            else:
+                out.append([t, t, 1])
+        return [[a.isoformat(), b.isoformat(), n] for a, b, n in out]
 
 
 class ImportError_(ValueError):
@@ -344,16 +359,30 @@ def _thread_replies(content: Any) -> list[str]:
 
 def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
     """One Claude-Code-format transcript (Claude Code, CodeBuddy, WorkBuddy): user/assistant turns, title, model.
-    Like Open WebUI's importers, only what you and the agent said to each other is kept (no tool calls, no harness notes)."""
+    Like Open WebUI's importers, the turns are what you and the agent said to each other (no harness notes); like
+    Claude Code itself, each answer carries how it got there: its tool calls, commentary, thinking, time and tokens."""
+    from pga.hub.steps import Work, images_in, merge
     turns, stamps, title, started, updated, project, cwd = [], [], None, None, None, None, None
+    extras: list[dict] = []
     models: dict[str, int] = {}
     seen: set[str] = set()
     in_thread = False                                     # answering a project thread: its replies are the agent's turns
+    work, last_ts = Work(), None
+
+    def add(role: str, text: str, when: datetime | None, extra: dict | None = None) -> None:
+        turns.append((role, text))
+        stamps.append(when)
+        extras.append({k: v for k, v in (extra or {}).items() if v})
+
+    def settle() -> None:                                 # work after the round's last answer is part of that answer
+        if work.pending and turns and turns[-1][0] == "assistant":
+            extras[-1]["how"] = merge(extras[-1].get("how"), work.take(last_ts))
+
     try:
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return None
-    for ln in lines:
+    for i, ln in enumerate(lines):
         try:
             e = json.loads(ln)
         except json.JSONDecodeError:
@@ -380,41 +409,46 @@ def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
         content = msg.get("content") if isinstance(msg, dict) else msg
         if role == "assistant" and isinstance(msg, dict) and msg.get("model") and not str(msg["model"]).startswith("<"):
             models[str(msg["model"])] = models.get(str(msg["model"]), 0) + 1
+        if e.get("type") in ("user", "assistant"):
+            work.feed(e, i)
+        last_ts = ts or last_ts
         text = clean(_REMINDER.sub("", _text(content)))
         if role == "user":
-            if not text or text.lstrip().startswith(_MACHINE):
+            imgs = images_in(content, i)
+            if (not text and not imgs) or text.lstrip().startswith(_MACHINE):
                 continue
             said = _thread_said(text, seen)
             if said is not None:
                 in_thread = True
             else:
                 in_thread = False                         # you are talking to the session directly again (e.g. through PGA)
-                said = [(_PGA_NOTE.sub("", text), None)]
-            for t, sent in said:
+                said = [(_PGA_NOTE.sub("", text) or "🖼", None)]
+            if said:
+                settle()
+            for k, (t, sent) in enumerate(said):
                 if t:
-                    turns.append(("user", t))
-                    stamps.append(sent or ts)
+                    add("user", t, sent or ts, {"images": imgs if k == 0 else None})
+            if said:
+                work.start(ts, keep=work.pending)
             continue
-        if in_thread:                                     # its commentary, kept apart (shown folded), then what it told you
+        if in_thread:                                     # its commentary goes into the process, then what it told you
             if text:
-                turns.append(("aside", text))
-                stamps.append(ts)
+                work.note(text, ts)
             for t in _thread_replies(content):
                 if t.strip():
-                    turns.append(("assistant", t.strip()))
-                    stamps.append(ts)
+                    add("assistant", t.strip(), ts, {"how": work.take(ts) if work.pending else None})
         elif text:
-            turns.append((role, text))
-            stamps.append(ts)
+            add(role, text, ts, {"how": work.take(ts) if role == "assistant" and work.pending else None})
+    settle()
     if not turns or (skip_pga and pga_started(cwd)):
         return None
     if seen and all(stamps):                              # a thread message can reach the session after it already answered:
         order = sorted(range(len(turns)), key=lambda i: stamps[i])   # put each turn at the time it was said
-        turns, stamps = [turns[i] for i in order], [stamps[i] for i in order]
+        turns, stamps, extras = [turns[i] for i in order], [stamps[i] for i in order], [extras[i] for i in order]
         started = min(started, stamps[0]) if started else stamps[0]
     first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
     return Conv(f.stem, (title or " ".join(first_user.split())[:90]), started, updated, turns,
-                project or f.parent.name.strip("-").split("-")[-1], max(models, key=models.get) if models else None, stamps)
+                project or f.parent.name.strip("-").split("-")[-1], max(models, key=models.get) if models else None, stamps, extras)
 
 
 def claude_code_sessions(root: Path = CLAUDE_CODE_DIR) -> list[Conv]:
@@ -454,61 +488,121 @@ _CODEX_PREAMBLE = ("# AGENTS.md instructions", "<environment_context>", "<user_i
 
 def codex_sessions(roots: tuple[Path, ...] = CODEX_DIRS) -> list[Conv]:
     """ChatGPT / Codex threads (the desktop app and the CLI); the instruction preamble is not a message."""
-    out = []
-    for f in sorted(p for r in roots for p in r.glob("**/*.jsonl")):
-        turns, started, updated, cwd, origin, sid = [], None, None, None, "", f.stem
-        models: dict[str, int] = {}
-        try:
-            fh = f.open(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        with fh:
-            for ln in fh:
-                try:
-                    e = json.loads(ln)
-                except json.JSONDecodeError:
-                    continue
-                p = e.get("payload") or {}
-                ts = _ts(e.get("timestamp"))
-                if e.get("type") == "session_meta":
-                    sid, cwd, origin = str(p.get("id") or sid), p.get("cwd"), str(p.get("originator") or "")
-                    started = started or _ts(p.get("timestamp")) or ts
-                elif e.get("type") == "turn_context" and p.get("model"):
-                    models[str(p["model"])] = models.get(str(p["model"]), 0) + 1
-                elif e.get("type") == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "assistant"):
-                    text = clean(_text(p.get("content")))
-                    if not text or (p["role"] == "user" and (text.lstrip().startswith(_CODEX_PREAMBLE) or text.lstrip().startswith("<external_"))):
-                        continue                                       # instructions and the app's own internal messages
-                    turns.append((p["role"], text))
-                    updated = ts or updated
-        if not turns or pga_started(cwd) or origin.lower() == "pga":
-            continue
-        first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
-        out.append(Conv(sid, " ".join(first_user.split())[:90], started, updated or started, turns,
-                        Path(cwd).name if cwd else None, max(models, key=models.get) if models else None))
-    return out
+    return [c for c in (_codex_file(f) for f in sorted(p for r in roots for p in r.glob("**/*.jsonl"))) if c]
+
+
+def _codex_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
+    """One Codex rollout: your messages and its answers, each answer with its tool calls (scripts, functions, shell,
+    patches), reasoning summaries, time and tokens."""
+    from pga.hub.steps import Work, merge
+    turns, stamps, extras, started, updated, cwd, origin, sid = [], [], [], None, None, None, "", f.stem
+    models: dict[str, int] = {}
+    work, last_ts = Work(), None
+    try:
+        fh = f.open(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    with fh:
+        for i, ln in enumerate(fh):
+            try:
+                e = json.loads(ln)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            p = e.get("payload") or {}
+            ts = _ts(e.get("timestamp"))
+            if e.get("type") == "session_meta":
+                sid, cwd, origin = str(p.get("id") or sid), p.get("cwd"), str(p.get("originator") or "")
+                started = started or _ts(p.get("timestamp")) or ts
+                continue
+            if e.get("type") == "turn_context" and p.get("model"):
+                models[str(p["model"])] = models.get(str(p["model"]), 0) + 1
+            work.feed_codex(e, i)
+            last_ts = ts or last_ts
+            if e.get("type") == "response_item" and p.get("type") == "message" and p.get("role") in ("user", "assistant"):
+                text = clean(_text(p.get("content")))
+                if not text or (p["role"] == "user" and (text.lstrip().startswith(_CODEX_PREAMBLE) or text.lstrip().startswith("<external_"))):
+                    continue                                       # instructions and the app's own internal messages
+                if p["role"] == "user":
+                    if work.pending and turns and turns[-1][0] == "assistant":
+                        extras[-1]["how"] = merge(extras[-1].get("how"), work.take(last_ts))
+                    turns.append(("user", text))
+                    stamps.append(ts)
+                    extras.append({})
+                    work.start(ts, keep=work.pending)
+                else:
+                    how = work.take(ts) if work.pending else None
+                    if how is not None and models:
+                        how["model"] = max(models, key=models.get)
+                    turns.append(("assistant", text))
+                    stamps.append(ts)
+                    extras.append({"how": how} if how else {})
+                updated = ts or updated
+    if work.pending and turns and turns[-1][0] == "assistant":
+        extras[-1]["how"] = merge(extras[-1].get("how"), work.take(last_ts))
+    if not turns or (skip_pga and (pga_started(cwd) or origin.lower() == "pga")):
+        return None
+    first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
+    return Conv(sid, " ".join(first_user.split())[:90], started, updated or started, turns,
+                Path(cwd).name if cwd else None, max(models, key=models.get) if models else None, stamps, extras)
 
 
 def hermes_sessions(db: Path = HERMES_DB) -> list[Conv]:
+    from pga.hub.steps import Work
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
     try:
         cols = {r[1] for r in con.execute("pragma table_info(sessions)")}
+        mcols = {r[1] for r in con.execute("pragma table_info(messages)")}
         title_expr = "coalesce(title, display_name, '')" if "title" in cols else "coalesce(display_name, '')"
         last_expr = "coalesce(last_activity_at, ended_at, started_at)" if "last_activity_at" in cols else "coalesce(ended_at, started_at)"
         where = "where coalesce(hidden, 0) = 0" if "hidden" in cols else ""
         model_expr = "coalesce(model, '')" if "model" in cols else "''"
+        opt = lambda c: c if c in mcols else "null"                     # older Hermes: no tool columns
         sessions = con.execute(f"select id, {title_expr}, started_at, {last_expr}, coalesce(cwd, ''), {model_expr} from sessions {where} "
                                f"order by started_at").fetchall()
         out = []
         for sid, title, started, last, cwd, model in sessions:
-            rows = con.execute("select role, content from messages where session_id = ? and role in ('user','assistant') "
-                               "and content is not null and coalesce(active, 1) = 1 order by timestamp", (sid,)).fetchall()
-            turns = [(r, c) for r, c in rows if c and c.strip()]
+            rows = con.execute(f"select id, role, content, {opt('tool_calls')}, {opt('tool_call_id')}, {opt('reasoning')}, timestamp from messages "
+                               "where session_id = ? and role in ('user','assistant','tool') and coalesce(active, 1) = 1 order by timestamp, id",
+                               (sid,)).fetchall()
+            turns, stamps, extras, work = [], [], [], Work()
+            for mid, role, content, calls, call_id, reasoning, at in rows:
+                ts = _ts(at)
+                work.tick(ts)
+                if role == "tool":                                  # a tool came back
+                    work.result(str(call_id or ""), str(mid), ts)
+                    continue
+                if role == "user":
+                    if content and content.strip():
+                        turns.append(("user", content))
+                        stamps.append(ts)
+                        extras.append({})
+                        work.start(ts, keep=work.pending)
+                    continue
+                work.think(reasoning or "", ts)
+                tc = []
+                try:
+                    tc = json.loads(calls) if calls else []
+                except (json.JSONDecodeError, TypeError):
+                    tc = []
+                if isinstance(tc, list) and tc:                     # it calls tools: its words so far are commentary
+                    work.note(content or "", ts)
+                    for k, c in enumerate(tc):
+                        fn = (c or {}).get("function") or {} if isinstance(c, dict) else {}
+                        from pga.hub.steps import _args
+                        work.tool(str(fn.get("name") or ""), _args(fn.get("arguments")), f"{mid}.{k}", ts, str((c or {}).get("id") or ""))
+                    continue
+                if content and content.strip():
+                    how = work.take(ts) if work.pending else None
+                    turns.append(("assistant", content))
+                    stamps.append(ts)
+                    extras.append({"how": how} if how else {})
             if not turns or pga_started(cwd):
                 continue
             first_user = next((t for r, t in turns if r == "user"), "")
             out.append(Conv(str(sid), title or " ".join(first_user.split())[:90], _ts(started), _ts(last), turns,
-                            Path(cwd).name if cwd else None, model or None))
+                            Path(cwd).name if cwd else None, model or None, stamps, extras))
         return out
     finally:
         con.close()
@@ -568,7 +662,7 @@ def read_one(connector: str, external_id: str) -> Conv | None:
         return next((c for c in workbuddy_sessions() if c.external_id == eid), None)
     if connector == "codex":
         f = next((p for r in CODEX_DIRS for p in r.glob(f"**/*{eid}*.jsonl")), None)
-        return next(iter(codex_sessions((f.parent,))), None) if f else None
+        return _codex_file(f, skip_pga=False) if f else None             # that one thread, not the first of its folder
     if connector == "hermes":
         return next((c for c in hermes_sessions() if c.external_id == eid), None)
     return None
@@ -583,9 +677,19 @@ def full_turns(connector: str, external_id: str, limit: int = 2000) -> list[dict
     full = read_one(connector, external_id) if connector in LOCAL_FULL else None
     if not full:
         return []
-    stamps = full.stamps if len(full.stamps) == len(full.turns) else [None] * len(full.turns)
-    return [{"role": r, "text": redact(t)[:20000], **({"at": s.isoformat()} if s else {})}
-            for (r, t), s in zip(full.turns, stamps)][-limit:]
+    n = len(full.turns)
+    stamps = full.stamps if len(full.stamps) == n else [None] * n
+    extras = full.extras if len(full.extras) == n else [{}] * n
+    return [{"role": r, "text": redact(t)[:20000], **({"at": s.isoformat()} if s else {}),
+             **({"how": redact_how(x["how"])} if x.get("how") else {}), **({"images": x["images"]} if x.get("images") else {})}
+            for (r, t), s, x in zip(full.turns, stamps, extras)][-limit:]
+
+
+def redact_how(how: dict) -> dict:
+    """An answer's process as it goes to the page: no secrets in step titles, commentary or thinking."""
+    steps = [{**st, **({"title": redact(st["title"])} if st.get("title") else {}), **({"text": redact(st["text"])} if st.get("text") else {})}
+             for st in how.get("steps") or []]
+    return {**how, "steps": steps}
 
 
 def read_local(connector: str) -> list[Conv]:

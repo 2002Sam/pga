@@ -21,6 +21,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Path as Path_
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -128,6 +129,17 @@ def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
                 links.append({"source": model_node[who], "target": qid, "kind": "talk"})
 
     # what the agents found out is not drawn piece by piece: it is curated into the motivation's knowledge dataset
+
+
+SOURCE = {"claude_code": "claude", "codebuddy": "claude", "workbuddy": "claude", "codex": "codex", "hermes": "hermes"}
+
+
+def run_steps(run) -> dict | None:
+    """How one of PGA's agent runs went step by step (secrets redacted), when its agent kept the session."""
+    from pga.hub.connectors import redact_how
+    from pga.hub.steps import run_how
+    h = run_how(run)
+    return redact_how(h) if h and h.get("steps") else None
 
 
 def create_app(session_factory: sessionmaker[Session] | None = None,
@@ -1522,7 +1534,36 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.hub.connectors import full_turns
         return {"id": str(c.id), "title": c.title, "agent": a.name, "agent_type": a.connector, "vendor": a.vendor, "project": c.project,
                 "model": c.model, "messages": c.message_count, "excerpt": c.excerpt, "turns": full_turns(a.connector, c.external_id),
+                **({"session": c.external_id, "source": SOURCE[a.connector]} if a.connector in SOURCE else {}),
                 "started_at": c.started_at.isoformat() if c.started_at else None, "updated_at": c.updated_at.isoformat() if c.updated_at else None}
+
+    # ---------------------------------------------------------------- how an answer got there, read again on demand
+    @app.get("/v1/users/{user_id}/transcripts/{session}/step")
+    def transcript_step(user_id: uuid.UUID, session: str = Path_(..., pattern=r"^[\w-]{1,80}$"),
+                        ref: str = Query(..., pattern=r"^\d{1,9}(\.\d{1,4}){0,2}$"), out: str | None = Query(None, pattern=r"^\d{1,9}(\.\d{1,4}){0,2}$"),
+                        kind: str = Query("claude", pattern=r"^(claude|codex|hermes)$"), rt: Runtime = Depends(get_rt)):
+        """One step of a session in full (Claude Code, Codex, Hermes): the tool's input as code — a diff, a file, a
+        command, a script — and what came back (secrets redacted), its pictures."""
+        from pga.hub import steps
+        user_or_404(rt, user_id)
+        f = steps.transcript(session, kind)
+        d = steps.detail(f, ref, out, kind, session) if f else None
+        if d is None:
+            raise HTTPException(404, "step not found")
+        return d
+
+    @app.get("/v1/users/{user_id}/transcripts/{session}/image")
+    def transcript_image(user_id: uuid.UUID, session: str = Path_(..., pattern=r"^[\w-]{8,80}$"),
+                         ref: str = Query(..., pattern=r"^\d{1,9}(\.\d{1,4}){1,2}$"), kind: str = Query("claude", pattern=r"^(claude|codex)$"),
+                         rt: Runtime = Depends(get_rt)):
+        """A screenshot (or a picture you sent) in a Claude Code or Codex session."""
+        from pga.hub import steps
+        user_or_404(rt, user_id)
+        f = steps.transcript(session, kind)
+        img = steps.image(f, ref, kind) if f else None
+        if img is None:
+            raise HTTPException(404, "image not found")
+        return Response(content=img[0], media_type=img[1], headers={"Cache-Control": "private, max-age=86400"})
 
     @app.get("/v1/users/{user_id}/hub/timeline")
     def hub_timeline(user_id: uuid.UUID, limit: int = Query(300, le=1000), agent: str | None = None, pga: bool = True,
@@ -1904,6 +1945,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except ap.PoolError as exc:
             raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
+
+    @app.get("/v1/agents/live/{lid}/image/{n}")
+    def agents_live_image(lid: str, n: int):
+        """A screenshot a running answer took (the latest few are kept while it works)."""
+        from pga.agents import live
+        img = live.image(lid, n)
+        if img is None or not re.fullmatch(r"image/(png|jpeg|gif|webp)", img[1]):
+            raise HTTPException(404, "image not found")
+        return Response(content=img[0], media_type=img[1], headers={"Cache-Control": "private, max-age=3600"})
 
     @app.post("/v1/agents/live/{lid}/stop")
     def agents_stop(lid: str):
@@ -2977,9 +3027,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             kd = (k.data or {}) if k is not None else {}
             u = usage_of(kd) or {}
             win = ((kd.get("usage") or {}).get("modelContextWindow") if isinstance(kd.get("usage"), dict) else None)
-            return {"seconds": round(float(k.duration_s or 0), 1) if k is not None else None, "usage": u or None, "window": win,
-                    "via": kd.get("via"), "continued": kd.get("continued"), "model": (r.data or {}).get("model"),
-                    "actions": parse_actions(kd.get("trace") or "")[:80]}
+            out = {"seconds": round(float(k.duration_s or 0), 1) if k is not None else None, "usage": u or None, "window": win,
+                   "via": kd.get("via"), "continued": kd.get("continued"), "model": (r.data or {}).get("model"),
+                   "actions": parse_actions(kd.get("trace") or "")[:80]}
+            full = run_steps(k) if k is not None else None                  # the agent kept its session: every step
+            if full:
+                out.update(steps=full["steps"], src=full["src"], calls=(full.get("usage") or {}).get("calls"))
+            return out
         from pga.chats import current, fold
         turns, alts = fold(runs)
         out = []

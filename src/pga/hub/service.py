@@ -109,15 +109,18 @@ class HubService:
             if c.project and c.project not in title:
                 title = f"[{c.project}] {title}"
             row = existing.get(c.external_id)
+            spans = c.spans()
             if row is None:
                 row = AgentConversation(linked_agent_id=agent.id, external_id=c.external_id[:300])
                 self.session.add(row)
                 existing[c.external_id] = row
                 new += 1
-            elif row.message_count == c.message_count and row.excerpt == ex and row.model == c.model and row.title == title:
+            elif (row.message_count == c.message_count and row.excerpt == ex and row.model == c.model and row.title == title
+                  and row.spans == spans):
                 continue
             else:
                 changed += 1
+            row.spans = spans
             row.title, row.started_at, row.updated_at = title, c.started_at, c.updated_at or c.started_at
             row.message_count, row.excerpt = c.message_count, ex
             row.model, row.project = (c.model or None) and c.model[:80], (c.project or None) and c.project[:200]

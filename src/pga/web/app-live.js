@@ -44,7 +44,8 @@ function parseSteps(text) {           // the live trace: "→ Tool target", "$ c
 }
 const stepRow = (x, cls) => { const k = TOOLKIND(x.tool); return `<div class="step ${k} ${cls}"><span class="si">${cls.includes("cur") ? `<span class="spin"></span>` : TOOLICON[k]}</span><b>${esc(x.tool)}</b><code>${esc(String(x.target || "").slice(0, 200))}</code>${cls.includes("cur") ? "" : `<span class="ok">✓</span>`}</div>`; };
 function workCard() {
-  const lv = S.live || {}, r = lv.run, { steps, words } = parseSteps(r?.text);
+  const lv = S.live || {}, r = lv.run, parsed = parseSteps(r?.text), words = parsed.words;
+  const rich = (r?.steps || []).length > 0, steps = rich ? r.steps : parsed.steps;
   const u = usageJs(r?.usage), env = r?.env || {}, todos = r?.todos || [], writing = !!words && steps.length === 0 ? true : !!words;
   const status = !r ? L("正在分配 agent…", "Picking an agent…") : words && (!steps.length || r.text.trimEnd().endsWith(words.slice(-20))) ? L("正在写回答", "Writing") : steps.length ? L("正在用工具", "Using tools") : L("在想", "Thinking");
   const seen = lv.seen || 0; if (S.live) S.live.seen = steps.length;
@@ -55,12 +56,63 @@ function workCard() {
     ${fold || env.permission ? `<div class="wenv">${esc([fold, env.permission, env.tools ? L(`${env.tools} 个工具`, `${env.tools} tools`) : "", (env.mcp || []).length ? "MCP " + env.mcp.join(", ") : ""].filter(Boolean).join(" · "))}</div>` : ""}
     ${todos.length ? `<ul class="todo">${todos.map((t) => `<li class="${t.status}"><span>${t.status === "completed" ? "✓" : t.status === "in_progress" ? `<span class="spin"></span>` : "○"}</span>${esc(t.content)}</li>`).join("")}</ul>` : ""}
     ${steps.length ? `<div class="steps">${steps.length > 12 ? `<div class="dimt more">${L(`…前面还有 ${steps.length - 12} 步`, `… ${steps.length - 12} earlier`)}</div>` : ""}${steps.slice(-12).map((x, i, xs) => { const n = steps.length - xs.length + i;
+      if (rich) return howStep({ ...x, secs: x.secs ?? (x.t === "tool" && r.running !== false ? Date.now() / 1000 - x.at : null) }, { live: r.id }, (x.t === "tool" && x.secs == null && r.running !== false ? "cur" : "") + (n >= seen ? " new" : ""));
       return stepRow(x, (n === steps.length - 1 && !words ? "cur" : "") + (n >= seen ? " new" : "")); }).join("")}</div>` : ""}
     ${words ? `<div class="wtext md">${md(words.slice(-1800))}<span class="caret"></span></div>` : ""}</div>`;
 }
 /* after the answer: the same steps, kept above it (folded when there are many) */
+/* ------------------------------------------------ how an answer got there, like Claude Code: every step, read from its session */
+const dur = (s) => (s == null ? "" : s < 60 ? `${(+s).toFixed(s < 10 ? 1 : 0)}s` : s < 3600 ? `${Math.floor(s / 60)}m ${Math.round(s % 60)}s` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`);
+/* where a step's record is: {kind, session} for a kept session (claude | codex | hermes), {live} while it runs; a step of a
+   run that was put together from several sessions says its own ("kind:session") */
+const srcOf = (st, src) => { if (st && typeof st.src === "string") { const i = st.src.indexOf(":"); return { kind: st.src.slice(0, i), session: st.src.slice(i + 1) }; } return src || {}; };
+const imgUrl = (src, ref) => (src.live ? `/v1/agents/live/${src.live}/image/${ref}` : `/v1/users/${S.uid}/transcripts/${encodeURIComponent(src.session)}/image?ref=${ref}&kind=${src.kind || "claude"}`);
+const thumbs = (src, refs) => ((refs || []).length ? `<div class="thumbs">${refs.map((r) => `<img loading="lazy" src="${imgUrl(src, r)}" data-zoom="${esc(imgUrl(src, r))}" alt="">`).join("")}</div>` : "");
+/* code shown the way the page shows code (highlighted, with copy): a fence longer than any run of backticks inside */
+const fenced = (lang, code) => { const n = Math.max(3, ...(String(code).match(/`+/g) || []).map((x) => x.length + 1)); return md(`${"`".repeat(n)}${lang || ""}\n${code}\n${"`".repeat(n)}`); };
+function howStep(st, src, cls = "") {
+  if (st.t === "note") return `<div class="snote md">${md(st.text)}</div>`;
+  if (st.t === "think") return `<details class="sthink"><summary>💭 ${esc(st.text.split("\n")[0].slice(0, 110))}${st.text.length > 110 ? "…" : ""}</summary><div class="md">${md(st.text)}</div></details>`;
+  const k = TOOLKIND(st.tool), sx = srcOf(st, src), open = sx.session && st.ref, cur = cls.includes("cur");
+  return `<div class="hstep">
+    <div class="step ${k} ${cls} ${open ? "can" : ""}" ${open ? `data-step="${esc(st.ref)}" data-out="${esc(st.out || "")}" data-sess="${esc(sx.session)}" data-kind="${esc(sx.kind || "claude")}"` : ""} title="${esc(st.server ? st.server + " · " + st.tool : st.tool)}">
+      <span class="si">${cur ? `<span class="spin"></span>` : TOOLICON[k]}</span><b>${esc(st.tool)}</b><code>${esc(st.title || "")}</code>
+      ${st.diff ? `<span class="dstat"><i>+${st.diff[0]}</i> <s>−${st.diff[1]}</s></span>` : ""}
+      ${st.secs != null ? `<span class="num dimt">${dur(st.secs)}</span>` : ""}${cur ? "" : st.error ? `<span class="bad">✗</span>` : `<span class="ok">✓</span>`}</div>
+    ${thumbs(sx, st.images)}</div>`;
+}
+function howBlock(h, src, open = false) {
+  const xs = h.steps || [], tools = xs.filter((x) => x.t === "tool").length; if (!xs.length) return "";
+  const bad = xs.filter((x) => x.error).length, pics = xs.reduce((n, x) => n + (x.images || []).length, 0);
+  return `<details class="proc how" ${open ? "open" : ""}><summary><span class="ok">✓</span>${L(`工作过程 · ${tools} 步`, `Worked · ${tools} steps`)}${h.seconds != null ? ` · ${dur(h.seconds)}` : ""}${pics ? ` · 🖼 ${pics}` : ""}${bad ? ` · <span class="bad">${L(`${bad} 步出错`, `${bad} failed`)}</span>` : ""}</summary>
+    <div class="steps">${xs.map((x) => howStep(x, src)).join("")}</div></details>`;
+}
+/* under an answer: model · time · calls · tokens in (how much from the cache) and out */
+function howMeta(h) {
+  const u = h.usage, bits = [h.model, h.seconds != null ? dur(h.seconds) : "", u?.calls ? L(`${u.calls} 次调用`, `${u.calls} calls`) : "",
+    u ? L(`读入 ${kfmt(u.input)}${u.input ? `（${Math.round((100 * u.cached) / u.input)}% 缓存）` : ""} · 写出 ${kfmt(u.output)}`, `in ${kfmt(u.input)}${u.input ? ` (${Math.round((100 * u.cached) / u.input)}% cached)` : ""} · out ${kfmt(u.output)}`) : "",
+    u?.context ? L(`上下文 ${kfmt(u.context)}`, `context ${kfmt(u.context)}`) : ""].filter(Boolean);
+  return bits.length ? `<div class="rmeta">${esc(bits.join(" · "))}</div>` : "";
+}
+/* a step in full (its input and what came back) opens under it; a screenshot opens large */
+document.addEventListener("click", async (e) => {
+  const z = e.target.closest("[data-zoom]"); if (z) { e.preventDefault(); modal(`<img class="zoomimg" src="${esc(z.dataset.zoom)}" alt="">`); return; }
+  const s = e.target.closest("[data-step]"); if (!s) return;
+  const box = s.parentElement, had = box.querySelector(".sdetail"); if (had) { had.remove(); return; }
+  const d = document.createElement("div"); d.className = "sdetail"; d.textContent = "…"; box.appendChild(d);
+  try {
+    const kind = s.dataset.kind || "claude";
+    const r = await api(`/v1/users/${S.uid}/transcripts/${encodeURIComponent(s.dataset.sess)}/step?ref=${s.dataset.step}${s.dataset.out ? `&out=${s.dataset.out}` : ""}&kind=${kind}`);
+    const v = r.view || {}, what = v.kind === "diff" ? L("改动", "Changes") : v.path ? L("写入", "Wrote") : L("输入", "Input");
+    d.innerHTML = `<div class="label">${what}${v.path ? ` · <code>${esc(String(v.path).replace(/^\/Users\/[^/]+/, "~"))}</code>` : ""}</div>${fenced(v.kind === "diff" ? "diff" : v.lang, v.code || "")}`
+      + (r.output || !r.images.length ? `<div class="label">${r.error ? L("出错", "Error") : L("输出", "Output")}</div>${r.output && r.output_lang && !r.error ? fenced(r.output_lang, r.output)
+        : `<pre class="${r.error ? "bad" : ""}">${esc(r.output || L("（没有输出）", "(no output)"))}${r.cut ? "\n…" : ""}</pre>`}` : "")
+      + thumbs({ session: s.dataset.sess, kind }, r.images);
+  } catch (err) { d.textContent = err.message; }
+});
 function procBlock(t) {
-  const h = t.how || {}, acts = h.actions || []; if (!acts.length) return "";
+  const h = t.how || {}; if ((h.steps || []).length) return howBlock(h, h.src || {});
+  const acts = h.actions || []; if (!acts.length) return "";
   return `<details class="proc" ${acts.length <= 5 ? "open" : ""}><summary><span class="ok">✓</span>${L(`工作过程 · ${acts.length} 步`, `Worked · ${acts.length} steps`)}${h.seconds != null ? ` · ${h.seconds}s` : ""}</summary>
     <div class="steps">${acts.map((a) => stepRow({ tool: a.tool, target: a.target }, "")).join("")}</div></details>`;
 }

@@ -50,6 +50,49 @@ def set_extra(lid: str | None, key: str, value) -> None:
             r[key] = value
 
 
+MAX_STEPS = 400
+MAX_IMAGES = 12                  # the latest screenshots of a running answer, kept in memory for its step list
+
+
+def step(lid: str | None, st: dict) -> None:
+    """A step as it starts (a tool call, a thought), for the working card's Claude-Code-like list."""
+    if not lid:
+        return
+    with _LOCK:
+        r = _RUNS.get(lid)
+        if r is not None:
+            xs = r.setdefault("steps", [])
+            xs.append({**st, "at": time.time()})
+            del xs[:-MAX_STEPS]
+
+
+def step_done(lid: str | None, call: str, *, error: bool = False, images: list[tuple[bytes, str]] | None = None) -> None:
+    """The tool call `call` came back: how long it took, whether it failed, its screenshots."""
+    if not lid or not call:
+        return
+    with _LOCK:
+        r = _RUNS.get(lid)
+        st = next((x for x in reversed((r or {}).get("steps") or []) if x.get("id") == call), None)
+        if st is None:
+            return
+        st["secs"] = round(time.time() - st["at"], 1)
+        if error:
+            st["error"] = True
+        pics = r.setdefault("_images", [])
+        for img in images or []:
+            pics.append(img)
+            st.setdefault("images", []).append(len(pics) - 1)
+        if len(pics) > MAX_IMAGES:                                    # forget the oldest pictures, keep the numbering
+            for i in range(len(pics) - MAX_IMAGES):
+                pics[i] = None
+
+
+def image(lid: str, n: int) -> tuple[bytes, str] | None:
+    with _LOCK:
+        pics = (_RUNS.get(lid) or {}).get("_images") or []
+        return pics[n] if 0 <= n < len(pics) else None
+
+
 def finish(lid: str | None, ok: bool, text: str | None = None, error: str | None = None) -> None:
     if not lid:
         return
@@ -127,8 +170,8 @@ def snapshot() -> list[dict]:
     now = time.time()
     with _LOCK:
         _prune(now)
-        return [{**r, "elapsed_s": round((r["finished"] or now) - r["started"], 1), "text": r["text"],
-                 "running": r["finished"] is None} for r in sorted(_RUNS.values(), key=lambda x: x["started"])]
+        return [{**{k: v for k, v in r.items() if not k.startswith("_")}, "elapsed_s": round((r["finished"] or now) - r["started"], 1),
+                 "text": r["text"], "running": r["finished"] is None} for r in sorted(_RUNS.values(), key=lambda x: x["started"])]
 
 
 def _prune(now: float | None = None) -> None:

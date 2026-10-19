@@ -35,8 +35,44 @@ function tlLayout() {
   return { rows, pts, segs, arcs, lanes: Math.max(1, lanes), H: y + 30 };
 }
 const tlMode = () => store.get("pga_tl_mode") || "lines";
+const tlFolded = () => store.get("pga_tl_fold") === "1";
+const TLICON = {   // three lanes running into one, and one opening into three
+  gather: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 2v3c0 2 5 3 5 5v4M13 2v3c0 2-5 3-5 5M8 2v12"/></svg>`,
+  spread: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 2v4c0 2-5 3-5 5v3M8 6c0 2 5 3 5 5v3M8 2v12"/></svg>`,
+};
+/* gathered: every conversation once (its latest stretch), in time order, on one line */
+function tlFoldLayout() {
+  const T = S.tl || { sessions: [] }, latest = new Map(), rows = [], pts = [], ROW = 48, DAY = 34;
+  for (const x of T.sessions || []) { const p = latest.get(x.item); latest.set(x.item, { s: x, n: (p?.n || 0) + 1, turns: (p?.turns || 0) + (x.turns || 0) }); }
+  const xs = [...latest.values()].sort((a, b) => (a.s.end || a.s.at).localeCompare(b.s.end || b.s.at));
+  let y = 18, day = "";
+  for (const v of xs) {
+    const d = new Date(v.s.end || v.s.at), dk = d.toDateString();
+    if (dk !== day) { day = dk; rows.push({ day: d, y: y + DAY / 2 }); y += DAY; }
+    pts.push({ lane: 0, y: y + ROW / 2, s: { ...v.s, at: v.s.end || v.s.at, turns: v.turns }, n: v.n }); y += ROW;
+  }
+  const segs = pts.length > 1 ? [{ lane: 0, y1: pts[0].y, y2: pts[pts.length - 1].y, line: "__all__" }] : [];
+  return { rows, pts, segs, arcs: [], lanes: 1, H: y + 30, folded: true };
+}
+/* the gathering: every lane slides onto the first one and the joins fade, then the gathered view takes its place
+   (spreading out plays it backwards) */
+function tlFoldToggle() {
+  const svg = $("#tlSvg"), going = !tlFolded(), dx = (el) => -(+el.dataset.lane || 0) * 18;
+  const done = () => { store.set("pga_tl_fold", going ? "1" : ""); renderTimeline();
+    const s2 = $("#tlSvg"), w = $(".tlwrap"); if (!s2) return;
+    if (w) w.scrollTop = S.dir !== "down" ? 0 : w.scrollHeight;          // the two layouts differ in height: back to the latest
+    if (going) { s2.classList.add("tlin"); setTimeout(() => s2.classList.remove("tlin"), 500); return; }
+    const els = s2.querySelectorAll("[data-lane]"); s2.classList.add("tlspread");
+    els.forEach((el) => { el.style.transform = `translateX(${dx(el)}px)`; });
+    requestAnimationFrame(() => requestAnimationFrame(() => { els.forEach((el) => { el.style.transform = ""; }); setTimeout(() => s2.classList.remove("tlspread"), 520); })); };
+  if (!svg || !going) { done(); return; }
+  svg.classList.add("tlgather");
+  svg.querySelectorAll("[data-lane]").forEach((el) => { el.style.transform = `translateX(${dx(el)}px)`; });
+  setTimeout(done, 460);
+}
+document.addEventListener("click", (e) => { if (e.target.closest("#tlFold")) { e.preventDefault(); tlFoldToggle(); } });
 function renderTimeline() { if (tlMode() === "lines") renderLines(); else renderTimeAxis(); }
-const tlHead = () => `<div class="ch"><button class="ghost sm" data-act="search" title="${L("搜索所有对话", "Search everything")} (${MOD} K)">${I.search}</button><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span><span class="grow"></span>
+const tlHead = () => `<div class="ch"><button class="ghost sm" data-act="search" title="${L("搜索所有对话", "Search everything")} (${MOD} K)">${I.search}</button><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span>${tlMode() === "time" ? `<button class="sm ghost tlfoldb ${tlFolded() ? "on" : ""}" id="tlFold" title="${tlFolded() ? L("展开回一条条线", "Spread back into lines") : L("把所有对话收拢到一条线上，每段对话一个点，快速挑一段", "Gather every conversation onto one line, one point each, to pick one quickly")}" aria-label="${tlFolded() ? L("展开", "Spread") : L("收拢", "Gather")}">${tlFolded() ? TLICON.spread : TLICON.gather}</button>` : ""}<span class="grow"></span>
   <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
 /* one row per line (one piece of ongoing work), the latest first; the strip under it marks the days it was active */
 function renderLines() {
@@ -80,26 +116,28 @@ function renderTimeAxis() {
   const head = tlHead();
   if (!T) { box.innerHTML = head + `<div class="empty">…</div>`; return; }
   if (!(T.sessions || []).length) { box.innerHTML = head + `<div class="empty" style="padding:20px 14px">${L("最近还没有对话。", "No conversations lately.")}</div>`; return; }
-  const G = tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 18, labelX = LX(Math.min(G.lanes, 12)) + 10;
+  const G = tlFolded() ? tlFoldLayout() : tlLayout(), W = Math.max(320, box.clientWidth || 360), LX = (l) => 22 + l * 18, labelX = LX(Math.min(G.lanes, 12)) + 10;
   const flip = S.dir !== "down", Y = (y) => (flip ? G.H - y : y), maxCh = Math.max(8, Math.floor((W - labelX - 14) / 12.5));
   const sel = S.tlSel, selLine = S.tlLine || (T.sessions.find((x) => x.item === sel) || {}).line, dimOf = (line) => (selLine ? (line === selLine ? "on" : "dim") : "");
-  const col = (line) => { const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
+  const col = (line) => { if (line === "__all__") return "var(--muted)"; const m = T.lines[line] || {}; return m.kind === "single" ? "var(--dim)" : `hsl(${hueOf(line)} 55% 58%)`; };
   let g = "";
   for (const r of G.rows) g += `<text class="tlday" x="${labelX}" y="${Y(r.y) + 4}">${esc(r.day.toLocaleDateString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", weekday: "short" }))}</text><line class="tlrule" x1="${labelX + 84}" x2="${W - 10}" y1="${Y(r.y)}" y2="${Y(r.y)}"/>`;
   let hits = "";                                                   // wide invisible strokes: a click on a line picks the line
   for (const sg of G.segs) { const at = `x1="${LX(sg.lane)}" x2="${LX(sg.lane)}" y1="${Y(sg.y1)}" y2="${Y(sg.y2)}"`;
-    g += `<line class="tlseg ${dimOf(sg.line)}" ${at} style="stroke:${col(sg.line)}"/>`; hits += `<line class="tlhit" data-tline="${esc(sg.line)}" ${at}><title>${esc(T.lines[sg.line]?.title || "")}</title></line>`; }
+    g += `<line class="tlseg ${G.folded ? "all" : dimOf(sg.line)}" data-lane="${sg.lane}" ${at} style="stroke:${col(sg.line)}"/>`;
+    if (!G.folded) hits += `<line class="tlhit" data-tline="${esc(sg.line)}" ${at}><title>${esc(T.lines[sg.line]?.title || "")}</title></line>`; }
   for (const a of G.arcs) { const x1 = LX(a.from.lane), y1 = Y(a.from.y), x2 = LX(a.toLane), y2 = Y(a.toY), dy = (y2 - y1) * .5;
     const d = `M ${x1} ${y1} C ${x1 + 18} ${y1 + dy * .25}, ${x2 + 18} ${y2 - dy * .25}, ${x2} ${y2}`;
-    g += `<path class="tlarc ${dimOf(a.line)}" d="${d}" style="stroke:${col(a.line)}"/>`;
+    g += `<path class="tlarc ${dimOf(a.line)}" data-lane="${a.toLane}" d="${d}" style="stroke:${col(a.line)}"/>`;
     hits += `<path class="tlhit" data-tline="${esc(a.line)}" d="${d}"><title>${esc(L("接着之前的对话：", "Picks up: ") + (T.lines[a.line]?.title || ""))}</title></path>`; }
   g += hits;
   for (const p of G.pts) {
     const x = p.s, r = Math.max(3.5, Math.min(7.5, 3 + Math.sqrt(x.turns || 1) * .7)), on = x.item === sel, line = T.lines[x.line] || {};
     const t = x.title || L("（没有标题）", "(untitled)"), short = t.length > maxCh ? t.slice(0, maxCh - 1) + "…" : t;
     const when2 = new Date(x.at).toLocaleTimeString(EN ? "en-GB" : "zh-CN", { hour: "2-digit", minute: "2-digit" });
-    const meta = [when2, x.kind === "tree" ? L("树", "tree") : x.agent && x.agent !== "-" ? x.agent : "", line.kind !== "single" ? "· " + line.title : "", x.turns > 1 ? L(`${x.turns} 轮`, `${x.turns} turns`) : ""].filter(Boolean).join(" ");
-    g += `<g class="tlpt ${x.kind} ${on ? "on" : ""} ${selLine && x.line !== selLine ? "dim" : ""}" data-ts="${esc(x.id)}"><circle cx="${LX(p.lane)}" cy="${Y(p.y)}" r="${r.toFixed(1)}" style="${line.kind !== "single" ? `stroke:${col(x.line)}` : ""}"/>
+    const meta = [when2, x.kind === "tree" ? L("树", "tree") : x.agent && x.agent !== "-" ? x.agent : "", line.kind !== "single" ? "· " + line.title : "", x.turns > 1 ? L(`${x.turns} 轮`, `${x.turns} turns`) : "",
+      p.n > 1 ? L(`${p.n} 段`, `${p.n} stretches`) : ""].filter(Boolean).join(" ");
+    g += `<g class="tlpt ${x.kind} ${on ? "on" : ""} ${selLine && x.line !== selLine && !G.folded ? "dim" : ""}" data-ts="${esc(x.id)}"><circle data-lane="${p.lane}" cx="${LX(p.lane)}" cy="${Y(p.y)}" r="${r.toFixed(1)}" style="${line.kind !== "single" ? `stroke:${col(x.line)}` : ""}"/>
       <text x="${labelX}" y="${Y(p.y) - 1}">${esc(short)}<tspan class="tm" x="${labelX}" dy="14">${esc(meta.length > maxCh * 1.4 ? meta.slice(0, Math.floor(maxCh * 1.4)) + "…" : meta)}</tspan></text></g>`;
   }
   const keep = $(".tlwrap", box)?.scrollTop;
@@ -318,9 +356,11 @@ function renderImported() {
       <div class="dimt" style="font-size:11.5px;margin:2px 2px 0">${impResume(d) ? "" : L("不勾：新开一段会话，只带上这段对话的摘要和最后几轮，省额度。", "Unticked: a fresh session with this conversation's summary and last turns; saves quota.")}</div>` : ""}</div>`;
   autoGrow($("#chatText"));
 }
-/* an imported conversation in full: your turns, its answers, and what it said to itself in between (folded; open to read) */
+/* an imported conversation in full: your turns (with the pictures you sent), its answers, and above each answer how it got
+   there — every tool call, its commentary and thinking, screenshots — folded like Claude Code's; time and tokens below */
 function impTurnsHtml(d) {
   let out = "", aside = [];
+  const src = { session: d.session, kind: d.source || "claude" };
   const flush = () => {
     if (!aside.length) return;
     out += `<details class="proc aside"><summary><span>💭</span>${L(`${esc(d.agent)} 的自言自语 · ${aside.length} 条`, `${esc(d.agent)} thinking aloud · ${aside.length}`)}</summary>
@@ -330,8 +370,9 @@ function impTurnsHtml(d) {
   for (const t of d.turns) {
     if (t.role === "aside") { aside.push(t); continue; }
     flush();
-    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md })
-      : PGATree.chat([{ agent: d.agent, kind: "answer", text: t.text, at: t.at, data: {} }], { md, name: (x) => x.agent });
+    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + (d.session ? thumbs(src, t.images) : "")
+      : (t.how && d.session ? howBlock(t.how, src) : "") + PGATree.chat([{ agent: d.agent, kind: "answer", text: t.text, at: t.at, data: {} }], { md, name: (x) => x.agent })
+        + (t.how ? howMeta(t.how) : "");
   }
   flush();
   return out;

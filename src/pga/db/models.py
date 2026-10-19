@@ -828,6 +828,7 @@ class AgentConversation(Base):
     excerpt: Mapped[str] = mapped_column(Text, default="", nullable=False)   # secrets redacted, size-capped
     model: Mapped[str | None] = mapped_column(String(80))                    # which model answered (when the store says)
     project: Mapped[str | None] = mapped_column(String(200))
+    spans: Mapped[list | None] = mapped_column(JSONType)                    # [[start, end, turns], …]: when it was going on
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (UniqueConstraint("linked_agent_id", "external_id", name="uq_agent_conversation"),

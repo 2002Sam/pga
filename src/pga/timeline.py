@@ -79,6 +79,14 @@ class Item:
     model: str = ""
     times: list[datetime] = field(default_factory=list)
     turns: list[int] = field(default_factory=list)
+    spans: list[tuple] = field(default_factory=list)  # an import's stretches of back-and-forth: (start, end, turns)
+
+
+def _dt(v) -> datetime | None:
+    try:
+        return datetime.fromisoformat(str(v))
+    except (TypeError, ValueError):
+        return None
 
 
 def _prefs(user: User) -> dict:
@@ -174,11 +182,15 @@ class Timeline:
             title = tidy(re.sub(r"^\[[^\]]*\]\s*", "", c_title)) or tidy(first_said)[:60] or (c.excerpt or "")[:60]
             it = items[key] = Item(key, "import", title[:120], agent=a.name, project=c.project or "", excerpt=(c.excerpt or "")[:400],
                                    line=line, ref={"conversation": str(c.id), "messages": c.message_count})
-            it.times = [start] + ([end] if end - start > GAP else [])
+            spans = [(s0, s1, n) for s0, s1, n in ((_dt(a), _dt(b), n) for a, b, n in (c.spans or [])) if s0 and s1 and s1 >= since]
+            if spans:                                               # when it was really going on, turn by turn
+                it.times, it.turns, it.spans = [s0 for s0, _, _ in spans], [n for _, _, n in spans], spans
+            else:                                                   # the store keeps no times per turn: its first and last
+                it.times = [start] + ([end] if end - start > GAP else [])
+                it.turns = [c.message_count] if len(it.times) == 1 else [max(1, c.message_count // 2), c.message_count - max(1, c.message_count // 2)]
             mine = sum(len(m.group(1)) for m in re.finditer(r"^User:\s?(.*)$", c.excerpt or "", re.M))
             it.chars = max(mine, (c.message_count or 0) // 2 * 120) if c.message_count else mine   # the excerpt is cut: estimate the rest
             it.model = c.model or ""
-            it.turns = [c.message_count] if len(it.times) == 1 else [max(1, c.message_count // 2), c.message_count - max(1, c.message_count // 2)]
         return list(items.values())
 
     def lines_of(self, user: User, items: list[Item]) -> dict[str, str]:
@@ -220,7 +232,7 @@ class Timeline:
                          "items": len(its), **({"tree": lid[4:]} if kind == "aim" else {"tree": "you"} if lid == "you" else {})}
         sessions = []
         for it in items:
-            spans = _sessions(it.times) if it.kind != "import" else [(t, t, n) for t, n in zip(it.times, it.turns or [1])]
+            spans = _sessions(it.times) if it.kind != "import" else (it.spans or [(t, t, n) for t, n in zip(it.times, it.turns or [1])])
             for i, (a, b, n) in enumerate(spans):
                 sessions.append({"id": f"{it.key}#{i}", "item": it.key, "line": lines[it.key], "kind": it.kind, "title": it.title,
                                  "agent": it.agent, "project": it.project, "at": a.isoformat(), "end": b.isoformat(), "turns": n,

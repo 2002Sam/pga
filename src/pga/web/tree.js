@@ -362,10 +362,12 @@ const THEME = `
     const run = (r) => {
       const st = r.status === "SUCCEEDED" ? "ok" : r.status === "STOPPED" ? "stop" : "bad";
       const stepName = STEP[r.step] ? L(...STEP[r.step]) : r.step_zh || r.step;
-      return `<li class="bt-run ${st}"><details ${r.actions.length && r.actions.length <= 12 ? "open" : ""}><summary><span class="bt-dot"></span><span class="bt-step">${esc(stepName)}</span>${r.code ? `<span class="bt-code">${esc(r.code)}</span>` : ""}
-        <span class="bt-t">${r.seconds ? `${r.seconds}s · ` : ""}${esc(when(r.at))}</span>${r.actions.length ? `<span class="bt-n">${L(`${r.actions.length + r.more} 个动作`, `${r.actions.length + r.more} actions`)}</span>` : ""}</summary>
+      const n = r.how ? (r.how.steps || []).filter((x) => x.t === "tool").length : r.actions.length + r.more;
+      return `<li class="bt-run ${st}"><details ${n && n <= 12 ? "open" : ""}><summary><span class="bt-dot"></span><span class="bt-step">${esc(stepName)}</span>${r.code ? `<span class="bt-code">${esc(r.code)}</span>` : ""}
+        <span class="bt-t">${r.seconds ? `${r.seconds}s · ` : ""}${esc(when(r.at))}</span>${n ? `<span class="bt-n">${L(`${n} 个动作`, `${n} actions`)}</span>` : ""}</summary>
         ${r.error ? `<div class="bt-err">${esc(r.error)}</div>` : ""}
-        ${r.actions.length ? `<ul>${r.actions.map((a) => { const [nm, col] = AK[a.kind] || AK.other; return `<li class="bt-act"><span class="bt-tool" style="color:${col}">${esc(a.tool)}</span><code>${esc(a.target)}</code></li>`; }).join("")}${r.more ? `<li class="bt-act dim">${L(`…还有 ${r.more} 个`, `… ${r.more} more`)}</li>` : ""}</ul>`
+        ${r.how && typeof howBlock === "function" ? howBlock(r.how, r.how.src || {}, true) + (typeof howMeta === "function" ? howMeta(r.how) : "")
+          : r.actions.length ? `<ul>${r.actions.map((a) => { const [nm, col] = AK[a.kind] || AK.other; return `<li class="bt-act"><span class="bt-tool" style="color:${col}">${esc(a.tool)}</span><code>${esc(a.target)}</code></li>`; }).join("")}${r.more ? `<li class="bt-act dim">${L(`…还有 ${r.more} 个`, `… ${r.more} more`)}</li>` : ""}</ul>`
           : `<div class="bt-none">${L("这次运行没有记录到工具动作", "No tool actions recorded for this run")}${r.step === "think" || r.step === "aggregate" ? L("（思考和合成只写文字）", " (thinking and aggregating only write)") : ""}</div>`}</details></li>`;
     };
     const agents = (B.agents || []).map((a) => { const h = hue(a.agent);
