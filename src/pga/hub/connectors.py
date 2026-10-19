@@ -15,6 +15,7 @@ are never stored and never sent to a model.
 
 from __future__ import annotations
 
+import html
 import io
 import json
 import re
@@ -35,13 +36,14 @@ class Conv:
     title: str
     started_at: datetime | None = None
     updated_at: datetime | None = None
-    turns: list[tuple[str, str]] = field(default_factory=list)   # (user|assistant, text)
+    turns: list[tuple[str, str]] = field(default_factory=list)   # (user|assistant|aside, text); aside: the agent thinking aloud
     project: str | None = None
     model: str | None = None                                     # the model that answered most (when the store says)
+    stamps: list[datetime | None] = field(default_factory=list)  # when each turn was said, alongside turns (when the store says)
 
     @property
     def message_count(self) -> int:
-        return len(self.turns)
+        return sum(1 for r, _ in self.turns if r != "aside")
 
 
 class ImportError_(ValueError):
@@ -69,7 +71,7 @@ def redact(text: str) -> str:
     return text
 
 
-_NOISE = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-[a-z-]+|ide_[a-z_]+)>[\s\S]*?</\1>")
+_NOISE = re.compile(r"<(system-reminder|command-[a-z-]+|local-command-[a-z-]+|bash-[a-z-]+|ide_[a-z_]+|task-notification)>[\s\S]*?</\1>")
 
 
 def clean(text: str) -> str:
@@ -79,7 +81,7 @@ def clean(text: str) -> str:
 
 def excerpt(turns: list[tuple[str, str]], limit: int = EXCERPT_CHARS) -> str:
     """The opening request plus the latest turns — enough to tell what the conversation was about."""
-    turns = [(r, clean(t)) for r, t in turns if clean(t)]
+    turns = [(r, clean(t)) for r, t in turns if r != "aside" and clean(t)]
     if not turns:
         return ""
     def line(r: str, t: str, n: int) -> str:
@@ -305,11 +307,48 @@ def pga_made(c: "Conv") -> bool:
 
 _REMINDER = re.compile(r"<system-reminder[^>]*>[\s\S]*?</system-reminder>")
 
+# A Claude Code session that works a claude.ai project thread: your words arrive wrapped (<wake>, a coordinator's
+# <relay>), and what you see in the thread is the session's `…__reply` tool calls, not its own running commentary.
+_THREAD_WRAP = ("<wake", "<project_claude_message", "<relay")
+_THREAD_SAID = re.compile(r"<(message|cited)\b([^>]*)>([\s\S]*?)</\1>")
+# the harness talking, not you: resuming after a usage limit or a full context, an interrupted turn
+_MACHINE = ("[auto-continue]", "[Request interrupted", "[Usage limit reached", "This session is being continued from a previous conversation")
+_PGA_NOTE = re.compile(r"^\s*\[PGA note[^\]]*\]\s*")
+
+
+def _thread_said(text: str, seen: set[str]) -> list[tuple[str, datetime | None]] | None:
+    """Your own messages inside a project-thread wrapper (each once, with when you sent it), or None when the turn is not wrapped."""
+    if not text.lstrip().startswith(_THREAD_WRAP):
+        return None
+    out = []
+    for m in _THREAD_SAID.finditer(text):
+        attrs = m.group(2)
+        if not re.search(r'\bfrom="human"|\bauthor="user"', attrs):
+            continue
+        mid = re.search(r'(?<![\w-])id="([^"]+)"', attrs)
+        if mid and mid.group(1) in seen:                  # the coordinator cites a message again
+            continue
+        if mid:
+            seen.add(mid.group(1))
+        said = html.unescape(m.group(3)).strip()
+        sent = re.search(r'\b(?:sent-at|at)="([^"]+)"', attrs)
+        if said:
+            out.append((said, _ts(sent.group(1)) if sent else None))
+    return out
+
+
+def _thread_replies(content: Any) -> list[str]:
+    return [str((x.get("input") or {}).get("text") or "") for x in (content if isinstance(content, list) else [])
+            if isinstance(x, dict) and x.get("type") == "tool_use" and str(x.get("name", "")).endswith("__reply")]
+
 
 def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
-    """One Claude-Code-format transcript (Claude Code, CodeBuddy, WorkBuddy): user/assistant turns, title, model."""
-    turns, title, started, updated, project, cwd = [], None, None, None, None, None
+    """One Claude-Code-format transcript (Claude Code, CodeBuddy, WorkBuddy): user/assistant turns, title, model.
+    Like Open WebUI's importers, only what you and the agent said to each other is kept (no tool calls, no harness notes)."""
+    turns, stamps, title, started, updated, project, cwd = [], [], None, None, None, None, None
     models: dict[str, int] = {}
+    seen: set[str] = set()
+    in_thread = False                                     # answering a project thread: its replies are the agent's turns
     try:
         lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -326,25 +365,56 @@ def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
             continue
         if e.get("type") == "message" and e.get("role") in ("user", "assistant"):          # CodeBuddy / WorkBuddy 2.x
             role, msg = e["role"], {"content": e.get("content"), "model": (e.get("providerData") or {}).get("model")}
-        elif e.get("type") in ("user", "assistant") and not e.get("isMeta"):                # Claude Code
+        elif (e.get("type") in ("user", "assistant") and not e.get("isMeta") and not e.get("isSidechain")
+              and not e.get("isCompactSummary")):                                          # Claude Code
             role, msg = e["type"], e.get("message") or {}
         else:
             cwd = cwd or e.get("cwd")
+            if e.get("isMeta") and _text((e.get("message") or {}).get("content")).lstrip().startswith(_THREAD_WRAP):
+                in_thread = True                          # a coordinator handing the session a project thread
             continue
         ts = _ts(e.get("timestamp"))
         started, updated = started or ts, ts or updated
         cwd = cwd or e.get("cwd")
         project = project or (Path(e["cwd"]).name if e.get("cwd") else None)
+        content = msg.get("content") if isinstance(msg, dict) else msg
         if role == "assistant" and isinstance(msg, dict) and msg.get("model") and not str(msg["model"]).startswith("<"):
             models[str(msg["model"])] = models.get(str(msg["model"]), 0) + 1
-        text = clean(_REMINDER.sub("", _text(msg.get("content") if isinstance(msg, dict) else msg)))
-        if text:
+        text = clean(_REMINDER.sub("", _text(content)))
+        if role == "user":
+            if not text or text.lstrip().startswith(_MACHINE):
+                continue
+            said = _thread_said(text, seen)
+            if said is not None:
+                in_thread = True
+            else:
+                in_thread = False                         # you are talking to the session directly again (e.g. through PGA)
+                said = [(_PGA_NOTE.sub("", text), None)]
+            for t, sent in said:
+                if t:
+                    turns.append(("user", t))
+                    stamps.append(sent or ts)
+            continue
+        if in_thread:                                     # its commentary, kept apart (shown folded), then what it told you
+            if text:
+                turns.append(("aside", text))
+                stamps.append(ts)
+            for t in _thread_replies(content):
+                if t.strip():
+                    turns.append(("assistant", t.strip()))
+                    stamps.append(ts)
+        elif text:
             turns.append((role, text))
+            stamps.append(ts)
     if not turns or (skip_pga and pga_started(cwd)):
         return None
+    if seen and all(stamps):                              # a thread message can reach the session after it already answered:
+        order = sorted(range(len(turns)), key=lambda i: stamps[i])   # put each turn at the time it was said
+        turns, stamps = [turns[i] for i in order], [stamps[i] for i in order]
+        started = min(started, stamps[0]) if started else stamps[0]
     first_user = next((t for r, t in turns if r == "user" and not t.lstrip().startswith("<")), "") or next((t for r, t in turns if r == "user"), "")
     return Conv(f.stem, (title or " ".join(first_user.split())[:90]), started, updated, turns,
-                project or f.parent.name.strip("-").split("-")[-1], max(models, key=models.get) if models else None)
+                project or f.parent.name.strip("-").split("-")[-1], max(models, key=models.get) if models else None, stamps)
 
 
 def claude_code_sessions(root: Path = CLAUDE_CODE_DIR) -> list[Conv]:
@@ -502,6 +572,20 @@ def read_one(connector: str, external_id: str) -> Conv | None:
     if connector == "hermes":
         return next((c for c in hermes_sessions() if c.external_id == eid), None)
     return None
+
+
+LOCAL_FULL = ("claude_code", "codebuddy", "workbuddy", "codex", "hermes")
+
+
+def full_turns(connector: str, external_id: str, limit: int = 2000) -> list[dict]:
+    """The whole conversation from its own app, secrets redacted, each turn with when it was said (Open WebUI keeps
+    every message of an import, not an excerpt); [] when the app does not keep it here."""
+    full = read_one(connector, external_id) if connector in LOCAL_FULL else None
+    if not full:
+        return []
+    stamps = full.stamps if len(full.stamps) == len(full.turns) else [None] * len(full.turns)
+    return [{"role": r, "text": redact(t)[:20000], **({"at": s.isoformat()} if s else {})}
+            for (r, t), s in zip(full.turns, stamps)][-limit:]
 
 
 def read_local(connector: str) -> list[Conv]:

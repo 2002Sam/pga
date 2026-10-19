@@ -201,6 +201,7 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 .caret { display: inline-block; width: 7px; height: 14px; background: var(--accent); margin-left: 2px; vertical-align: -2px; animation: blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity: 0; } }
 .proc { margin: 4px 0 6px 38px; font-size: 12px; color: var(--muted); } .proc summary { cursor: pointer; list-style: none; display: inline-flex; gap: 6px; align-items: center; padding: 3px 10px; border-radius: 999px; background: var(--soft); }
 .proc summary::-webkit-details-marker { display: none; } .proc summary .ok { color: var(--green); } .proc .steps { margin-top: 6px; }
+.proc.aside .asides { margin-top: 6px; padding: 6px 12px; border-left: 2px solid var(--soft); } .proc.aside .asides .md + .md { margin-top: 6px; }
 .mine-q { margin: 18px 0 6px auto; max-width: 70%; padding: 10px 14px; border-radius: 12px 4px 12px 12px; background: rgba(127,207,159,.10); border: 1px solid rgba(127,207,159,.22); font-size: 13.5px; }
 .rmeta { margin: -8px 0 4px 38px; font-size: 11.5px; color: var(--dim); display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; } .rmeta details { display: inline; } .rmeta summary { cursor: pointer; display: inline; color: var(--muted); }
 .rmeta .wacts { margin-left: 0; max-height: 220px; overflow: auto; }

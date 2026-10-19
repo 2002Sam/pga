@@ -79,6 +79,35 @@ def test_secrets_never_reach_excerpts():
     assert "sk-" not in excerpt([("user", text), ("assistant", "ok")])
 
 
+def test_claude_project_thread_session_reads_as_the_thread(tmp_path):
+    """A session working a claude.ai project thread: your words come wrapped, its replies are reply tool calls."""
+    proj = tmp_path / "-Users-me-PGA"
+    proj.mkdir()
+    wake = ('<wake reason="mention"><project id="chan_1" type="project"><thread ts="m0"><message trigger="true" from="human" '
+            'author-id="user_1" id="{id}" sent-at="2026-10-10T06:00:00Z">{text}</message></thread></project></wake>')
+    (proj / "s1.jsonl").write_text("\n".join(json.dumps(e, ensure_ascii=False) for e in [
+        {"type": "user", "isMeta": True, "cwd": "/Users/me/PGA", "message": {"content": '<relay from="coordinator"><note>spawn</note></relay>'}},
+        {"type": "assistant", "timestamp": "2026-10-10T05:59:30Z", "message": {"content": [{"type": "text", "text": "Copying the files."}]}},
+        {"type": "user", "timestamp": "2026-10-10T06:00:00Z", "cwd": "/Users/me/PGA", "message": {"content": wake.format(id="m1", text="read the spec &#34;me&#34;")}},
+        {"type": "assistant", "timestamp": "2026-10-10T06:01:00Z", "message": {"content": [
+            {"type": "text", "text": "Now the memory note."}, {"type": "tool_use", "name": "mcp__hearthbot__reply", "input": {"text": "I read both."}}]}},
+        {"type": "user", "timestamp": "2026-10-10T06:02:00Z", "message": {"content": [{"type": "tool_result", "content": "ok"}]}},
+        {"type": "user", "timestamp": "2026-10-10T06:05:00Z", "message": {"content":
+            '<project_claude_message><relay from="coordinator"><cited id="m2" author="user">build the rest</cited>'
+            '<cited id="m1" author="user">read the spec</cited><note>the user wants more</note></relay></project_claude_message>'}},
+        {"type": "user", "timestamp": "2026-10-10T06:06:00Z", "message": {"content": "[auto-continue] The usage limit has reset."}},
+        {"type": "user", "timestamp": "2026-10-10T06:06:00Z", "isCompactSummary": True, "message": {"content": "This session is being continued…"}},
+        {"type": "assistant", "timestamp": "2026-10-10T06:07:00Z", "message": {"content": [{"type": "tool_use", "name": "mcp__hearthbot__reply", "input": {"text": "Built it."}}]}},
+        {"type": "user", "timestamp": "2026-10-19T14:16:00Z", "message": {"content": "[PGA note — access for this conversation]\n\n现在呢？"}},
+        {"type": "assistant", "timestamp": "2026-10-19T14:17:00Z", "message": {"content": [{"type": "text", "text": "可以了。"}]}}]))
+    c = claude_code_sessions(tmp_path)[0]
+    assert c.turns == [("aside", "Copying the files."), ("user", 'read the spec "me"'), ("aside", "Now the memory note."),
+                       ("assistant", "I read both."), ("user", "build the rest"), ("assistant", "Built it."),
+                       ("user", "现在呢？"), ("assistant", "可以了。")]
+    assert c.title == 'read the spec "me"' and c.message_count == 6 and len(c.stamps) == len(c.turns) and c.stamps[1].hour == 6
+    assert "Copying" not in excerpt(c.turns) and "I read both." in excerpt(c.turns)
+
+
 def test_local_agents_are_read_only(tmp_path):
     proj = tmp_path / "-Users-me-paper"
     proj.mkdir()

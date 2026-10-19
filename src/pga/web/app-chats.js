@@ -305,8 +305,11 @@ function renderImported() {
   const d = S.impData && S.impData.id === S.imp.cid ? S.impData : null, line = S.tl?.lines?.[S.imp.line];
   $("#chead").innerHTML = `<span class="kind">${L("导入的对话", "Imported")}</span><h1>${esc(d?.title || "…")}</h1>${line && line.kind !== "single" ? `<span class="pill">${esc(line.title.slice(0, 24))}</span>` : ""}` + headActs();
   $("#cdlgIn").innerHTML = lineCard() + (!d ? `<div class="empty">…</div>` : d.error ? `<div class="empty">${esc(d.error)}</div>`
-    : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
-      + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md }));
+    : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${(d.turns || []).length
+        ? L(` · 共 ${d.messages} 条消息，从 ${esc(d.agent)} 的记录里完整读出`, ` · ${d.messages} messages, read in full from ${esc(d.agent)}'s own history`)
+        : L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
+      + ((d.turns || []).length ? impTurnsHtml(d)
+        : PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md })));
   const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
   $("#ccomp").innerHTML = `<div class="inner">${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
     <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === guess ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
@@ -314,6 +317,24 @@ function renderImported() {
     ${d ? `<label class="impmode"><input type="checkbox" id="impResume" ${impResume(d) ? "checked" : ""}> ${L(`续上原会话（带上完整的 ${d.messages} 条消息；会话很长时每一句都会把它们全部重读一遍，非常耗额度）`, `Resume the original session (all ${d.messages} messages; a long one is reread in full on every message and eats quota fast)`)}</label>
       <div class="dimt" style="font-size:11.5px;margin:2px 2px 0">${impResume(d) ? "" : L("不勾：新开一段会话，只带上这段对话的摘要和最后几轮，省额度。", "Unticked: a fresh session with this conversation's summary and last turns; saves quota.")}</div>` : ""}</div>`;
   autoGrow($("#chatText"));
+}
+/* an imported conversation in full: your turns, its answers, and what it said to itself in between (folded; open to read) */
+function impTurnsHtml(d) {
+  let out = "", aside = [];
+  const flush = () => {
+    if (!aside.length) return;
+    out += `<details class="proc aside"><summary><span>💭</span>${L(`${esc(d.agent)} 的自言自语 · ${aside.length} 条`, `${esc(d.agent)} thinking aloud · ${aside.length}`)}</summary>
+      <div class="asides">${aside.map((t) => `<div class="md">${md(t.text)}</div>`).join("")}</div></details>`;
+    aside = [];
+  };
+  for (const t of d.turns) {
+    if (t.role === "aside") { aside.push(t); continue; }
+    flush();
+    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md })
+      : PGATree.chat([{ agent: d.agent, kind: "answer", text: t.text, at: t.at, data: {} }], { md, name: (x) => x.agent });
+  }
+  flush();
+  return out;
 }
 /* carrying on an imported conversation: Codex / Claude Code resume the very session; others get its excerpt as history;
    the new chat goes on the same line, so the time tree draws the path from the old conversation to now */

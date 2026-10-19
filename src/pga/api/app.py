@@ -1512,14 +1512,16 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     @app.get("/v1/users/{user_id}/imported/{cid}")
     def imported_one(user_id: uuid.UUID, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
-        """One conversation imported from another app: its title, where it ran, and the excerpt PGA keeps."""
+        """One conversation imported from another app: its title, where it ran, the excerpt PGA keeps, and the whole of it
+        read again from the app's own store (when it is on this machine)."""
         from pga.db.models import AgentConversation, LinkedAgent
         c = rt.session.get(AgentConversation, cid)
         a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
         if c is None or a is None or a.user_id != user_id:
             raise HTTPException(404, "conversation not found")
+        from pga.hub.connectors import full_turns
         return {"id": str(c.id), "title": c.title, "agent": a.name, "agent_type": a.connector, "vendor": a.vendor, "project": c.project,
-                "model": c.model, "messages": c.message_count, "excerpt": c.excerpt,
+                "model": c.model, "messages": c.message_count, "excerpt": c.excerpt, "turns": full_turns(a.connector, c.external_id),
                 "started_at": c.started_at.isoformat() if c.started_at else None, "updated_at": c.updated_at.isoformat() if c.updated_at else None}
 
     @app.get("/v1/users/{user_id}/hub/timeline")
@@ -2260,14 +2262,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def agents_past_one(user_id: uuid.UUID, name: str, cid: uuid.UUID, rt: Runtime = Depends(get_rt)):
         """One past conversation in full, read again from its own app (secrets redacted); excerpt if it is gone."""
         from pga.db.models import AgentConversation, LinkedAgent
-        from pga.hub.connectors import read_one, redact
+        from pga.hub.connectors import full_turns
         user_or_404(rt, user_id)
         c = rt.session.get(AgentConversation, cid)
         a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
         if c is None or a is None or a.user_id != user_id:
             raise HTTPException(404, "conversation not found")
-        full = read_one(a.connector, c.external_id) if a.connector in ("claude_code", "codebuddy", "workbuddy", "codex", "hermes") else None
-        turns = [{"role": r, "text": redact(t)[:20000]} for r, t in (full.turns if full else [])][-200:]
+        turns = full_turns(a.connector, c.external_id)
         return {"id": str(c.id), "agent": a.name, "connector": a.connector, "model": c.model, "title": c.title, "project": c.project,
                 "at": (c.updated_at or c.started_at or c.created_at).isoformat(), "turns": turns, "excerpt": c.excerpt if not turns else "",
                 "resumable": a.connector in ("codex", "claude_code", "codebuddy", "workbuddy")}
