@@ -50,6 +50,26 @@ def runs_of(rt: "Runtime", user_id: uuid.UUID, key: str) -> list[AgentRun]:
     return list(rt.session.scalars(q.where(same).order_by(AgentRun.started_at)))
 
 
+def fold(runs: list[AgentRun]) -> tuple[list[AgentRun], dict[str, list[AgentRun]]]:
+    """The turns of a chat, with each answer's other versions (regenerated) put under the turn they redo."""
+    alts: dict[str, list[AgentRun]] = {}
+    turns = []
+    for r in runs:
+        root = (r.data or {}).get("regen_of")
+        if root:
+            alts.setdefault(str(root), []).append(r)
+        else:
+            turns.append(r)
+    return turns, alts
+
+
+def current(r: AgentRun, alts: dict[str, list[AgentRun]]) -> AgentRun:
+    """Which version of an answer counts (the one you picked; else the latest)."""
+    xs = [r, *alts.get(str(r.id), [])]
+    pick = (r.data or {}).get("pick")
+    return next((x for x in xs if str(x.id) == pick), xs[-1])
+
+
 def branch_of(user: User, key: str) -> dict | None:
     return ((user.preferences or {}).get("chat_branches") or {}).get(key)
 
@@ -61,10 +81,12 @@ def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, 
     b = branch_of(user, key)
     if b and depth < 5:
         out += history(rt, user, b["from"], uuid.UUID(b["upto"]), depth + 1)
-    for r in runs_of(rt, user.id, key):
+    turns, alts = fold(runs_of(rt, user.id, key))
+    for r in turns:
         out.append({"role": "user", "text": (("[the user's own note] " if (r.data or {}).get("note") else "") + (r.prompt or "")), "run": str(r.id)})
         if not (r.data or {}).get("note"):
-            out.append({"role": "assistant", "text": _answer(r.output) or "", "agent": (r.data or {}).get("agent") or r.agent, "run": str(r.id)})
+            a = current(r, alts)
+            out.append({"role": "assistant", "text": _answer(a.output) or "", "agent": (a.data or {}).get("agent") or a.agent, "run": str(r.id)})
         if upto is not None and r.id == upto:
             break
     return out
@@ -107,6 +129,94 @@ def second_opinion(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | No
         out["compare_error"] = str(exc)[:200]
     run.data = {**d, "second": out}
     return out
+
+
+def regenerate(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | None = None) -> dict:
+    """Another version of one answer: the same question, with what came before it (not the answer it replaces), in a
+    fresh session; kept as a version of that turn (data["regen_of"]), not as a new turn."""
+    from pga.agents.routing import AgentRouter
+    run = rt.session.get(AgentRun, run_id)
+    if run is None or run.user_id != user.id or run.workflow != "ask" or (run.data or {}).get("note"):
+        raise ChatError("no such reply")
+    root = rt.session.get(AgentRun, uuid.UUID(str(run.data["regen_of"]))) if (run.data or {}).get("regen_of") else run
+    d = root.data or {}
+    key = str(d.get("conversation") or f"run:{root.id}")
+    before = history(rt, user, key, root.id)[:-2]
+    n = len(fold(runs_of(rt, user.id, key))[1].get(str(root.id), [])) + 1
+    reply = AgentRouter(rt).ask(user, root.prompt or "", agent=agent or "auto", history=[{"role": t["role"], "text": t["text"]} for t in before][-12:],
+                                conversation=f"regen:{root.id}:{n}")
+    new = rt.session.get(AgentRun, uuid.UUID(str(reply["run_id"]))) if reply.get("run_id") else None
+    if new is not None:
+        new.data = {**(new.data or {}), "conversation": key, "regen_of": str(root.id)}
+        root.data = {**d, "pick": str(new.id)}
+    return {"run": str(new.id) if new else None, "of": str(root.id), "text": reply.get("text"), "error": reply.get("error"), "agent": reply.get("agent")}
+
+
+def pick(rt: "Runtime", user: User, run_id: uuid.UUID, version: uuid.UUID) -> None:
+    run = rt.session.get(AgentRun, run_id)
+    if run is None or run.user_id != user.id:
+        raise ChatError("no such reply")
+    run.data = {**(run.data or {}), "pick": str(version)}
+
+
+def rate(rt: "Runtime", user: User, run_id: uuid.UUID, rating: int, note: str = "") -> dict:
+    """Good (1) / bad (-1) / none (0) on an answer — kept on the run, for learning which agent you trust for what."""
+    run = rt.session.get(AgentRun, run_id)
+    if run is None or run.user_id != user.id:
+        raise ChatError("no such reply")
+    d = dict(run.data or {})
+    if rating:
+        d["rating"] = {"value": 1 if rating > 0 else -1, "note": note[:500], "at": utcnow().isoformat()}
+    else:
+        d.pop("rating", None)
+    run.data = d
+    return {"run": str(run.id), "rating": (d.get("rating") or {}).get("value", 0)}
+
+
+def search(rt: "Runtime", user: User, q: str, limit: int = 30) -> list[dict]:
+    """Your chats and imported conversations whose words match, newest first, each with a snippet."""
+    import re as _re
+
+    from pga.db.models import AgentConversation, LinkedAgent
+    from pga.tree import _answer
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    like = f"%{q}%"
+    out, seen = [], set()
+    rows = rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user.id, AgentRun.parent_id.is_(None), AgentRun.workflow == "ask",
+                                                     or_(AgentRun.prompt.ilike(like), AgentRun.output.ilike(like)))
+                              .order_by(AgentRun.started_at.desc()).limit(200))
+    titles = ((user.preferences or {}).get("chat_titles") or {})
+
+    def snip(text: str) -> str:
+        i = text.lower().find(q.lower())
+        return ("…" if i > 40 else "") + _re.sub(r"\s+", " ", text[max(0, i - 40): i + 80]).strip() + "…" if i >= 0 else ""
+    for r in rows:
+        d = r.data or {}
+        key = str(d.get("conversation") or f"run:{r.id}")
+        if key.startswith(HIDDEN + ("regen:",)) or d.get("node") or key in seen:
+            continue
+        seen.add(key)
+        text = r.prompt or ""
+        hit = snip(text) or snip(_answer(r.output) or "")
+        out.append({"key": key, "kind": "chat", "title": titles.get(key) or " ".join(text.split())[:60], "snippet": hit, "at": r.started_at.isoformat(),
+                    "agent": d.get("agent") or r.agent})
+    for c, a in rt.session.execute(select(AgentConversation, LinkedAgent).join(LinkedAgent, AgentConversation.linked_agent_id == LinkedAgent.id)
+                                   .where(LinkedAgent.user_id == user.id, or_(AgentConversation.title.ilike(like), AgentConversation.excerpt.ilike(like)))
+                                   .order_by(AgentConversation.updated_at.desc().nulls_last()).limit(40)):
+        out.append({"key": f"c:{c.id}", "kind": "import", "cid": str(c.id), "title": titles.get(f"c:{c.id}") or _re.sub(r"^\[[^\]]*\]\s*", "", c.title or "")[:60],
+                    "snippet": snip(c.excerpt or "") or snip(c.title or ""), "at": (c.updated_at or c.started_at or c.created_at).isoformat(), "agent": a.name})
+    return sorted(out, key=lambda x: x["at"], reverse=True)[:limit]
+
+
+def set_title(user: User, key: str, title: str) -> None:
+    titles = dict((user.preferences or {}).get("chat_titles") or {})
+    if title.strip():
+        titles[key[:120]] = title.strip()[:80]
+    else:
+        titles.pop(key[:120], None)
+    user.preferences = {**(user.preferences or {}), "chat_titles": dict(list(titles.items())[-2000:])}
 
 
 def _compare(rt: "Runtime", user: User, question: str, a: str, ta: str, b: str, tb: str, lang: str, now: datetime) -> dict:

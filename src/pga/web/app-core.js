@@ -23,7 +23,7 @@ async function api(path, opts = {}) {
   if (!res.ok) throw new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText);
   return data;
 }
-const md = (t) => (window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"), { breaks: true, gfm: true })) : esc(t));
+const md = (t) => (window.marked && window.DOMPurify ? (typeof mathExtensions === "function" && mathExtensions(), DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"), { breaks: true, gfm: true }))) : esc(t));
 const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
 const qs = () => {
   const q = new URLSearchParams();

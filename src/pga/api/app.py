@@ -2890,7 +2890,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                                            AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
             d = r.data or {}
             key = str(d.get("conversation") or f"run:{r.id}")
-            if key.startswith(("node:", "exchange:", "second:")) or d.get("node"):
+            if key.startswith(("node:", "exchange:", "second:", "regen:")) or d.get("node") or d.get("regen_of"):
                 continue
             c = convs.setdefault(key, {"key": key, "agent": d.get("agent") or r.agent, "turns": 0, "last_at": r.started_at.isoformat(),
                                        "title": "", "last": ""})
@@ -2898,8 +2898,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             c["title"] = " ".join((r.prompt or "").split())[:80] or c["title"]          # the first thing you said (oldest wins)
             if not c["last"]:
                 c["last"] = " ".join(_answer(r.output).split())[:120]
+        titles = (u.preferences or {}).get("chat_titles") or {}
         for c in convs.values():
             c["archived"] = c["key"] in gone
+            if titles.get(c["key"]):
+                c["title"] = titles[c["key"]]
         return [c for c in sorted(convs.values(), key=lambda c: c["last_at"], reverse=True) if archived or not c["archived"]][:limit]
 
     @app.post("/v1/users/{user_id}/chats/archive")
@@ -2941,17 +2944,88 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             return {"seconds": round(float(k.duration_s or 0), 1) if k is not None else None, "usage": u or None, "window": win,
                     "via": kd.get("via"), "continued": kd.get("continued"), "model": (r.data or {}).get("model"),
                     "actions": parse_actions(kd.get("trace") or "")[:80]}
+        from pga.chats import current, fold
+        turns, alts = fold(runs)
         out = []
-        for r in runs:
+
+        def answer(a) -> dict:
+            return {"agent": (a.data or {}).get("agent") or a.agent, "text": _answer(a.output) or "", "error": a.error, "run": str(a.id),
+                    "at": (a.finished_at or a.started_at).isoformat(), "model": (a.data or {}).get("model"), "how": how(a),
+                    "rating": ((a.data or {}).get("rating") or {}).get("value", 0)}
+        for r in turns:
             out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
             if (r.data or {}).get("note"):                       # your own note: no answer to show
                 continue
-            out.append({"role": "agent", "agent": (r.data or {}).get("agent") or r.agent, "text": _answer(r.output) or "", "error": r.error,
-                        "at": (r.finished_at or r.started_at).isoformat(), "model": (r.data or {}).get("model"), "run": str(r.id), "how": how(r),
+            vs = [r, *alts.get(str(r.id), [])]
+            cur = current(r, alts)
+            out.append({"role": "agent", **answer(cur), "run": str(r.id), "version": str(cur.id),
+                        "versions": [answer(v) for v in vs] if len(vs) > 1 else [],
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
         b = branch_of(u, key)
         ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []
-        return {"key": key, "turns": out, "branch": b, "context": ctx}
+        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key)}
+
+    @app.post("/v1/users/{user_id}/chats/regen")
+    def chats_regen(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Another version of an answer (the turn keeps all its versions; you flip between them)."""
+        from pga.chats import ChatError, regenerate
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return regenerate(rt, u, uuid.UUID(str(body.get("run"))), str(body.get("agent") or "") or None)
+        except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/chats/pick")
+    def chats_pick(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Which version of an answer the conversation goes on from."""
+        from pga.chats import ChatError, pick
+        try:
+            pick(rt, user_or_404(rt, user_id), uuid.UUID(str(body.get("run"))), uuid.UUID(str(body.get("version"))))
+        except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"ok": True}
+
+    @app.post("/v1/users/{user_id}/chats/rate")
+    def chats_rate(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.chats import ChatError, rate
+        try:
+            return rate(rt, user_or_404(rt, user_id), uuid.UUID(str(body.get("run"))), int(body.get("rating") or 0), str(body.get("note") or ""))
+        except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/chats-search")
+    def chats_search(user_id: uuid.UUID, q: str = Query("", max_length=200), rt: Runtime = Depends(get_rt)):
+        from pga.chats import search
+        return search(rt, user_or_404(rt, user_id), q)
+
+    @app.put("/v1/users/{user_id}/chats/title")
+    def chats_title(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Rename a chat (empty: back to its first message)."""
+        from pga.chats import set_title
+        key = str(body.get("key") or "")[:120]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        set_title(user_or_404(rt, user_id), key, str(body.get("title") or ""))
+        return {"key": key, "title": str(body.get("title") or "").strip()[:80] or None}
+
+    PROMPTS_MAX = 200
+
+    @app.get("/v1/users/{user_id}/prompts")
+    def prompts_get(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Your prompt library: type / in the composer to use one."""
+        return (user_or_404(rt, user_id).preferences or {}).get("prompts") or []
+
+    @app.put("/v1/users/{user_id}/prompts")
+    def prompts_put(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        u = user_or_404(rt, user_id)
+        out = []
+        for x in (body.get("prompts") or [])[:PROMPTS_MAX]:
+            cmd = re.sub(r"[^\w\-\u3400-\u9fff]", "", str((x or {}).get("command") or ""))[:40]
+            if cmd and str(x.get("text") or "").strip():
+                out.append({"command": cmd, "title": str(x.get("title") or cmd)[:80], "text": str(x["text"])[:8000]})
+        u.preferences = {**(u.preferences or {}), "prompts": out}
+        return out
 
     @app.post("/v1/users/{user_id}/chats/second")
     def chats_second(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

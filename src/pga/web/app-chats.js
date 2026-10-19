@@ -36,7 +36,7 @@ function tlLayout() {
 }
 const tlMode = () => store.get("pga_tl_mode") || "lines";
 function renderTimeline() { if (tlMode() === "lines") renderLines(); else renderTimeAxis(); }
-const tlHead = () => `<div class="ch"><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span><span class="grow"></span>
+const tlHead = () => `<div class="ch"><button class="ghost sm" data-act="search" title="${L("搜索所有对话", "Search everything")} (${MOD} K)">${I.search}</button><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span><span class="grow"></span>
   <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
 /* one row per line (one piece of ongoing work), the latest first; the strip under it marks the days it was active */
 function renderLines() {
@@ -194,7 +194,7 @@ function renderLineDialog() {
   if (tg.kind === "tree") { $("#ccomp").innerHTML = `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(tg.ref.tree)}" data-node="${esc(tg.ref.node)}">${L(`到树上接着「${esc(tg.title.slice(0, 16))}」说`, `Carry on “${esc(tg.title.slice(0, 20))}” on the tree`)}</button></div>`; return; }
   $("#ccomp").innerHTML = `<div class="inner">${envBar(tg.kind === "chat" ? tg.key : "", tg.kind === "chat" ? S.chatTurns[tg.key] || [] : [])}
     <div class="ltgt"><i style="background:hsl(${hueOf(tg.key)} 55% 58%)"></i>${L("接着：", "Carrying on: ")}<b>${esc(tg.title.slice(0, 40))}</b><span>${L("（点上面任意一段的标签可以换）", "(click any label above to switch)")}</span></div>
-    <div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（Enter 发送，Shift+Enter 换行）", "Your response, next step, or a question… (Enter sends, Shift+Enter for a new line)"))}">${esc(S.chatDraft || "")}</textarea>
+    ${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（Enter 发送，Shift+Enter 换行）", "Your response, next step, or a question… (Enter sends, Shift+Enter for a new line)"))}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(tg.kind === "chat" ? tg.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
       <button class="ghost" id="lineNote" ${S.sending ? "disabled" : ""} title="${L("只记下来，不问 agent：之后接着聊时 agent 会读到", "Just write it down, no agent: agents read it when the conversation goes on")}">${L("只记下来", "Just note")}</button>
       <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
@@ -308,7 +308,7 @@ function renderImported() {
     : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
       + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md }));
   const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
-  $("#ccomp").innerHTML = `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
+  $("#ccomp").innerHTML = `<div class="inner">${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
     <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === guess ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
     <button class="primary" id="impSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("接着聊", "Carry on")}</button></div>
     ${d ? `<label class="impmode"><input type="checkbox" id="impResume" ${impResume(d) ? "checked" : ""}> ${L(`续上原会话（带上完整的 ${d.messages} 条消息；会话很长时每一句都会把它们全部重读一遍，非常耗额度）`, `Resume the original session (all ${d.messages} messages; a long one is reread in full on every message and eats quota fast)`)}</label>
@@ -354,8 +354,8 @@ function renderChat() {
     : chatTurnsHtml(turns) + (S.sending && S.view === "chats" ? workCard() : ""));
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
   $("#ccomp").innerHTML = `<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
-    <div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
-      <textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
+    ${attsHtml()}<div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
+      ${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
       <button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#chatText"));
@@ -367,17 +367,20 @@ function chatTurnsHtml(turns, key = S.chat) {
   let out = "", prevAgent = null;
   for (let i = 0; i < turns.length; i += 1) {
     const t = turns[i];
-    if (t.role === "user") { out += t.note ? `<div class="mynote"><span>${L("你记下的", "Your note")}</span><div class="md">${md(t.text)}</div></div>` : PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }); continue; }
+    if (t.role === "user") {
+      if (t.note) { out += `<div class="mynote"><span>${L("你记下的", "Your note")}</span><div class="md">${md(t.text)}</div></div>`; continue; }
+      if (S.editing && S.editing.run === t.run && S.editing.key === key) { out += editBox(t); continue; }
+      out += PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + userActs(t, key, turns[i - 1]?.role === "agent" ? turns[i - 1].run : "");
+      continue;
+    }
     const who = t.agent && t.agent !== "-" ? agentLabel(t.agent) : "AI";
     if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
     out += procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
     if (!t.run) continue;
-    out += replyMeta(t);
-    const sec = t.second, busy = S.secondBusy === t.run;
-    out += `<div class="tacts">${sec ? "" : `<button class="sm ghost" data-second="${t.run}" data-ckey="${esc(key)}" ${busy ? "disabled" : ""}>${busy ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
-      <button class="sm ghost" data-cbranch="${t.run}" data-ckey="${esc(key)}">${L("从这里分支", "Branch from here")}</button></div>`;
-    if (sec) out += secondHtml(who, sec);
+    out += replyMeta(t) + replyActs(t, key);
+    if (S.regenBusy === t.run) out += workCard();
+    if (t.second) out += secondHtml(who, t.second);
   }
   return out;
 }

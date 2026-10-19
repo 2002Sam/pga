@@ -109,6 +109,8 @@ function headActs() {
   const pinned = (S.tl?.pinned || []).includes(line);
   return `<span class="grow"></span>${line ? `<button class="sm ghost" data-pin="${esc(line)}" data-to="${pinned ? "0" : "1"}">${pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")}</button>` : ""}
     <button class="sm ghost" data-moveto="${esc(key || "")}" data-line="${esc(line || "")}">${L("放到…", "Move to…")}</button>
+    ${key && !S.lineView ? `<button class="sm ghost" data-act="rename" data-key="${esc(key)}">${L("重命名", "Rename")}</button>` : ""}
+    <span class="expm"><button class="sm ghost" data-act="export">${L("导出", "Export")} ▾</button><span class="expmenu" hidden><button data-act="exportmd">Markdown</button><button data-act="exportjson">JSON</button></span></span>
     <button class="sm ghost" data-archall="${esc(key || "")}" data-line="${esc(line || "")}">${L("归档", "Archive")}</button>`;
 }
 async function loadChat(key) {
@@ -121,10 +123,12 @@ async function chatSend() {
   if (!S.chat) S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const key = S.chat, prev = S.chatTurns[key] || [], ctx = S.chatCtx?.[key]?.context || [];
   const hist = [...ctx, ...prev].slice(-12).map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text }));
-  S.chatTurns[key] = [...prev, { role: "user", text, at: new Date().toISOString() }];
+  const agent = $("#chatAgent")?.value || "auto", at = takeAtts(), natt = at.images.length + at.files.length;
+  S.chatTurns[key] = [...prev, { role: "user", text: natt ? `${text}\n\n📎 ${L(`${natt} 个附件`, `${natt} attachment(s)`)}` : text, at: new Date().toISOString() }];
+  S.sentHist = [...S.sentHist.filter((x) => x !== text), text].slice(-50);
   S.sending = true; S.chatDraft = ""; window.history.replaceState(null, "", qs()); startLive(key); renderChat(); $("#chatText").value = "";
   try {
-    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: $("#chatAgent")?.value || "auto", conversation: key, history: hist, refs: S.chatRefs, ...(S.chatModel?.[key] ? { model: S.chatModel[key] } : {}) } });
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent, conversation: key, history: hist, refs: S.chatRefs, images: at.images, files: at.files, ...(S.chatModel?.[key] ? { model: S.chatModel[key] } : {}) } });
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
   finally { S.sending = false; stopLive(); }

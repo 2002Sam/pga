@@ -284,3 +284,35 @@ select, input[type=text], input[type=number] { background: var(--raised); border
 @media (max-width: 1100px) { .models { grid-template-columns: 1fr; } .lr { grid-template-columns: 90px 1fr; } .lr .gi, .lr .us { display: none; } .dh2 input { width: 130px; } }
 @media (max-width: 860px) { body { overflow: auto; } .app { grid-template-columns: 1fr; height: auto; } .rail { max-height: 46vh; } #vTree, #vChats { grid-template-columns: 1fr; height: auto; }
   #treeSide { height: 50vh; border-right: 0; border-bottom: 1px solid var(--line); } #dialog, .cpane { min-height: 80vh; } .clist { max-height: 36vh; } }
+
+/* ---- the chat experience (app-compose.js) */
+.macts { display: flex; gap: 2px; align-items: center; margin: -6px 0 10px 38px; flex-wrap: wrap; } .macts.right { justify-content: flex-end; margin: -8px 38px 10px 0; }
+.macts button { height: 24px; min-width: 26px; padding: 0 6px; border: 0; background: transparent; color: var(--dim); border-radius: 6px; font-size: 13px; }
+.macts button:hover { background: var(--soft); color: var(--text); } .macts button.on { color: var(--accent); } .macts button.on.bad { color: var(--bad); }
+.macts button:disabled { opacity: .35; } .macts .txt { font-size: 11.5px; } .macts .sep { width: 1px; height: 14px; background: var(--line-2); margin: 0 4px; }
+.macts .vers { display: inline-flex; align-items: center; gap: 2px; font-size: 11.5px; color: var(--muted); margin-right: 4px; } .macts .vers button { min-width: 20px; }
+.editbox { margin: 6px 0 12px auto; max-width: 80%; width: 100%; } .editbox textarea { width: 100%; min-height: 80px; border-radius: 12px; border: 1px solid var(--accent); background: var(--raised); padding: 10px 12px; color: var(--text); outline: none; resize: vertical; }
+.ctool { width: 32px; height: 36px; padding: 0; font-size: 15px; flex: none; } .ctool.on { color: var(--bad); animation: pulse 1.4s ease-out infinite; }
+.atts { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 2px 8px; } .att { display: inline-flex; gap: 6px; align-items: center; height: 30px; padding: 0 4px 0 6px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--raised); font-size: 12px; max-width: 220px; }
+.att img { width: 22px; height: 22px; object-fit: cover; border-radius: 4px; } .att span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .att button { height: 20px; width: 20px; padding: 0; border: 0; background: transparent; color: var(--dim); }
+body.dropping .cpane { outline: 2px dashed var(--accent); outline-offset: -8px; }
+.cpop { position: fixed; z-index: 75; background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 18px 48px rgba(0,0,0,.35); padding: 5px; max-height: 320px; overflow: auto; }
+.cpop .ph { display: flex; justify-content: space-between; font-size: 11px; color: var(--dim); padding: 4px 8px 6px; } .cpop .pi { display: flex; gap: 10px; align-items: baseline; padding: 7px 10px; border-radius: 8px; cursor: pointer; }
+.cpop .pi.on, .cpop .pi:hover { background: var(--soft); } .cpop .pi b { font-size: 13px; font-weight: 500; white-space: nowrap; } .cpop .pi span { font-size: 12px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prow { display: grid; grid-template-columns: 140px 1fr auto; gap: 6px; margin-bottom: 10px; } .prow textarea { grid-column: 1 / -1; min-height: 70px; background: var(--raised); border: 1px solid var(--line-2); border-radius: 8px; padding: 7px 10px; color: var(--text); }
+.modal .box.search { width: min(680px, 92vw); padding: 14px; } .sq { width: 100%; height: 42px !important; font-size: 15px !important; border-radius: 10px !important; padding: 0 14px !important; }
+.sres { margin-top: 10px; max-height: 60vh; overflow: auto; } .sr { padding: 9px 12px; border-radius: 9px; cursor: pointer; } .sr.on, .sr:hover { background: var(--soft); }
+.sr .st { display: flex; gap: 10px; align-items: baseline; } .sr .st b { font-weight: 500; font-size: 13.5px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .sr .st span { font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+.sr .ss { font-size: 12.5px; color: var(--muted); margin-top: 2px; } .sr mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 1px; }
+.expm { position: relative; } .expmenu { position: absolute; right: 0; top: 30px; z-index: 30; background: var(--pop); border: 1px solid var(--line-2); border-radius: 10px; padding: 4px; display: grid; min-width: 120px; box-shadow: 0 12px 32px rgba(0,0,0,.3); }
+.expmenu button { border: 0; background: transparent; justify-content: flex-start; height: 28px; font-weight: 400; } .expmenu button:hover { background: var(--soft); }
+.keys { display: grid; gap: 6px; } .keys div { display: flex; gap: 14px; align-items: baseline; font-size: 13px; } .keys kbd { min-width: 120px; font: 12px "JetBrains Mono", ui-monospace, monospace; color: var(--text); background: var(--raised); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 8px; }
+/* code, math, diagrams */
+pre.codeblk { position: relative; padding: 0 !important; border-radius: 10px; overflow: hidden; background: #0d1117 !important; border: 1px solid var(--line-2); }
+pre.codeblk > code { display: block; padding: 10px 14px !important; overflow: auto; font: 12.5px/1.6 "JetBrains Mono", ui-monospace, monospace !important; background: transparent !important; white-space: pre; }
+.codehd { display: flex; gap: 6px; align-items: center; padding: 4px 6px 4px 12px; background: rgba(255,255,255,.04); border-bottom: 1px solid rgba(255,255,255,.07); font: 11px "JetBrains Mono", ui-monospace, monospace; color: #8b949e; }
+.codehd button { height: 22px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #8b949e; font-size: 11.5px; } .codehd button:hover { background: rgba(255,255,255,.08); color: #e6edf3; }
+.mathb { overflow-x: auto; margin: .5em 0; } .mermaid { margin: .6em 0; text-align: center; } .mermaid.bad { color: var(--bad); font-size: 12px; white-space: pre-wrap; text-align: left; }
+.modal .box.wide { width: min(1100px, 94vw); } .pvh { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; } .pvf { width: 100%; height: 70vh; border: 1px solid var(--line-2); border-radius: 10px; background: #fff; }
+.expmenu[hidden] { display: none; } .macts button svg, .ctool svg { display: block; } .macts button { display: inline-grid; place-items: center; }
+.ctool { display: inline-grid; place-items: center; } .clist .ch > button:first-child { display: inline-grid; place-items: center; width: 28px; padding: 0; }
