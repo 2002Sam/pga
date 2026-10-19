@@ -247,15 +247,16 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.get("/ui/{name}", include_in_schema=False)
     def web_script(name: str) -> FileResponse:
         f = WEB / name
-        if "/" in name or name.startswith(".") or not name.endswith(".js") or not f.is_file():
+        if "/" in name or name.startswith(".") or not name.endswith((".js", ".css")) or not f.is_file():
             raise HTTPException(404, "no such script")
-        return FileResponse(f, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
+        return FileResponse(f, media_type="text/css" if name.endswith(".css") else "text/javascript", headers={"Cache-Control": "no-cache"})
 
     @app.get("/v1/version", include_in_schema=False)
     def web_version() -> dict:
         """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
-        st = (WEB / "app.html").stat()
-        return {"ui": f"{int(st.st_mtime)}-{st.st_size}"}
+        fs = [WEB / "app.html", WEB / "app.css", WEB / "tree.js", *sorted(WEB.glob("app-*.js"))]
+        sts = [f.stat() for f in fs if f.is_file()]
+        return {"ui": f"{int(max(x.st_mtime for x in sts))}-{sum(x.st_size for x in sts)}"}
 
     ICONS = Path(__file__).resolve().parent.parent / "web" / "icons"
 

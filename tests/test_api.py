@@ -92,7 +92,8 @@ def test_glossary_correction_endpoint(client):
 
 def test_web_app_is_served_at_root(client):
     r = client.get("/")                                              # one app: the projects as bars, a tree beside its dialogue
-    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "日常对话" in r.text and "contextmenu" in r.text
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"] and "/ui/app-core.js" in r.text and "contextmenu" in client.get("/ui/app-events.js").text
+    assert client.get("/ui/app.css").headers["content-type"].startswith("text/css")
     t = client.get("/tree?aim=abc&node=n1", follow_redirects=False)  # old links open the tree in the app
     assert t.status_code in (302, 307) and t.headers["location"] == "/?tree=abc&node=n1"
     assert client.get("/tree?you=1", follow_redirects=False).headers["location"] == "/?tree=you"
