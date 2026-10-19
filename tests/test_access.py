@@ -45,3 +45,34 @@ def test_settings_per_conversation_and_default(session_factory, policy, provider
         c.put(f"/v1/users/{user.id}/access", json={"access": "write", "as_default": True})
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:c"})
         assert seen[2]["access"] == "write"
+
+
+def test_background_work_leaves_claude_for_you_and_usage_splits(session_factory, policy, provider, backend, user, session, monkeypatch, tmp_path):
+    import json
+    from datetime import datetime, timezone
+
+    from pga.agents import pool as ap
+    from pga.db.models import AgentRun
+    monkeypatch.setattr(ap, "CONFIG", tmp_path / "agents.yaml")
+    assert ap.load()["routing"]["keep_for_me"] == ["claude_local"]
+    now = datetime.now(timezone.utc)
+    mine = AgentRun(user_id=user.id, workflow="ask", pattern="single", step="workflow", agent="claude", adapter="pool", status="SUCCEEDED",
+                    prompt="你好", output=json.dumps({"answer": "hi"}), data={"conversation": "u:chat:z"}, started_at=now)
+    bg = AgentRun(user_id=user.id, workflow="task:synthesis", pattern="single", step="workflow", agent="chatgpt", adapter="pool", status="SUCCEEDED",
+                  prompt="x", output="", data={}, started_at=now)
+    session.add_all([mine, bg])
+    session.flush()
+    session.add_all([AgentRun(user_id=user.id, parent_id=mine.id, workflow="ask", pattern="single", step="run", agent="claude", adapter="claude_local",
+                              status="SUCCEEDED", prompt="你好", output="hi", started_at=now,
+                              data={"usage": {"input_tokens": 4, "cache_read_input_tokens": 700000, "cache_creation_input_tokens": 0, "output_tokens": 9}}),
+                     AgentRun(user_id=user.id, parent_id=bg.id, workflow="task:synthesis", pattern="single", step="run", agent="chatgpt", adapter="codex_local",
+                              status="SUCCEEDED", prompt="x", output="y", started_at=now, data={"usage": {"last": {"inputTokens": 5000, "outputTokens": 10}}})])
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        sp = c.get(f"/v1/users/{user.id}/usage/split").json()
+        assert sp["agents"]["claude"]["yours"]["input"] == 700004 and sp["agents"]["chatgpt"]["background"]["input"] == 5000
+        assert sp["heavy"][0]["input"] == 700004 and sp["keep_for_me"] == ["claude_local"]
+        assert c.put("/v1/agents/background", json={"keep_for_me": []}).json()["keep_for_me"] == []
+        assert ap.load()["routing"]["keep_for_me"] == []

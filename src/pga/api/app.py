@@ -1433,6 +1433,21 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except TimelineDeferred as exc:
             raise HTTPException(429, str(exc)) from exc
 
+    @app.get("/v1/users/{user_id}/dirs/recent")
+    def dirs_recent(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Folders you are likely to want: your projects, and the folders you set for conversations (newest first)."""
+        from pga.db.models import Project
+        u = user_or_404(rt, user_id)
+        out: list[dict] = []
+        for k, v in reversed(list((((u.preferences or {}).get("agent_access") or {}).get("keys") or {}).items())):
+            f = (v or {}).get("folder")
+            if f and os.path.isdir(f) and f not in [x["path"] for x in out]:
+                out.append({"path": f, "name": os.path.basename(f.rstrip("/")) or f, "from": "chat"})
+        for p in rt.session.scalars(select(Project).where(Project.user_id == u.id).order_by(Project.last_used_at.desc().nulls_last())):
+            if os.path.isdir(p.path) and p.path not in [x["path"] for x in out]:
+                out.append({"path": p.path, "name": p.name, "from": "project"})
+        return out[:12]
+
     @app.get("/v1/users/{user_id}/dirs")
     def dirs(user_id: uuid.UUID, path: str = Query("", max_length=1000), rt: Runtime = Depends(get_rt)):
         """Folders on this machine, for picking the one an agent works in: only folders (no files), only under your
@@ -2761,6 +2776,59 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """Recount every node (behaviour, code, twigs) — no model involved."""
         from pga.tree import ThoughtTree
         return {"nodes": ThoughtTree(rt).refresh(aim_or_404(rt, aim_id))}
+
+    @app.get("/v1/users/{user_id}/usage/split")
+    def usage_split(user_id: uuid.UUID, days: int = Query(3, ge=1, le=30), rt: Runtime = Depends(get_rt)):
+        """Where the agents' tokens went: your own chats, or PGA's background work (tree, datasets, research), per agent;
+        and the conversations that read the most (a long resumed session rereads its whole history every turn)."""
+        from datetime import timedelta
+
+        from pga.agents import pool as ap
+        from pga.db.models import AgentRun
+        from pga.tree import usage_of
+        user_or_404(rt, user_id)
+        since = utcnow() - timedelta(days=days)
+        rows = rt.session.execute(select(AgentRun.agent, AgentRun.workflow, AgentRun.data, AgentRun.parent_id).where(
+            AgentRun.started_at >= since, AgentRun.parent_id.isnot(None), AgentRun.data["usage"].isnot(None))).all()
+        parents = {}
+        pids = list({p for *_x, p in rows})
+        if pids:
+            parents = {r.id: r for r in rt.session.scalars(select(AgentRun).where(AgentRun.id.in_(pids), AgentRun.user_id == user_id))}
+        per: dict = {}
+        convs: dict = {}
+        for agent, wf, data, pid in rows:
+            par = parents.get(pid)
+            if par is None and wf == "ask":
+                continue
+            u = usage_of(data) or {}
+            side = "yours" if wf == "ask" else "background"
+            g = per.setdefault(agent, {"yours": {"calls": 0, "input": 0, "output": 0}, "background": {"calls": 0, "input": 0, "output": 0}})
+            g[side]["calls"] += 1
+            g[side]["input"] += u.get("input", 0)
+            g[side]["output"] += u.get("output", 0)
+            if side == "yours" and par is not None:
+                k = str((par.data or {}).get("conversation") or "")
+                c = convs.setdefault(k, {"key": k, "agent": agent, "calls": 0, "input": 0, "title": " ".join((par.prompt or "").split())[:60]})
+                c["calls"] += 1
+                c["input"] += u.get("input", 0)
+        r = ap.load()["routing"]
+        return {"days": days, "agents": per, "heavy": sorted(convs.values(), key=lambda c: -c["input"])[:5],
+                "long_tasks": bool(r.get("long_tasks")), "keep_for_me": r.get("keep_for_me") or []}
+
+    @app.put("/v1/agents/background")
+    def agents_background(body: dict, rt: Runtime = Depends(get_rt)):
+        """Whether PGA's own background work may use agents at all, and which agent kinds it leaves for you."""
+        from pga.agents import pool as ap
+        cfg = ap.load()
+        if "long_tasks" in body:
+            cfg["routing"]["long_tasks"] = bool(body["long_tasks"])
+        if isinstance(body.get("keep_for_me"), list):
+            cfg["routing"]["keep_for_me"] = [str(x)[:40] for x in body["keep_for_me"]][:20]
+        try:
+            ap.save(cfg)
+        except ap.PoolError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"long_tasks": cfg["routing"]["long_tasks"], "keep_for_me": cfg["routing"].get("keep_for_me") or []}
 
     @app.get("/v1/users/{user_id}/cache")
     def cache_stats(user_id: uuid.UUID, days: int = Query(7, ge=1, le=90), rt: Runtime = Depends(get_rt)):

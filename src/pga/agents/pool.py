@@ -120,6 +120,7 @@ DEFAULT: dict[str, Any] = {
         "enabled": True,
         "mode": "performance",                      # performance 性能优先 | balanced 均衡 | economy 省钱 | speed 速度优先
         "long_tasks": True,                         # route the work of long-term responsibilities too (not only the chat box)
+        "keep_for_me": ["claude_local"],            # agent kinds kept for your own chats: PGA's background work never uses them
         "min_remaining": 0.1,                       # skip an agent with less than 10% of its usage left
         "categories": {
             "code": {"label": "代码", "prefer": ["claude", "codex", "chatgpt", "workbuddy", "deepseek"]},

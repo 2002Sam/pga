@@ -336,6 +336,8 @@ class AgentRouter:
         member = self._team_member(kind)
         if member and member in self.pool.adapters and self.pool.usable(member, self.pool.spent_today())[0]:
             order = [member] + [n for n in order if n != member]       # the aim's own teammate for this kind of work
+        keep = set(self.cfg.get("keep_for_me") or [])
+        order = [n for n in order if self.pool.adapters[n].type not in keep and n not in keep]   # your subscriptions stay yours
         for name in order:
             ad = self.pool.adapters[name]
             if ad.type == "llm":                     # PGA's own model is next in line: let the router call it directly
