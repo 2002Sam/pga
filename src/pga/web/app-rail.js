@@ -63,6 +63,7 @@ function renderHome() {
           : `<div class="dimt" style="font-size:13px">${L("还没有按五个维度整理过：背景、目标、偏好、能力、状态。", "Not compiled into its five dimensions yet.")} ${user ? `<a href="#" data-compile="${user.id}" style="color:var(--accent)">${L("现在整理", "Compile now")}</a>` : ""}</div>`}</div>
     </div>
     <div id="cacheHome"></div>
+    <div style="display:flex;gap:8px;margin:0 0 10px"><button class="sm" data-act="upload">${L("＋ 上传文档到知识库", "+ Upload a document")}</button><span class="dimt" style="font-size:12px;align-self:center">${L("PDF、Word、Excel、PPT、Markdown、代码…在本机读成文字；对话里用 # 引用，只把相关的段落给 agent。", "PDF, Word, Excel, PPT, Markdown, code… read on this machine; cite with # in a chat — only the matching passages go to the agent.")}</span></div>
     <div class="sect"><h3>${L("知识库", "Library")}</h3><span>${L("从树上沉淀出的思路、数据集和技能；在树里右键一个节点就能沉淀", "Lines of thought, datasets and skills distilled from the trees; right-click a node in a tree to distill it")}</span></div>
     <div class="rows">${rows.map((k) => `<div class="lr" data-doc="${k.id}"><span class="ty">${TY[k.system] ? L(...TY[k.system]) : k.kind === "skill" ? L("技能", "Skill") : L("数据集", "Dataset")}</span>
       <span class="ti">${esc(k.title)}</span><span class="gi">${esc(k.gist || "")}</span><span class="us">${(k.used_by || []).length ? L("被参考：", "Used by: ") + k.used_by.map((id) => esc((names.get(id) || "").slice(0, 18))).join(", ") : k.aim_id ? esc((names.get(k.aim_id) || "").slice(0, 24)) : ""}</span></div>`).join("")

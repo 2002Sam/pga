@@ -27,12 +27,38 @@ import logging
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pga.agents import quota as quotas
 from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE
+
+_RATINGS: dict = {"at": 0.0, "user": None, "rows": {}}
+
+
+def rating_table(rt, user_id=None) -> dict:
+    """Your good / bad marks per agent and kind of question, over the last 90 days: {category: {agent: [good, bad]}}."""
+    from sqlalchemy import select as _select
+
+    from pga.db.models import AgentRun
+    if _RATINGS["user"] == user_id and time.time() - _RATINGS["at"] < 60:
+        return _RATINGS["rows"]
+    since = utcnow() - timedelta(days=90)
+    q = _select(AgentRun.data).where(AgentRun.parent_id.is_(None), AgentRun.workflow == "ask", AgentRun.started_at >= since,
+                                     AgentRun.data["rating"].isnot(None))
+    if user_id is not None:
+        q = q.where(AgentRun.user_id == user_id)
+    rows: dict = {}
+    for (d,) in rt.session.execute(q):
+        r, cat, agent = (d or {}).get("rating") or {}, (d or {}).get("category") or "general", (d or {}).get("agent")
+        if not agent or not r.get("value"):
+            continue
+        g = rows.setdefault(cat, {}).setdefault(agent, [0, 0])
+        g[0 if r["value"] > 0 else 1] += 1
+    _RATINGS.update(at=time.time(), user=user_id, rows=rows)
+    return rows
+
 
 ACCESS = {"read": READ_ONLY, "write": WORKSPACE_WRITE, "full": FULL}     # the levels you can pick per conversation
 from pga.agents.pool import MODES, AgentPool, PoolResult, load
@@ -170,12 +196,16 @@ class AgentRouter:
                 return cat
         return None
 
-    def rank(self, category: str, now: datetime | None = None) -> list[dict]:
+    def rank(self, category: str, now: datetime | None = None, user_id=None) -> list[dict]:
         cats = self.cfg.get("categories") or {}
         prefer = list((cats.get(category) or {}).get("prefer") or [])
         extra = [n for n, a in self.pool.cfg["agents"].items() if category in (a.get("capabilities") or []) and n not in prefer]
         w_pref, w_q, w_s, w_c, w_r = MODES.get(self.cfg.get("mode", "performance"), MODES["performance"])
         spent = self.pool.spent_today(now)
+        try:
+            liked = rating_table(self.rt, user_id).get(category, {})
+        except Exception:  # noqa: BLE001 - ratings only nudge the order
+            liked = {}
         out = []
         for i, name in enumerate(prefer + extra):
             if name not in self.pool.adapters:
@@ -185,19 +215,22 @@ class AgentRouter:
             q = self.quota(name)
             pref = (len(prefer) - i) / len(prefer) if name in prefer else 0.0
             rem = q.remaining if q.remaining is not None else 0.7
+            good, bad = liked.get(name, [0, 0])
+            fb = 1.5 * (good - bad) / (good + bad + 2)        # your marks on its answers to this kind of question
             score = (w_pref * pref + w_q * (t.get("quality", 3) / 5) + w_s * (t.get("speed", 3) / 5)
-                     - w_c * (t.get("cost", 3) / 5) + w_r * rem)
+                     - w_c * (t.get("cost", 3) / 5) + w_r * rem + fb)
             ok, why_not = self.pool.usable(name, spent)
             if ok and (q.exhausted or (q.remaining is not None and q.remaining < float(self.cfg.get("min_remaining", 0.1)))):
                 ok, why_not = False, f"剩余用量不足（{q.detail}）"
             out.append({"agent": name, "role": a.get("role", ""), "usable": ok, "why_not": why_not, "score": round(score, 3),
                         "preference": prefer.index(name) + 1 if name in prefer else None, "remaining": q.remaining,
-                        "quota": q.as_dict(), "traits": t})
+                        "quota": q.as_dict(), "traits": t, "rated": [good, bad]})
         out.sort(key=lambda x: (not x["usable"], -x["score"]))
         label = (cats.get(category) or {}).get("label", category)
         for x in out:
             x["why"] = (f"{label} → {x['agent']}" + (f"（偏好第 {x['preference']}" if x["preference"] else "（能力匹配")
-                        + (f"，剩余 {x['remaining'] * 100:.0f}%" if x["remaining"] is not None else "") + "）")
+                        + (f"，剩余 {x['remaining'] * 100:.0f}%" if x["remaining"] is not None else "")
+                        + (f"，你的评价 +{x['rated'][0]}/-{x['rated'][1]}" if any(x["rated"]) else "") + "）")
         return out
 
     def route(self, category: str) -> list[str]:
@@ -228,7 +261,7 @@ class AgentRouter:
             if images and not agent_options(agent, self.pool.adapters[agent], self.pool.cfg["agents"][agent], self.rt)["images"]:
                 raise ValueError(f"{agent} 不能看图片：换一个能看图的 agent（ChatGPT、Claude、WorkBuddy），或去掉图片")
         else:
-            ranked = self.rank(cat, now)
+            ranked = self.rank(cat, now, user.id if user is not None else None)
             order = [x["agent"] for x in ranked if x["usable"]]
             if project is not None or folder or access in ("write", "full"):   # files to open or change: agents that can
                 order = [n for n in order if self.pool.adapters[n].type != "llm"]

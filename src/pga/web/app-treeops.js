@@ -159,9 +159,13 @@ async function showContext() {
 async function showDoc(id) {
   if (!id) return;
   const d = await api(`/v1/bodies/${id}/document${EN ? "?lang=en" : ""}`).catch((e) => ({ error: e.message }));
-  const dims = d.dims ? DIMS.map(([k, zh, en]) => { const x = d.dims[k] || {}; return `<div class="dd"><div class="hh"><b>${L(zh, en)}</b><span class="label">${L("把握", "confidence")} ${Math.round((x.confidence || 0) * 100)}%</span></div>
-      <div class="sm">${esc(x.summary || "")}</div>${(x.stated || []).length ? `<div class="label" style="margin-top:8px">${L("你说过的", "Stated")}</div><ul>${x.stated.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}
-      ${(x.inferred || []).length ? `<div class="label" style="margin-top:8px">${L("推断的", "Inferred")}</div><ul>${x.inferred.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}</div>`; }).join("") : "";
+  const dims = d.dims ? `<div class="muted" style="font-size:12.5px;margin:-6px 0 8px">${L("可以直接改：加一条你自己说的、去掉不对的、改写概括。你改的会一直保留，重新整理也不会被覆盖。", "Edit it directly: add something about you, remove what is wrong, rewrite a summary. Your edits are kept through every rebuild.")}</div>` + DIMS.map(([k, zh, en]) => { const x = d.dims[k] || {};
+      const li = (lst) => (x[lst] || []).map((v, i) => `<li>${esc(v)}<button class="xdel" data-fdel="${k}|${lst}|${i}" data-body="${id}" title="${L("去掉", "Remove")}">×</button></li>`).join("");
+      return `<div class="dd"><div class="hh"><b>${L(zh, en)}</b><span class="label">${L("把握", "confidence")} ${Math.round((x.confidence || 0) * 100)}%</span></div>
+      <div class="sm fsum" data-fsum="${k}" data-body="${id}" title="${L("点一下改写", "Click to rewrite")}">${esc(x.summary || L("（还没有概括，点一下写）", "(no summary yet — click to write one)"))}</div>
+      ${(x.stated || []).length ? `<div class="label" style="margin-top:8px">${L("你说过的", "Stated")}</div><ul>${li("stated")}</ul>` : ""}
+      ${(x.inferred || []).length ? `<div class="label" style="margin-top:8px">${L("推断的", "Inferred")}</div><ul>${li("inferred")}</ul>` : ""}
+      <div class="fadd"><input type="text" placeholder="${L("加一条关于你的…（回车）", "Add something about you… (Enter)")}" data-fadd="${k}" data-body="${id}"></div></div>`; }).join("") : "";
   modal(d.error ? esc(d.error) : `<h2>${esc(d.title)}</h2><div class="muted" style="margin-bottom:14px">${esc(d.gist || "")}</div>
     ${dims || `${d.summary ? PGATree.summary(d.summary) : ""}<div class="md" style="margin-top:16px">${md(d.full || L("（还没有全文）", "(no full text yet)"))}</div>`}
     ${d.system && !d.compiled_at ? `<button class="primary" data-compile="${id}" style="margin-top:14px">${L("现在整理", "Compile now")}</button>` : ""}`);

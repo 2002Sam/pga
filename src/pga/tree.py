@@ -622,7 +622,7 @@ class ThoughtTree:
         branches. It sits at the end, so the cached opening stays the same."""
         parts = []
         if refs:
-            parts.append(refs_context(self.rt, refs, node.user_id))
+            parts.append(refs_context(self.rt, refs, node.user_id, question))
         rel = self.related(node, question)
         if rel:
             parts.append("<related_branches note=\"other branches of this tree that touched on the same thing\">\n" + "\n".join(
@@ -1170,9 +1170,11 @@ def parse_actions(trace: str) -> list[dict]:
     return out
 
 
-def refs_context(rt: "Runtime", ids: list[str], user_id: uuid.UUID | None = None) -> str:
-    """Datasets pinned to this node or conversation: their summary and the start of the full text."""
+def refs_context(rt: "Runtime", ids: list[str], user_id: uuid.UUID | None = None, question: str = "") -> str:
+    """Datasets pinned to this node or conversation: their summary and the start of the full text; a document you
+    uploaded gives the passages that match the question instead (knowledge/uploads.py)."""
     from pga.db.models import Body
+    from pga.knowledge import uploads
     parts = []
     for i in ids[:8]:
         try:
@@ -1180,6 +1182,9 @@ def refs_context(rt: "Runtime", ids: list[str], user_id: uuid.UUID | None = None
         except ValueError:
             continue
         if b is None or (user_id and b.user_id != user_id) or not (b.description_en or b.description):
+            continue
+        if (b.data or {}).get("source") == "upload":
+            parts.append(uploads.context(b, question))
             continue
         parts.append(f"<referenced_knowledge title=\"{_clip(b.title_en or b.title, 80)}\">\n{_brief(rt, b)}\n"
                      f"{_clip(b.description_en or b.description, 2500)}\n</referenced_knowledge>")

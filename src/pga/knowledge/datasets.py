@@ -270,6 +270,7 @@ class Datasets:
             dims = _dimensions(text)
             if dims is None:
                 return Compiled(b.id, key, 0, "failed", "the model did not write the five dimensions")
+            dims = _apply_mine(dims, b.data)
             text = _dims_markdown(dims)
         if len(text) < 80:
             return Compiled(b.id, key, 0, "failed", "the model wrote almost nothing")
@@ -279,13 +280,65 @@ class Datasets:
         b.description = re.sub(r" ?¶ ?", "\n", shown).strip()
         b.compiled_at = now
         if dims is not None:
-            b.data = {**(b.data or {}), "dims_en": dims, "dims": _dims_shown(self.rt, dims, user.locale or "zh-CN")}
+            b.data = {**(b.data or {}), "dims_en": dims, "dims": _apply_mine(_dims_shown(self.rt, dims, user.locale or "zh-CN"), b.data)}
         self.s.flush()
         try:
             self.rt.layers.build(user, f"k:{b.id}", force=True, now=now)     # title · summary · full
         except Exception as exc:  # noqa: BLE001 - the document is saved; the pyramid is retried by the heartbeat
             log.info("pyramid for %s not built: %s", b.id, exc)
         return Compiled(b.id, key, len(text.split()), "compiled")
+
+
+def edit_facts(b: Body, dim: str, *, add=None, remove=None, summary=None) -> dict:
+    """`add`: a sentence about you (kept as stated); `remove`: {"list": "stated"|"inferred", "i": n}; `summary`: your own
+    wording of the dimension. Kept in data.mine / data.removed / data.mine_summary and applied again after every rebuild."""
+    keys = [k for k, *_ in DIMENSIONS]
+    if dim not in keys:
+        raise DatasetError(f"unknown dimension {dim!r}")
+    d = dict(b.data or {})
+    dims, dims_en = dict(d.get("dims") or {}), dict(d.get("dims_en") or {})
+    for x in (dims, dims_en):
+        x.setdefault(dim, {"summary": "", "stated": [], "inferred": [], "confidence": 0.0})
+        x[dim] = dict(x[dim])
+    mine, removed, msum = dict(d.get("mine") or {}), dict(d.get("removed") or {}), dict(d.get("mine_summary") or {})
+    if add and str(add).strip():
+        t = str(add).strip()[:200]
+        mine[dim] = [*mine.get(dim, []), t][-20:]
+        for x in (dims, dims_en):
+            if t not in x[dim]["stated"]:
+                x[dim]["stated"] = [t, *x[dim]["stated"]]
+    if isinstance(remove, dict) and remove.get("list") in ("stated", "inferred"):
+        lst, i = remove["list"], int(remove.get("i", -1))
+        if 0 <= i < len(dims[dim][lst]):
+            gone = [dims[dim][lst][i], *(dims_en[dim][lst][i:i + 1] if i < len(dims_en[dim].get(lst, [])) else [])]
+            removed[dim] = [*removed.get(dim, []), *gone][-60:]
+            mine[dim] = [m for m in mine.get(dim, []) if m not in gone]
+            for x in (dims, dims_en):
+                x[dim][lst] = [v for j, v in enumerate(x[dim][lst]) if v not in gone and not (x is dims and j == i)]
+    if summary is not None:
+        t = str(summary).strip()[:600]
+        if t:
+            msum[dim] = t
+            dims[dim]["summary"] = dims_en[dim]["summary"] = t
+        else:
+            msum.pop(dim, None)
+    b.data = {**d, "dims": dims, "dims_en": dims_en, "mine": mine, "removed": removed, "mine_summary": msum}
+    b.description_en = _dims_markdown({k: dims_en.get(k) or {"summary": "", "stated": [], "inferred": [], "confidence": 0} for k in keys})
+    b.description = _dims_markdown({k: dims.get(k) or {"summary": "", "stated": [], "inferred": [], "confidence": 0} for k in keys})
+    return {"dim": dim, "dims": dims}
+
+
+def _apply_mine(dims: dict, data: dict | None) -> dict:
+    """What you wrote or took out stays that way after the model rebuilds the five dimensions."""
+    d = data or {}
+    mine, removed, msum = d.get("mine") or {}, d.get("removed") or {}, d.get("mine_summary") or {}
+    for k, x in dims.items():
+        gone = set(removed.get(k) or [])
+        x["stated"] = [*[m for m in mine.get(k, []) if m not in x["stated"]], *[v for v in x["stated"] if v not in gone]][:12]
+        x["inferred"] = [v for v in x["inferred"] if v not in gone]
+        if msum.get(k):
+            x["summary"] = msum[k]
+    return dims
 
 
 def _dimensions(text: str) -> dict | None:

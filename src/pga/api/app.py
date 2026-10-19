@@ -463,6 +463,32 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             out["title"] = translate_many(rt, [b.title], "en")[0]
         return out
 
+    @app.post("/v1/users/{user_id}/knowledge/upload", status_code=201)
+    def knowledge_upload(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Put a document into your knowledge base (text read on this machine; nothing is sent anywhere)."""
+        from pga.knowledge.uploads import UploadError, save
+        u = user_or_404(rt, user_id)
+        try:
+            b = save(rt, u.id, str(body.get("name") or ""), str(body.get("data") or ""),
+                     uuid.UUID(str(body["aim_id"])) if body.get("aim_id") else None)
+        except (UploadError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"id": str(b.id), "title": b.title, "chars": b.data["chars"], "passages": b.data["passages"]}
+
+    @app.put("/v1/bodies/{body_id}/facts")
+    def body_facts(body_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Edit the personal model yourself: add something about you, take an item out, rewrite a dimension's summary.
+        What you change is kept when the model is rebuilt."""
+        from pga.db.models import Body
+        from pga.knowledge.datasets import DatasetError, edit_facts
+        b = rt.session.get(Body, body_id)
+        if b is None or b.system != "user":
+            raise HTTPException(404, "not the personal model")
+        try:
+            return edit_facts(b, str(body.get("dim") or ""), add=body.get("add"), remove=body.get("remove"), summary=body.get("summary"))
+        except DatasetError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.post("/v1/bodies/{body_id}/compile")
     def compile_body(body_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         """Rebuild a curated dataset now (you asked), instead of waiting for its turn."""
@@ -2053,13 +2079,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             except TeamError as exc:
                 raise HTTPException(422, str(exc)) from exc
         try:
-            if body.get("refs"):                                    # datasets you pinned to this conversation
+            tail = None
+            if body.get("refs"):                                    # datasets you pinned: after the question (the cached opening stays the same)
                 from pga.tree import refs_context
-                extra = refs_context(rt, [str(x) for x in body["refs"]][:8], u.id)
-                context = ((context or "") + "\n\n" + extra).strip() if extra else context
-            acc = access_for(u, str(body.get("conversation") or ""), body)
+                tail = refs_context(rt, [str(x) for x in body["refs"]][:8], u.id, text) or None
+            ckey = str(body.get("conversation") or "")
+            sysp = ((u.preferences or {}).get("chat_system") or {}).get(ckey) if ckey else None
+            if sysp:                                               # your own instructions for this conversation
+                context = ((context or "") + "\n\n<your_instructions_for_this_conversation>\n" + sysp + "\n</your_instructions_for_this_conversation>").strip()
+            acc = access_for(u, ckey, body)
             with rt.billing(user_ctx(u)):
-                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context,
+                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
                                            access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"],
                                            model=str(body["model"]) if body.get("model") else None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
@@ -2732,7 +2762,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             lv = rt.layers.rows([f"k:{b.id}"]).get(f"k:{b.id}", {})
             shared.append({"id": str(b.id), "title": b.title, "kind": b.kind, "system": b.system, "aim_id": str(b.aim_id) if b.aim_id else None,
                            "gist": lv[1].text if 1 in lv else None, "brief": lv[2].text if 2 in lv else None,
-                           "compiled_at": b.compiled_at, "used_by": users.get(str(b.id), [])})
+                           "compiled_at": b.compiled_at, "used_by": users.get(str(b.id), []),
+                           **({"source": "upload", "chars": (b.data or {}).get("chars")} if (b.data or {}).get("source") == "upload" else {})})
         from pga.tree import YouRoot
         you = YouRoot(u)
         ynodes = tree.nodes(you)
@@ -2963,7 +2994,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
         b = branch_of(u, key)
         ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []
-        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key)}
+        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key),
+                "system": ((u.preferences or {}).get("chat_system") or {}).get(key)}
 
     @app.post("/v1/users/{user_id}/chats/regen")
     def chats_regen(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -2998,6 +3030,33 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def chats_search(user_id: uuid.UUID, q: str = Query("", max_length=200), rt: Runtime = Depends(get_rt)):
         from pga.chats import search
         return search(rt, user_or_404(rt, user_id), q)
+
+    @app.get("/v1/users/{user_id}/chat-system")
+    def chats_system_get(user_id: uuid.UUID, key: str = Query("", max_length=120), rt: Runtime = Depends(get_rt)):
+        u = user_or_404(rt, user_id)
+        return {"key": key, "text": ((u.preferences or {}).get("chat_system") or {}).get(key, "")}
+
+    @app.put("/v1/users/{user_id}/chat-system")
+    def chats_system_put(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Your own instructions for one conversation (a system prompt): every agent in it reads them."""
+        u = user_or_404(rt, user_id)
+        key, text = str(body.get("key") or "")[:120], str(body.get("text") or "").strip()[:6000]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        cs = dict((u.preferences or {}).get("chat_system") or {})
+        if text:
+            cs[key] = text
+        else:
+            cs.pop(key, None)
+        u.preferences = {**(u.preferences or {}), "chat_system": dict(list(cs.items())[-1000:])}
+        return {"key": key, "text": text}
+
+    @app.get("/v1/users/{user_id}/ratings")
+    def ratings(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """How you rated each agent, per kind of question — what auto routing now takes into account."""
+        from pga.agents.routing import rating_table
+        user_or_404(rt, user_id)
+        return rating_table(rt, user_id)
 
     @app.put("/v1/users/{user_id}/chats/title")
     def chats_title(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

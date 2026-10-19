@@ -252,7 +252,7 @@ function codeHtml(n, d) {
     <div class="sec label">${L("回答里引用的文件 · 链接指向当时的版本", "Files the answers relied on · links point to that version")}</div>${(g.files || []).map((f) => `<div class="file"><a href="${esc(f.url || "#")}" target="_blank" rel="noopener">${esc(f.path)}</a><span>${L(`${f.refs} 次`, `${f.refs}×`)}</span></div>`).join("") || `<div class="dimt">${L("没有。", "None.")}</div>`}`;
 }
 const SYS = { user: ["个人模型", "Personal model"], world: ["世界模型", "World model"], aim: ["抱负知识", "Motivation"], branch: ["思路", "Line of thought"] };
-const sysName = (b) => (SYS[b.system] ? L(...SYS[b.system]) : b.kind === "skill" ? L("技能", "Skill") : L("数据集", "Dataset"));
+const sysName = (b) => (SYS[b.system] ? L(...SYS[b.system]) : b.source === "upload" ? L("文档", "Document") : b.kind === "skill" ? L("技能", "Skill") : L("数据集", "Dataset"));
 function kcard(b, extra = "") {
   return `<div class="kcard"><div class="kt"><span class="ty">${esc(sysName(b))}</span><b>${esc(b.title)}</b>${b.compiled_at ? `<span class="dimt" style="font-size:12px">${esc(ago(b.compiled_at))}</span>` : ""}</div>
     ${b.gist ? `<div class="kg">${esc(b.gist)}</div>` : ""}<div class="ka"><button class="sm" data-doc="${b.id}">${L("看全文", "Read")}</button><a href="/v1/bodies/${b.id}/markdown" target="_blank" rel="noopener"><button class="sm ghost">Markdown</button></a>${extra}</div></div>`;

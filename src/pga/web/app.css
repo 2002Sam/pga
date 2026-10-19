@@ -316,3 +316,9 @@ pre.codeblk > code { display: block; padding: 10px 14px !important; overflow: au
 .modal .box.wide { width: min(1100px, 94vw); } .pvh { display: flex; gap: 10px; align-items: baseline; margin-bottom: 8px; } .pvf { width: 100%; height: 70vh; border: 1px solid var(--line-2); border-radius: 10px; background: #fff; }
 .expmenu[hidden] { display: none; } .macts button svg, .ctool svg { display: block; } .macts button { display: inline-grid; place-items: center; }
 .ctool { display: inline-grid; place-items: center; } .clist .ch > button:first-child { display: inline-grid; place-items: center; width: 28px; padding: 0; }
+
+/* batch 2 */
+.xdel { margin-left: 6px; height: 18px; width: 18px; padding: 0; border: 0; background: transparent; color: var(--dim); opacity: 0; font-size: 13px; } .dd li:hover .xdel { opacity: 1; } .xdel:hover { color: var(--bad); }
+.fsum { cursor: text; border-radius: 6px; padding: 2px 4px; margin-left: -4px; } .fsum:hover { background: var(--soft); }
+.fadd input { width: 100%; margin-top: 8px; height: 28px; font-size: 12.5px; }
+.cpane .dh2 button.on { color: var(--accent); }

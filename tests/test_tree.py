@@ -287,7 +287,7 @@ def test_knowledge_moves_and_is_referenced_by_nodes_and_conversations(session_fa
     from pga.agents.routing import AgentRouter
 
     def ask(self, user, text, agent="auto", **kw):                                    # what the agent would be told
-        seen.append(kw.get("context") or "")
+        seen.append((kw.get("context") or "") + (kw.get("tail") or ""))
         return {"ok": True, "agent": "claude", "text": "好", "error": None, "run_id": None}
     monkeypatch.setattr(AgentRouter, "ask", ask)
     app = create_app(session_factory=session_factory,

@@ -160,14 +160,17 @@ async function suggest(box) {
   else if ((m = before.match(/^\/([\w\-一-鿿]*)$/))) { kind = "/"; const q = m[1].toLowerCase(), ps = await prompts();
     items = ps.filter((p) => p.command.toLowerCase().includes(q) || p.title.toLowerCase().includes(q)).map((p) => ({ id: p.command, label: "/" + p.command, sub: p.title, text: p.text }));
     items.push({ id: "__manage", label: L("管理提示词库…", "Manage prompts…"), sub: L("新建、修改、删除", "add, edit, delete") }); }
+  else if ((m = before.match(/(^|\s)#([\w\-一-鿿]*)$/))) { kind = "#"; const q = m[2].toLowerCase(), K = S.forest?.knowledge || [];
+    items = K.filter((k) => (k.title || "").toLowerCase().includes(q)).slice(0, 30).map((k) => ({ id: k.id, label: k.title, sub: sysName(k) + (k.chars ? ` · ${kfmt(k.chars)} ${L("字", "chars")}` : "") }));
+    items.push({ id: "__upload", label: L("上传一份文档…", "Upload a document…"), sub: L("读成文字存进知识库，并在这次对话里引用", "kept in the knowledge base and cited here") }); }
   if (!kind) { closePop(); return; }
-  POP = { box, kind, items, i: 0, start: pos - m[0].length + (m[1] && kind === "@" ? m[1].length : 0) };
+  POP = { box, kind, items, i: 0, start: pos - m[0].length + (m[1] && kind !== "/" ? m[1].length : 0) };
   drawPop();
 }
 function drawPop() {
   document.querySelector(".cpop")?.remove(); if (!POP || !POP.items.length) { POP = null; return; }
   const el = document.createElement("div"); el.className = "cpop";
-  el.innerHTML = `<div class="ph">${POP.kind === "@" ? L("交给哪个 agent", "Which agent") : L("提示词", "Prompts")}<span>↑↓ · Enter</span></div>` + POP.items.map((x, i) => `<div class="pi ${i === POP.i ? "on" : ""}" data-pi="${i}"><b>${esc(x.label)}</b><span>${esc(x.sub || "")}</span></div>`).join("");
+  el.innerHTML = `<div class="ph">${POP.kind === "@" ? L("交给哪个 agent", "Which agent") : POP.kind === "#" ? L("引用知识（只把相关段落给 agent）", "Cite knowledge (only matching passages go)") : L("提示词", "Prompts")}<span>↑↓ · Enter</span></div>` + POP.items.map((x, i) => `<div class="pi ${i === POP.i ? "on" : ""}" data-pi="${i}"><b>${esc(x.label)}</b><span>${esc(x.sub || "")}</span></div>`).join("");
   const r = POP.box.getBoundingClientRect(); el.style.left = r.left + "px"; el.style.bottom = innerHeight - r.top + 6 + "px"; el.style.width = Math.min(460, r.width) + "px";
   document.body.appendChild(el);
 }
@@ -175,6 +178,11 @@ function choosePop(i) {
   const p = POP; if (!p) return; const x = p.items[i]; closePop(); if (!x) return;
   if (x.id === "__manage") { managePrompts(); return; }
   const v = p.box.value, pos = p.box.selectionStart;
+  if (p.kind === "#") {
+    p.box.value = v.slice(0, p.start) + v.slice(pos); p.box.focus();
+    if (x.id === "__upload") { uploadDoc(p.box.id === "tnText"); return; }
+    citeRef(x.id, p.box.id === "tnText"); return;
+  }
   if (p.kind === "@") {
     const sel = $("#chatAgent") || $("#tnAgent"); if (sel) { sel.value = x.id; sel.dispatchEvent(new Event("change", { bubbles: true })); }
     p.box.value = v.slice(0, p.start) + v.slice(pos); toast(L(`这条交给 ${x.label}`, `This goes to ${x.label}`));
@@ -190,6 +198,38 @@ async function managePrompts() {
     <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-act="padd">${L("＋ 新的一条", "+ New prompt")}</button><span class="grow"></span><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" data-act="psave">${L("保存", "Save")}</button></div></div>`);
 }
 function readPrompts() { return [...document.querySelectorAll("#plist .prow")].map((r) => ({ command: r.querySelector(".pc").value.trim(), title: r.querySelector(".pt").value.trim(), text: r.querySelector(".px").value })); }
+
+/* ------------------------------------------------ knowledge: upload a document, cite it with # */
+function citeRef(id, tree) {
+  const list = tree ? S.contRefs : S.chatRefs; if (!list.includes(id)) list.push(id);
+  const k = (S.forest?.knowledge || []).find((x) => x.id === id); toast(L(`这次对话引用「${k?.title || ""}」`, `This conversation cites “${k?.title || ""}”`));
+  const t = (tree ? $("#tnText") : $("#chatText"))?.value; if (tree) renderCont(); else renderChat();
+  const n = tree ? $("#tnText") : $("#chatText"); if (n && t != null) { n.value = t; autoGrow(n); n.focus(); }
+}
+function uploadDoc(cite = null) {
+  const i = document.createElement("input"); i.type = "file"; i.multiple = true;
+  i.accept = ".pdf,.docx,.doc,.rtf,.odt,.xlsx,.pptx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.html,.htm,.tex,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.sql,.log";
+  i.onchange = async () => {
+    for (const f of i.files) {
+      if (f.size > 30e6) { toast(L(`${f.name} 超过 30 MB`, `${f.name} is over 30 MB`)); continue; }
+      toast(L(`正在读 ${f.name}…`, `Reading ${f.name}…`));
+      const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
+      try { const r = await api(`/v1/users/${S.uid}/knowledge/upload`, { body: { name: f.name, data } });
+        toast(L(`「${r.title}」进了知识库：${kfmt(r.chars)} 字，${r.passages} 段`, `“${r.title}” is in the knowledge base: ${kfmt(r.chars)} chars, ${r.passages} passages`));
+        S.forest = null; await loadForest(); if (cite !== null) citeRef(r.id, cite); }
+      catch (err) { toast(err.message); }
+    }
+  };
+  i.click();
+}
+async function editFact(body) { try { await api(`/v1/bodies/${body.id}/facts`, { method: "PUT", body }); S.forest = null; loadForest(); showDoc(body.id); } catch (err) { toast(err.message); } }
+async function sysPrompt(key) {
+  const cur = S.chatSys?.[key] ?? (await api(`/v1/users/${S.uid}/chat-system?key=${encodeURIComponent(key)}`).catch(() => ({ text: "" }))).text;
+  modal(`<h2>${L("这段对话的设定", "Instructions for this conversation")}</h2><div class="muted" style="margin-bottom:10px">${L("比如「用英文回答」「你是严格的审稿人」「回答控制在三句话以内」。这段对话里每个 agent 都会读到；开新会话时生效。", "E.g. “answer in English”, “you are a strict reviewer”, “three sentences at most”. Every agent in this conversation reads them, from its next session.")}</div>
+    <textarea id="sysText" style="width:100%;min-height:140px;background:var(--raised);border:1px solid var(--line-2);border-radius:10px;padding:10px 12px;color:var(--text)">${esc(cur || "")}</textarea>
+    <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" data-act="syssave" data-key="${esc(key)}">${L("保存", "Save")}</button></div></div>`);
+  $("#sysText").focus();
+}
 
 /* ------------------------------------------------ search, rename, export */
 function searchBox() {
@@ -244,6 +284,8 @@ document.addEventListener("click", async (e) => {
   const pi = e.target.closest("[data-pi]"); if (pi) { choosePop(Number(pi.dataset.pi)); return; }
   if (!e.target.closest(".cpop")) closePop();
   const so = e.target.closest("[data-sopen]"); if (so) { openFound(so.dataset.sopen, so.dataset.cid); return; }
+  const fd = e.target.closest("[data-fdel]"); if (fd) { const [dim, list, i] = fd.dataset.fdel.split("|"); editFact({ id: fd.dataset.body, dim, remove: { list, i: Number(i) } }); return; }
+  const fs = e.target.closest("[data-fsum]"); if (fs) { const t = prompt(L("用你自己的话写这一维：", "This dimension in your own words:"), fs.textContent.startsWith("（") ? "" : fs.textContent); if (t !== null) editFact({ id: fs.dataset.body, dim: fs.dataset.fsum, summary: t }); return; }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act;
   if (a === "copy") copyText(b.dataset.text || "");
@@ -267,6 +309,10 @@ document.addEventListener("click", async (e) => {
   else if (a === "exportmd") { b.parentElement.hidden = true; exportChat("md"); }
   else if (a === "exportjson") { b.parentElement.hidden = true; exportChat("json"); }
   else if (a === "search") searchBox();
+  else if (a === "upload") uploadDoc(null);
+  else if (a === "sysp") sysPrompt(b.dataset.key);
+  else if (a === "syssave") { try { const r = await api(`/v1/users/${S.uid}/chat-system`, { method: "PUT", body: { key: b.dataset.key, text: $("#sysText").value } });
+      S.chatSys = { ...(S.chatSys || {}), [b.dataset.key]: r.text }; document.querySelector(".modal")?.remove(); toast(r.text ? L("设定已保存", "Instructions saved") : L("设定已清空", "Instructions cleared")); renderChat(); } catch (err) { toast(err.message); } }
   else if (a === "keys") showKeys();
 });
 document.addEventListener("input", (e) => {
@@ -293,6 +339,7 @@ document.addEventListener("keydown", (e) => {
     if ((e.key === "ArrowDown" || e.key === "ArrowUp") && rs.length) { e.preventDefault(); rs[i]?.classList.remove("on"); const n = rs[(i + (e.key === "ArrowDown" ? 1 : rs.length - 1)) % rs.length]; n.classList.add("on"); n.scrollIntoView({ block: "nearest" }); return; }
     if (e.key === "Enter" && rs[Math.max(0, i)]) { e.preventDefault(); const r = rs[Math.max(0, i)]; openFound(r.dataset.sopen, r.dataset.cid); return; }
   }
+  if (e.target.dataset?.fadd && e.key === "Enter" && e.target.value.trim()) { e.preventDefault(); editFact({ id: e.target.dataset.body, dim: e.target.dataset.fadd, add: e.target.value.trim() }); return; }
   if (e.target.id === "editText" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.stopImmediatePropagation(); editSend(); return; }
   if (box && e.key === "ArrowUp" && !box.value && S.sentHist.length) { e.preventDefault(); e.stopImmediatePropagation(); box.value = S.sentHist[S.sentHist.length - 1]; autoGrow(box); return; }
   if (mod && e.shiftKey && k === "o") { e.preventDefault(); show("chats"); $("#newChat")?.click(); setTimeout(() => $("#chatText")?.focus(), 60); return; }

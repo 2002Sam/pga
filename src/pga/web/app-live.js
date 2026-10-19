@@ -86,7 +86,7 @@ function envBar(key, turns) {
 }
 async function showUsage() {
   const [rt, c, sp] = await Promise.all([api(`/v1/agents/route?category=general`).catch(() => ({ ranking: [] })), api(`/v1/users/${S.uid}/cache?days=7`).catch(() => null),
-    api(`/v1/users/${S.uid}/usage/split?days=3`).catch(() => null)]);
+    api(`/v1/users/${S.uid}/usage/split?days=3`).catch(() => null)]), rated = await api(`/v1/users/${S.uid}/ratings`).catch(() => ({}));
   const rows = Object.entries(sp?.agents || {}).sort((a, b) => (b[1].yours.input + b[1].background.input) - (a[1].yours.input + a[1].background.input));
   modal(`<h2>${L("用量", "Usage")}</h2><div class="muted" style="margin-bottom:12px">${L("每个 agent 还剩多少额度（自动选 agent 时按这个排）。", "How much each agent has left (auto routing goes by this).")}</div>
     ${(rt.ranking || []).map((x) => `<div class="dim" style="grid-template-columns:150px 1fr 120px;cursor:default"><span class="k">${esc(agentLabel(x.agent))}</span><span class="v">${esc(x.quota?.detail || "")}${x.quota?.resets_at ? L(" · 重置于 ", " · resets ") + esc(when(x.quota.resets_at)) : ""}${x.usable ? "" : ` · <span style="color:var(--bad)">${esc(x.why_not || L("不可用", "unavailable"))}</span>`}</span>
@@ -99,6 +99,8 @@ async function showUsage() {
       <div class="label" style="margin-top:16px">${L("PGA 后台用不用你的订阅", "Does PGA's background use your subscriptions")}</div>
       <label class="opt"><input type="checkbox" data-bgset="long" data-to="${sp.long_tasks ? "0" : "1"}" ${sp.long_tasks ? "checked" : ""}><span>${L("后台工作可以交给 agent", "Background work may go to agents")}<div class="d">${L("关掉：整理树、知识库、研究都只用 PGA 自己的模型（DeepSeek），不碰任何订阅。", "Off: trees, knowledge and research use only PGA's own model (DeepSeek), never a subscription.")}</div></span></label>
       <label class="opt"><input type="checkbox" data-bgset="keep" data-to="${(sp.keep_for_me || []).includes("claude_local") ? "0" : "1"}" ${(sp.keep_for_me || []).includes("claude_local") ? "checked" : ""}><span>${L("Claude 的额度只留给我自己", "Keep Claude's quota for me")}<div class="d">${L("后台永远不用 Claude Code（claude、claude-2）。", "Background work never uses Claude Code (claude, claude-2).")}</div></span></label>` : ""}
+    ${Object.keys(rated).length ? `<div class="label" style="margin-top:18px">${L("你的评价 · 自动选 agent 时会算进去", "Your ratings · auto routing counts them")}</div>
+      <table class="utab"><tr><th>${L("哪类问题", "Kind")}</th><th>${L("agent · 👍 / 👎", "agent · 👍 / 👎")}</th></tr>${Object.entries(rated).map(([cat, xs]) => `<tr><td>${esc(cat)}</td><td>${Object.entries(xs).map(([a, [g, b]]) => `${esc(agentLabel(a))} ${g}/${b}`).join(" · ")}</td></tr>`).join("")}</table>` : ""}
     ${c?.all?.calls ? `<div class="label" style="margin-top:18px">${L("提示词缓存 · 最近 7 天", "Prompt cache · last 7 days")}</div>${cacheLine(c.all)}` : ""}`);
 }
 
@@ -109,13 +111,13 @@ function headActs() {
   const pinned = (S.tl?.pinned || []).includes(line);
   return `<span class="grow"></span>${line ? `<button class="sm ghost" data-pin="${esc(line)}" data-to="${pinned ? "0" : "1"}">${pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")}</button>` : ""}
     <button class="sm ghost" data-moveto="${esc(key || "")}" data-line="${esc(line || "")}">${L("放到…", "Move to…")}</button>
-    ${key && !S.lineView ? `<button class="sm ghost" data-act="rename" data-key="${esc(key)}">${L("重命名", "Rename")}</button>` : ""}
+    ${key && !S.lineView ? `<button class="sm ghost" data-act="rename" data-key="${esc(key)}">${L("重命名", "Rename")}</button><button class="sm ghost ${S.chatSys?.[key] ? "on" : ""}" data-act="sysp" data-key="${esc(key)}" title="${L("给这段对话的设定：每个 agent 都会读到", "Instructions for this conversation: every agent reads them")}">${L("设定", "Instructions")}</button>` : ""}
     <span class="expm"><button class="sm ghost" data-act="export">${L("导出", "Export")} ▾</button><span class="expmenu" hidden><button data-act="exportmd">Markdown</button><button data-act="exportjson">JSON</button></span></span>
     <button class="sm ghost" data-archall="${esc(key || "")}" data-line="${esc(line || "")}">${L("归档", "Archive")}</button>`;
 }
 async function loadChat(key) {
   if (!key || key.startsWith("new:")) { renderChat(); return; }
-  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; } catch (e) { toast(e.message); }
+  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; S.chatSys = { ...(S.chatSys || {}), [key]: r.system || "" }; } catch (e) { toast(e.message); }
   if (S.chat === key || S.lineView) renderChat();
 }
 async function chatSend() {
