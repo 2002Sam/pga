@@ -119,7 +119,7 @@ class Timeline:
             d = r.data or {}
             conv = str(d.get("conversation") or "")
             nid = d.get("node") or (conv[5:] if conv.startswith("node:") else None)
-            if conv.startswith(("exchange:", "second:", "regen:")) or d.get("regen_of"):
+            if conv.startswith(("exchange:", "second:", "regen:", "multi:")) or d.get("regen_of"):
                 continue
             if nid:                                                 # a branch of a thought tree
                 if nid not in nodes:

@@ -26,6 +26,7 @@
     <div class="bars" id="bars"></div>
     <div class="foot">
       <a href="#" id="toLib" data-view="home"><svg viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg><span data-l="模型与知识库|Models and library">模型与知识库</span></a>
+      <a href="#" id="toNotes" data-view="notes"><svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg><span data-l="笔记|Notes">笔记</span></a>
       <a href="/agents" id="toAgents"><svg viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M2.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5M12 19c.6-2.5 2.6-4.5 5-4.5s4.4 2 5 4.5"/></svg><span data-l="Agent 与连接|Agents and connections">Agent 与连接</span></a>
       <span id="shell"></span>
     </div>
@@ -45,8 +46,10 @@
 
   <main class="view" id="vChats" hidden><div class="split" data-split="tlw"></div>
     <section class="clist" id="clist"></section>
-    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><div class="ccomp" id="ccomp"></div></section>
+    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><aside class="cmap" id="cmap" hidden></aside><div class="ccomp" id="ccomp"></div></section>
   </main>
+
+  <main class="view" id="vNotes" hidden><section class="nlist" id="nlist"></section><section class="npane" id="npane"></section></main>
 </div>
 <div id="toast"></div>
 <script src="/ui/app-core.js"></script>
@@ -57,6 +60,7 @@
 <script src="/ui/app-chats.js"></script>
 <script src="/ui/app-live.js"></script>
 <script src="/ui/app-compose.js"></script>
+<script src="/ui/app-more.js"></script>
 <script src="/ui/app-events.js"></script>
 <script src="/ui/app-hand.js"></script>
 

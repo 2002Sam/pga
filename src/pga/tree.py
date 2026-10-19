@@ -1183,7 +1183,7 @@ def refs_context(rt: "Runtime", ids: list[str], user_id: uuid.UUID | None = None
             continue
         if b is None or (user_id and b.user_id != user_id) or not (b.description_en or b.description):
             continue
-        if (b.data or {}).get("source") == "upload":
+        if (b.data or {}).get("source") in ("upload", "web", "note"):
             parts.append(uploads.context(b, question))
             continue
         parts.append(f"<referenced_knowledge title=\"{_clip(b.title_en or b.title, 80)}\">\n{_brief(rt, b)}\n"

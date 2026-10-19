@@ -56,6 +56,38 @@ def save(rt: "Runtime", user_id: uuid.UUID, name: str, data_url: str, aim_id: uu
     return b
 
 
+def fetch_page(rt: "Runtime", user_id: uuid.UUID, url: str) -> Body:
+    """A web page you asked for: fetched from here, its readable text (no scripts, menus or styles) kept as a document."""
+    import html as _html
+
+    import httpx
+    url = url.strip()
+    if not re.match(r"^https?://[^\s/]+", url):
+        raise UploadError("a web address starting with http:// or https://")
+    try:
+        r = httpx.get(url, timeout=25, follow_redirects=True, headers={"User-Agent": "Mozilla/5.0 (PGA; personal reader)"})
+    except httpx.HTTPError as exc:
+        raise UploadError(f"could not open the page: {exc}") from exc
+    if r.status_code >= 400:
+        raise UploadError(f"the page answered {r.status_code}")
+    raw = r.text[:3_000_000]
+    t = re.search(r"<title[^>]*>(.*?)</title>", raw, re.S | re.I)
+    title = _html.unescape(re.sub(r"\s+", " ", t.group(1))).strip()[:200] if t else url
+    body = re.sub(r"(?is)<(script|style|noscript|svg|nav|footer|header|form|aside)\b.*?</\1>", " ", raw)
+    body = re.sub(r"(?i)<br\s*/?>|</(p|div|li|h[1-6]|tr|section|article)>", "\n", body)
+    body = re.sub(r"(?i)<h([1-6])[^>]*>", lambda m: "\n" + "#" * int(m.group(1)) + " ", body)
+    text = _html.unescape(re.sub(r"<[^>]+>", " ", body))
+    text = re.sub(r"[ \t\u00a0]+", " ", text)
+    text = re.sub(r"\n\s*\n\s*(\n\s*)+", "\n\n", "\n".join(x.strip() for x in text.split("\n"))).strip()
+    if len(text) < 200:
+        raise UploadError("the page has almost no readable text (it may need a browser to render)")
+    b = Body(user_id=user_id, kind="database", title=title or url, title_en=title or url, description=text, description_en=text, origin=Origin.USER,
+             compiled_at=utcnow(), data={"source": "web", "url": url, "chars": len(text), "passages": math.ceil(len(text) / CHUNK)})
+    rt.session.add(b)
+    rt.session.flush()
+    return b
+
+
 def chunks(text: str) -> list[str]:
     """Passages of about CHUNK characters, cut at paragraph ends where possible."""
     out, cur = [], ""

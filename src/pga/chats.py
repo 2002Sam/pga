@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-HIDDEN = ("node:", "exchange:", "second:")       # conversations that are not chats of their own
+HIDDEN = ("node:", "exchange:", "second:", "multi:")       # conversations that are not chats of their own
 
 COMPARE = """Two AI agents answered the same question from a person, with the same conversation before it. Compare them
 for the person: what both say, where they really differ (facts, recommendations, assumptions — not wording), and one
@@ -150,6 +150,28 @@ def regenerate(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | None =
         new.data = {**(new.data or {}), "conversation": key, "regen_of": str(root.id)}
         root.data = {**d, "pick": str(new.id)}
     return {"run": str(new.id) if new else None, "of": str(root.id), "text": reply.get("text"), "error": reply.get("error"), "agent": reply.get("agent")}
+
+
+def fold_in(rt: "Runtime", user: User, root_id: uuid.UUID, runs: list[uuid.UUID], key: str) -> int:
+    """Answers several agents gave to the same question at once: they become versions of the first one's turn."""
+    root = rt.session.get(AgentRun, root_id)
+    if root is None or root.user_id != user.id:
+        raise ChatError("no such reply")
+    n = 0
+    for rid in runs:
+        r = rt.session.get(AgentRun, rid)
+        if r is None or r.user_id != user.id or r.id == root.id:
+            continue
+        r.data = {**(r.data or {}), "conversation": key, "regen_of": str(root.id), "multi": True}
+        n += 1
+    return n
+
+
+def children(user: User, key: str) -> list[dict]:
+    """The chats that branched from this one, and where (the turn they grew from)."""
+    titles = (user.preferences or {}).get("chat_titles") or {}
+    return [{"key": k, "upto": v.get("upto"), "title": titles.get(k)} for k, v in ((user.preferences or {}).get("chat_branches") or {}).items()
+            if v.get("from") == key]
 
 
 def pick(rt: "Runtime", user: User, run_id: uuid.UUID, version: uuid.UUID) -> None:

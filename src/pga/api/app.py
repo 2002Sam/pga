@@ -2080,9 +2080,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         try:
             tail = None
+            if body.get("web"):                                     # look it up on the web (agents with web tools only)
+                tail = ("[The user turned on web search for this message: search the web (WebSearch / WebFetch) for current, "
+                        "first-hand information before answering, and cite the pages you used as links.]")
             if body.get("refs"):                                    # datasets you pinned: after the question (the cached opening stays the same)
                 from pga.tree import refs_context
-                tail = refs_context(rt, [str(x) for x in body["refs"]][:8], u.id, text) or None
+                tail = "\n\n".join(x for x in [tail, refs_context(rt, [str(x) for x in body["refs"]][:8], u.id, text)] if x) or None
             ckey = str(body.get("conversation") or "")
             sysp = ((u.preferences or {}).get("chat_system") or {}).get(ckey) if ckey else None
             if sysp:                                               # your own instructions for this conversation
@@ -2090,7 +2093,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             acc = access_for(u, ckey, body)
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
-                                           access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"],
+                                           access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"], web=bool(body.get("web")),
                                            model=str(body["model"]) if body.get("model") else None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
                                            images=[x for x in body.get("images") or [] if isinstance(x, dict)][:6],
@@ -2763,7 +2766,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             shared.append({"id": str(b.id), "title": b.title, "kind": b.kind, "system": b.system, "aim_id": str(b.aim_id) if b.aim_id else None,
                            "gist": lv[1].text if 1 in lv else None, "brief": lv[2].text if 2 in lv else None,
                            "compiled_at": b.compiled_at, "used_by": users.get(str(b.id), []),
-                           **({"source": "upload", "chars": (b.data or {}).get("chars")} if (b.data or {}).get("source") == "upload" else {})})
+                           **({"source": (b.data or {})["source"], "chars": (b.data or {}).get("chars"), "url": (b.data or {}).get("url")}
+                              if (b.data or {}).get("source") in ("upload", "web", "note") else {})})
         from pga.tree import YouRoot
         you = YouRoot(u)
         ynodes = tree.nodes(you)
@@ -2921,7 +2925,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                                            AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
             d = r.data or {}
             key = str(d.get("conversation") or f"run:{r.id}")
-            if key.startswith(("node:", "exchange:", "second:", "regen:")) or d.get("node") or d.get("regen_of"):
+            if key.startswith(("node:", "exchange:", "second:", "regen:", "multi:")) or d.get("node") or d.get("regen_of"):
                 continue
             c = convs.setdefault(key, {"key": key, "agent": d.get("agent") or r.agent, "turns": 0, "last_at": r.started_at.isoformat(),
                                        "title": "", "last": ""})
@@ -2994,7 +2998,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
         b = branch_of(u, key)
         ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []
-        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key),
+        from pga.chats import children
+        kids = children(u, key)
+        if kids:                                                   # their first message, as a name
+            firsts = {}
+            for k in kids:
+                r0 = next(iter(runs_of(rt, user_id, k["key"])), None) if not k["title"] else None
+                firsts[k["key"]] = k["title"] or (" ".join((r0.prompt or "").split())[:40] if r0 else "")
+            kids = [{**k, "title": firsts[k["key"]]} for k in kids]
+        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids,
                 "system": ((u.preferences or {}).get("chat_system") or {}).get(key)}
 
     @app.post("/v1/users/{user_id}/chats/regen")
@@ -3007,6 +3019,66 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 return regenerate(rt, u, uuid.UUID(str(body.get("run"))), str(body.get("agent") or "") or None)
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/chats/fold")
+    def chats_fold(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Several agents answered one question at once: file the others under the first answer, as versions."""
+        from pga.chats import ChatError, fold_in
+        try:
+            n = fold_in(rt, user_or_404(rt, user_id), uuid.UUID(str(body.get("root"))), [uuid.UUID(str(x)) for x in body.get("runs") or []][:6],
+                        str(body.get("key") or "")[:120])
+        except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"folded": n}
+
+    @app.post("/v1/users/{user_id}/knowledge/web", status_code=201)
+    def knowledge_web(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A web page into the knowledge base: fetched here, its readable text kept, cited like a document."""
+        from pga.knowledge.uploads import UploadError, fetch_page
+        u = user_or_404(rt, user_id)
+        try:
+            b = fetch_page(rt, u.id, str(body.get("url") or ""))
+        except UploadError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"id": str(b.id), "title": b.title, "chars": b.data["chars"], "passages": b.data["passages"], "url": b.data["url"]}
+
+    @app.get("/v1/users/{user_id}/notes")
+    def notes_list(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Your notes, newest first (they are knowledge too: cite one with #)."""
+        from pga.db.models import Body
+        user_or_404(rt, user_id)
+        xs = rt.session.scalars(select(Body).where(Body.user_id == user_id, Body.kind == "note").order_by(Body.compiled_at.desc().nulls_last()))
+        return [{"id": str(b.id), "title": b.title, "text": b.description, "at": (b.compiled_at or b.created_at).isoformat(), "chars": len(b.description or "")} for b in xs]
+
+    @app.post("/v1/users/{user_id}/notes", status_code=201)
+    def notes_create(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import Body
+        from pga.db.types import Origin
+        u = user_or_404(rt, user_id)
+        text = str(body.get("text") or "")[:400000]
+        title = str(body.get("title") or "").strip()[:200] or (text.strip().split("\n", 1)[0].lstrip("# ").strip()[:60] if text.strip() else "") or "未命名笔记"
+        b = Body(user_id=u.id, kind="note", title=title, title_en=title, description=text, description_en=text, origin=Origin.USER,
+                 compiled_at=utcnow(), data={"source": "note", "chars": len(text), "passages": max(1, len(text) // 1200 + 1)})
+        rt.session.add(b)
+        rt.session.flush()
+        return {"id": str(b.id), "title": b.title, "text": b.description, "at": b.compiled_at.isoformat()}
+
+    @app.put("/v1/notes/{note_id}")
+    def notes_update(note_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import Body
+        b = rt.session.get(Body, note_id)
+        if b is None or b.kind != "note":
+            raise HTTPException(404, "no such note")
+        if "text" in body:
+            t = str(body.get("text") or "")[:400000]
+            if body.get("append"):
+                t = (b.description or "").rstrip() + "\n\n" + t
+            b.description = b.description_en = t
+            b.data = {**(b.data or {}), "chars": len(t), "passages": max(1, len(t) // 1200 + 1)}
+        if str(body.get("title") or "").strip():
+            b.title = b.title_en = str(body["title"]).strip()[:200]
+        b.compiled_at = utcnow()
+        return {"id": str(b.id), "title": b.title, "text": b.description, "at": b.compiled_at.isoformat()}
 
     @app.post("/v1/users/{user_id}/chats/pick")
     def chats_pick(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

@@ -243,7 +243,7 @@ class AgentRouter:
             context: str | None = None, model: str | None = None, effort: str | None = None,
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
             project=None, tail: str | None = None, access: str | None = None, folder: str | None = None,
-            mcp: bool = False) -> dict:
+            mcp: bool = False, web: bool = False) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -263,7 +263,7 @@ class AgentRouter:
         else:
             ranked = self.rank(cat, now, user.id if user is not None else None)
             order = [x["agent"] for x in ranked if x["usable"]]
-            if project is not None or folder or access in ("write", "full"):   # files to open or change: agents that can
+            if project is not None or folder or web or access in ("write", "full"):   # files or the web: agents with tools
                 order = [n for n in order if self.pool.adapters[n].type != "llm"]
             if images:                                    # pictures: only agents that can see them
                 order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]

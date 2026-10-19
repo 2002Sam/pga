@@ -84,6 +84,8 @@ function replyActs(t, key) {
     <button data-act="speak" data-text="${esc(plain(t.text).slice(0, 4000))}" title="${L("朗读", "Read aloud")}">${I.speak}</button>
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === 1 ? 0 : 1}" class="${t.rating === 1 ? "on" : ""}" title="${L("好回答", "Good answer")}">${I.up}</button>
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === -1 ? 0 : -1}" class="${t.rating === -1 ? "on bad" : ""}" title="${L("不好的回答", "Bad answer")}">${I.down}</button>
+    <button data-act="tonote" data-text="${esc(t.text)}" title="${L("存进笔记", "Save into a note")}">${typeof MI === "object" ? MI.note : "✎"}</button>
+    ${vs.length > 1 ? `<button class="txt ${S.sideBy?.[t.run] ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
     <span class="sep"></span>
     ${sec ? "" : `<button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""}>${sb ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
     <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}">${L("从这里分支", "Branch from here")}</button></div>`;
@@ -121,7 +123,7 @@ function speak(text, btn) {
 /* ------------------------------------------------ the composer: attachments, voice, "/" prompts, "@" agents, ↑ history */
 S.att = []; S.sentHist = []; S.prompts = null;
 const composeTools = () => `<button class="ghost ctool" data-act="attach" title="${L("附件：图片和文档（也可以粘贴或拖进来）", "Attach images and documents (or paste / drop them)")}">${I.clip}</button>
-  <button class="ghost ctool ${S.listening ? "on" : ""}" data-act="mic" title="${L("语音输入", "Voice input")}">${I.mic}</button>`;
+  <button class="ghost ctool ${S.listening ? "on" : ""}" data-act="mic" title="${L("语音输入", "Voice input")}">${I.mic}</button>${typeof moreTools === "function" ? moreTools() : ""}`;
 const attsHtml = () => (S.att.length ? `<div class="atts">${S.att.map((a, i) => `<span class="att">${a.type.startsWith("image/") ? `<img src="${a.data}" alt="">` : "📄"}<span>${esc(a.name)}</span><button data-act="unattach" data-i="${i}">×</button></span>`).join("")}</div>` : "");
 function rerenderComposer() { const t = $("#chatText")?.value; if (S.view === "chats") renderChat(); const n = $("#chatText"); if (n && t != null) { n.value = t; autoGrow(n); } }
 async function addFiles(list) {
@@ -162,7 +164,8 @@ async function suggest(box) {
     items.push({ id: "__manage", label: L("管理提示词库…", "Manage prompts…"), sub: L("新建、修改、删除", "add, edit, delete") }); }
   else if ((m = before.match(/(^|\s)#([\w\-一-鿿]*)$/))) { kind = "#"; const q = m[2].toLowerCase(), K = S.forest?.knowledge || [];
     items = K.filter((k) => (k.title || "").toLowerCase().includes(q)).slice(0, 30).map((k) => ({ id: k.id, label: k.title, sub: sysName(k) + (k.chars ? ` · ${kfmt(k.chars)} ${L("字", "chars")}` : "") }));
-    items.push({ id: "__upload", label: L("上传一份文档…", "Upload a document…"), sub: L("读成文字存进知识库，并在这次对话里引用", "kept in the knowledge base and cited here") }); }
+    items.push({ id: "__upload", label: L("上传一份文档…", "Upload a document…"), sub: L("读成文字存进知识库，并在这次对话里引用", "kept in the knowledge base and cited here") },
+      { id: "__web", label: L("网页…", "A web page…"), sub: L("抓下网页的文字存进知识库，并在这次对话里引用", "fetch a page into the knowledge base and cite it here") }); }
   if (!kind) { closePop(); return; }
   POP = { box, kind, items, i: 0, start: pos - m[0].length + (m[1] && kind !== "/" ? m[1].length : 0) };
   drawPop();
@@ -181,6 +184,7 @@ function choosePop(i) {
   if (p.kind === "#") {
     p.box.value = v.slice(0, p.start) + v.slice(pos); p.box.focus();
     if (x.id === "__upload") { uploadDoc(p.box.id === "tnText"); return; }
+    if (x.id === "__web") { addWebPage(p.box.id === "tnText"); return; }
     citeRef(x.id, p.box.id === "tnText"); return;
   }
   if (p.kind === "@") {

@@ -117,11 +117,12 @@ function headActs() {
 }
 async function loadChat(key) {
   if (!key || key.startsWith("new:")) { renderChat(); return; }
-  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; S.chatSys = { ...(S.chatSys || {}), [key]: r.system || "" }; } catch (e) { toast(e.message); }
+  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; S.chatSys = { ...(S.chatSys || {}), [key]: r.system || "" }; S.chatKids = { ...(S.chatKids || {}), [key]: r.children || [] }; } catch (e) { toast(e.message); }
   if (S.chat === key || S.lineView) renderChat();
 }
 async function chatSend() {
   const text = ($("#chatText")?.value || "").trim(); if (!text) { toast(L("先写点什么", "Write something first")); return; }
+  if (S.multi?.length > 1 && typeof multiSend === "function") return multiSend();
   if (!S.chat) S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const key = S.chat, prev = S.chatTurns[key] || [], ctx = S.chatCtx?.[key]?.context || [];
   const hist = [...ctx, ...prev].slice(-12).map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text }));
@@ -130,7 +131,7 @@ async function chatSend() {
   S.sentHist = [...S.sentHist.filter((x) => x !== text), text].slice(-50);
   S.sending = true; S.chatDraft = ""; window.history.replaceState(null, "", qs()); startLive(key); renderChat(); $("#chatText").value = "";
   try {
-    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent, conversation: key, history: hist, refs: S.chatRefs, images: at.images, files: at.files, ...(S.chatModel?.[key] ? { model: S.chatModel[key] } : {}) } });
+    const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent, conversation: key, history: hist, refs: S.chatRefs, images: at.images, files: at.files, web: !!S.web, ...(S.chatModel?.[key] ? { model: S.chatModel[key] } : {}) } });
     if (r?.error && !r?.text) toast(r.error);
   } catch (err) { toast(err.message); }
   finally { S.sending = false; stopLive(); }

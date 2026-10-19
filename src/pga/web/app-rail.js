@@ -20,7 +20,7 @@ function renderRail() {
       return bar(t.id, t.text, sub, on ? "run" : "", width(n), `<span class="dot ${on ? "on" : ""}"></span>`).replace('<span class="n">', `${t.for_you ? `<span class="badge" title="${L("等你回答", "waiting for you")}">${t.for_you}</span>` : ""}<span class="n">`);
     }).join("");
   $("#bars").innerHTML = html;
-  $("#toLib").classList.toggle("on", S.view === "home");
+  $("#toLib").classList.toggle("on", S.view === "home"); $("#toNotes")?.classList.toggle("on", S.view === "notes");
 }
 async function loadForest() {
   S.forest = await api(`/v1/users/${S.uid}/forest${EN ? "?lang=en" : ""}`);
@@ -32,11 +32,13 @@ async function loadChats() { try { S.allChats = await api(`/v1/users/${S.uid}/ch
 
 function show(view, opts = {}) {
   S.view = view; closeCtx();
-  ["Home", "Tree", "Chats"].forEach((v) => { $("#v" + v).hidden = v.toLowerCase() !== view; });
+  ["Home", "Tree", "Chats", "Notes"].forEach((v) => { const el = $("#v" + v); if (el) el.hidden = v.toLowerCase() !== view; });
+  $("#cmap") && (view !== "chats") && ($("#cmap").hidden = true);
   if (view === "tree" && opts.aim !== undefined && opts.aim !== S.aim) { S.aim = opts.aim; S.node = opts.node || null; S.bud = null; S.detail = {}; S.beh = {}; S.seen = new Set(); S.tree = null; S.drawer = false; S.op = null; }
   history.replaceState(null, "", qs()); renderRail();
   if (view === "home") { document.title = "PGA"; renderHome(); }
   if (view === "tree") { $("#dlgIn").innerHTML = `<div class="empty">…</div>`; loadTree(); }
+  if (view === "notes") { showNotes(); return; }
   if (view === "chats") { document.title = L("所有对话 · PGA", "All conversations · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }
 }
 

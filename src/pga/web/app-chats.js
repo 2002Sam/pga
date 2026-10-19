@@ -370,13 +370,14 @@ function chatTurnsHtml(turns, key = S.chat) {
     if (t.role === "user") {
       if (t.note) { out += `<div class="mynote"><span>${L("你记下的", "Your note")}</span><div class="md">${md(t.text)}</div></div>`; continue; }
       if (S.editing && S.editing.run === t.run && S.editing.key === key) { out += editBox(t); continue; }
-      out += PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + userActs(t, key, turns[i - 1]?.role === "agent" ? turns[i - 1].run : "");
+      out += (t.run ? `<a class="tanchor" id="t-${t.run}"></a>` : "") + PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + userActs(t, key, turns[i - 1]?.role === "agent" ? turns[i - 1].run : "");
       continue;
     }
     const who = t.agent && t.agent !== "-" ? agentLabel(t.agent) : "AI";
     if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
-    out += procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
+    out += S.sideBy?.[t.run] && (t.versions || []).length > 1 && typeof sideBySide === "function" ? sideBySide(t)
+      : procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
     if (!t.run) continue;
     out += replyMeta(t) + replyActs(t, key);
     if (S.regenBusy === t.run) out += workCard();
