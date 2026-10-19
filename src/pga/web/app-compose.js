@@ -47,10 +47,27 @@ function enhance(root) {                   // code blocks: highlight, a header w
 new MutationObserver((ms) => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && (n.querySelector?.("pre > code:not([data-done])") || n.matches?.("pre"))) { enhance(n.matches?.("pre") ? n.parentElement : n); } })
   .observe(document.body, { childList: true, subtree: true });
 
-async function copyText(t) {
-  try { await navigator.clipboard.writeText(t); }
-  catch { const a = document.createElement("textarea"); a.value = t; document.body.appendChild(a); a.select(); document.execCommand("copy"); a.remove(); }
-  toast(L("已复制", "Copied"));
+/* copy: the clipboard API where the page may use it, else a hidden text box (focused and selected, or the browser
+   copies nothing); the button itself says it worked, and when the browser refuses both the text is selected on the
+   page for ⌘C — never a "copied" that did not happen */
+async function copyText(t, btn, el) {
+  let ok = false;
+  try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(t); ok = true; } } catch {}
+  if (!ok) {
+    const a = document.createElement("textarea"), keep = document.activeElement;
+    a.value = t; a.setAttribute("readonly", ""); a.style.cssText = "position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none";
+    document.body.appendChild(a); a.focus({ preventScroll: true }); a.select(); a.setSelectionRange(0, a.value.length);
+    try { ok = document.execCommand("copy"); } catch { ok = false; }
+    a.remove(); try { keep?.focus?.({ preventScroll: true }); } catch {}
+  }
+  if (ok && btn) {
+    const was = btn.innerHTML; btn.classList.add("copied"); btn.innerHTML = btn.dataset.act === "copycode" ? L("已复制 ✓", "Copied ✓") : "✓";
+    clearTimeout(btn._t); btn._t = setTimeout(() => { btn.innerHTML = was; btn.classList.remove("copied"); }, 1500);
+  }
+  if (!ok && el) { const r = document.createRange(); r.selectNodeContents(el); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  toast(ok ? L("已复制", "Copied") : el ? L("浏览器不让网页写剪贴板：已帮你选中，按 ⌘C 复制", "The browser blocks the clipboard: selected for you, press ⌘C")
+    : L("浏览器不让网页写剪贴板，复制没有成功", "The browser blocks the clipboard; nothing was copied"));
+  return ok;
 }
 function preview(code) {
   modal(`<div class="pvh"><b>${L("预览", "Preview")}</b><span class="dimt">${L("在隔离的框里运行，不能读你的页面", "Runs in an isolated frame; it cannot read your page")}</span></div>
@@ -292,8 +309,8 @@ document.addEventListener("click", async (e) => {
   const fs = e.target.closest("[data-fsum]"); if (fs) { const t = prompt(L("用你自己的话写这一维：", "This dimension in your own words:"), fs.textContent.startsWith("（") ? "" : fs.textContent); if (t !== null) editFact({ id: fs.dataset.body, dim: fs.dataset.fsum, summary: t }); return; }
   const b = e.target.closest("[data-act]"); if (!b) return;
   const a = b.dataset.act;
-  if (a === "copy") copyText(b.dataset.text || "");
-  else if (a === "copycode") copyText(b.closest("pre")?.querySelector("code")?.textContent || "");
+  if (a === "copy") copyText(b.dataset.text || "", b);
+  else if (a === "copycode") { const code = b.closest("pre")?.querySelector("code"); copyText(code?.textContent || "", b, code); }
   else if (a === "preview") preview(b.closest("pre")?.querySelector("code")?.textContent || "");
   else if (a === "regen") regen(b.dataset.run, b.dataset.key);
   else if (a === "ver") { try { await api(`/v1/users/${S.uid}/chats/pick`, { body: { run: b.dataset.run, version: b.dataset.v } }); await loadChat(S.chat || S.lineTarget); } catch (err) { toast(err.message); } }

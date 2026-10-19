@@ -531,3 +531,4 @@ body { background:
 #tlSvg.tlin { animation: tlIn .45s ease both; transform-origin: 22px 0; } @keyframes tlIn { from { opacity: .3; transform: scaleY(.96); } }
 #tlSvg .tlseg.all { stroke-width: 2; opacity: .4; } .tlfoldb.on { color: var(--accent); }
 #clist { overflow-x: hidden; } #clist .ch { min-width: 0; } .tlfoldb { min-width: 28px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; } .tlfoldb svg { display: block; }
+.codehd button.copied, .macts button.copied { color: var(--green); }
