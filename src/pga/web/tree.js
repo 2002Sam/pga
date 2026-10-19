@@ -8,6 +8,8 @@
   let LANG = "zh";
   const L = (zh, en) => (LANG === "en" ? en : zh);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  /* a small button after a piece of text: the page's click handler sends it to /v1/users/{uid}/i18n and swaps it in */
+  const trbtn = (text) => (String(text || "").trim().length < 2 ? "" : `<button type="button" class="trbtn" data-trsrc="${esc(text)}" title="${L("翻译", "Translate")}">译</button>`);
   const C = { ink: "var(--t1)", soft: "rgba(var(--ti),.55)", faint: "rgba(var(--ti),.22)", accent: "#d6a75c", blue: "#8fb4ff", green: "#7fcf9f", bg: "var(--tbg)" };
 
   function visible(T, showHidden) {
@@ -231,12 +233,12 @@ const THEME = `
         const nm = x.agent || d.vendor || "AI", h = hue(nm), [title, ...rest] = String(x.text || "").split("\n");
         const turns = convTurns(rest.join("\n"));
         out += `<div class="cconv"><span>${L("导入的对话", "Imported conversation")} · <b>${esc(nm)}</b>${d.messages ? L(` · ${d.messages} 条消息`, ` · ${d.messages} messages`) : ""}${d.project ? ` · ${esc(d.project)}` : ""}</span><div class="cct" data-i18n="1">${esc(tidy(title.replace(/^\[[^\]]*\]\s*/, "")))}</div></div>`;
-        if (!turns.length && rest.join("").trim()) out += `<div class="cmsg left conv"><div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody"><div class="cb"><div class="ct md" data-i18n="1">${md(rest.join("\n").trim())}</div></div></div></div>`;
+        if (!turns.length && rest.join("").trim()) { const full = rest.join("\n").trim(); out += `<div class="cmsg left conv"><div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody"><div class="cb"><div class="ct md" data-i18n="1">${md(full)}</div>${trbtn(full)}</div></div></div>`; }
         for (const t of turns) {
           if (t.gap) { out += `<div class="ctime">${esc(t.gap)}</div>`; continue; }
           const you = t.who === "user";
           out += `<div class="cmsg ${you ? "right me" : "left"} conv"><div class="cav" style="--h:${h}">${you ? L("你", "Y") : esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody">
-            <div class="cb"><div class="ct md" data-i18n="1">${md(t.text)}</div></div></div></div>`;
+            <div class="cb"><div class="ct md" data-i18n="1">${md(t.text)}</div>${trbtn(t.text)}</div></div></div>`;
         }
         continue;
       }
@@ -245,7 +247,7 @@ const THEME = `
         const label = alt ? `${L("影子路线", "Shadow path")} ${d.alt || ""} · ${{ shadow: L("待重新考虑", "kept for later"), promoted: L("已被提上来", "promoted"), dropped: L("已放下", "dropped") }[x.status] || ""}`
           : insp ? L("灵感", "Idea") : d.promoted ? L("重新考虑", "Reconsidered") : kindName(x.kind);
         out += `<div class="cnote ${insp ? "insp" : alt ? "alt" : x.kind}"><span class="ci">${esc(label)}${x.agent ? ` · ${esc(name(x))}` : ""}</span>
-          <div class="ct md" data-i18n="1">${md(x.text)}</div>${alt && d.assumption ? `<div class="asm"><span>${L("前提", "Assumption")}</span><span data-i18n="1">${esc(d.assumption)}</span></div>` : ""}${alt && d.why ? `<div class="asm"><span>${L("回顾", "Review")}</span><span data-i18n="1">${esc(d.why)}</span></div>` : ""}</div>`;
+          <div class="ct md" data-i18n="1">${md(x.text)}</div>${trbtn(x.text)}${alt && d.assumption ? `<div class="asm"><span>${L("前提", "Assumption")}</span><span data-i18n="1">${esc(d.assumption)}</span></div>` : ""}${alt && d.why ? `<div class="asm"><span>${L("回顾", "Review")}</span><span data-i18n="1">${esc(d.why)}</span></div>` : ""}</div>`;
         continue;
       }
       // who hands out the task (asks) sits on the right; who takes it on (answers) on the left
@@ -263,7 +265,7 @@ const THEME = `
       out += `<div class="cmsg ${right ? "right" : "left"} ${me ? "me" : ""} ${x.kind}">
         <div class="cav" style="--h:${h}" title="${esc(nm)}">${esc(me ? L("你", "Y") : nm.slice(0, 1).toUpperCase())}</div>
         <div class="cbody"><div class="cwho"><b>${esc(nm)}</b>${!me && x.agent ? `<span>${esc(x.agent)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : ""}<span class="ck">${esc(tag)}</span></div>
-          <div class="cb">${quote}<div class="ct md" data-i18n="1">${md(x.text)}</div>
+          <div class="cb">${quote}<div class="ct md" data-i18n="1">${md(x.text)}</div>${trbtn(x.text)}
             ${subs.length ? `<div class="csub">${subs.join(" · ")}</div>` : ""}${samples(d)}</div></div></div>`;
     }
     return `<div class="chat">${out || `<div class="ctime">${L("还没有对话", "No dialogue yet")}</div>`}</div>`;
@@ -315,6 +317,10 @@ const THEME = `
 .chat .ct.md pre { background: rgba(0,0,0,.35); padding: 10px; overflow: auto; border-radius: 8px; }
 .chat .cq { font-size: 12px; color: var(--t2); border-left: 2px solid rgba(var(--tf),.14); padding-left: 9px; margin-bottom: 8px; }
 .chat .csub { margin-top: 8px; font-size: 11.5px; color: var(--t3); line-height: 1.6; }
+.trbtn { display: inline-flex; align-items: center; margin-top: 6px; height: 20px; padding: 0 7px; border: 1px solid rgba(var(--tf),.1); border-radius: 6px;
+  background: rgba(var(--tf),.04); font-size: 11px; color: var(--t3); cursor: pointer; }
+.trbtn:hover { color: var(--t1); background: rgba(var(--tf),.09); } .trbtn.on { color: #d6a75c; border-color: rgba(214,167,92,.35); }
+.trbtn:disabled { opacity: .5; cursor: default; }
 .chat .cnote { align-self: center; max-width: 82%; font-size: 12.5px; line-height: 1.65; color: var(--t2); background: rgba(var(--tf),.025);
   border: 1px solid rgba(var(--tf),.07); border-radius: 10px; padding: 9px 14px; }
 .chat .cnote .ci { display: block; font-size: 10.5px; color: var(--t3); margin-bottom: 3px; letter-spacing: .03em; text-transform: uppercase; }

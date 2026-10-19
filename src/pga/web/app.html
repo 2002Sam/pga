@@ -709,7 +709,7 @@ function renderCont() {
   $("#cont").innerHTML = `<div class="inner">${bf ? `<div class="budbar"><span>${L(`从「${esc(bf.title)}」分出一条新分支：写下新方向的第一句`, `Branching from “${esc(bf.title)}”: write the first line of the new direction`)}</span><a href="#" id="unbranch">${L("取消", "Cancel")}</a></div>` : ""}${bud ? `<div class="budbar"><span>${L("沿这个灵感长出分支：", "Grow a branch along this idea: ")}${esc(bud.idea)}</span><a href="#" data-go="${n.id}">${L("取消", "Cancel")}</a></div>` : ""}
     <div class="refs">${S.contRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-crefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}${S.tree?.focus === n.id && !YOU() ? `<span style="color:var(--accent)">${L("PGA 正沿着这里想", "PGA is following this branch")}</span><a href="#" data-focus="">${L("取消", "Stop")}</a>` : ""}</div>
     <div class="cbar"><select id="crefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.contRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
-      <textarea id="tnText" rows="1" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : bf ? L("新分支的第一句…（⌘/Ctrl + Enter）", "The new branch's first line… (⌘/Ctrl + Enter)") : L(`继续这段对话…（⌘/Ctrl + Enter）`, `Continue this conversation… (⌘/Ctrl + Enter)`)}" title="${bf ? "" : esc(L(`接在「${end?.title || ""}」后面`, `After “${end?.title || ""}”`))}">${esc(S.draft || "")}</textarea>
+      <textarea id="tnText" rows="1" placeholder="${bud ? L("沿这个灵感，你想问什么？", "What do you want to ask along this idea?") : bf ? L("新分支的第一句…（Enter 发送，Shift+Enter 换行）", "The new branch's first line… (Enter sends, Shift+Enter for a new line)") : L(`继续这段对话…（Enter 发送，Shift+Enter 换行）`, `Continue this conversation… (Enter sends, Shift+Enter for a new line)`)}" title="${bf ? "" : esc(L(`接在「${end?.title || ""}」后面`, `After “${end?.title || ""}”`))}">${esc(S.draft || "")}</textarea>
       <button class="ghost" id="ctxBtn" style="height:36px" title="${L("这次会带上什么上下文", "What context this message carries")}">${L("上下文", "Context")}</button>
       ${accBtn(treeKey())}<select id="tnAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}">${esc(agentLabel(a.name))}</option>`).join("")}</select>
       <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : bud || bf ? L("分支", "Branch") : L("发送", "Send")}</button></div></div>`;
@@ -1126,7 +1126,7 @@ function renderLineDialog() {
   if (tg.kind === "tree") { $("#ccomp").innerHTML = `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(tg.ref.tree)}" data-node="${esc(tg.ref.node)}">${L(`到树上接着「${esc(tg.title.slice(0, 16))}」说`, `Carry on “${esc(tg.title.slice(0, 20))}” on the tree`)}</button></div>`; return; }
   $("#ccomp").innerHTML = `<div class="inner">${envBar(tg.kind === "chat" ? tg.key : "", tg.kind === "chat" ? S.chatTurns[tg.key] || [] : [])}
     <div class="ltgt"><i style="background:hsl(${hueOf(tg.key)} 55% 58%)"></i>${L("接着：", "Carrying on: ")}<b>${esc(tg.title.slice(0, 40))}</b><span>${L("（点上面任意一段的标签可以换）", "(click any label above to switch)")}</span></div>
-    <div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（⌘/Ctrl + Enter 发给 agent）", "Your response, next step, or a question… (⌘/Ctrl + Enter sends to the agent)"))}">${esc(S.chatDraft || "")}</textarea>
+    <div class="cbar"><textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（Enter 发送，Shift+Enter 换行）", "Your response, next step, or a question… (Enter sends, Shift+Enter for a new line)"))}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(tg.kind === "chat" ? tg.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
       <button class="ghost" id="lineNote" ${S.sending ? "disabled" : ""} title="${L("只记下来，不问 agent：之后接着聊时 agent 会读到", "Just write it down, no agent: agents read it when the conversation goes on")}">${L("只记下来", "Just note")}</button>
       <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
@@ -1240,7 +1240,7 @@ function renderImported() {
     : `<div class="trnote">${esc([d.agent, d.model, d.project, d.started_at && when(d.started_at), d.updated_at && d.updated_at !== d.started_at && "→ " + when(d.updated_at)].filter(Boolean).join(" · "))}${L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
       + PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md }));
   const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
-  $("#ccomp").innerHTML = `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（⌘/Ctrl + Enter）", "Carry on this conversation in PGA… (⌘/Ctrl + Enter)")}"></textarea>
+  $("#ccomp").innerHTML = `<div class="inner"><div class="cbar"><textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
     <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === guess ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
     <button class="primary" id="impSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("接着聊", "Carry on")}</button></div></div>`;
   autoGrow($("#chatText"));
@@ -1282,7 +1282,7 @@ function renderChat() {
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
   $("#ccomp").innerHTML = `<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
     <div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
-      <textarea id="chatText" rows="1" placeholder="${L("写点什么…（⌘/Ctrl + Enter）", "Write something… (⌘/Ctrl + Enter)")}">${esc(S.chatDraft || "")}</textarea>
+      <textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
       <button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#chatText"));
@@ -1310,10 +1310,10 @@ function chatTurnsHtml(turns, key = S.chat) {
 }
 function secondHtml(first, x) {
   return `<div class="second"><div class="sh"><b>${L("第二意见", "Second opinion")}</b> · ${esc(x.agent)}${x.model ? ` <span class="dimt">${esc(x.model)}</span>` : ""}</div>
-    ${x.answer ? `<div class="sx"><div class="label">${L("合起来看", "Taken together")}</div><div class="md">${md(x.answer)}</div></div>` : ""}
+    ${x.answer ? `<div class="sx"><div class="label">${L("合起来看", "Taken together")}</div><div class="ct md" data-i18n="1">${md(x.answer)}</div><button type="button" class="trbtn" data-trsrc="${esc(x.answer)}" title="${L("翻译", "Translate")}">译</button></div>` : ""}
     ${(x.agree || []).length ? `<div class="sx"><div class="label">${L("两边都同意", "Both agree")}</div><ul>${x.agree.map((a) => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
     ${(x.differ || []).length ? `<div class="sx"><div class="label">${L("不一样的地方", "Where they differ")}</div><table><tr><th></th><th>${esc(first)}</th><th>${esc(x.agent)}</th></tr>${x.differ.map((d) => `<tr><td>${esc(d.point)}</td><td>${esc(d.a)}</td><td>${esc(d.b)}</td></tr>`).join("")}</table></div>` : ""}
-    <details><summary>${L(`${esc(x.agent)} 的原话`, `${esc(x.agent)}'s own answer`)}</summary><div class="md">${md(x.text)}</div></details></div>`;
+    <details><summary>${L(`${esc(x.agent)} 的原话`, `${esc(x.agent)}'s own answer`)}</summary><div class="ct md" data-i18n="1">${md(x.text)}</div><button type="button" class="trbtn" data-trsrc="${esc(x.text)}" title="${L("翻译", "Translate")}">译</button></details></div>`;
 }
 function branchCtx(key) {
   const c = S.chatCtx?.[key]; if (!c?.branch) return "";
@@ -1325,6 +1325,27 @@ async function secondOpinion(run, key) {
   S.secondBusy = run; renderChat();
   try { await api(`/v1/users/${S.uid}/chats/second`, { body: { run } }); await loadChat(key || S.chat); toast(L("第二意见来了", "Second opinion is in")); }
   catch (err) { toast(err.message); } finally { S.secondBusy = null; renderChat(); }
+}
+/* translate one piece of output in place: toggles between the original and a cached translation; direction is
+   picked from the text itself (has CJK → English, else → Chinese), independent of the page's own language */
+async function toggleTranslate(btn) {
+  const box = btn.previousElementSibling?.classList?.contains("ct") ? btn.previousElementSibling : btn.closest(".sx, .cb")?.querySelector(".ct");
+  if (!box) return;
+  if (btn.dataset.state === "tr") { box.innerHTML = btn.dataset.orig; btn.dataset.state = ""; btn.classList.remove("on"); return; }
+  if (btn.dataset.trHtml) { btn.dataset.orig = box.innerHTML; box.innerHTML = btn.dataset.trHtml; btn.dataset.state = "tr"; btn.classList.add("on"); return; }
+  const src = btn.dataset.trsrc || ""; if (!src.trim()) return;
+  btn.disabled = true;
+  try {
+    const lang = /[㐀-鿿]/.test(src) ? "en" : "zh";
+    const r = await api(`/v1/users/${S.uid}/i18n`, { body: { texts: [src], lang } });
+    const out = (r.texts || [])[0];
+    if (!out) { toast(L("翻译失败", "Translation failed")); return; }
+    btn.dataset.orig = box.innerHTML;
+    btn.dataset.trHtml = box.classList.contains("md") ? md(out) : esc(out);
+    box.innerHTML = btn.dataset.trHtml;
+    btn.dataset.state = "tr"; btn.classList.add("on");
+  } catch (err) { toast(err.message); }
+  finally { btn.disabled = false; }
 }
 async function chatBranch(run, from) {
   try { const r = await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: from || S.chat, upto: run } });
@@ -1439,7 +1460,8 @@ document.addEventListener("click", async (e) => {
   const cx = e.target.closest(".ctx button[data-cx]"); if (cx) { ctxDo(cx.dataset.cx, cx.closest(".ctx").dataset.node); return; }
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
-  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold");
+  const trb = e.target.closest(".trbtn"); if (trb) { toggleTranslate(trb); return; }
+  const t = e.target.closest("[data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold, .trbtn");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -1588,8 +1610,8 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "showHidden") { S.showHidden = e.target.checked; drawTree(false); renderDialog(); }
 });
 document.addEventListener("keydown", (e) => {
-  if (e.target.id === "tnText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); return; }
-  if (e.target.id === "chatText" && e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return; }
+  if (e.target.id === "tnText" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); return; }
+  if (e.target.id === "chatText" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return; }
   if (e.key === "Escape") { closeCtx(); document.querySelector(".modal")?.remove(); if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); } return; }
   if (e.target.closest?.("textarea, input, select") || S.view !== "tree") return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);
