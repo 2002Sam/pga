@@ -42,8 +42,6 @@
   :scope body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .05; mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
   :scope .app { z-index: 1; }
-  :scope * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
-  :scope[data-theme=light] * { scrollbar-color: rgba(0,0,0,.16) transparent; }
   :scope ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
   /* glass */
   :scope .rail, :scope .clist, :scope .nlist, :scope #treeSide { backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%); }
@@ -299,6 +297,45 @@
 :root[data-skin=aurora][data-glass=off] :is(.rail, .clist, .cpane, #dialog, .nlist, .npane, #treeSide) { background-color: color-mix(in srgb, var(--bg) 94%, var(--text)) !important; }
 :root[data-motion=off] *, :root[data-motion=off] *::before, :root[data-motion=off] *::after { animation: none !important; transition: none !important; }
 :root[data-sk="0"] *:not(.lkprev *) { box-shadow: none !important; }
+
+/* ================================================================ scrollbars: each look draws its own (Chrome, Edge, Safari);
+   Firefox only takes colours. The parts read variables, so a look sets --sb-* and the drawing below stays one. */
+::-webkit-scrollbar { width: var(--sbw, 10px); height: var(--sbw, 10px); background: transparent; }
+::-webkit-scrollbar-track { background: var(--sb-track, transparent); box-shadow: var(--sb-track-shadow, none); border-radius: var(--sb-r, 999px); margin: var(--sb-m, 2px); }
+::-webkit-scrollbar-thumb { background: var(--sb-thumb, rgba(127,127,127,.35)); background-clip: padding-box; border: var(--sb-b, 2px) solid transparent;
+  border-radius: var(--sb-r, 999px); box-shadow: var(--sb-thumb-shadow, none); min-height: 40px; }
+::-webkit-scrollbar-thumb:hover { background: var(--sb-thumb-h, rgba(127,127,127,.55)); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:active { background: var(--sb-thumb-a, var(--sb-thumb-h, rgba(127,127,127,.7))); background-clip: padding-box; }
+::-webkit-scrollbar-corner, ::-webkit-scrollbar-button { display: none; background: transparent; }
+@supports not selector(::-webkit-scrollbar) { * { scrollbar-width: thin; scrollbar-color: var(--sb-ff, rgba(127,127,127,.4)) transparent; } }
+@scope ([data-skin="classic"]) to (:scope [data-skin]) {
+  :scope { --sbw: 10px; --sb-thumb: rgba(255,255,255,.14); --sb-thumb-h: rgba(255,255,255,.26); --sb-ff: rgba(255,255,255,.2); }
+  :scope[data-theme=light] { --sb-thumb: rgba(0,0,0,.18); --sb-thumb-h: rgba(0,0,0,.32); --sb-ff: rgba(0,0,0,.25); }
+}
+@scope ([data-skin="aurora"]) to (:scope [data-skin]) {        /* a sliver of the gold-to-blue light */
+  :scope { --sbw: 10px; --sb-b: 3px; --sb-thumb: linear-gradient(180deg, color-mix(in srgb, var(--accent) 45%, transparent), rgba(143,180,255,.35));
+    --sb-thumb-h: linear-gradient(180deg, color-mix(in srgb, var(--accent) 80%, transparent), rgba(143,180,255,.7)); --sb-ff: color-mix(in srgb, var(--accent) 45%, transparent); }
+  :scope[data-theme=light] { --sb-thumb: linear-gradient(180deg, color-mix(in srgb, var(--accent) 45%, transparent), rgba(77,116,224,.35));
+    --sb-thumb-h: linear-gradient(180deg, var(--accent), rgba(77,116,224,.8)); }
+}
+@scope ([data-skin="soft"]) to (:scope [data-skin]) {          /* a grey knob in a groove pressed into the surface */
+  :scope { --sbw: 14px; --sb-m: 4px; --sb-b: 3px; --sb-track: var(--bg); --sb-track-shadow: inset 2px 2px 4px var(--lo), inset -2px -2px 4px var(--hi);
+    --sb-thumb: linear-gradient(180deg, var(--pill), var(--pill-2)); --sb-thumb-h: linear-gradient(180deg, color-mix(in srgb, var(--pill) 85%, #fff), var(--pill));
+    --sb-thumb-a: var(--accent); --sb-ff: var(--pill); }
+}
+@scope ([data-skin="paper"]) to (:scope [data-skin]) {         /* an ink stroke on a ruled line */
+  :scope { --sbw: 9px; --sb-r: 2px; --sb-b: 2px; --sb-track: linear-gradient(90deg, transparent calc(50% - .5px), var(--line-2) calc(50% - .5px), var(--line-2) calc(50% + .5px), transparent calc(50% + .5px));
+    --sb-thumb: color-mix(in srgb, var(--text) 32%, transparent); --sb-thumb-h: color-mix(in srgb, var(--text) 55%, transparent); --sb-thumb-a: var(--accent); --sb-ff: color-mix(in srgb, var(--text) 35%, transparent); }
+}
+@scope ([data-skin="mono"]) to (:scope [data-skin]) {          /* a block cursor on a dotted rail */
+  :scope { --sbw: 10px; --sb-r: 0; --sb-b: 2px; --sb-m: 0; --sb-track: repeating-linear-gradient(180deg, var(--line-2) 0 2px, transparent 2px 6px);
+    --sb-thumb: color-mix(in srgb, var(--accent) 45%, transparent); --sb-thumb-h: color-mix(in srgb, var(--accent) 80%, transparent); --sb-thumb-a: var(--accent); --sb-ff: var(--accent); }
+}
+/* your choice of width, on top of the look's */
+:root[data-sb=thin] { --sbw: 6px !important; --sb-b: 1px !important; --sb-m: 1px !important; }
+:root[data-sb=wide] { --sbw: 14px !important; }
+:root[data-sb=hover] *:not(:hover)::-webkit-scrollbar-thumb { background: transparent; box-shadow: none; }
+:root[data-sb=hover] *:not(:hover)::-webkit-scrollbar-track { background: transparent; box-shadow: none; }
 
 /* ================================================================ the appearance gallery page (外观社区) */
 #vLooks { overflow: auto; } .looks { max-width: 1240px; margin: 0 auto; padding: 30px 32px 60px; }

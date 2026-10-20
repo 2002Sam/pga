@@ -8,6 +8,7 @@ S.lkSaved = null;
 const ACCENTS = [["", L("跟随风格", "The look's own")], ["#e2b46a", L("金", "Gold")], ["#2f6fe4", L("蓝", "Blue")], ["#7c5cff", L("紫", "Violet")],
   ["#2f9e5f", L("绿", "Green")], ["#e0557a", L("玫红", "Rose")], ["#ea7a2f", L("橙", "Orange")], ["#6b7280", L("灰", "Grey")]];
 const BTNS = [["", L("跟随风格", "The look's own")], ["solid", L("实心", "Solid")], ["soft", L("柔和", "Soft")], ["outline", L("描边", "Outline")], ["gradient", L("渐变", "Gradient")]];
+const SBS = [["", L("跟随风格", "The look's own")], ["thin", L("细", "Thin")], ["wide", L("粗", "Wide")], ["hover", L("悬停才显示", "On hover")]];
 const DENS = [["compact", L("紧凑", "Compact")], ["normal", L("适中", "Normal")], ["roomy", L("宽松", "Roomy")]];
 
 function lkPreview(skin, mode) {               // a small working copy of the app, in that look
@@ -59,6 +60,7 @@ function renderLooks() {
       <label>${L("圆角", "Corners")}</label>${range("rk", 0, 2.5, 0.1, l.rk, (+l.rk).toFixed(1) + "×")}
       <label>${L("立体感（阴影）", "Depth (shadows)")}</label>${range("sk", 0, 2, 0.25, l.sk, +l.sk === 0 ? L("无", "none") : (+l.sk).toFixed(2) + "×")}
       <label>${L("对话文字大小", "Conversation text")}</label>${range("fs", 12, 19, 0.5, l.fs || 14.5, l.fs ? l.fs + "px" : L("跟随风格", "the look's"))}
+      <label>${L("滚动条", "Scrollbars")}</label>${seg("sb", SBS, l.sb)}
       <label>${L("疏密", "Spacing")}</label>${seg("density", DENS, l.density)}
       <label>${L("效果", "Effects")}</label><div class="lkfx">
         ${[["glow", L("背景光晕", "Background light")], ["glass", L("毛玻璃", "Frosted glass")], ["motion", L("动效", "Motion")]].map(([k, n]) => `<label class="lktog"><input type="checkbox" data-lkfx="${k}" ${l[k] ? "checked" : ""}><i></i>${n}</label>`).join("")}</div>
@@ -83,7 +85,7 @@ function lkFromCode(code) {
     if (out.accent && !/^#[0-9a-f]{3,8}$/i.test(out.accent)) delete out.accent;              // a share code is data: only known keys and plain values
     for (const k of ["rk", "sk", "fs"]) if (k in out) out[k] = Math.max(0, Math.min(k === "fs" ? 24 : 3, Number(out[k]) || 0));
     for (const k of ["glow", "glass", "motion"]) if (k in out) out[k] = !!out[k];
-    if (out.btn && !BTNS.some((b) => b[0] === out.btn)) delete out.btn; if (out.density && !DENS.some((d) => d[0] === out.density)) delete out.density;
+    if (out.btn && !BTNS.some((b) => b[0] === out.btn)) delete out.btn; if (out.sb && !SBS.some((b) => b[0] === out.sb)) delete out.sb; if (out.density && !DENS.some((d) => d[0] === out.density)) delete out.density;
     return { name: typeof x.name === "string" ? x.name.slice(0, 40) : "", look: out };
   } catch { return null; }
 }

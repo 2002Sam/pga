@@ -16,12 +16,12 @@
     paper: { zh: "纸墨", en: "Paper and ink", prefer: "light", zhd: "暖色纸面、墨色文字、衬线体阅读", end: "Warm paper, ink, serif reading text" },
     mono: { zh: "终端", en: "Terminal", prefer: "dark", zhd: "等宽字体、直角、荧光绿", end: "Monospace, square corners, phosphor green" },
   };
-  const LOOK0 = { skin: "aurora", accent: "", btn: "", rk: 1, sk: 1, fs: 0, density: "normal", glow: true, glass: true, motion: true };
+  const LOOK0 = { skin: "aurora", accent: "", btn: "", rk: 1, sk: 1, fs: 0, density: "normal", sb: "", glow: true, glass: true, motion: true };
   function look() { try { return { ...LOOK0, ...JSON.parse(get("pga_look") || "{}") }; } catch { return { ...LOOK0 }; } }
   function applyLook(l = look(), el = document.documentElement) {
     const d = el.dataset, st = el.style, opt = (k, v) => { if (v == null || v === "") delete d[k]; else d[k] = String(v); };
     d.skin = SKINS[l.skin] ? l.skin : "aurora";
-    opt("btn", l.btn); opt("density", l.density === "normal" ? "" : l.density);
+    opt("btn", l.btn); opt("sb", l.sb); opt("density", l.density === "normal" ? "" : l.density);
     opt("glow", l.glow ? "" : "off"); opt("glass", l.glass ? "" : "off"); opt("motion", l.motion ? "" : "off");
     const v = (k, on, val) => { if (on) st.setProperty(k, val); else st.removeProperty(k); };
     opt("rk", +l.rk !== 1 ? "1" : ""); v("--rk", +l.rk !== 1, String(l.rk));
