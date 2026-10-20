@@ -6,6 +6,7 @@
 /* ------------------------------------------------ several agents at once */
 S.multi = []; S.web = false; S.sideBy = {};
 async function pickMulti(anchor) {
+  await new Promise((r) => setTimeout(r, 0));      // after this click: the page closes open menus on every click
   document.querySelector(".fmenu")?.remove();
   const m = document.createElement("div"); m.className = "ctx fmenu";
   m.innerHTML = `<div class="ch">${L("同时问几个 agent，回答并排放", "Ask several agents at once, side by side")}</div>

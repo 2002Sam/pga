@@ -225,9 +225,9 @@ const THEME = `
     const md = opts.md || esc, name = opts.name || cast(notes);
     let out = "", last = null, lastQ = null;
     for (const x of notes || []) {
-      const d = x.data || {}, at = new Date(x.at);
-      if (!last || at - last > 25 * 60 * 1000) out += `<div class="ctime">${esc(when(x.at))}</div>`;
-      last = at;
+      const d = x.data || {}, at = x.at ? new Date(x.at) : null, ok = at && !isNaN(at) && at.getFullYear() > 1971;   // no time known: no label (never 1 Jan 1970)
+      if (ok && (!last || at - last > 25 * 60 * 1000)) out += `<div class="ctime">${esc(when(x.at))}</div>`;
+      if (ok) last = at;
       const me = x.agent === "you" || x.kind === "correction";
       if (x.kind === "conversation") {
         const nm = x.agent || d.vendor || "AI", h = hue(nm), [title, ...rest] = String(x.text || "").split("\n");

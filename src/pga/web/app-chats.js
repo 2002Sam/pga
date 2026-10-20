@@ -192,6 +192,10 @@ function lineEntries(d) {
     if (x.kind === "chat") (S.chatTurns[x.key] || []).forEach((t, i) => out.push({ at: t.at || x.first, x, n, i, turn: t }));
     else if (x.kind === "import") {
       const c = S.impCache[x.ref.conversation]; if (!c) return;
+      if ((c.turns || []).length) {               // read in full: every turn at its own time
+        c.turns.filter((t) => t.role !== "aside").forEach((t, i) => out.push({ at: t.at || c.started_at || x.first, x, n, i, conv: { who: t.role === "user" ? "user" : "agent", text: t.text }, agent: c.agent }));
+        return;
+      }
       let late = false;
       PGATree.convTurns(c.excerpt || "").forEach((t, i) => { if (t.gap) { late = true; out.push({ at: c.updated_at || x.last, x, n, i, gap: t.gap }); return; }
         out.push({ at: late ? c.updated_at || x.last : c.started_at || x.first, x, n, i, conv: t, agent: c.agent }); });
@@ -210,7 +214,15 @@ function renderLineDialog() {
   let html = "", prev = null, buf = [];
   const flush = () => { if (!buf.length) return; const x = buf[0].x;
     if (x.kind === "chat") html += chatTurnsHtml(buf.map((e) => e.turn), x.key);
-    else if (x.kind === "import") html += buf.map((e) => e.gap ? `<div class="ctime">${esc(e.gap)}</div>` : PGATree.chat([e.conv.who === "user" ? { agent: "you", kind: "question", text: e.conv.text, at: null, data: {} } : { agent: e.agent || "AI", kind: "answer", text: e.conv.text, at: null, data: {} }], { md, name: (n) => n.agent })).join("");
+    else if (x.kind === "import") {             // one stretch at a time, so a time shows only where there was a pause
+      let run = [];
+      const put = () => { if (run.length) html += PGATree.chat(run, { md, name: (m) => m.agent }); run = []; };
+      for (const e of buf) {
+        if (e.gap) { put(); html += `<div class="ctime">${esc(e.gap)}</div>`; continue; }
+        run.push(e.conv.who === "user" ? { agent: "you", kind: "question", text: e.conv.text, at: e.at, data: {} } : { agent: e.agent || "AI", kind: "answer", text: e.conv.text, at: e.at, data: {} });
+      }
+      put();
+    }
     else html += PGATree.chat(buf.map((e) => e.note), { md });
     buf = []; };
   for (const e of es) {
