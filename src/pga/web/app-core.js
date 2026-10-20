@@ -29,7 +29,7 @@ const qs = () => {
   const q = new URLSearchParams();
   if (S.view === "tree" && S.aim) { q.set("tree", S.aim); if (S.node) q.set("node", S.node); }
   if (S.view === "chats") { q.set("view", "chats"); if (S.chat) q.set("c", S.chat); }
-  if (S.view === "notes") q.set("view", "notes");
+  if (S.view === "notes" || S.view === "looks") q.set("view", S.view);
   if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
   const s = q.toString(); return s ? "?" + s : location.pathname;
 };

@@ -266,7 +266,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.get("/v1/version", include_in_schema=False)
     def web_version() -> dict:
         """Which page the browser should be running: open pages compare it and refresh themselves when it changes."""
-        fs = [WEB / "app.html", WEB / "app.css", WEB / "tree.js", *sorted(WEB.glob("app-*.js"))]
+        fs = [WEB / "app.html", WEB / "app.css", WEB / "skins.css", WEB / "shell.js", WEB / "tree.js", *sorted(WEB.glob("app-*.js"))]
         sts = [f.stat() for f in fs if f.is_file()]
         return {"ui": f"{int(max(x.st_mtime for x in sts))}-{sum(x.st_size for x in sts)}"}
 

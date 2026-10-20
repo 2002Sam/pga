@@ -1,0 +1,350 @@
+/* PGA's looks. Each look is scoped to an element carrying data-skin (the page's <html>, or a preview card in the
+   Appearance gallery), and stops at any nested data-skin, so previews of other looks sit inside the page untouched.
+   "classic" adds nothing: it is app.css as it is. Your own adjustments come last (data-btn, data-rk, data-fs, …). */
+
+/* ================================================================ aurora: deep glass, gold-to-blue light (the default) */
+@scope ([data-skin="aurora"]) to (:scope [data-skin]) {
+  /* app.css's colours first, so a preview of this look carries all of them */
+  :scope { --bg: #09090b; --panel: #0f0f12; --raised: #16161a; --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12); --line-3: rgba(255,255,255,.2);
+  --text: #ececef; --muted: #a1a1aa; --dim: #71717a; --accent: #d6a75c; --accent-soft: rgba(214,167,92,.12); --blue: #8fb4ff; --green: #7fcf9f; --bad: #e58c7e;
+  --rail: #0c0c0f; --canvas: #0a0a0c; --inset: #0c0c0f; --pop: #17171b; --hover: #1c1c21; --onprimary: #0b0b0e; --soft: rgba(255,255,255,.05);
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif; --ti: 236,236,239; --tf: 255,255,255; --tbgr: 9,9,11; --t3r: 161,161,170; --tgr: 150,220,178; --t1: #ececef; --t2: #a1a1aa; --t3: #71717a; --tbg: #0b0b0e; --tb1: #141418; --tb2: #1a1a20; }
+  :scope[data-theme=light] { --bg: #f6f6f7; --panel: #ffffff; --raised: #f1f1f3; --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.13); --line-3: rgba(0,0,0,.24);
+  --text: #18181b; --muted: #52525b; --dim: #8a8a93; --accent: #a8741f; --accent-soft: rgba(168,116,31,.10); --blue: #2563c9; --green: #1f8a4c; --bad: #c2412d;
+  --rail: #f0f0f2; --canvas: #fbfbfc; --inset: #f4f4f6; --pop: #ffffff; --hover: #ebebee; --onprimary: #ffffff; --soft: rgba(0,0,0,.045); --ti: 24,24,27; --tf: 0,0,0; --tbgr: 255,255,255; --t3r: 82,82,91; --tgr: 34,139,84; --t1: #18181b; --t2: #52525b; --t3: #71717a; --tbg: #ffffff; --tb1: #f4f4f5; --tb2: #eef2ff; }
+  /* ================================================================ the look, v2: deep glass, gold-to-blue light */
+  :scope {
+  --bg: #060609; --panel: rgba(15,15,20,.62); --raised: rgba(28,28,36,.62); --rail: rgba(9,9,13,.55); --canvas: rgba(10,10,14,.5); --inset: rgba(12,12,17,.5);
+  --pop: rgba(20,20,27,.94); --hover: rgba(255,255,255,.07); --line: rgba(255,255,255,.065); --line-2: rgba(255,255,255,.11); --line-3: rgba(255,255,255,.19);
+  --accent: #e2b46a; --accent-2: #8fb4ff; --accent-3: #b48cff; --accent-soft: color-mix(in srgb, var(--accent) 13%, transparent);
+  --grad: linear-gradient(135deg, #f3cf8a 0%, #e2b46a 32%, #a9b8ff 78%, #b48cff 100%);
+  --grad-soft: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, transparent), rgba(143,180,255,.12) 60%, rgba(180,140,255,.12));
+  --glow: 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), 0 10px 36px -10px color-mix(in srgb, var(--accent) 45%, transparent);
+  --tb1: rgba(255,255,255,.035); --tb2: rgba(255,255,255,.06);
+}
+  :scope[data-theme=light] {
+  --bg: #f3f2f7; --panel: rgba(255,255,255,.7); --raised: rgba(255,255,255,.78); --rail: rgba(250,250,253,.6); --canvas: rgba(252,252,255,.55); --inset: rgba(255,255,255,.55);
+  --pop: rgba(255,255,255,.97); --hover: rgba(0,0,0,.05); --line: rgba(20,20,40,.07); --line-2: rgba(20,20,40,.12); --line-3: rgba(20,20,40,.22);
+  --accent: #b27a1f; --accent-2: #2f5fd0; --accent-3: #7a4fd6; --accent-soft: rgba(178,122,31,.10);
+  --grad: linear-gradient(135deg, #d99b35 0%, #c27f1c 30%, #4d74e0 78%, #7a4fd6 100%);
+  --grad-soft: linear-gradient(135deg, rgba(217,155,53,.16), rgba(77,116,224,.10) 60%, rgba(122,79,214,.10));
+  --glow: 0 0 0 1px rgba(178,122,31,.25), 0 10px 30px -12px rgba(178,122,31,.35);
+  --tb1: rgba(255,255,255,.75); --tb2: #eef1ff;
+}
+  :scope body { background:
+    radial-gradient(1100px 620px at 8% -12%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 62%),
+    radial-gradient(900px 640px at 105% 2%, rgba(120,150,255,.12), transparent 60%),
+    radial-gradient(900px 560px at 55% 118%, rgba(180,140,255,.10), transparent 62%), var(--bg); }
+  :scope[data-theme=light] body { background:
+    radial-gradient(1100px 620px at 8% -12%, rgba(240,190,110,.32), transparent 62%),
+    radial-gradient(900px 640px at 105% 2%, rgba(140,170,255,.28), transparent 60%),
+    radial-gradient(900px 560px at 55% 118%, rgba(190,160,255,.22), transparent 62%), var(--bg); }
+  :scope body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .05; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+  :scope .app { z-index: 1; }
+  :scope * { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.12) transparent; }
+  :scope[data-theme=light] * { scrollbar-color: rgba(0,0,0,.16) transparent; }
+  :scope ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+  /* glass */
+  :scope .rail, :scope .clist, :scope .nlist, :scope #treeSide { backdrop-filter: blur(22px) saturate(150%); -webkit-backdrop-filter: blur(22px) saturate(150%); }
+  :scope .cpane, :scope #dialog, :scope .npane { backdrop-filter: blur(14px) saturate(130%); -webkit-backdrop-filter: blur(14px) saturate(130%); }
+  :scope .ctx, :scope .cpop, :scope #toast, :scope .modal .box, :scope .shell-pop { backdrop-filter: blur(24px) saturate(160%); -webkit-backdrop-filter: blur(24px) saturate(160%); }
+  :scope .clist .ch, :scope .nlist .ch, :scope .bar { background: color-mix(in srgb, var(--bg) 55%, transparent) !important; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+  :scope .cpane .dh2, :scope .dh, :scope .nhd { background: color-mix(in srgb, var(--bg) 25%, transparent); }
+  :scope .modal { background: rgba(4,4,8,.5); backdrop-filter: blur(8px) saturate(120%); }
+  :scope .modal .box { box-shadow: 0 40px 120px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.05); }
+  /* the brand and the rail */
+  :scope .rail .brand .t { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700; letter-spacing: .08em; }
+  :scope .rail .brand img { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
+  :scope .rb { transition: background .18s, color .18s, transform .18s; }
+  :scope .rb:hover { transform: translateX(1px); }
+  :scope .rb.on { background: var(--grad-soft) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent) !important; }
+  :scope .rb.on::before { content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--grad); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+  :scope .rb .line { height: 3px; background: var(--soft); }
+  :scope .rb .line i { background: var(--line-3); }
+  :scope .rb.run .line i { background: linear-gradient(90deg, #e2b46a, #f3cf8a); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
+  :scope .rb.chat .line i { background: linear-gradient(90deg, #6f97ff, #b48cff); box-shadow: 0 0 10px rgba(143,180,255,.55); }
+  :scope .rb.mine .line i { background: linear-gradient(90deg, #5fc28a, #9be0b8); }
+  :scope .dot.on { background: #7fe0a8; box-shadow: 0 0 0 3px rgba(127,224,168,.16), 0 0 10px rgba(127,224,168,.8); animation: breathe 2.4s ease-in-out infinite; }
+  :scope .rail .foot a.on { background: var(--grad-soft); }
+  /* buttons */
+  :scope button { transition: background .15s, border-color .15s, color .15s, box-shadow .2s, transform .12s, filter .15s; }
+  :scope button:active:not(:disabled) { transform: translateY(1px) scale(.99); }
+  :scope button.primary { background: var(--text); color: var(--bg); border: 0; font-weight: 600; box-shadow: 0 1px 0 rgba(255,255,255,.15) inset; }   /* calm: the light comes from the page, not the buttons */
+  :scope button.primary:hover { background: var(--text); opacity: .88; }
+  :scope button.accent { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+  :scope select, :scope input[type=text], :scope input[type=number] { background: var(--raised); transition: border-color .15s, box-shadow .2s; }
+  :scope select:focus, :scope input[type=text]:focus, :scope input[type=number]:focus { border-color: color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+  :scope .seg { background: var(--soft); }
+  :scope .seg button.on { background: var(--grad-soft); color: var(--text); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent); }
+  :scope .pill { backdrop-filter: blur(8px); }
+  :scope .kind { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 600; }
+  /* the conversation */
+  :scope .ccomp { background: transparent; border-top: 0; padding: 6px 22px 16px; }
+  :scope .ccomp > .inner, :scope .cont > .inner { position: relative; padding: 10px 12px 10px; border-radius: 20px; background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid var(--line-2);
+  box-shadow: 0 24px 60px -28px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.04); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); transition: box-shadow .25s, border-color .25s; }
+  :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { border-color: color-mix(in srgb, var(--accent) 42%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent), 0 24px 70px -24px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255,255,255,.05); }
+  :scope .cont { background: transparent; border-top: 0; padding: 6px 22px 16px; }
+  :scope .ccomp textarea, :scope .cont textarea { background: transparent !important; border-color: transparent !important; font-size: 14.5px; }
+  :scope .ccomp textarea:focus, :scope .cont textarea:focus { border-color: transparent !important; }
+  :scope .ccomp .cbar button.primary, :scope .cont .cbar button.primary { height: 36px; border-radius: 12px; padding: 0 16px; }
+  :scope #cdlgIn .chat, :scope #dlgIn .chat { gap: 18px; }
+  :scope #cdlgIn .chat .cmsg.left { max-width: 100%; }
+  :scope #cdlgIn .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; padding: 2px 2px 0; font-size: 14.5px; line-height: 1.8; }
+  :scope #cdlgIn .chat .cmsg.right .cb, :scope #dlgIn .chat .cmsg.right .cb { background: var(--grad-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 18px 18px 6px 18px; padding: 10px 15px; font-size: 14.5px;
+  box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--accent) 55%, transparent); }
+  :scope #cdlgIn .chat .cmsg.me .cav, :scope #dlgIn .chat .cmsg.me .cav { background: var(--grad); color: #120d05; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+  :scope #cdlgIn .chat .cmsg.left .cav { box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 0 16px -2px hsl(var(--h, 220) 70% 60% / .55); }
+  :scope #cdlgIn .chat .cwho b { font-size: 12.5px; }
+  :scope #cdlgIn .chat .ct.md pre, :scope #dlgIn .chat .ct.md pre { background: rgba(0,0,0,.4); border: 1px solid var(--line); }
+  :scope[data-theme=light] #cdlgIn .chat .ct.md pre, :scope[data-theme=light] #dlgIn .chat .ct.md pre { background: rgba(250,250,252,.9); }
+  :scope .fresh .cmsg, :scope .chat.fresh { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
+  :scope .macts { opacity: .55; transition: opacity .2s; }
+  :scope .macts:hover, :scope .chat:hover + .macts, :scope .macts:focus-within { opacity: 1; }
+  :scope .chello h2 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px; }
+  :scope .chello { animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
+  :scope .lseg { transition: background .15s; }
+  /* an agent at work: a living border */
+  :scope .work { position: relative; border: 1px solid transparent !important; background: linear-gradient(var(--bg), var(--bg)) padding-box, linear-gradient(120deg, color-mix(in srgb, var(--accent) 75%, transparent), rgba(143,180,255,.55), rgba(180,140,255,.55), color-mix(in srgb, var(--accent) 75%, transparent)) border-box !important;
+  background-size: 100% 100%, 300% 300% !important; animation: flow 6s linear infinite; box-shadow: 0 18px 50px -24px color-mix(in srgb, var(--accent) 45%, transparent); }
+  :scope .work::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(600px 120px at 10% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%); }
+  :scope .sbc { background: color-mix(in srgb, var(--raised) 80%, transparent); backdrop-filter: blur(10px); }
+  :scope .second, :scope .bctx, :scope .lcard { background: color-mix(in srgb, var(--raised) 70%, transparent); }
+  /* home, cards and the tree */
+  :scope .card { background: color-mix(in srgb, var(--panel) 85%, transparent); border-color: var(--line); backdrop-filter: blur(12px); transition: border-color .2s, transform .2s, box-shadow .2s, background .2s; }
+  :scope .card.click:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 30%, transparent); box-shadow: 0 18px 40px -22px color-mix(in srgb, var(--accent) 50%, transparent); }
+  :scope .home h1 { font-size: 28px; font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+  :scope #treeSide { background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%), radial-gradient(ellipse at 50% 0%, rgba(143,180,255,.06), transparent 55%), var(--canvas); }
+  :scope .split:hover::after, :scope .resizing .split.on::after { background: var(--grad); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
+  :scope #toast { border-color: color-mix(in srgb, var(--accent) 25%, transparent); box-shadow: 0 18px 50px -14px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent); }
+  :scope .cpop .pi.on, :scope .ctx button:hover { background: var(--grad-soft); }
+  :scope #cdlgIn .chat .cmsg.left:not(.conv) .cbody { flex: 1; min-width: 0; }
+  :scope #cdlgIn .chat .cmsg.left:not(.conv) .cb { width: 100%; }
+  :scope body { background:
+    radial-gradient(1100px 640px at 6% -14%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 62%),
+    radial-gradient(1000px 680px at 104% 0%, rgba(110,140,255,.22), transparent 60%),
+    radial-gradient(900px 600px at 55% 122%, rgba(180,130,255,.18), transparent 62%), var(--bg); }
+  :scope .bar { background: color-mix(in srgb, var(--bg) 86%, transparent) !important; }
+}
+@keyframes breathe { 50% { box-shadow: 0 0 0 5px rgba(127,224,168,.06), 0 0 16px rgba(127,224,168,.9); } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes flow { to { background-position: 0 0, 300% 0; } }
+
+/* ================================================================ plain: app.css as it is (its colours restated, so a preview of it
+   inside another look shows its own) */
+@scope ([data-skin="classic"]) to (:scope [data-skin]) {
+  :scope { --bg: #09090b; --panel: #0f0f12; --raised: #16161a; --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.12); --line-3: rgba(255,255,255,.2);
+  --text: #ececef; --muted: #a1a1aa; --dim: #71717a; --accent: #d6a75c; --accent-soft: rgba(214,167,92,.12); --blue: #8fb4ff; --green: #7fcf9f; --bad: #e58c7e;
+  --rail: #0c0c0f; --canvas: #0a0a0c; --inset: #0c0c0f; --pop: #17171b; --hover: #1c1c21; --onprimary: #0b0b0e; --soft: rgba(255,255,255,.05);
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif; --ti: 236,236,239; --tf: 255,255,255; --tbgr: 9,9,11; --t3r: 161,161,170; --tgr: 150,220,178; --t1: #ececef; --t2: #a1a1aa; --t3: #71717a; --tbg: #0b0b0e; --tb1: #141418; --tb2: #1a1a20; }
+  :scope[data-theme=light] { --bg: #f6f6f7; --panel: #ffffff; --raised: #f1f1f3; --line: rgba(0,0,0,.08); --line-2: rgba(0,0,0,.13); --line-3: rgba(0,0,0,.24);
+  --text: #18181b; --muted: #52525b; --dim: #8a8a93; --accent: #a8741f; --accent-soft: rgba(168,116,31,.10); --blue: #2563c9; --green: #1f8a4c; --bad: #c2412d;
+  --rail: #f0f0f2; --canvas: #fbfbfc; --inset: #f4f4f6; --pop: #ffffff; --hover: #ebebee; --onprimary: #ffffff; --soft: rgba(0,0,0,.045); --ti: 24,24,27; --tf: 0,0,0; --tbgr: 255,255,255; --t3r: 82,82,91; --tgr: 34,139,84; --t1: #18181b; --t2: #52525b; --t3: #71717a; --tbg: #ffffff; --tb1: #f4f4f5; --tb2: #eef2ff; }
+}
+
+/* ================================================================ soft relief: one grey material, raised and pressed (after the
+   picture you sent). Everything is the colour of the page; depth comes from a light shadow above-left and a dark one below-right. */
+@scope ([data-skin="soft"]) to (:scope [data-skin]) {
+  :scope {
+    --bg: #e7e7ea; --panel: #eaeaed; --raised: #ececef; --rail: #e5e5e8; --canvas: #e8e8eb; --inset: #e4e4e7; --pop: #eeeef1; --hover: #e2e2e6;
+    --line: rgba(0,0,0,.045); --line-2: rgba(0,0,0,.075); --line-3: rgba(0,0,0,.14); --soft: rgba(0,0,0,.035);
+    --text: #1c1c1f; --muted: #55555c; --dim: #8b8b92; --accent: #2f6fe4; --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent); --onprimary: #ffffff;
+    --blue: #2f6fe4; --green: #2f9e5f; --bad: #c8463a;
+    --hi: rgba(255,255,255,.95); --lo: rgba(158,160,170,.55); --pill: #8f8f95; --pill-2: #7e7e84;
+    --t1: #1c1c1f; --t2: #55555c; --t3: #8b8b92; --tbg: #ececef; --tb1: #ececef; --tb2: #e9e9ec; --ti: 28,28,31; --tf: 0,0,0; --tbgr: 236,236,239;
+    --up: calc(5px * var(--sk, 1)) calc(5px * var(--sk, 1)) calc(12px * var(--sk, 1)) var(--lo), calc(-5px * var(--sk, 1)) calc(-5px * var(--sk, 1)) calc(12px * var(--sk, 1)) var(--hi);
+    --up-s: calc(3px * var(--sk, 1)) calc(3px * var(--sk, 1)) calc(7px * var(--sk, 1)) var(--lo), calc(-3px * var(--sk, 1)) calc(-3px * var(--sk, 1)) calc(7px * var(--sk, 1)) var(--hi);
+    --down: inset calc(3px * var(--sk, 1)) calc(3px * var(--sk, 1)) calc(7px * var(--sk, 1)) var(--lo), inset calc(-3px * var(--sk, 1)) calc(-3px * var(--sk, 1)) calc(7px * var(--sk, 1)) var(--hi);
+  }
+  :scope[data-theme=dark] {
+    --bg: #2a2b2f; --panel: #2c2d31; --raised: #2e2f34; --rail: #28292d; --canvas: #2a2b2f; --inset: #26272b; --pop: #313237; --hover: #34353a;
+    --line: rgba(255,255,255,.04); --line-2: rgba(255,255,255,.07); --line-3: rgba(255,255,255,.13); --soft: rgba(255,255,255,.04);
+    --text: #e8e8ec; --muted: #a9a9b1; --dim: #7c7c85; --accent: #6f9cff; --onprimary: #101114;
+    --hi: rgba(255,255,255,.055); --lo: rgba(0,0,0,.55); --pill: #5c5d64; --pill-2: #4f5056;
+    --t1: #e8e8ec; --t2: #a9a9b1; --t3: #7c7c85; --tbg: #2e2f34; --tb1: #2e2f34; --tb2: #313238; --ti: 232,232,236; --tf: 255,255,255; --tbgr: 42,43,47;
+  }
+  :scope body { background: var(--bg); }
+  :scope .rail, :scope .clist, :scope .nlist, :scope #treeSide { border-color: transparent; background: var(--rail); }
+  :scope .cpane, :scope #dialog, :scope .npane { background: var(--bg); }
+  :scope .cpane .dh2, :scope .dh, :scope .nhd, :scope .ccomp, :scope .cont { border-color: transparent; background: transparent; }
+  :scope .clist .ch, :scope .nlist .ch { background: var(--rail); }
+  :scope .ci2, :scope .ni { border-top-color: transparent; border-radius: 14px; margin: 2px 8px; }
+  :scope .ci2.on, :scope .ni.on { background: var(--bg); box-shadow: var(--down); }
+  :scope .ci2:hover, :scope .ni:hover { background: transparent; box-shadow: var(--up-s); }
+  /* buttons: pills that stand up, and sink in when pressed */
+  :scope button { border: 0; border-radius: 999px; background: var(--raised); box-shadow: var(--up-s); color: var(--text); font-weight: 500; }
+  :scope button:hover { background: var(--raised); box-shadow: var(--up); }
+  :scope button:active:not(:disabled), :scope button.on { box-shadow: var(--down); transform: none; }
+  :scope button:disabled { box-shadow: none; opacity: .5; }
+  :scope button.primary { background: linear-gradient(180deg, var(--pill), var(--pill-2)); color: #fff; box-shadow: var(--up-s), inset 0 1px 0 rgba(255,255,255,.25); }
+  :scope button.primary:hover { background: linear-gradient(180deg, var(--pill), var(--pill-2)); filter: brightness(1.06); opacity: 1; }
+  :scope button.ghost { background: transparent; box-shadow: none; } :scope button.ghost:hover { box-shadow: var(--up-s); background: transparent; color: var(--text); }
+  :scope button.accent { background: var(--raised); color: var(--accent); }
+  :scope .seg { background: var(--bg); border: 0; border-radius: 999px; box-shadow: var(--down); padding: 3px; }
+  :scope .seg button { box-shadow: none; } :scope .seg button.on { background: var(--raised); box-shadow: var(--up-s); color: var(--text); }
+  /* fields: pressed into the surface */
+  :scope select, :scope input[type=text], :scope input[type=number], :scope input[type=search] { border: 0; border-radius: 999px; background: var(--bg); box-shadow: var(--down); padding: 0 12px; }
+  :scope textarea { border: 0 !important; background: var(--bg) !important; box-shadow: var(--down); border-radius: 18px !important; }
+  :scope :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :scope input[type=checkbox], :scope input[type=radio], :scope input[type=range] { accent-color: var(--accent); }
+  /* surfaces that stand up */
+  :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .second, :scope .bctx, :scope .cmap, :scope .runout, :scope .lkcard { border: 0 !important; border-radius: 22px; background: var(--raised) !important; box-shadow: var(--up); }
+  :scope .ctx, :scope .cpop, :scope #toast, :scope .modal .box, :scope .shell-pop { border: 0; border-radius: 20px; background: var(--pop); box-shadow: var(--up), 0 20px 50px -20px rgba(0,0,0,.25); }
+  :scope .modal { background: rgba(120,120,130,.25); }
+  :scope .ccomp > .inner, :scope .cont > .inner { border: 0; border-radius: 26px; padding: 10px 12px; background: var(--raised); box-shadow: var(--up); }
+  :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { box-shadow: var(--up), 0 0 0 2px var(--accent); }
+  :scope .ccomp textarea, :scope .cont textarea { box-shadow: none; background: transparent !important; }
+  :scope .rb { border-radius: 16px; } :scope .rb.on { background: var(--bg); box-shadow: var(--down) !important; } :scope .rb:hover { background: transparent; box-shadow: var(--up-s); }
+  :scope .rb .line { background: var(--bg); box-shadow: var(--down); height: 4px; } :scope .rb .line i { background: var(--pill); }
+  :scope .rb.run .line i { background: var(--accent); } :scope .rb.chat .line i { background: var(--accent); }
+  :scope .rail .foot { border-top-color: transparent; } :scope .rail .foot a { border-radius: 14px; } :scope .rail .foot a.on { background: var(--bg); box-shadow: var(--down); }
+  :scope .rail .foot a:hover { background: transparent; box-shadow: var(--up-s); }
+  /* the conversation */
+  :scope .chat .cmsg.right .cb { background: var(--raised); border: 0; border-radius: 20px 20px 8px 20px; box-shadow: var(--up-s); }
+  :scope .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; box-shadow: none; }
+  :scope .chat .cav { box-shadow: var(--up-s); } :scope .chat .cmsg.me .cav { background: var(--pill); color: #fff; }
+  :scope .chat .ct.md pre, :scope pre.codeblk { background: var(--bg) !important; border: 0; border-radius: 16px; box-shadow: var(--down); }
+  :scope .codehd { border-color: transparent; }
+  :scope .macts button, :scope .trbtn, :scope .ctool { box-shadow: none; background: transparent; } :scope .macts button:hover, :scope .ctool:hover { box-shadow: var(--up-s); }
+  :scope .ctool.on2 { box-shadow: var(--down) !important; background: var(--bg) !important; color: var(--accent) !important; }
+  :scope .pill { border: 0; background: var(--bg); box-shadow: var(--down); }
+  :scope .kind { color: var(--muted); }
+  :scope .split:hover::after { background: var(--accent); }
+  :scope .work .pulse, :scope .dot.on { background: var(--accent); }
+  :scope .cmap .mn, :scope .lksw .sw { box-shadow: none !important; } :scope .cmap .mn:hover { background: transparent; }
+}
+
+/* ================================================================ paper: warm paper, ink, hairlines, serif reading text */
+@scope ([data-skin="paper"]) to (:scope [data-skin]) {
+  :scope {
+    --bg: #f3efe5; --panel: #f7f3ea; --raised: #efe9dc; --rail: #eee8da; --canvas: #f3efe5; --inset: #f1ebde; --pop: #fbf8f1; --hover: #ebe4d4;
+    --line: rgba(70,50,20,.10); --line-2: rgba(70,50,20,.16); --line-3: rgba(70,50,20,.30); --soft: rgba(70,50,20,.05);
+    --text: #1f1a14; --muted: #5a5044; --dim: #8b7f70; --accent: #a3392b; --accent-soft: color-mix(in srgb, var(--accent) 9%, transparent); --onprimary: #fbf8f1;
+    --blue: #2b5a9e; --green: #3e7d4b; --bad: #a3392b;
+    --t1: #1f1a14; --t2: #5a5044; --t3: #8b7f70; --tbg: #f7f3ea; --tb1: #f1ebde; --tb2: #ebe3d2; --ti: 31,26,20; --tf: 70,50,20; --tbgr: 247,243,234;
+    --serif: "Iowan Old Style", "Songti SC", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
+  }
+  :scope[data-theme=dark] {
+    --bg: #1c1a16; --panel: #211e19; --raised: #27231d; --rail: #1f1c17; --canvas: #1c1a16; --inset: #1a1814; --pop: #2a261f; --hover: #2d2921;
+    --line: rgba(240,225,200,.08); --line-2: rgba(240,225,200,.14); --line-3: rgba(240,225,200,.26); --soft: rgba(240,225,200,.05);
+    --text: #ebe3d3; --muted: #b8ac98; --dim: #857a69; --accent: #e07a5f; --onprimary: #1c1a16;
+    --t1: #ebe3d3; --t2: #b8ac98; --t3: #857a69; --tbg: #211e19; --tb1: #27231d; --tb2: #2d2921; --ti: 235,227,211; --tf: 240,225,200; --tbgr: 33,30,25;
+  }
+  :scope body { background: var(--bg); }
+  :scope button { border-radius: 4px; box-shadow: none; }
+  :scope button.primary { background: var(--text); color: var(--bg); } :scope button.primary:hover { background: var(--text); opacity: .85; }
+  :scope select, :scope input[type=text], :scope input[type=number] { border-radius: 4px; background: transparent; }
+  :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .modal .box, :scope .ctx, :scope .cpop, :scope .lkcard { border-radius: 6px; box-shadow: none; }
+  :scope .ccomp > .inner, :scope .cont > .inner { border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); }
+  :scope .chat .ct, :scope .nprev, :scope #ntext, :scope .home h1, :scope .chello h2, :scope .dh2 h1, :scope .lkhero h1 { font-family: var(--serif); }
+  :scope .chat .ct { font-size: 15px; line-height: 1.85; }
+  :scope .chat .cmsg.right .cb { background: transparent; border: 0; border-left: 2px solid var(--accent); border-radius: 0; padding: 4px 12px; }
+  :scope .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; }
+  :scope .chat .cav { border-radius: 4px; }
+  :scope .rb.on { background: transparent; box-shadow: inset 2px 0 0 var(--accent); }
+  :scope .kind { color: var(--accent); }
+}
+
+/* ================================================================ terminal: monospace, square, phosphor green */
+@scope ([data-skin="mono"]) to (:scope [data-skin]) {
+  :scope {
+    --bg: #080b09; --panel: #0b0f0c; --raised: #101611; --rail: #090c0a; --canvas: #080b09; --inset: #0a0d0b; --pop: #0e1410; --hover: #142017;
+    --line: rgba(120,255,160,.07); --line-2: rgba(120,255,160,.13); --line-3: rgba(120,255,160,.24); --soft: rgba(120,255,160,.05);
+    --text: #cfe8d2; --muted: #8fb596; --dim: #5d7a63; --accent: #46d17a; --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent); --onprimary: #04110a;
+    --blue: #6cc4ff; --green: #46d17a; --bad: #ff7a6b;
+    --t1: #cfe8d2; --t2: #8fb596; --t3: #5d7a63; --tbg: #0b0f0c; --tb1: #0f1510; --tb2: #121a14; --ti: 207,232,210; --tf: 120,255,160; --tbgr: 11,15,12;
+    --font: "JetBrains Mono", "SF Mono", Menlo, "PingFang SC", monospace;
+  }
+  :scope[data-theme=light] {
+    --bg: #f4f4ee; --panel: #f8f8f3; --raised: #ededE5; --rail: #efefe8; --canvas: #f4f4ee; --inset: #efefe8; --pop: #fbfbf7; --hover: #e7e7de;
+    --line: rgba(20,60,30,.10); --line-2: rgba(20,60,30,.16); --line-3: rgba(20,60,30,.28); --soft: rgba(20,60,30,.05);
+    --text: #18201a; --muted: #46584a; --dim: #7a8a7d; --accent: #13813f; --onprimary: #f4f4ee;
+    --t1: #18201a; --t2: #46584a; --t3: #7a8a7d; --tbg: #f8f8f3; --tb1: #efefe8; --tb2: #e7e7de; --ti: 24,32,26; --tf: 20,60,30; --tbgr: 248,248,243;
+  }
+  :scope, :scope * { font-family: var(--font) !important; }
+  :scope body { background: var(--bg); }
+  :scope button, :scope select, :scope input, :scope textarea, :scope .card, :scope .work, :scope .sbc, :scope .ctx, :scope .cpop, :scope .modal .box, :scope .chat .cb, :scope .chat .cav, :scope .lkcard,
+  :scope .ccomp > .inner, :scope .cont > .inner, :scope .rb, :scope .pill, :scope .seg, :scope .seg button { border-radius: 2px !important; box-shadow: none; }
+  :scope button.primary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  :scope button.primary:hover { background: var(--accent-soft); opacity: 1; }
+  :scope button.primary::before { content: "> "; }
+  :scope .chat .cmsg.right .cb { background: transparent; border: 1px dashed var(--line-3); }
+  :scope .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; }
+  :scope .rb.on { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); }
+  :scope ::selection { background: var(--accent); color: var(--onprimary); }
+}
+
+/* ================================================================ your adjustments (Settings → Appearance), on top of any look */
+:root[data-btn=solid] button.primary:not(.lkprev *) { background: var(--accent); color: var(--onaccent, var(--onprimary)); border: 0; box-shadow: none; filter: none; }
+:root[data-btn=solid] button.primary:not(.lkprev *):hover { background: var(--accent); filter: brightness(1.08); opacity: 1; }
+:root[data-btn=soft] button.primary:not(.lkprev *) { background: var(--accent-soft); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); box-shadow: none; filter: none; }
+:root[data-btn=soft] button.primary:not(.lkprev *):hover { background: color-mix(in srgb, var(--accent) 20%, transparent); opacity: 1; }
+:root[data-btn=outline] button.primary:not(.lkprev *) { background: transparent; color: var(--accent); border: 1.5px solid var(--accent); box-shadow: none; filter: none; }
+:root[data-btn=outline] button.primary:not(.lkprev *):hover { background: var(--accent-soft); opacity: 1; }
+:root[data-btn=gradient] button.primary:not(.lkprev *) { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent) 35%, #8fa8ff 80%, #b48cff);
+  color: #120d05; border: 0; box-shadow: 0 6px 22px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.3); }
+:root[data-btn=gradient] button.primary:not(.lkprev *):hover { filter: brightness(1.08) saturate(1.1); opacity: 1; }
+:root[data-rk] button:not(.lkprev *) { border-radius: calc(8px * var(--rk)); }
+:root[data-rk] :is(select, input[type=text], input[type=number]):not(.lkprev *) { border-radius: calc(8px * var(--rk)); }
+:root[data-rk] :is(.card, .work, .sbc, .lcard, .second, .modal .box, .ctx, .cpop):not(.lkprev *) { border-radius: calc(14px * var(--rk)); }
+:root[data-rk] :is(.ccomp > .inner, .cont > .inner):not(.lkprev *) { border-radius: calc(20px * var(--rk)); }
+:root[data-rk] .chat .cb:not(.lkprev *) { border-radius: calc(14px * var(--rk)) !important; }
+:root[data-fs] :is(#cdlgIn, #dlgIn) .chat .ct, :root[data-fs] :is(.nprev, #ntext) { font-size: var(--fs) !important; }
+:root[data-density=compact] :is(#cdlgIn, #dlgIn) .chat { gap: 8px !important; } :root[data-density=compact] .dlg { padding: 10px 18px 24px; }
+:root[data-density=compact] .chat .ct { line-height: 1.55 !important; } :root[data-density=compact] .rb { padding: 6px 10px 7px; }
+:root[data-density=roomy] :is(#cdlgIn, #dlgIn) .chat { gap: 28px !important; } :root[data-density=roomy] .dlg { padding: 26px 40px 48px; }
+:root[data-density=roomy] .chat .ct { line-height: 1.95 !important; } :root[data-density=roomy] .dlg > .inner { max-width: 820px; }
+:root[data-glow=off] body { background: var(--bg) !important; } :root[data-glow=off] body::before { display: none; }
+:root[data-glass=off] *:not(.lkprev *) { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+:root[data-skin=aurora][data-glass=off] :is(.rail, .clist, .cpane, #dialog, .nlist, .npane, #treeSide) { background-color: color-mix(in srgb, var(--bg) 94%, var(--text)) !important; }
+:root[data-motion=off] *, :root[data-motion=off] *::before, :root[data-motion=off] *::after { animation: none !important; transition: none !important; }
+:root[data-sk="0"] *:not(.lkprev *) { box-shadow: none !important; }
+
+/* ================================================================ the appearance gallery page (外观社区) */
+#vLooks { overflow: auto; } .looks { max-width: 1240px; margin: 0 auto; padding: 30px 32px 60px; }
+.lkhero h1 { margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -.02em; } .lkhero p { margin: 0 0 22px; color: var(--muted); max-width: 720px; }
+.lkwrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
+.lkcfg { position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow: auto; display: grid; gap: 6px; padding: 16px 18px !important; }
+.lkcfg > label { font-size: 11.5px; color: var(--dim); margin-top: 10px; }
+.lkh { display: flex; align-items: baseline; gap: 8px; } .lkh b { font-size: 15px; } .lkh .dimt { font-size: 12px; }
+.lkcfg .seg { display: flex; flex-wrap: wrap; } .lkcfg .seg button { flex: 1; padding: 0 6px; }
+.lksw { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lksw .sw { width: 26px; height: 26px; padding: 0; border-radius: 50% !important; background: var(--c, transparent) !important; border: 1px solid var(--line-2) !important; font-size: 12px; color: var(--dim); box-shadow: none !important; }
+.lksw .sw.on { outline: 2px solid var(--text); outline-offset: 2px; }
+.lksw input[type=color] { width: 30px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; box-shadow: none; }
+.lkrange { display: flex; align-items: center; gap: 10px; } .lkrange input { flex: 1; accent-color: var(--accent); }
+.lkrange em { font-style: normal; font-size: 12px; color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.lkfx { display: grid; gap: 8px; }
+.lktog { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; } .lktog input { display: none; }
+.lktog i { width: 36px; height: 20px; border-radius: 999px; background: var(--line-3); position: relative; transition: background .2s; flex: none; }
+.lktog i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s; }
+.lktog input:checked + i { background: var(--accent); } .lktog input:checked + i::after { transform: translateX(16px); }
+.lkacts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.lkgal { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin: 10px 0 30px; }
+.lkcard { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--panel); transition: transform .2s, box-shadow .2s, border-color .2s; }
+.lkcard:hover { transform: translateY(-2px); border-color: var(--line-3); } .lkcard.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.lkc-b { padding: 12px 14px 14px; } .lkc-t { display: flex; align-items: center; gap: 8px; } .lkc-t b { font-size: 14px; } .lkc-t .pill { height: 20px; font-size: 11px; color: var(--accent); }
+.lkc-d { font-size: 12px; color: var(--dim); margin: 4px 0 10px; min-height: 34px; } .lkc-a { display: flex; gap: 6px; flex-wrap: wrap; }
+.lkempty { padding: 18px; color: var(--dim); }
+.lkprev { display: grid; grid-template-columns: 54px 1fr; height: 178px; background: var(--bg); color: var(--text); font: 12px/1.5 var(--font); pointer-events: none; overflow: hidden; user-select: none; }
+.lkp-rail { background: var(--rail); border-right: 1px solid var(--line); padding: 10px 8px; display: grid; align-content: start; gap: 7px; }
+.lkp-rail b { font-size: 10px; letter-spacing: .08em; } .lkp-rail span { height: 18px; border-radius: 6px; background: var(--soft); } .lkp-rail span.on { background: var(--accent-soft); box-shadow: none; }
+.lkprev .chat .ct { font-size: 11.5px !important; line-height: 1.45 !important; font-family: inherit; }
+.lkp-main { padding: 8px 10px; display: grid; gap: 7px; align-content: start; background: var(--panel); min-width: 0; }
+.lkprev .chat { gap: 6px; padding: 0; } .lkprev .chat .cb { padding: 5px 9px; font-size: 11.5px; line-height: 1.45; } .lkprev .chat .cav { width: 20px; height: 20px; font-size: 10px; } .lkprev .chat .cmsg { max-width: 96%; }
+.lkp-comp, .lkp-row { display: flex; gap: 6px; align-items: center; } .lkp-comp input { flex: 1; min-width: 0; height: 26px !important; font-size: 11.5px; }
+.lkprev button { height: 24px; font-size: 11px; padding: 0 10px; } .lkprev .seg button { height: 20px; padding: 0 7px; }
+.lksheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 10px 0 30px; }
+.lks-card { display: grid; gap: 12px; } .lks-h { display: flex; justify-content: space-between; }
+.lks-f { display: flex; justify-content: space-between; align-items: center; color: var(--muted); padding-top: 10px; border-top: 1px solid var(--line); }
+.lks-btns { display: flex; flex-wrap: wrap; gap: 10px; align-content: start; }
+.lks-ctl { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; grid-column: 1 / -1; } .lks-ctl input[type=range] { accent-color: var(--accent); width: 160px; }
+.lks-toast { display: flex; gap: 10px; align-items: center; } .lks-toast span:first-of-type { flex: 1; color: var(--muted); }
+.lks-rows { padding: 4px 0 !important; } .lks-r { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); }
+.lks-r:first-child { border-top: 0; } .lks-r label { margin-left: auto; } .lks-r.on { color: var(--accent); }
+@media (max-width: 1000px) { .lkwrap { grid-template-columns: 1fr; } .lkcfg { position: static; max-height: none; } .lksheet { grid-template-columns: 1fr; } }
+@scope ([data-skin="soft"]) to (:scope [data-skin]) {
+  :scope .lktog i { background: var(--bg); box-shadow: var(--down); } :scope .lktog input:checked + i { background: var(--pill); }
+  :scope .lktog i::after { background: var(--raised); box-shadow: var(--up-s); }
+  :scope .lks-r { border-top-color: var(--line); } :scope .lkcard.cur { box-shadow: var(--up), 0 0 0 2px var(--accent); }
+}
