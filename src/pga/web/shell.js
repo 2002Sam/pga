@@ -75,6 +75,13 @@
     });
     document.addEventListener("click", (e) => { if (!el.contains(e.target)) pop.hidden = true; });
   }
+  /* you are here: a key, a click, a scroll or coming back to the tab tells PGA, at most every 20 s, so motivations that
+     started on their own while you were away pause at once (pga.idle). A test tab (?as=) does not count as you. */
+  let seen = 0;
+  const here = () => { const uid = get("pga_uid"); if (Q.get("as") || !uid || Date.now() - seen < 20000) return; seen = Date.now();
+    fetch(`/v1/users/${uid}/activity`, { method: "POST" }).then((r) => r.ok && r.json()).then((r) => { if (r?.paused?.length) window.dispatchEvent(new CustomEvent("pga:back", { detail: r.paused })); }).catch(() => {}); };
+  ["keydown", "pointerdown", "wheel", "touchstart"].forEach((ev) => addEventListener(ev, here, { passive: true, capture: true }));
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") here(); });
   window.addEventListener("storage", (e) => { if (e.key === "pga_look") applyLook(); if (e.key === "pga_theme") apply(); });   // other tabs follow
   window.PGAShell = { mount, L, LANG, apply, looks: { SKINS, LOOK0, look, applyLook, setLook } };
 })();

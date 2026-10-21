@@ -16,11 +16,11 @@ function renderRail() {
         <div class="row"><button class="sm ghost" id="seedCancel">${L("取消", "Cancel")}</button><button class="sm primary" id="seedGo">${L("种下", "Plant")}</button></div></div>` : "")
     + F.trees.map((t) => {
       const on = t.task?.status === "running", n = (t.nodes || []).filter((x) => x.kind !== "bud").length;
-      const sub = [t.task ? (on ? L("生长中", "growing") : L("已暂停", "paused")) : L("还没开始", "not started"), L(`${n} 个节点`, `${n} nodes`), t.task ? L(`张力 ${t.task.pressure.toFixed(2)}`, `pressure ${t.task.pressure.toFixed(2)}`) : ""].filter(Boolean).join(" · ");
+      const sub = [t.task ? (on ? (t.task.auto_idle ? L("你不在，自动生长中", "growing while you are away") : L("生长中", "growing")) : L("已暂停", "paused")) : L("还没开始", "not started"), L(`${n} 个节点`, `${n} nodes`), t.task ? L(`张力 ${t.task.pressure.toFixed(2)}`, `pressure ${t.task.pressure.toFixed(2)}`) : ""].filter(Boolean).join(" · ");
       return bar(t.id, t.text, sub, on ? "run" : "", width(n), `<span class="dot ${on ? "on" : ""}"></span>`).replace('<span class="n">', `${t.for_you ? `<span class="badge" title="${L("等你回答", "waiting for you")}">${t.for_you}</span>` : ""}<span class="n">`);
     }).join("");
   $("#bars").innerHTML = html;
-  $("#toLib").classList.toggle("on", S.view === "home"); $("#toNotes")?.classList.toggle("on", S.view === "notes");
+  $("#toLib").classList.toggle("on", S.view === "home"); $("#toNotes")?.classList.toggle("on", S.view === "notes"); $("#toGraph")?.classList.toggle("on", S.view === "graph");
 }
 async function loadForest() {
   S.forest = await api(`/v1/users/${S.uid}/forest${EN ? "?lang=en" : ""}`);
@@ -32,7 +32,7 @@ async function loadChats() { try { S.allChats = await api(`/v1/users/${S.uid}/ch
 
 function show(view, opts = {}) {
   S.view = view; closeCtx();
-  ["Home", "Tree", "Chats", "Notes", "Looks"].forEach((v) => { const el = $("#v" + v); if (el) el.hidden = v.toLowerCase() !== view; });
+  ["Home", "Tree", "Chats", "Notes", "Looks", "Graph"].forEach((v) => { const el = $("#v" + v); if (el) el.hidden = v.toLowerCase() !== view; });
   $("#cmap") && (view !== "chats") && ($("#cmap").hidden = true);
   if (view === "tree" && opts.aim !== undefined && opts.aim !== S.aim) { S.aim = opts.aim; S.node = opts.node || null; S.bud = null; S.detail = {}; S.beh = {}; S.seen = new Set(); S.tree = null; S.drawer = false; S.op = null; }
   history.replaceState(null, "", qs()); renderRail();
@@ -40,6 +40,7 @@ function show(view, opts = {}) {
   if (view === "tree") { $("#dlgIn").innerHTML = `<div class="empty">…</div>`; loadTree(); }
   if (view === "notes") { showNotes(); return; }
   if (view === "looks") { showLooks(); return; }
+  if (view === "graph") { showGraph(); return; }
   if (view === "chats") { document.title = L("所有对话 · PGA", "All conversations · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }
 }
 
@@ -74,3 +75,9 @@ function renderHome() {
   fillCacheHome();
 }
 
+
+/* you are back: the motivations that started on their own while you were away have paused (pga.idle via shell.js) */
+window.addEventListener("pga:back", (e) => {
+  toast(L(`欢迎回来：你不在时自动运转的 ${e.detail.length} 个抱负先停下了`, `Welcome back: ${e.detail.length} motivation(s) that ran while you were away have paused`));
+  loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {});
+});

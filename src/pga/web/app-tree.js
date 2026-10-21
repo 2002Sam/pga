@@ -53,7 +53,7 @@ function renderRunPills() {
   const T = S.tree, t = T.task, P = S.proc || {};
   if (YOU()) return "";
   const waiting = [P.checkpoint ? L("检查点", "Checkpoint") : "", T.for_you ? L(`${T.for_you} 个问题等你`, `${T.for_you} for you`) : ""].filter(Boolean).join(" · ");
-  return t ? `<span class="pill"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? L("运行中", "Running") : t.status === "paused" ? L("已暂停", "Paused") : L("已停止", "Stopped")}</b>${t.status === "running" ? " · " + esc(EN ? t.phase : t.phase_zh || t.phase) : ""}</span>
+  return t ? `<span class="pill"><span class="dot ${t.status === "running" ? "on" : ""}"></span><b>${t.status === "running" ? L("运行中", "Running") : t.status === "paused" ? L("已暂停", "Paused") : L("已停止", "Stopped")}</b>${t.status === "running" ? " · " + esc(EN ? t.phase : t.phase_zh || t.phase) : ""}${t.auto_idle ? `<span class="dimt" title="${L("你不在时自动开始的：你一操作就会暂停", "Started on its own while you were away: pauses as soon as you do anything")}"> · ${L("你不在时自动运转", "running while you are away")}</span>` : ""}</span>
       <span class="pill" title="${L("张力", "Pressure")} ${t.pressure.toFixed(2)}: ${Object.entries(t.parts || {}).filter(([, v]) => typeof v === "number").map(([k, v]) => `${k} ${v.toFixed(2)}`).join(", ")}"><span class="meter"><i style="width:${Math.round(t.pressure * 100)}%"></i></span></span>
       ${waiting ? `<button class="sm accent" id="waitBtn">${esc(waiting)}</button>` : ""}
       <button class="sm ghost" id="setBtn" title="${L("运行设置", "Run settings")}">⚙</button>

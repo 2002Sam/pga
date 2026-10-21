@@ -1078,6 +1078,7 @@ class ThoughtTree:
             from pga.perpetual import AUTONOMY_ZH, DEFAULTS, PHASE_ZH
             st = {**DEFAULTS, **(t.settings or {})}
             task = {"id": str(t.id), "status": t.status, "phase": t.phase, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
+                    "auto_idle": t.status == "running" and bool((t.settings or {}).get("_idle_since")), "idle_auto": (t.settings or {}).get("idle_auto", True),
                     "phase_note": t.phase_note, "pressure": round(t.pressure, 3), "parts": t.parts or {}, "cycles": t.cycles,
                     "autonomy": st.get("autonomy"), "autonomy_zh": AUTONOMY_ZH.get(st.get("autonomy"), ""),
                     "samples": st.get("samples"), "project_id": str(t.project_id) if t.project_id else None,

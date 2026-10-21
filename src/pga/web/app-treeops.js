@@ -125,6 +125,7 @@ function showWaiting() {
 async function showSettings() {
   const t = S.proc?.task; if (!t) { toast(L("这个抱负还没有在长期运行：先按开始", "Not running yet: press Start first")); return; }
   let preset = "balanced"; try { preset = (await api(`/v1/aims/${S.aim}/allocation`)).settings?.preset || "balanced"; } catch {}
+  let idl = { on: true, minutes: 60 }; try { idl = await api(`/v1/users/${S.uid}/idle`); } catch {}
   modal(`<h2>${L("设置", "Settings")}</h2><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
     <div class="label">${L("驱动模式", "Drive mode")}</div>${LEVELS.map(([k, nm, d]) => `<label class="opt"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}><span><b style="font-weight:500">${nm}</b><div class="d">${d}</div></span></label>`).join("")}
     <div style="margin:4px 0 16px 26px;font-size:13px">${L("每想", "Stop every")} <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:60px"> ${L("轮停下来一次", "rounds")}</div>
@@ -132,13 +133,17 @@ async function showSettings() {
     <div style="font-size:13px;margin:8px 0">${L("每个问题最多生成", "At most")} <input type="number" id="setSamples" min="1" max="5" value="${t.samples ?? 3}" style="width:60px"> ${L("次。实际次数由 P(fork)=f(不确定性, 分歧, 影响, 成本) 决定；分出明显不同的结论会留作影子路线，回顾时重新考虑。", "samples per question. How many is decided by P(fork) = f(uncertainty, disagreement, impact, cost); clearly different conclusions are kept as shadow paths and revisited.")}</div>
     <div style="font-size:13px;margin-bottom:16px">${L("提示词扰动强度", "Prompt perturbation")} <input type="range" id="setPerturb" min="0" max="1" step="0.1" value="${t.perturb ?? .5}" style="vertical-align:middle"> <span id="pv" class="num">${(t.perturb ?? .5).toFixed(1)}</span></div>
     <div class="label">${L("多 agent 分配", "How work is shared among agents")}</div><div style="display:flex;gap:6px;margin:8px 0 18px">${Object.entries(PRESETS).map(([k, [nm]]) => `<label class="chip ${k === preset ? "on" : ""}"><input type="radio" name="preset" value="${k}" ${k === preset ? "checked" : ""} style="display:none">${nm}</label>`).join("")}</div>
+    <div class="label">${L("你不在的时候", "While you are away")}</div>
+    <label class="opt"><input type="checkbox" id="setIdleOn" ${idl.on ? "checked" : ""}><span>${L("我离开", "When I have been away")} <input type="number" id="setIdleMin" min="5" max="1440" value="${idl.minutes}" style="width:64px"> ${L("分钟后，自动开始运转暂停中的抱负；我一操作（点击、打字、滚动，或在 Claude Code / Codex 里干活）就停下", "minutes, paused motivations start on their own; the moment I do anything (click, type, scroll, or work in Claude Code / Codex) they stop")}<div class="dimt" style="font-size:12px">${L("对所有抱负生效；你自己按的「开始」不受影响，「停止」的也不会被自动开始", "For every motivation; what you start yourself is untouched, and a stopped one never starts on its own")}</div></span></label>
+    <label class="opt" style="margin-bottom:16px"><input type="checkbox" id="setIdleThis" ${t.idle_auto !== false ? "checked" : ""}><span>${L("这棵树参与", "This tree takes part")}</span></label>
     <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="saveSettings">${L("保存", "Save")}</button></div></div>`);
   document.querySelectorAll('input[name=preset]').forEach((r) => r.addEventListener("change", () => document.querySelectorAll('input[name=preset]').forEach((x) => x.parentElement.classList.toggle("on", x.checked))));
   $("#setPerturb").addEventListener("input", (e) => { $("#pv").textContent = Number(e.target.value).toFixed(1); });
 }
 async function saveSettings() {
   const lvl = document.querySelector('input[name=lvl]:checked')?.value, preset = document.querySelector('input[name=preset]:checked')?.value;
-  const settings = { autonomy: lvl, checkpoint_every: Number($("#setEvery").value), samples: Number($("#setSamples").value), perturb: Number($("#setPerturb").value) };
+  const settings = { autonomy: lvl, checkpoint_every: Number($("#setEvery").value), samples: Number($("#setSamples").value), perturb: Number($("#setPerturb").value), idle_auto: $("#setIdleThis").checked };
+  try { await api(`/v1/users/${S.uid}/idle`, { method: "PUT", body: { on: $("#setIdleOn").checked, minutes: Number($("#setIdleMin").value) || 60 } }); } catch (err) { toast(err.message); }
   if (preset) settings.alloc = { preset, ...PRESETS[preset][1] };
   try { await api(`/v1/aims/${S.aim}/perpetual`, { method: "PATCH", body: { settings } }); document.querySelector(".modal")?.remove(); toast(L("已保存", "Saved")); await loadTree(true); }
   catch (err) { toast(err.message); }

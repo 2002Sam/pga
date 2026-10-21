@@ -89,6 +89,7 @@ DEFAULTS: dict[str, Any] = {
     "samples": 3,               # 多次生成: at most this many answers per question (different agents, lightly disturbed prompts)
     "fork": "adaptive",         # adaptive: how many follows the fork score P(fork)=f(U,D,I,C) · always: every question gets them all
     "perturb": 0.5,             # how much the prompts are disturbed (0 = never, ≥0.5 two stances, ≥0.7 also drops a context section)
+    "idle_auto": True,          # starts on its own while you are away, pauses when you are back (pga.idle)
 }
 AUTONOMY = ("free", "checkpoint", "driven")
 AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
@@ -218,6 +219,8 @@ class Perpetual:
             self.s.add(t)
         t.project_id = project.id if project else None
         t.status, t.phase, t.phase_since, t.next_at, t.updated_at = "running", "starting", now, now, now
+        from pga import idle
+        idle.forget(self.s, t)                           # you started it: it is yours, not one that runs only while you are away
         t.settings = {**(t.settings or {}), **{k: v for k, v in (settings or {}).items() if k in DEFAULTS}}
         self.s.flush()
         return t
@@ -225,10 +228,15 @@ class Perpetual:
     def cfg(self, t: PerpetualTask) -> dict:
         return {**DEFAULTS, **(t.settings or {})}
 
-    def set_status(self, t: PerpetualTask, status: str, now: datetime | None = None) -> PerpetualTask:
+    def set_status(self, t: PerpetualTask, status: str, now: datetime | None = None, auto: bool = False) -> PerpetualTask:
+        """`auto`: pga.idle starting it while you are away (or pausing it when you are back); anything else is yours, and
+        a task you started or paused yourself is no longer one that only runs while you are away."""
         now = now or utcnow()
         if status not in ("running", "paused", "stopped"):
             raise ValueError(status)
+        if not auto:
+            from pga import idle
+            idle.forget(self.s, t)
         t.status, t.updated_at = status, now
         t.phase, t.phase_since, t.phase_note = (status if status != "running" else "starting"), now, ""
         if status == "running":
@@ -1060,7 +1068,9 @@ class Perpetual:
         from pga.evolution.motivation import open_round
         rnd = open_round(self.rt, t.user_id) or self.s.scalar(select(EvolutionRound).where(EvolutionRound.user_id == t.user_id)
                                                               .order_by(EvolutionRound.created_at.desc()).limit(1))
+        from pga import idle
         return {"id": str(t.id), "aim_id": str(t.aim_id), "aim": aim.text if aim else "", "status": t.status, "phase": t.phase,
+                "auto_idle": idle.is_auto(self.s, t),
                 "phase_zh": PHASE_ZH.get(t.phase, t.phase), "phase_note": t.phase_note,
                 "phase_since": t.phase_since.isoformat() if t.phase_since else None, "next_at": t.next_at.isoformat() if t.next_at else None,
                 "pressure": t.pressure, "parts": t.parts or {}, "cycles": t.cycles, "work_s": round(t.work_s), "rest_s": round(t.rest_s),
@@ -1107,9 +1117,24 @@ class PerpetualRunner:
                     self.current = None
         return len(ids)
 
+    def idle_tick(self) -> None:
+        """While you are away your motivations start on their own; when you are back they pause (pga.idle)."""
+        from pga import idle
+        with self.sm() as s:
+            try:
+                idle.tick(s)
+                s.commit()
+            except Exception:  # noqa: BLE001
+                log.exception("idle check failed")
+                s.rollback()
+
     def run_forever(self, stop: threading.Event) -> None:
         log.info("perpetual runner started")
+        last_idle = 0.0
         while not stop.is_set():
+            if time.monotonic() - last_idle > 30:
+                last_idle = time.monotonic()
+                self.idle_tick()
             try:
                 n = self.tick()
             except Exception:  # noqa: BLE001 - e.g. the database restarting; try again shortly

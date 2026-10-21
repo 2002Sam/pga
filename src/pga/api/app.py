@@ -329,6 +329,48 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def get_user(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         return user_or_404(rt, user_id)
 
+    # ---------------------------------------------------------------- the memory graph (pga.graph)
+    @app.get("/v1/users/{user_id}/memory-graph")
+    def memory_graph(user_id: uuid.UUID, days: int = Query(90, ge=1, le=3650), rt: Runtime = Depends(get_rt)):
+        """Everything PGA remembers about you as nodes and edges: models, motivations, lines, conversations, knowledge, agents."""
+        from pga.graph import build
+        return build(rt, user_or_404(rt, user_id), days)
+
+    @app.post("/v1/users/{user_id}/memory-graph/link", status_code=201)
+    def memory_graph_link(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A line you drew on the graph: a tree and knowledge → the tree references it; two pieces of knowledge → related."""
+        from pga.bodies import BodyError
+        from pga.graph import link
+        try:
+            return link(rt, user_or_404(rt, user_id), str(body.get("a") or ""), str(body.get("b") or ""), str(body.get("note") or "")[:500])
+        except BodyError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    # ---------------------------------------------------------------- while you are away (pga.idle)
+    @app.post("/v1/users/{user_id}/activity")
+    def user_activity(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """You are here (a click, a key, a scroll in any PGA page): what started on its own while you were away pauses."""
+        from pga import idle
+        return {"paused": idle.touch(rt.session, user_or_404(rt, user_id))}
+
+    @app.get("/v1/users/{user_id}/idle")
+    def user_idle(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga import idle
+        u = user_or_404(rt, user_id)
+        return {**idle.cfg(u), "last": idle.state(u).get("last"),
+                "auto": [{"task": str(t.id), "aim": str(t.aim_id), "since": t.settings["_idle_since"]} for t in idle.auto_tasks(rt.session, u.id)]}
+
+    @app.put("/v1/users/{user_id}/idle")
+    def user_idle_set(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Whether your motivations start on their own while you are away, and after how many minutes."""
+        from pga import idle
+        u = user_or_404(rt, user_id)
+        cur = idle.cfg(u)
+        new = {"on": bool(body.get("on", cur["on"])), "minutes": int(body.get("minutes") or cur["minutes"])}
+        u.preferences = {**(u.preferences or {}), "idle_run": new}
+        rt.session.flush()
+        return idle.cfg(u)
+
     @app.patch("/v1/users/{user_id}/preferences", response_model=sc.UserOut)
     def patch_preferences(user_id: uuid.UUID, body: sc.PreferencesPatch, rt: Runtime = Depends(get_rt)):
         u = user_or_404(rt, user_id)
@@ -2799,6 +2841,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             trees.append({"id": str(a.id), "text": a.text, "pending": tree.pending_count(a), "for_you": for_you,
                           "project": {"id": str(p.id), "name": p.name} if p else None,
                           "task": None if t is None else {"status": t.status, "phase_zh": PHASE_ZH.get(t.phase, t.phase),
+                                                          "auto_idle": t.status == "running" and bool((t.settings or {}).get("_idle_since")),
                                                           "pressure": round(t.pressure, 3), "cycles": t.cycles},
                           "last_growth": max((n.last_at or n.created_at for n in nodes), default=None),
                           "nodes": [{"id": str(n.id), "parent": str(n.parent_id) if n.parent_id else None, "seq": n.seq, "kind": n.kind,
