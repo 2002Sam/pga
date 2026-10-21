@@ -452,6 +452,91 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         rt.session.flush()
         return {"key": key, "node": node}
 
+    # ---------------------------------------------------------------- the fact graph (pga.kg, after graphiti)
+    FACT_FILL: dict[str, dict] = {}
+
+    @app.get("/v1/users/{user_id}/facts")
+    def facts_overview(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """How much is in the fact graph, the newest facts, and the ones most recently found no longer true."""
+        from pga.db.models import KgEdge, KgEntity
+        from pga.kg.service import FactGraph
+        u = user_or_404(rt, user_id)
+        fg = FactGraph(rt)
+        names = {x.id: x.name for x in rt.session.scalars(select(KgEntity).where(KgEntity.user_id == u.id))}
+        cur = list(rt.session.scalars(select(KgEdge).where(KgEdge.user_id == u.id, KgEdge.expired_at.is_(None), KgEdge.invalid_at.is_(None))
+                                      .order_by(KgEdge.created_at.desc()).limit(20)))
+        old = list(rt.session.scalars(select(KgEdge).where(KgEdge.user_id == u.id, KgEdge.expired_at.is_not(None))
+                                      .order_by(KgEdge.expired_at.desc()).limit(20)))
+        return {**fg.stats(u), "pending": len(fg.pending(u)), "filling": FACT_FILL.get(str(u.id)),
+                "recent": [fg.out_edge(e, names) for e in cur], "superseded": [fg.out_edge(e, names) for e in old]}
+
+    @app.get("/v1/users/{user_id}/facts/search")
+    def facts_search(user_id: uuid.UUID, q: str = Query(..., min_length=1, max_length=400), history: bool = False, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import KgEntity
+        from pga.kg.service import FactGraph
+        u = user_or_404(rt, user_id)
+        fg = FactGraph(rt)
+        names = {x.id: x.name for x in rt.session.scalars(select(KgEntity).where(KgEntity.user_id == u.id))}
+        return [fg.out_edge(e, names) for e in fg.search(u, q, k=20, current_only=not history)]
+
+    @app.post("/v1/users/{user_id}/facts/fill", status_code=202)
+    def facts_fill(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Read your conversations into the fact graph, newest first (in the background; GET /facts shows how far)."""
+        import threading
+        u = user_or_404(rt, user_id)
+        key = str(u.id)
+        if (FACT_FILL.get(key) or {}).get("state") == "running":
+            return FACT_FILL[key]
+        days = int(body.get("days") or 30)
+        limit = max(1, min(400, int(body.get("limit") or 60)))
+        FACT_FILL[key] = {"state": "running", "done": 0, "total": 0, "now": "", "days": days}
+        sm = factory()
+
+        def run() -> None:
+            from pga.kg.service import FactGraph, FactGraphDeferred
+            def say(i, total, title):
+                FACT_FILL[key].update(done=i, total=total, now=title[:60])
+            with sm() as s2:
+                rt2 = make_runtime(s2)
+                user = s2.get(type(u), u.id)
+                fg = FactGraph(rt2)
+                try:
+                    todo = fg.pending(user, since=utcnow() - timedelta(days=days))[:limit]
+                    for i, x in enumerate(todo):
+                        say(i, len(todo), x.get("title") or "")
+                        try:
+                            fg.ingest(user, x)
+                            s2.commit()
+                        except FactGraphDeferred as exc:
+                            s2.rollback()
+                            FACT_FILL[key].update(state="deferred", error=str(exc))
+                            return
+                        except Exception:  # noqa: BLE001 - one conversation failing does not stop the rest
+                            log.exception("fact graph: %s failed", x.get("key"))
+                            s2.rollback()
+                    FACT_FILL[key].update(state="done", done=len(todo), total=len(todo))
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("fact graph fill failed")
+                    FACT_FILL[key].update(state="error", error=str(exc)[:300])
+        threading.Thread(target=run, daemon=True, name="pga-fact-fill").start()
+        return FACT_FILL[key]
+
+    @app.get("/v1/world/{node_id}/facts")
+    def world_facts(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """What the conversations under this topic established: what holds now, and what no longer does (and what replaced it)."""
+        from pga.db.models import KgEntity, WorldNode
+        from pga.kg.service import FactGraph
+        from pga.worldtree import WorldTree
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None:
+            raise HTTPException(404, "no such topic")
+        u = user_or_404(rt, n0.user_id)
+        fg = FactGraph(rt)
+        refs = [n0.ref] if n0.kind == "leaf" and n0.ref else WorldTree(rt).refs_under(n0)
+        cur, old = fg.topic_facts(u, refs, 40, 20)
+        names = {x.id: x.name for x in rt.session.scalars(select(KgEntity).where(KgEntity.user_id == u.id))}
+        return {"current": [fg.out_edge(e, names) for e in cur], "superseded": [fg.out_edge(e, names) for e in old]}
+
     # ---------------------------------------------------------------- the memory graph (pga.graph)
     @app.get("/v1/users/{user_id}/memory-graph")
     def memory_graph(user_id: uuid.UUID, days: int = Query(90, ge=1, le=3650), rt: Runtime = Depends(get_rt)):

@@ -1162,6 +1162,14 @@ class PerpetualRunner:
                     wt.place(u, limit=70)
                     wt.refresh(u, limit=24)
                 s.commit()
+                if u is not None and wt.built(u):               # the fact graph: a few new conversations each time (pga.kg)
+                    from pga.kg.service import FactGraph, FactGraphDeferred
+                    try:
+                        FactGraph(rt).fill(u, days=30, limit=4)
+                        s.commit()
+                    except FactGraphDeferred as exc:
+                        log.info("fact graph: later (%s)", exc)
+                        s.rollback()
             except WorldTreeDeferred as exc:
                 log.info("world tree: later (%s)", exc)
                 s.rollback()

@@ -13,7 +13,7 @@ from typing import Any
 
 from sqlalchemy import (
     text,
-    Boolean, Float, ForeignKey, Index, Integer, MetaData, String, Text, UniqueConstraint,
+    Boolean, Float, ForeignKey, Index, Integer, MetaData, String, Text, UniqueConstraint, Uuid,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -280,6 +280,50 @@ class AgentRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(Tz())
 
     __table_args__ = (Index("ix_agent_runs_user_time", "user_id", "started_at"), Index("ix_agent_runs_parent", "parent_id"))
+
+
+class KgEpisode(Base):
+    """记忆里的一段原始材料 (graphiti's EpisodicNode, pga.kg): one stretch of a conversation that facts were read from."""
+    __tablename__ = "kg_episodes"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(String(200), nullable=False, index=True)    # the conversation (timeline item key)
+    part: Mapped[int] = mapped_column(Integer, default=0, nullable=False)        # which stretch of it (new turns → a new episode)
+    content: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    valid_at: Mapped[datetime | None] = mapped_column(Tz())                       # graphiti's reference time
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)     # title, turns, counts, error
+    created_at: Mapped[datetime] = _created()
+
+
+class KgEntity(Base):
+    """An entity in the fact graph (graphiti's EntityNode)."""
+    __tablename__ = "kg_entities"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    label: Mapped[str] = mapped_column(String(40), default="Entity", nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)     # episodes, refs
+    created_at: Mapped[datetime] = _created()
+
+
+class KgEdge(Base):
+    """A fact between two entities, with when it held (graphiti's EntityEdge): valid_at / invalid_at are when it was
+    true in the world, expired_at when PGA learned it no longer holds. Facts are never deleted, only invalidated."""
+    __tablename__ = "kg_edges"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    target_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("kg_entities.id", ondelete="CASCADE"), nullable=False, index=True)
+    relation: Mapped[str] = mapped_column(String(80), nullable=False)
+    fact: Mapped[str] = mapped_column(Text, nullable=False)
+    episodes: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)       # episode ids it was read from
+    refs: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)           # the conversations behind them
+    valid_at: Mapped[datetime | None] = mapped_column(Tz())
+    invalid_at: Mapped[datetime | None] = mapped_column(Tz())
+    expired_at: Mapped[datetime | None] = mapped_column(Tz())
+    invalidated_by: Mapped[uuid.UUID | None] = mapped_column(Uuid)                # the fact that made it false
+    created_at: Mapped[datetime] = _created()
 
 
 class WorldNode(Base):

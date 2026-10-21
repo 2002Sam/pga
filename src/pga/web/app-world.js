@@ -13,6 +13,8 @@ const wtype = (n) => ({ root: "wroot", topic: "wtopic", leaf: "wleaf", aim: "wai
 
 async function loadWorld() {
   try { W.data = await api(`/v1/users/${S.uid}/world`); } catch (err) { toast(err.message); return; }
+  api(`/v1/users/${S.uid}/facts`).then((f) => { W.facts = f; if (S.view === "graph" && G.mode === "tree") drawWorldBar();
+    clearTimeout(W.fpoll); if (f.filling?.state === "running") W.fpoll = setTimeout(() => { if (S.view === "graph") loadWorld(); }, 4000); }).catch(() => {});
   W.nodes = W.data.nodes.map((n) => ({ ...n, label: n.title, type: wtype(n) }));
   W.byId = new Map(W.nodes.map((n) => [n.id, n]));
   if (G.sel && !W.byId.has(G.sel)) G.sel = null;
@@ -118,10 +120,15 @@ function drawWorldBar() {
   const d = W.data || {}, b = d.building, topics = W.nodes.filter((n) => n.kind === "topic").length, leaves = W.nodes.filter((n) => n.kind === "leaf").length;
   const prog = b?.state === "running" ? `<div class="wbuild"><span class="spin"></span>${esc({ start: L("开始…", "Starting…"), taxonomy: L("正在读所有对话、分出层级…", "Reading every conversation, drawing the levels…"), assign: L(`正在把对话放到各自的位置（${b.done}/${b.total}）…`, `Placing conversations (${b.done}/${b.total})…`), summaries: L("正在从下往上写每一层的概括…", "Summarising each level, bottom up…") }[b.step] || b.step)}</div>`
     : b?.state === "deferred" || b?.state === "error" ? `<div class="wbuild bad">${esc(L("这次没生成成：", "Not built this time: ") + (b.error || ""))}</div>` : "";
+  const F = W.facts || {}, ff = F.filling;
+  const factRow = d.built ? `<div class="wfrow dimt">${L(`事实图谱：${F.facts ?? "…"} 条现在成立，${F.invalidated ?? 0} 条已被推翻`, `Facts: ${F.facts ?? "…"} hold now, ${F.invalidated ?? 0} superseded`)}
+      ${ff?.state === "running" ? `<span class="wbuild"><span class="spin"></span>${L(`正在读（${ff.done}/${ff.total}）${esc(ff.now || "")}`, `Reading (${ff.done}/${ff.total})`)}</span>`
+        : F.pending ? `<button class="sm ghost" data-wact="facts" title="${L("把最近 30 天的对话读进事实图谱：每段对话约 2–3 次模型调用（DeepSeek）；平时每 10 分钟自己读几段", "Read the last 30 days of conversations into the fact graph: about 2–3 model calls each (DeepSeek); it also reads a few every 10 minutes")}">${L(`读入最近的对话（还有 ${F.pending} 段）`, `Read recent conversations (${F.pending} to go)`)}</button>` : ""}</div>` : "";
   $("#gbar").innerHTML = `<div class="gh"><b>${L("世界树", "World tree")}</b>${modeSeg()}<span class="dimt" id="gcount">${d.built ? L(`${topics} 个主题 · ${leaves} 段对话`, `${topics} topics · ${leaves} conversations`) : ""}</span></div>
     ${d.built ? `<div class="grow2"><input type="text" id="gq" placeholder="${L("找一个主题或对话…", "Find a topic or conversation…")}" value="${esc(G.q)}">
       <button class="sm ghost" data-wact="place" title="${L("新对话现在就放到各自的位置（平时每 10 分钟自己做一次）", "Place new conversations now (it also happens every 10 minutes)")}">${L("整理新对话", "Place new ones")}</button>
       <button class="sm ghost" data-wact="rebuild" title="${L("从头重新分层（你手动移动过的会被覆盖）", "Rebuild from scratch (your own moves are lost)")}">${L("重新生成", "Rebuild")}</button></div>
+      ${factRow}
       <div class="ghint dimt">${L("点对话直接进去 · 点主题看概括、和它对话、往下长 · 双击主题收起或展开 · 橙点表示概括待更新", "Click a conversation to open it · click a topic to read it, talk to it, grow it · double-click a topic to fold it · an orange dot: summary to be refreshed")}</div>`
       : `<div class="wempty">${L("世界树还没有生成。生成时，模型（DeepSeek）会读你所有对话的标题和开头片段，分出「进行研究 › 世界模型研究」这样的层级，再从下往上为每一层写概括；大约要调用十几次。之后每段新对话会自己挂到对应的位置。", "The world tree is not built yet. A model (DeepSeek) reads the titles and openings of all your conversations, draws levels like “Research › World models”, then summarises each level bottom-up — around a dozen calls. Afterwards every new conversation finds its own place.")}
         <div style="margin-top:10px"><button class="primary sm" data-wact="build" ${b?.state === "running" ? "disabled" : ""}>${L("生成世界树", "Build the world tree")}</button></div></div>`}
@@ -144,8 +151,20 @@ function drawWorldSide() {
       ${n.kind !== "leaf" ? `<button class="sm ghost" data-wact="ctx">${L("agent 会读到什么", "What an agent reads")}</button>` : ""}
       ${n.kind === "topic" || n.kind === "plan" ? `<button class="sm ghost" data-wact="rename">${L("改名", "Rename")}</button>` : ""}</div>
     ${n.kind !== "leaf" && aims.length ? `<div class="wfocus"><span class="label">${L("让抱负在这一层往下想", "Point a motivation here")}</span><select data-wfocus="1"><option value="">${L("选一个抱负…", "Choose a motivation…")}</option>${aims.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 30))}</option>`).join("")}</select></div>` : ""}
+    <div class="wfacts" id="wfacts"></div>
     ${topics.length ? `<div class="gs-g"><div class="label">${L("下面的主题", "Topics under it")} · ${topics.length}</div>${topics.map((x) => `<div class="gs-n" data-wsel="${x.id}"><i style="background:${wColor(x)}"></i><span>${esc(x.title)}</span><em>${x.kind === "plan" ? L("计划", "planned") : x.kind === "aim" ? L("抱负", "motivation") : x.count ? x.count : ""}</em></div>`).join("")}</div>` : ""}
     ${convs.length ? `<div class="gs-g"><div class="label">${L("对话", "Conversations")} · ${convs.length}</div>${convs.slice().sort((a, b) => String(b.last || "").localeCompare(String(a.last || ""))).slice(0, 60).map((x) => `<div class="gs-n" data-wopen="${x.id}" title="${L("点一下进入这段对话", "Click to open")}"><i style="background:${wColor(x)}"></i><span>${esc(x.title)}</span><em>${x.last ? esc(ago(x.last)) : ""}</em></div>`).join("")}${convs.length > 60 ? `<div class="dimt">… ${convs.length - 60}</div>` : ""}</div>` : ""}`;
+}
+const fday = (iso) => (iso ? new Date(iso).toLocaleDateString(EN ? "en-GB" : "zh-CN", { year: "numeric", month: "short", day: "numeric" }) : "");
+async function loadFacts(n) {
+  const box = $("#wfacts"); if (!box) return;
+  const r = await api(`/v1/world/${n.id}/facts`).catch(() => null);
+  if (!box.isConnected || G.sel !== n.id || !r) return;
+  if (!r.current.length && !r.superseded.length) { box.innerHTML = `<div class="dimt wfnote">${L("这里还没有读出事实。", "No facts read here yet.")}</div>`; return; }
+  box.innerHTML = `<div class="gs-g"><div class="label">${L("现在成立的事实", "What holds now")} · ${r.current.length}</div>
+      ${r.current.map((f) => `<div class="wfact"><span>${esc(f.fact)}</span><em>${esc(L("自 ", "since ") + fday(f.valid_at))}</em></div>`).join("") || `<div class="dimt">—</div>`}</div>
+    ${r.superseded.length ? `<details class="gs-g wold"><summary class="label">${L("已被推翻", "No longer true")} · ${r.superseded.length}</summary>
+      ${r.superseded.map((f) => `<div class="wfact old"><s>${esc(f.fact)}</s><em>${esc(fday(f.valid_at))} – ${esc(fday(f.invalid_at || f.expired_at))}</em>${f.replaced_by ? `<div class="wrep">→ ${esc(f.replaced_by.fact)}</div>` : ""}</div>`).join("")}</details>` : ""}`;
 }
 async function openLeaf(n) {
   const o = n.open || {}, key = n.ref || "";
@@ -156,6 +175,8 @@ async function openLeaf(n) {
   const x = (S.tl?.sessions || []).find((y) => y.item === key);
   if (x) openSession(x.id); else toast(L("这段对话现在不在「所有对话」里（可能已归档）", "This conversation is not in the list (archived?)"));
 }
+const _drawSideW = drawWorldSide;
+drawWorldSide = function () { _drawSideW(); const n = W.byId.get(G.sel); if (n && G.mode === "tree" && n.kind !== "leaf") loadFacts(n); };
 function worldClick(n) {
   if (!n) { G.sel = null; drawWorldSide(); drawWorld(); return; }
   if (n.kind === "leaf") { openLeaf(n); return; }                 // a conversation: straight into it
@@ -187,6 +208,7 @@ document.addEventListener("click", async (e) => {
     if (a === "rebuild" && !confirm(L("从头重新生成世界树？你手动移动、改名过的会被覆盖。", "Rebuild the world tree from scratch? Your own moves and names are lost."))) return;
     try { await api(`/v1/users/${S.uid}/world/build`, { method: "POST" }); } catch (err) { toast(err.message); }
     await loadWorld();
+  } else if (a === "facts") { try { await api(`/v1/users/${S.uid}/facts/fill`, { body: { days: 30, limit: 80 } }); toast(L("开始读了：每段对话读完，它的事实就会出现在对应主题下面", "Reading: each conversation's facts appear under its topic as soon as it is done")); } catch (err) { toast(err.message); } await loadWorld();
   } else if (a === "place") {
     t.disabled = true; try { const r = await api(`/v1/users/${S.uid}/world/place`, { method: "POST" }); toast(L(`放好了 ${r.placed} 段新对话，更新了 ${r.summarised} 个概括`, `Placed ${r.placed}, refreshed ${r.summarised} summaries`)); } catch (err) { toast(err.message); }
     await loadWorld();

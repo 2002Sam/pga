@@ -374,11 +374,13 @@ class WorldTree:
                          + (f" — {_clean(k.summary, 160)}" if k.summary else f" — {_clean((k.data or {}).get('excerpt', ''), 120)}" if (k.data or {}).get("excerpt") else "")
                          for k in kids[:40]]
                 more = f"  … and {len(kids) - 40} more" if len(kids) > 40 else ""
-                blocks.append(f"t{i}: «{n.title}» ({len(kids)} parts)\n" + "\n".join(lines) + ("\n" + more if more else ""))
+                facts = self._facts_lines(n)
+                blocks.append(f"t{i}: «{n.title}» ({len(kids)} parts)\n" + "\n".join(lines) + ("\n" + more if more else "") + (("\n" + facts) if facts else ""))
             system = ("You write the summary of each topic in a person's tree of conversations, from what is under it: what "
                       "the person has been doing and asking about there, what came out of it, what is still open. 1 to 3 "
-                      "sentences each, concrete (names, decisions), in the language of the conversations. Reply with JSON "
-                      "only: {\"t0\": \"...\", \"t1\": \"...\"}.")
+                      "sentences each, concrete (names, decisions), in the language of the conversations. Where facts are "
+                      "given, say what holds NOW; a fact marked 'no longer holds' is history — mention it only as a change "
+                      "(\"switched from X to Y\"), never as current. Reply with JSON only: {\"t0\": \"...\", \"t1\": \"...\"}.")
             d = self._ask(user, system, fence("topics", "\n\n".join(blocks), 50000, kind="topics with their parts"),
                           f"summarising {len(level)} topics of the world tree", 2500, now)
             for i, n in enumerate(level):
@@ -393,6 +395,17 @@ class WorldTree:
             self.s.flush()
         return {"summarised": done, "left": len(topics)}
 
+    def _facts_lines(self, n: WorldNode) -> str:
+        try:
+            from pga.kg.service import FactGraph
+            fg = FactGraph(self.rt)
+            cur, old = fg.topic_facts(self.s.get(User, n.user_id), self.refs_under(n), 8, 4)
+        except Exception:  # noqa: BLE001 - facts are a help, not a requirement
+            return ""
+        if not cur and not old:
+            return ""
+        return "  facts: " + " | ".join(fg.describe(e, with_replacement=False) for e in cur + old)
+
     # -------------------------------------------------------------- talking to a topic (GraphRAG: its report, its parts, the matching text)
     def context(self, n: WorldNode, question: str = "") -> str:
         """What an agent reads when you talk to this topic: where it sits, its summary, its parts, and the conversations
@@ -406,15 +419,36 @@ class WorldTree:
         out = (f"<world_tree_topic path=\"{head}\">\nYou are talking with the person about this whole topic of their life and work, "
                f"not one conversation. What it holds, summarised from everything under it:\n{n.summary or '(not summarised yet)'}\n\n"
                f"Its parts:\n{parts or '(none)'}\n</world_tree_topic>")
+        facts = self.facts_block(n)
         rel = self.related(n, question) if question else ""
-        return out + ("\n\n" + rel if rel else "")
+        return out + ("\n\n" + facts if facts else "") + ("\n\n" + rel if rel else "")
+
+    def refs_under(self, n: WorldNode) -> list[str]:
+        return [x.ref for x in self.leaves_under(n) if x.ref]
+
+    def facts_block(self, n: WorldNode, current: int = 15, past: int = 6) -> str:
+        """The fact graph under this topic: what holds now (newest first), and what was true before but no longer is."""
+        from pga.kg.service import FactGraph
+        user = self.s.get(User, n.user_id)
+        fg = FactGraph(self.rt)
+        cur, old = fg.topic_facts(user, self.refs_under(n), current, past)
+        if not cur and not old:
+            return ""
+        return ("<facts_under_this_topic note=\"from the person's conversations; each with when it started to hold\">\n"
+                + "\n".join(f"- {fg.describe(e)}" for e in cur)
+                + ("\nNo longer true (superseded — do not treat as current):\n" + "\n".join(f"- {fg.describe(e)}" for e in old) if old else "")
+                + "\n</facts_under_this_topic>")
 
     def related(self, n: WorldNode, question: str, k: int = 6) -> str:
+        from pga.kg.service import FactGraph
         from pga.knowledge.uploads import _grams
+        facts = FactGraph(self.rt).search(self.s.get(User, n.user_id), question, refs=self.refs_under(n), k=8) if question else []
+        fact_block = ("<facts_matching_the_question>\n" + "\n".join(f"- {FactGraph(self.rt).describe(e)}" for e in facts)
+                      + "\n</facts_matching_the_question>") if facts else ""
         leaves = [x for x in self.leaves_under(n) if x.kind == "leaf"]
         q = set(_grams(question))
         if not leaves or not q:
-            return ""
+            return fact_block
         scored = []
         for x in leaves:
             text = f"{x.title} {(x.data or {}).get('excerpt', '')}"
@@ -424,10 +458,10 @@ class WorldTree:
                 scored.append((s, x))
         scored.sort(key=lambda z: -z[0])
         if not scored:
-            return ""
+            return fact_block
         body = "\n".join(f"- «{x.title}» ({((x.data or {}).get('last') or '')[:10]}, {(x.data or {}).get('agent') or ''}): {_clean((x.data or {}).get('excerpt', ''), 400)}"
                          for _, x in scored[:k])
-        return "<conversations_under_this_topic note=\"the ones closest to what is asked\">\n" + body + "\n</conversations_under_this_topic>"
+        return ((fact_block + "\n\n") if fact_block else "") + "<conversations_under_this_topic note=\"the ones closest to what is asked\">\n" + body + "\n</conversations_under_this_topic>"
 
     def leaf_of(self, user: User, ref: str) -> WorldNode | None:
         return self.s.scalar(select(WorldNode).where(WorldNode.user_id == user.id, WorldNode.ref == ref))
