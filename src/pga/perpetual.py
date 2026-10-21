@@ -90,6 +90,7 @@ DEFAULTS: dict[str, Any] = {
     "fork": "adaptive",         # adaptive: how many follows the fork score P(fork)=f(U,D,I,C) · always: every question gets them all
     "perturb": 0.5,             # how much the prompts are disturbed (0 = never, ≥0.5 two stances, ≥0.7 also drops a context section)
     "idle_auto": True,          # starts on its own while you are away, pauses when you are back (pga.idle)
+    "world_focus": None,        # 世界树: the topic you pointed it at — it works on that level and its planned subtopics (pga.worldtree)
 }
 AUTONOMY = ("free", "checkpoint", "driven")
 AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
@@ -532,6 +533,8 @@ class Perpetual:
         parts.append(knowledge_context(self.rt, aim))           # the user model, the world model, the datasets it refers to
         if (t.settings or {}).get("focus_node"):              # you picked a branch of the thought tree to continue
             parts.append(ThoughtTree(self.rt).focus_context(aim, t.settings["focus_node"]))
+        if (t.settings or {}).get("world_focus"):             # you pointed it at a level of the world tree
+            parts.append(self.world_context(t))
         p = self.project(t)
         if p:
             parts.append(snapshot(p.path))
@@ -555,6 +558,23 @@ class Perpetual:
                          + (", ".join(f"{v.label} {(self.s.get(ImprovementProposal, v.proposal_id).title if v.proposal_id else '')}" for v in line) or "empty")
                          + "\nbacklog: " + ("; ".join(f"{p.code} {p.title} ({p.status})" for p in self.backlog(t.user_id)[:8]) or "empty") + "\n</evolution>")
         return "\n\n".join(x for x in parts if x)
+
+    def world_context(self, t: PerpetualTask) -> str:
+        """The topic of the world tree this motivation works on: its place, summary and parts, and the planned subtopics
+        still open, in order — it takes them one level at a time (you grow the next level with 往下长一层)."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        try:
+            n = self.s.get(WorldNode, uuid.UUID(str(t.settings["world_focus"])))
+        except ValueError:
+            return ""
+        if n is None or n.user_id != t.user_id:
+            return ""
+        wt = WorldTree(self.rt)
+        plans = [c for c in wt.children(n) if c.kind == "plan" and not (c.data or {}).get("done")]
+        return (wt.context(n) + ("\n<directions_to_take_next note=\"the person's world tree: work on the first open one, "
+                "deepen it, then move to the next\">\n" + "\n".join(f"{i + 1}. {c.title}: {c.summary}" for i, c in enumerate(plans))
+                + "\n</directions_to_take_next>" if plans else ""))
 
     def _json(self, text: str) -> dict:
         try:
@@ -1128,13 +1148,37 @@ class PerpetualRunner:
                 log.exception("idle check failed")
                 s.rollback()
 
+    def world_tick(self) -> None:
+        """世界树: new conversations go to their place, and the topics above them are summarised again (pga.worldtree)."""
+        from pga.owner import owner_id
+        from pga.worldtree import WorldTree, WorldTreeDeferred
+        with self.sm() as s:
+            try:
+                rt = self.factory(s)
+                uid = owner_id(s)
+                u = s.get(User, uid) if uid else None
+                wt = WorldTree(rt)
+                if u is not None and wt.built(u):               # each model call is accounted by its own run (runs.track)
+                    wt.place(u, limit=70)
+                    wt.refresh(u, limit=24)
+                s.commit()
+            except WorldTreeDeferred as exc:
+                log.info("world tree: later (%s)", exc)
+                s.rollback()
+            except Exception:  # noqa: BLE001
+                log.exception("world tree upkeep failed")
+                s.rollback()
+
     def run_forever(self, stop: threading.Event) -> None:
         log.info("perpetual runner started")
-        last_idle = 0.0
+        last_idle, last_world = 0.0, time.monotonic()
         while not stop.is_set():
             if time.monotonic() - last_idle > 30:
                 last_idle = time.monotonic()
                 self.idle_tick()
+            if time.monotonic() - last_world > 600:
+                last_world = time.monotonic()
+                self.world_tick()
             try:
                 n = self.tick()
             except Exception:  # noqa: BLE001 - e.g. the database restarting; try again shortly

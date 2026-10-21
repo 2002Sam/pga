@@ -329,6 +329,129 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def get_user(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         return user_or_404(rt, user_id)
 
+    # ---------------------------------------------------------------- 世界树: every conversation in one hierarchy of topics (pga.worldtree)
+    WORLD_BUILD: dict[str, dict] = {}
+
+    def world_node_or_404(rt, u, node_id):
+        from pga.worldtree import WorldTree
+        n = WorldTree(rt).get(u, node_id)
+        if n is None:
+            raise HTTPException(404, "no such topic")
+        return n
+
+    @app.get("/v1/users/{user_id}/world")
+    def world_tree(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.worldtree import WorldTree
+        u = user_or_404(rt, user_id)
+        return {**WorldTree(rt).out(u), "building": WORLD_BUILD.get(str(u.id))}
+
+    @app.post("/v1/users/{user_id}/world/build", status_code=202)
+    def world_build(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Build the world tree from all your conversations (a model groups them and summarises each topic). Runs in the
+        background; GET /world shows how far it is."""
+        import threading
+        u = user_or_404(rt, user_id)
+        key = str(u.id)
+        if (WORLD_BUILD.get(key) or {}).get("state") == "running":
+            return WORLD_BUILD[key]
+        WORLD_BUILD[key] = {"state": "running", "step": "start", "done": 0, "total": 0, "at": utcnow().isoformat()}
+        sm = factory()
+
+        def run() -> None:
+            from pga.worldtree import WorldTree, WorldTreeDeferred
+            def say(step, done, total):
+                WORLD_BUILD[key].update(step=step, done=done, total=total)
+            with sm() as s2:
+                rt2 = make_runtime(s2)
+                try:
+                    user = s2.get(type(u), u.id)
+                    with rt2.billing(user_ctx(user)):
+                        r = WorldTree(rt2).build(user, progress=say)
+                    s2.commit()
+                    WORLD_BUILD[key].update(state="done", result=r)
+                except WorldTreeDeferred as exc:
+                    s2.rollback()
+                    WORLD_BUILD[key].update(state="deferred", error=str(exc))
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("world tree build failed")
+                    s2.rollback()
+                    WORLD_BUILD[key].update(state="error", error=str(exc)[:300])
+        threading.Thread(target=run, daemon=True, name="pga-world-build").start()
+        return WORLD_BUILD[key]
+
+    @app.post("/v1/users/{user_id}/world/place")
+    def world_place(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """New conversations to their place now (it also happens on its own every few minutes), and stale summaries rewritten."""
+        from pga.worldtree import WorldTree, WorldTreeDeferred
+        u = user_or_404(rt, user_id)
+        wt = WorldTree(rt)
+        try:
+            with rt.billing(user_ctx(u)):
+                return {**wt.place(u), **wt.refresh(u, limit=24)}
+        except WorldTreeDeferred as exc:
+            raise HTTPException(429, str(exc)) from exc
+
+    @app.patch("/v1/world/{node_id}")
+    def world_edit(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Rename a topic, or move a topic or conversation under another topic."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None:
+            raise HTTPException(404, "no such topic")
+        u = user_or_404(rt, n0.user_id)
+        wt = WorldTree(rt)
+        if str(body.get("title") or "").strip():
+            n0.title = str(body["title"]).strip()[:200]
+        if body.get("parent"):
+            try:
+                wt.move(u, n0, world_node_or_404(rt, u, uuid.UUID(str(body["parent"]))))
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        rt.session.flush()
+        return {"id": str(n0.id), "title": n0.title, "parent": str(n0.parent_id) if n0.parent_id else None}
+
+    @app.post("/v1/world/{node_id}/expand")
+    def world_expand(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Grow a topic one level down: directions worth taking next, as planned subtopics."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree, WorldTreeDeferred
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None:
+            raise HTTPException(404, "no such topic")
+        u = user_or_404(rt, n0.user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                made = WorldTree(rt).expand(u, n0)
+        except WorldTreeDeferred as exc:
+            raise HTTPException(429, str(exc)) from exc
+        return [{"id": str(m.id), "title": m.title, "summary": m.summary} for m in made]
+
+    @app.get("/v1/world/{node_id}/context")
+    def world_context(node_id: uuid.UUID, q: str = "", rt: Runtime = Depends(get_rt)):
+        """What an agent reads when you talk to this topic."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None:
+            raise HTTPException(404, "no such topic")
+        return {"context": WorldTree(rt).context(n0, q)}
+
+    @app.put("/v1/users/{user_id}/chat-world")
+    def chat_world_set(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Which level a conversation talks to: itself (node empty), or a topic above it in the world tree."""
+        from pga.worldtree import set_chat_node
+        u = user_or_404(rt, user_id)
+        key = str(body.get("key") or "")[:120]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        node = str(body.get("node") or "") or None
+        if node:
+            world_node_or_404(rt, u, uuid.UUID(node))
+        set_chat_node(u, key, node)
+        rt.session.flush()
+        return {"key": key, "node": node}
+
     # ---------------------------------------------------------------- the memory graph (pga.graph)
     @app.get("/v1/users/{user_id}/memory-graph")
     def memory_graph(user_id: uuid.UUID, days: int = Query(90, ge=1, le=3650), rt: Runtime = Depends(get_rt)):
@@ -2184,6 +2307,18 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             sysp = ((u.preferences or {}).get("chat_system") or {}).get(ckey) if ckey else None
             if sysp:                                               # your own instructions for this conversation
                 context = ((context or "") + "\n\n<your_instructions_for_this_conversation>\n" + sysp + "\n</your_instructions_for_this_conversation>").strip()
+            from pga.worldtree import WorldTree, chat_node
+            wn = chat_node(u, ckey) if ckey else (str(body.get("world")) if body.get("world") else None)
+            if wn:
+                try:
+                    wt = WorldTree(rt)
+                    node = wt.get(u, uuid.UUID(wn))
+                except ValueError:
+                    node = None
+                if node is not None:
+                    context = ((context or "") + "\n\n" + wt.context(node)).strip()
+                    rel = wt.related(node, text)
+                    tail = "\n\n".join(x for x in [tail, rel] if x) or None
             acc = access_for(u, ckey, body)
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
@@ -3104,7 +3239,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 r0 = next(iter(runs_of(rt, user_id, k["key"])), None) if not k["title"] else None
                 firsts[k["key"]] = k["title"] or (" ".join((r0.prompt or "").split())[:40] if r0 else "")
             kids = [{**k, "title": firsts[k["key"]]} for k in kids]
-        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids,
+        from pga.worldtree import WorldTree, chat_node
+        wt = WorldTree(rt)
+        leaf = wt.leaf_of(u, key)
+        bound = chat_node(u, key)
+        bnode = wt.get(u, uuid.UUID(bound)) if bound else None
+        anchor_n = leaf or bnode
+        world = {"leaf": str(leaf.id) if leaf else None, "talks_to": bound,
+                 "path": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in wt.path(anchor_n)] if anchor_n else []}
+        return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids, "world": world,
                 "system": ((u.preferences or {}).get("chat_system") or {}).get(key)}
 
     @app.post("/v1/users/{user_id}/chats/regen")

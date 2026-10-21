@@ -169,7 +169,7 @@ function headActs() {
 }
 async function loadChat(key) {
   if (!key || key.startsWith("new:")) { renderChat(); return; }
-  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; S.chatSys = { ...(S.chatSys || {}), [key]: r.system || "" }; S.chatKids = { ...(S.chatKids || {}), [key]: r.children || [] }; } catch (e) { toast(e.message); }
+  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}`); S.chatTurns[key] = r.turns; S.chatCtx = { ...(S.chatCtx || {}), [key]: r.branch ? r : null }; S.chatSys = { ...(S.chatSys || {}), [key]: r.system || "" }; S.chatKids = { ...(S.chatKids || {}), [key]: r.children || [] }; S.chatWorld = { ...(S.chatWorld || {}), [key]: r.world || null }; } catch (e) { toast(e.message); }
   if (S.chat === key || S.lineView) renderChat();
 }
 async function chatSend() {

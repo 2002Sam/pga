@@ -1,4 +1,4 @@
-/* PGA app · 记忆图谱: everything PGA remembers about you as one picture (pga/graph.py) — you, your personal model and the
+/* PGA app · 世界树, its 关系网 mode: everything PGA remembers about you as one picture (pga/graph.py) — you, your personal model and the
    world model, your motivations, the lines of work and their conversations, knowledge, and the agents. Drag, zoom, click a
    node to see it and what it touches, double-click to open it. Draw a line between a tree and a piece of knowledge and the
    tree's agents read it from then on. Drawn on a canvas with d3's force layout (loaded the first time). */
@@ -18,18 +18,20 @@ const GGROUPS = [["model", L("你和两个模型", "You and the models")], ["aim
 const EK = { is: L("是", "is"), sees: L("看到", "sees"), pursues: L("追求", "pursues"), grew: L("沉淀出", "grew"), references: L("引用", "references"), relates: L("相关", "relates"),
   derived_from: L("来自", "derived from"), depends_on: L("依赖", "depends on"), contradicts: L("矛盾", "contradicts"), "works on": L("在做", "works on"), in: L("属于", "in"), answered: L("回答过", "answered"), branched: L("分支", "branched") };
 const cssv = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-const G = { data: null, days: 90, off: new Set(), q: "", sel: null, hover: null, linkFrom: null, t: null, sim: null, nodes: [], edges: [] };
+const G = { mode: "tree", data: null, days: 90, off: new Set(), q: "", sel: null, hover: null, linkFrom: null, t: null, sim: null, nodes: [], edges: [] };
 
 function loadD3() {
   if (window.d3) return Promise.resolve();
   return new Promise((ok, no) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
 }
 async function showGraph() {
-  document.title = L("记忆图谱 · PGA", "Memory graph · PGA");
-  $("#gbar").innerHTML = `<div class="gh"><b>${L("记忆图谱", "Memory graph")}</b><span class="dimt" id="gcount">…</span></div>`;
+  document.title = L("世界树 · PGA", "World tree · PGA");
+  $("#gbar").innerHTML = `<div class="gh"><b>${L("世界树", "World tree")}</b><span class="dimt" id="gcount">…</span></div>`;
   try { await loadD3(); } catch { $("#gbar").innerHTML += `<div class="empty">${L("没能载入画图用的库（d3）", "Could not load the drawing library (d3)")}</div>`; return; }
-  await loadGraph();
+  initCanvas();
+  if (G.mode === "tree") await loadWorld(); else await loadGraph();
 }
+const modeSeg = () => `<span class="seg gmode"><button class="${G.mode === "tree" ? "on" : ""}" data-gmode="tree">${L("层级", "Levels")}</button><button class="${G.mode === "net" ? "on" : ""}" data-gmode="net">${L("关系网", "Network")}</button></span>`;
 async function loadGraph() {
   try { G.data = await api(`/v1/users/${S.uid}/memory-graph?days=${G.days}`); } catch (err) { toast(err.message); return; }
   const keep = new Map((G.nodes || []).map((n) => [n.id, n]));
@@ -42,13 +44,14 @@ async function loadGraph() {
 function visible(n) { return !G.off.has((GT[n.type] || {}).g) || n.type === "you"; }
 function drawBar() {
   const c = G.data?.counts || {};
-  $("#gbar").innerHTML = `<div class="gh"><b>${L("记忆图谱", "Memory graph")}</b><span class="dimt" id="gcount">${L(`${G.nodes.length} 个节点 · ${G.edges.length} 条连线`, `${G.nodes.length} nodes · ${G.edges.length} links`)}</span></div>
+  if (G.mode === "tree") { drawWorldBar(); return; }
+  $("#gbar").innerHTML = `<div class="gh"><b>${L("世界树", "World tree")}</b>${modeSeg()}<span class="dimt" id="gcount">${L(`${G.nodes.length} 个节点 · ${G.edges.length} 条连线`, `${G.nodes.length} nodes · ${G.edges.length} links`)}</span></div>
     <div class="gchips">${GGROUPS.map(([g, n]) => { const k = Object.entries(GT).filter(([, x]) => x.g === g).reduce((a, [t]) => a + (c[t] || 0), 0);
       return `<button class="gchip ${G.off.has(g) ? "" : "on"}" data-gg="${g}"><i style="background:${Object.values(GT).find((x) => x.g === g).c()}"></i>${n}<em>${k}</em></button>`; }).join("")}</div>
     <div class="grow2"><span class="seg">${[[7, L("7 天", "7 d")], [30, L("30 天", "30 d")], [90, L("90 天", "90 d")], [365, L("一年", "1 y")]].map(([d, n]) => `<button class="${G.days === d ? "on" : ""}" data-gdays="${d}">${n}</button>`).join("")}</span>
       <input type="text" id="gq" placeholder="${L("找一个节点…", "Find a node…")}" value="${esc(G.q)}"></div>
     <div class="ghint dimt">${G.linkFrom ? `<b class="glink">${L("连线中：再点另一个抱负或知识", "Linking: click another motivation or piece of knowledge")}</b> <a href="#" data-gcancel="1">${L("取消", "Cancel")}</a>`
-      : L("拖动、滚轮缩放 · 点一下看它连着什么 · 双击打开 · 发光的是最近一天新长出来的", "Drag, scroll to zoom · click to see what it touches · double-click to open · glowing = new in the last day")}</div>`;
+      : L("拖动、滚轮缩放 · 点一下看它连着什么，点对话直接进去 · 双击打开 · 发光的是最近一天新长出来的", "Drag, scroll to zoom · click to see what it touches, a conversation opens · double-click to open · glowing = new in the last day")}</div>`;
 }
 const R = (n) => 3 + n.size * 2.6;
 function startSim() {
@@ -56,6 +59,7 @@ function startSim() {
   const dpr = devicePixelRatio || 1; cv.width = W * dpr; cv.height = H * dpr;
   const LD = { is: 50, sees: 90, pursues: 150, grew: 60, references: 110, relates: 90, "works on": 170, in: 52, answered: 90, branched: 40 };
   const LS = { is: 0.9, sees: 0.6, pursues: 0.5, grew: 0.6, references: 0.3, relates: 0.3, "works on": 0.25, in: 0.8, answered: 0.015, branched: 0.5 };
+  initCanvas();
   G.sim?.stop();
   G.sim = d3.forceSimulation(G.nodes)
     .force("link", d3.forceLink(G.edges).id((d) => d.id).distance((e) => LD[e.kind] || 80).strength((e) => LS[e.kind] ?? 0.3))
@@ -63,22 +67,28 @@ function startSim() {
     .force("collide", d3.forceCollide((d) => R(d) + 2))
     .force("x", d3.forceX(0).strength(0.02)).force("y", d3.forceY(0).strength(0.02))
     .alphaDecay(0.025).on("tick", drawGraph);
-  if (!G.t) {
+}
+/* the canvas, shared by the two modes: zoom and pan, hover, click, double-click (each mode answers through these) */
+function initCanvas() {
+  if (G.t) return;
+  const cv = $("#gcv"), W = cv.clientWidth, H = cv.clientHeight, dpr = devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr;
     G.t = d3.zoomIdentity.translate(W / 2, H / 2).scale(0.75);
     const sel = d3.select(cv);
-    sel.call(d3.drag().container(cv).subject((e) => pick(e.x, e.y)).on("start", (e) => { if (!e.active) G.sim.alphaTarget(0.2).restart(); e.subject.fx = e.subject.x; e.subject.fy = e.subject.y; })
+    sel.call(d3.drag().container(cv).subject((e) => (G.mode === "net" ? pick(e.x, e.y) : null)).on("start", (e) => { if (!e.active) G.sim.alphaTarget(0.2).restart(); e.subject.fx = e.subject.x; e.subject.fy = e.subject.y; })
       .on("drag", (e) => { const [x, y] = G.t.invert([e.x, e.y]); e.subject.fx = x; e.subject.fy = y; })
       .on("end", (e) => { if (!e.active) G.sim.alphaTarget(0); e.subject.fx = null; e.subject.fy = null; }));
-    sel.call(d3.zoom().scaleExtent([0.15, 5]).filter((e) => e.type === "wheel" || !pick(...d3.pointer(e, cv))).on("zoom", (e) => { G.t = e.transform; drawGraph(); })).on("dblclick.zoom", null);
-    sel.call(d3.zoom().transform, G.t);
-    cv.addEventListener("mousemove", (e) => { const n = pick(e.offsetX, e.offsetY); if (n?.id !== G.hover) { G.hover = n?.id || null; cv.style.cursor = n ? "pointer" : "grab"; drawGraph(); } tip(n, e); });
+    G.zoom = d3.zoom().scaleExtent([0.1, 6]).filter((e) => e.type === "wheel" || !pickAny(...d3.pointer(e, cv))).on("zoom", (e) => { G.t = e.transform; drawGraph(); });
+    sel.call(G.zoom).on("dblclick.zoom", null);
+    sel.call(G.zoom.transform, G.t);
+    cv.addEventListener("mousemove", (e) => { const n = pickAny(e.offsetX, e.offsetY); if (n?.id !== G.hover) { G.hover = n?.id || null; cv.style.cursor = n ? "pointer" : "grab"; drawGraph(); } tip(n, e); });
     cv.addEventListener("mouseleave", () => { G.hover = null; tip(null); drawGraph(); });
-    cv.addEventListener("click", (e) => { const n = pick(e.offsetX, e.offsetY); clickNode(n); });
-    cv.addEventListener("dblclick", (e) => { const n = pick(e.offsetX, e.offsetY); if (n) openNode(n); });
+    cv.addEventListener("click", (e) => { const n = pickAny(e.offsetX, e.offsetY); if (G.mode === "tree") worldClick(n); else clickNode(n); });
+    cv.addEventListener("dblclick", (e) => { const n = pickAny(e.offsetX, e.offsetY); if (!n) return; if (G.mode === "tree") worldDbl(n); else openNode(n); });
     new ResizeObserver(() => { if (S.view === "graph") { const w = cv.clientWidth, h = cv.clientHeight; cv.width = w * dpr; cv.height = h * dpr; drawGraph(); } }).observe(cv);
-    (function pulse() { if (S.view === "graph" && G.nodes.some((n) => n.new)) drawGraph(); requestAnimationFrame(() => setTimeout(pulse, 60)); })();
+    (function pulse() { if (S.view === "graph" && G.mode === "net" && G.nodes.some((n) => n.new)) drawGraph(); requestAnimationFrame(() => setTimeout(pulse, 60)); })();
   }
-}
+const pickAny = (x, y) => (G.mode === "tree" ? worldPick(x, y) : pick(x, y));
 function pick(px, py) {
   if (!G.t) return null;
   const [x, y] = G.t.invert([px, py]); let best = null, bd = Infinity;
@@ -87,6 +97,7 @@ function pick(px, py) {
 }
 function neighbours(id) { const s = new Set([id]); for (const e of G.edges) { if (e.source.id === id) s.add(e.target.id); if (e.target.id === id) s.add(e.source.id); } return s; }
 function drawGraph() {
+  if (G.mode === "tree") { drawWorld(); return; }
   const cv = $("#gcv"); if (!cv || !G.t) return;
   const ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1, W = cv.width / dpr, H = cv.height / dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
@@ -146,9 +157,11 @@ async function clickNode(n) {
     catch (err) { toast(err.message); }
     G.linkFrom = null; G.sel = n.id; await loadGraph(); return;
   }
+  if (n?.type === "conv") { openNode(n); return; }          // a conversation: straight into it
   G.sel = n ? n.id : null; drawSide(); drawGraph();
 }
 function drawSide() {
+  if (G.mode === "tree") { drawWorldSide(); return; }
   const box = $("#gside"), n = G.nodes.find((x) => x.id === G.sel);
   if (!n) { box.hidden = true; return; }
   box.hidden = false;
@@ -174,13 +187,15 @@ async function openNode(n) {
 function focusOn(id) {
   const n = G.nodes.find((x) => x.id === id); if (!n) return;
   G.sel = id; const cv = $("#gcv"), k = Math.max(G.t.k, 1.2);
-  d3.select(cv).transition().duration(500).call(d3.zoom().transform, d3.zoomIdentity.translate(cv.clientWidth / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
+  d3.select(cv).transition().duration(500).call(G.zoom.transform, d3.zoomIdentity.translate(cv.clientWidth / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
   drawSide(); drawGraph();
 }
 document.addEventListener("click", async (e) => {
   if (!e.target.closest("#vGraph")) return;
-  const t = e.target.closest("[data-gg], [data-gdays], [data-gclose], [data-gopen], [data-glink], [data-gfocus], [data-gunlink], [data-gcancel]"); if (!t) return;
+  const t = e.target.closest("[data-gg], [data-gdays], [data-gclose], [data-gopen], [data-glink], [data-gfocus], [data-gunlink], [data-gcancel], [data-gmode]"); if (!t) return;
   e.preventDefault();
+  if (t.dataset.gmode) { if (G.mode === t.dataset.gmode) return; G.mode = t.dataset.gmode; G.sel = null; G.hover = null; G.sim?.stop();
+    if (G.mode === "tree") await loadWorld(); else await loadGraph(); return; }
   if (t.dataset.gg) { const g = t.dataset.gg; G.off.has(g) ? G.off.delete(g) : G.off.add(g); drawBar(); drawGraph(); }
   else if (t.dataset.gdays) { G.days = Number(t.dataset.gdays); await loadGraph(); }
   else if (t.dataset.gclose) { G.sel = null; drawSide(); drawGraph(); }
@@ -192,6 +207,8 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("input", (e) => { if (e.target.id === "gq") { G.q = e.target.value; drawGraph(); } });
 document.addEventListener("keydown", (e) => {
+  if (e.target.id === "gq" && e.key === "Enter" && G.mode === "tree") { const q = G.q.trim().toLowerCase(), n = W.nodes.find((x) => x.title.toLowerCase().includes(q));
+    if (n) { G.sel = n.id; const cv = $("#gcv"), k = Math.max(G.t.k, 1.4); d3.select(cv).transition().duration(500).call(G.zoom.transform, d3.zoomIdentity.translate(cv.clientWidth / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k)); drawWorldSide(); } return; }
   if (e.target.id === "gq" && e.key === "Enter") { const q = G.q.trim().toLowerCase(), n = G.nodes.find((x) => visible(x) && x.label.toLowerCase().includes(q)); if (n) focusOn(n.id); }
   if (S.view === "graph" && e.key === "Escape") { G.linkFrom = null; G.sel = null; drawBar(); drawSide(); drawGraph(); }
 });

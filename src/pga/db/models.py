@@ -282,6 +282,26 @@ class AgentRun(Base):
     __table_args__ = (Index("ix_agent_runs_user_time", "user_id", "started_at"), Index("ix_agent_runs_parent", "parent_id"))
 
 
+class WorldNode(Base):
+    """世界树: everything you have talked about, as one hierarchy of topics (pga.worldtree). A root, then topics at each
+    level (each with a summary written from what is under it), and leaves: one per conversation, motivation or piece of
+    work (`ref` = its timeline key). New conversations find their place on their own; you can talk to any topic."""
+    __tablename__ = "world_nodes"
+    __table_args__ = (UniqueConstraint("user_id", "ref", name="uq_world_nodes_user_ref"),)
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("world_nodes.id", ondelete="CASCADE"), index=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    kind: Mapped[str] = mapped_column(String(12), nullable=False)               # root | topic | leaf | plan
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    ref: Mapped[str | None] = mapped_column(String(200))                          # a leaf: the timeline item it stands for
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)   # stale, count, first/last, agent, …
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+
+
 class Bridge(Base):
     """A link the user drew between two bodies (often in different orbits): one's knowledge may help the other.
     Ends are graph refs: a responsibility id, `k:<body id>` or `aim:<aim id>`."""
