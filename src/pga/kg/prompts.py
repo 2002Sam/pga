@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Modified by PGA (2026-10-21), from getzep/graphiti @ 8e320f8 (graphiti_core/prompts/):
-- extract_nodes_and_edges.py: the system prompt and instruction text are kept word for word; the entity types are
+- extract_nodes_and_edges.py: the system prompt, the instruction text and the CUSTOM INSTRUCTIONS section are kept word
+  for word, with PGA's custom instructions (whose memory this is; an assistant's explanations are not facts); the entity types are
   PGA's (a person's research, work and tools) instead of graphiti's single default; each fact also carries
   valid_at / invalid_at so the dates come in the same call (graphiti asks extract_timestamps separately);
 - dedupe_nodes.py `nodes`: kept, without the previous-episodes block;
@@ -90,9 +91,30 @@ For every fact also give "valid_at" (when it became true) and "invalid_at" (when
 So each edge is {"source_entity_name":"...","target_entity_name":"...","relation_type":"...","fact":"...","episode_indices":[0],"valid_at":"...","invalid_at":null}."""
 
 
+def _build_custom_instructions_section(custom_extraction_instructions: str | None) -> str:
+    """Build the optional CUSTOM INSTRUCTIONS section for the combined prompt."""
+    if not custom_extraction_instructions:
+        return ''
+    return f"""
+<CUSTOM INSTRUCTIONS>
+{custom_extraction_instructions}
+</CUSTOM INSTRUCTIONS>
+CUSTOM INSTRUCTION RULES:
+- CUSTOM INSTRUCTIONS come from the owner of this graph. Apply them. When a CUSTOM INSTRUCTION conflicts with a rule above, the CUSTOM INSTRUCTION wins.
+"""
+
+
+# PGA: whose memory this is, and what is worth remembering from a conversation with AI agents
+PGA_INSTRUCTIONS = """This is the memory of one person, who speaks as "User" in conversations with AI agents ("Assistant"). Name that person "User".
+- Remember what holds about the User's world: their projects, papers, experiments, decisions, plans, deadlines, results, problems, preferences, tools and setups, and the people and organisations around them.
+- An Assistant's explanations, suggestions and general knowledge are NOT facts by themselves. Turn them into a fact only when the User adopted, decided, did or confirmed something ("User decided to switch DenseHap training to JAX"), or when the Assistant did something in the User's world ("PGA now has a world tree view"). Never write facts like "Assistant explained …" or "Assistant suggested …".
+- Prefer few, durable facts over many small ones: at most about 15 facts per conversation stretch."""
+
+
 def extract_message(episode_content: str, reference_time: str, previous: list[str] | None = None) -> tuple[str, str]:
     user = f"""{_C2_INSTRUCTION_TEXT}
 {_DATES_TEXT}
+{_build_custom_instructions_section(PGA_INSTRUCTIONS)}
 
 <ENTITY TYPES>
 {to_prompt_json(ENTITY_TYPES)}
