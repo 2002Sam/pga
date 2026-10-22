@@ -44,8 +44,8 @@ async function w3Build() {
     el.addEventListener("pointerleave", () => { W3.hover = null; tip(null); });
     el.addEventListener("click", (e) => { if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return; const n = hit(e);
       if (!n) { G.sel = null; drawWorldSide(); return; }
-      if (n.kind === "leaf") { openLeaf(n); return; }
-      G.sel = n.id; drawWorldSide(); w3FlyTo(n); });
+      G.sel = n.id; drawWorldSide(); w3FlyTo(n); });                    // what you click becomes the centre it turns round
+    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n?.kind === "leaf") openLeaf(n); });   // a conversation: double-click opens it
     new ResizeObserver(() => w3Size()).observe(box);
   }
   w3Scene(); w3Size();
@@ -151,7 +151,8 @@ function w3Hops(id) {                     // tree distance from the selected nod
   while (q.length) { const x = q.shift(); for (const y of adj.get(x) || []) if (!d.has(y)) { d.set(y, d.get(x) + 1); q.push(y); } }
   return d;
 }
-const w3Alpha = (h) => (h == null ? 0.04 : h <= 1 ? 1 : h === 2 ? 0.9 : h === 3 ? 0.7 : Math.max(0.04, 0.7 * Math.pow(0.45, h - 3)));
+// fades fast with every level away (roughly halving the brightness each step, then more): 1, 1, .42, .18, .08, .035 …
+const w3Alpha = (h) => (h == null ? 0.02 : h <= 1 ? 1 : Math.max(0.02, Math.exp(-0.86 * (h - 1) - 0.12 * (h - 1) * (h - 1))));
 function w3Focus(sel) {
   W3.lastSel = sel; W3.hops = sel ? w3Hops(sel) : null;
   const A = (id) => (W3.hops ? w3Alpha(W3.hops.get(id)) : 1);
@@ -163,8 +164,9 @@ function w3Focus(sel) {
 function w3FlyTo(n) {
   const p = W3.L?.pos.get(n.id); if (!p) return;
   const from = W3.cam.position.clone(), fromT = W3.ctl.target.clone(), dirv = p.clone().normalize();
-  const to = p.clone().add(dirv.multiplyScalar(W3.L.R * 0.9)).add(new W3.T.Vector3(0, W3.L.R * .12, 0));
-  W3.tween = { t0: performance.now(), from, to, fromT, toT: p.clone().multiplyScalar(0.6) }; W3.ctl.autoRotate = false;
+  const keep = Math.min(from.distanceTo(fromT), W3.L.R * 1.1);          // stay about as far away, now looking at it
+  const to = p.clone().add(from.clone().sub(fromT).normalize().multiplyScalar(Math.max(W3.L.R * 0.45, keep)));
+  W3.tween = { t0: performance.now(), from, to, fromT, toT: p.clone() }; W3.ctl.autoRotate = false;
 }
 function w3Frame(now) {
   W3.raf = requestAnimationFrame(w3Frame);
