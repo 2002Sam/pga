@@ -28,6 +28,7 @@
     <section class="clist" id="clist"></section>
     <div class="bars" id="bars" hidden></div>
     <div class="foot">
+      <a href="#" id="toCanvas" data-view="canvas"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="6" height="5" rx="1.2"/><rect x="15" y="4" width="6" height="5" rx="1.2"/><rect x="9" y="15" width="6" height="5" rx="1.2"/><path d="M9 6.5h6M6 9v3.5a2 2 0 0 0 2 2h1M18 9v3.5a2 2 0 0 1-2 2h-1"/></svg><span data-l="画布|Canvas">画布</span></a>
       <a href="#" id="toLib" data-view="home"><svg viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg><span data-l="模型与知识库|Models and library">模型与知识库</span></a>
       <a href="#" id="toGraph" data-view="graph"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="17" r="2.6"/><path d="M8 8l2.8 7M16.4 7.6 13.4 15M8.2 7h7.6"/></svg><span data-l="世界树|World tree">世界树</span></a>
       <a href="#" id="toNotes" data-view="notes"><svg viewBox="0 0 24 24"><path d="M5 3h10l4 4v14H5z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h5"/></svg><span data-l="笔记|Notes">笔记</span></a>
@@ -56,6 +57,7 @@
 
   <main class="view" id="vGraph" hidden><canvas id="gcv"></canvas><div id="g3d" hidden></div><div id="g3dlab"></div><div class="gbar card" id="gbar"></div><aside class="gside card" id="gside" hidden></aside><div class="gtip" id="gtip" hidden></div></main>
   <main class="view" id="vLooks" hidden><div class="looks" id="looksBody"></div></main>
+  <main class="view" id="vCanvas" hidden></main>
   <main class="view" id="vNotes" hidden><section class="nlist" id="nlist"></section><section class="npane" id="npane"></section></main>
 </div>
 <div id="toast"></div>
@@ -75,6 +77,8 @@
 <script src="/ui/app-activity.js"></script>
 <script src="/ui/app-panel.js"></script>
 <script src="/ui/app-dispatch.js"></script>
+<script src="/ui/app-canvas.js"></script>
+<script src="/ui/app-pad.js"></script>
 <script src="/ui/app-events.js"></script>
 <script src="/ui/app-hand.js"></script>
 

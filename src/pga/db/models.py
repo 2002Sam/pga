@@ -326,6 +326,22 @@ class KgEdge(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class Canvas(Base):
+    """无限画布: a board for each topic of the world tree (and one for the top), laid out like a blueprint — input →
+    assign → branches → output — with conversations, skills, pictures and notes as nodes wired together (pga.canvas).
+    `data` keeps JSON Canvas's field names (nodes with x/y/width/height, edges with fromNode/toNode) plus PGA's own."""
+    __tablename__ = "canvases"
+    __table_args__ = (UniqueConstraint("user_id", "world", name="uq_canvases_user_world"),)
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    world: Mapped[str] = mapped_column(String(64), nullable=False)              # a world-tree node id, or "top"
+    title: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    rev: Mapped[int] = mapped_column(Integer, default=0, nullable=False)          # bumped on each save: a stale tab cannot overwrite
+    data: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict, nullable=False)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+
+
 class WorldNode(Base):
     """世界树: everything you have talked about, as one hierarchy of topics (pga.worldtree). A root, then topics at each
     level (each with a summary written from what is under it), and leaves: one per conversation, motivation or piece of

@@ -24,9 +24,19 @@ Both licensed under the Apache License, Version 2.0 — full texts in `third_par
 `third_party/fastchat/LICENSE`. `src/pga/agents/council.py` contains MoA's aggregator prompt (from `moa.py` / `utils.py`)
 and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), each marked and with what PGA changed.
 
+## Drawflow (jerosoler/Drawflow)
+
+MIT License, Copyright (c) 2020 Jero Soler — full text in `third_party/drawflow/LICENSE`. `src/pga/web/app-canvas.js`
+contains its `createCurvature` (the wire's Bézier curve, default case only), marked in place.
+
 ## Designs followed without copying code
+
 
 - LLM Council (karpathy/llm-council, no licence published) — the blind review and chairman flow in `src/pga/agents/council.py` is reimplemented.
 
 - RAPTOR (MIT), GraphRAG (MIT), MemTree — the world tree (`src/pga/worldtree.py`); see `notes/world-tree.md`.
 - Open WebUI — interaction designs reimplemented in the web app; no code copied (see `notes/open-webui-study.md`).
+- The canvas (`src/pga/canvas.py`, `src/pga/web/app-canvas.js`): JSON Canvas (obsidianmd/jsoncanvas, MIT) for the data's
+  shape; Unreal Engine Blueprints and LiteGraph.js (MIT) for pins, wires and the node search; Houdini for dirty flags,
+  lock and bypass; ComfyUI (GPL-3.0) for re-running a node only when its inputs' signature changed; tldraw's
+  branching-chat starter kit for a conversation's context flowing in along the wires. See `notes/canvas.md`.

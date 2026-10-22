@@ -502,6 +502,91 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(404, "no such topic")
         return {"context": WorldTree(rt).context(n0, q)}
 
+    # ---------------------------------------------------------------- 无限画布 (pga.canvas) and the notepad (pga.pad)
+    @app.get("/v1/users/{user_id}/canvas")
+    def canvas_board(user_id: uuid.UUID, world: str = "top", rt: Runtime = Depends(get_rt)):
+        """The board for a topic of the world tree (`world` = its id, or "top"): made from the tree the first time."""
+        from pga.canvas import Boards, CanvasError
+        u = user_or_404(rt, user_id)
+        try:
+            b = Boards(rt)
+            c = b.board(u, world)
+            rt.session.commit()
+            return b.out(u, c)
+        except CanvasError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.put("/v1/users/{user_id}/canvas/{canvas_id}")
+    def canvas_save(user_id: uuid.UUID, canvas_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.canvas import Boards, CanvasConflict, CanvasError
+        u = user_or_404(rt, user_id)
+        try:
+            c = Boards(rt).save(u, canvas_id, body.get("data"), body.get("rev"))
+            rt.session.commit()
+            return {"rev": c.rev}
+        except CanvasConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except CanvasError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/canvas/merge")
+    def canvas_merge(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """The output node: what its branches said, merged into one answer."""
+        from pga.agents.council import CouncilError
+        from pga.canvas import Boards, CanvasError
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                text = Boards(rt).merge(u, str(body.get("question") or ""), [p for p in body.get("parts") or [] if isinstance(p, dict)])
+            rt.session.commit()
+            return {"text": text}
+        except (CanvasError, CouncilError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/canvas-palette")
+    def canvas_palette(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """What can become a node besides conversations: the skills on this machine and the pictures you uploaded."""
+        from pga import canvas
+        user_or_404(rt, user_id)
+        return {"skills": canvas.skills(), "images": canvas.images()}
+
+    @app.get("/v1/users/{user_id}/canvas-skill")
+    def canvas_skill(user_id: uuid.UUID, path: str, rt: Runtime = Depends(get_rt)):
+        from pga import canvas
+        user_or_404(rt, user_id)
+        try:
+            return canvas.skill_text(path)
+        except canvas.CanvasError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/canvas-image")
+    def canvas_image(user_id: uuid.UUID, path: str, rt: Runtime = Depends(get_rt)):
+        from pga import canvas
+        user_or_404(rt, user_id)
+        try:
+            return FileResponse(canvas.image_path(path), headers={"Cache-Control": "private, max-age=3600"})
+        except canvas.CanvasError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/pad")
+    def pad_read(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga import pad
+        u = user_or_404(rt, user_id)
+        return pad.read(u.id)
+
+    @app.put("/v1/users/{user_id}/pad")
+    def pad_write(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Keep the notepad as you wrote it (a Markdown file), and which of its ideas went to which agent."""
+        from pga import pad
+        u = user_or_404(rt, user_id)
+        try:
+            return pad.write(u.id, body["text"] if isinstance(body.get("text"), str) else None, body.get("rev"),
+                             body["sent"] if isinstance(body.get("sent"), list) else None)
+        except pad.PadConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     @app.put("/v1/users/{user_id}/chat-world")
     def chat_world_set(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """Which level a conversation talks to: itself (node empty), or a topic above it in the world tree."""
@@ -2458,7 +2543,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             if sysp:                                               # your own instructions for this conversation
                 context = ((context or "") + "\n\n<your_instructions_for_this_conversation>\n" + sysp + "\n</your_instructions_for_this_conversation>").strip()
             from pga.worldtree import WorldTree, chat_node
-            wn = chat_node(u, ckey) if ckey else (str(body.get("world")) if body.get("world") else None)
+            wn = (chat_node(u, ckey) if ckey else None) or (str(body.get("world")) if body.get("world") else None)
             if wn:
                 try:
                     wt = WorldTree(rt)
