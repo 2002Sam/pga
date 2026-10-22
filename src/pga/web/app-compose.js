@@ -89,6 +89,7 @@ const plain = (t) => String(t || "").replace(/```[\s\S]*?```/g, " ").replace(/[#
 function userActs(t, key, prevRun) {
   if (!t.run) return "";
   return `<div class="macts right"><button data-act="copy" data-text="${esc(t.text)}" title="${L("复制", "Copy")}">${I.copy}</button>
+    ${prevRun ? `<button class="txt" data-cbranch="${esc(prevRun)}" data-ckey="${esc(key)}" title="${L("从这一问之前分出一段新对话，接着从这里聊", "Branch just before this question and carry on from here")}">${L("从这里继续", "Carry on here")}</button>` : ""}
     <button data-act="edit" data-run="${t.run}" data-key="${esc(key)}" data-prev="${esc(prevRun || "")}" title="${L("改一改再问：长成一条新分支，原来的不动", "Edit and ask again: grows a new branch, the original stays")}">${I.edit}</button></div>`;
 }
 function replyActs(t, key) {
@@ -105,7 +106,7 @@ function replyActs(t, key) {
     ${vs.length > 1 ? `<button class="txt ${typeof sideOn === "function" && sideOn(t) ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
     <span class="sep"></span>
     ${sec ? "" : `<button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""}>${sb ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
-    <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}">${L("从这里分支", "Branch from here")}</button></div>`;
+    <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}" title="${L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
 }
 function editBox(t) {
   return `<div class="editbox"><textarea id="editText">${esc(t.text)}</textarea><div class="row2"><span class="dimt" style="font-size:12px">${L("改过的问题会长成一条新分支，原来那段保留在旁边。", "The edited question grows a new branch; the original stays beside it.")}</span><span class="grow"></span>

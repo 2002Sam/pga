@@ -194,9 +194,8 @@ function worldClick(n) {
   if (!n) { G.sel = null; drawWorldSide(); drawWorld(); return; }
   if (n.kind === "leaf") { openLeaf(n); return; }                 // a conversation: straight into it
   G.sel = n.id; drawWorldSide(); drawWorld();
-  const cv = $("#gcv"), [sx, sy] = G.t.apply([n.x, n.y]), room = cv.clientWidth - 380;   // keep it clear of the side panel
-  if (sx > room - 40 || sx < 40 || sy < 40 || sy > cv.clientHeight - 40)
-    d3.select(cv).transition().duration(450).call(G.zoom.transform, d3.zoomIdentity.translate(room / 2 - n.x * G.t.k, cv.clientHeight / 2 - n.y * G.t.k).scale(G.t.k));
+  const cv = $("#gcv"), room = cv.clientWidth - 380, k = Math.min(4, Math.max(G.t.k * 1.5, n.kind === "root" ? 0.6 : 1.2));   // zoom into it, clear of the side panel
+  d3.select(cv).transition().duration(550).call(G.zoom.transform, d3.zoomIdentity.translate(room / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
 }
 function worldDbl(n) {
   if (n.kind === "leaf" || n.kind === "root") return;
