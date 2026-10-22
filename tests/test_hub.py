@@ -73,7 +73,7 @@ def test_zip_export_and_plain_transcript():
 
 
 def test_secrets_never_reach_excerpts():
-    text = "my key is sk-121268d3ba6b325e-f8951d-dd02d8eb and password: hunter2, db postgresql://u:pw@h/db"
+    text = "my key is sk-0000fake0000test-000000-00000000 and password: hunter2, db postgresql://u:pw@h/db"
     out = redact(text)
     assert "sk-1212" not in out and "hunter2" not in out and "u:pw@" not in out
     assert "sk-" not in excerpt([("user", text), ("assistant", "ok")])
