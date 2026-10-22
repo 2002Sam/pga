@@ -55,7 +55,7 @@ def _unwrap(t: str) -> str:
     return re.sub(r"^\s*<(\w+)>\s*([\s\S]*?)\s*</\1>\s*$", r"\2", t or "")
 
 
-HARNESS = re.compile(r"^\s*(<(codex_internal_context|environment_context|system-reminder|command-|local-command|turn_aborted|user_instructions)|Caveat: )")
+HARNESS = re.compile(r"^\s*(<(?!user_query\b)[a-z][\w-]*[\s>/]|Caveat: )")      # a turn opening with an app's own tag (but not <user_query>)
 
 
 def _yours(text: str) -> bool:
@@ -77,7 +77,7 @@ def questions(rt: "Runtime", user: User, ref: str | None) -> list[dict]:
         return []
     out = []
     for r in turns:
-        if (r.prompt or "").strip():
+        if _yours(r.prompt or ""):
             out.append({"i": len(out), "text": _unwrap(r.prompt)[:4000], "at": r.started_at.isoformat() if r.started_at else None,
                         "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
     return out

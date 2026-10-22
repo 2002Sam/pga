@@ -32,6 +32,7 @@ def leaf(rt, user, ref, title="一段对话"):
 
 
 def test_a_conversation_splits_where_you_moved_to_another_matter(rt, user, monkeypatch):
+    turn(rt, user, "chat:x", "<recommended_plugins>Airtable…</recommended_plugins>", "", 0)          # put there by the app, not asked
     for i, q in enumerate(["帮我改引言", "再短一点", "换个话题：周末去哪玩", "<user_query>天气呢</user_query>"]):
         turn(rt, user, "chat:x", q, "好", i + 1)
     n = leaf(rt, user, "chat:x")
