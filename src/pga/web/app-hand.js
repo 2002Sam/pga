@@ -10,13 +10,13 @@ document.addEventListener("pointerdown", (e) => {
   $(".app").classList.add("resizing"); sp.classList.add("on");
   const move = (ev) => { const max = maxR < 0 ? r.width + maxR : maxR, v = Math.round(Math.max(min, Math.min(max, ev.clientX - r.left))); box.style.setProperty("--" + k, v + "px"); store.set("pga_split_" + k, v); };
   const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); $(".app").classList.remove("resizing"); sp.classList.remove("on");
-    if (S.view === "tree" && S.tree) drawTree(false); if (S.view === "chats") renderTimeline(); };
+    if (S.view === "tree" && S.tree) drawTree(false); renderTimeline(); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
 });
 function setMini(on) {
   S.mini = on; store.set("pga_rail_mini", on ? "1" : "0");
   $(".app").classList.toggle("mini", on); $("#fold").textContent = "«"; $("#fold").title = on ? L("展开", "Expand") : L("收起", "Collapse");
-  setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); if (S.view === "chats") renderTimeline(); }, 230);
+  setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); renderTimeline(); }, 230);
 }
 function branchFrom(id) {
   if (!nodeOf(id)) return;
@@ -69,6 +69,7 @@ async function boot() {
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
     api(`/v1/agents`).then((d) => { const A = d.agents || {}; S.acctOf = Object.fromEntries(Object.entries(A).map(([k, v]) => [k, v.account || ""])); }).catch(() => {})]);
   show(S.view === "tree" && !S.aim ? "home" : S.view);
-  setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (S.view === "chats" && !S.sending) { loadChats(); loadTimeline(); } }, 20000);
+  if (S.view !== "chats") loadTimeline();
+  setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (!S.sending) { loadChats(); loadTimeline(); } }, 20000);
 }
 boot();

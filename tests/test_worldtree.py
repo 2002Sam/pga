@@ -33,6 +33,8 @@ class Scripted:
             return {"assign": out, "new": new}
         if "write the summary of each topic" in system:
             return {f"t{i}": f"总结{i}" for i in range(12)}
+        if system.startswith("For each conversation write a gist"):
+            return {f"i{i}": f"主旨{i}" for i in range(80)}
         if "how a topic of a person's work should grow" in system:
             return {"next": [{"title": "下一步 A", "why": "因为"}, {"title": "下一步 B", "why": "所以"}]}
         return {}
@@ -114,3 +116,28 @@ def test_you_can_move_rename_and_grow_a_topic_downwards(rt, user, tree):
     made = wt.expand(user, research)
     assert [x.title for x in made] == ["下一步 A", "下一步 B"] and all(x.kind == "plan" for x in made)
     assert rt.session.query(WorldNode).filter(WorldNode.kind == "plan").count() == 2
+
+
+def test_every_conversation_gets_a_gist_and_you_can_add_edit_remove_and_find_topics(rt, user, tree):
+    wt, _ = tree
+    wt.build(user)
+    chat(rt, user, "chat:e", "世界模型的物理规律怎么嵌入", datetime(2026, 10, 6, tzinfo=timezone.utc))
+    r = wt.place(user)
+    assert r["annotated"] >= 1 and all((n.data or {}).get("gist") for n in wt.nodes(user.id) if n.kind == "leaf")
+    research = by_title(wt, user, "进行研究")
+    mine = wt.add_topic(user, research, "我自己加的", "我写的概括")
+    wt.refresh(user)
+    assert mine.summary == "我写的概括"                                           # your words are kept
+    wt.edit(user, mine, title="改过的名字", summary="新的概括")
+    assert mine.title == "改过的名字" and mine.summary == "新的概括"
+    world = by_title(wt, user, "世界模型研究")
+    leaf = wt.leaf_of(user, "chat:a")
+    wt.move(user, leaf, mine)
+    out = wt.remove(user, mine)
+    assert out["moved_up"] == 1 and leaf.parent_id == research.id                    # its parts move up a level
+    wt.remove(user, leaf)
+    assert (leaf.data or {}).get("hidden") and wt.place(user)["placed"] == 0           # gone from the tree, not placed again
+    assert any(n.id == world.id for n in wt.search(user, "世界模型"))
+    import pytest as _p
+    with _p.raises(ValueError):
+        wt.remove(user, wt.root(user))

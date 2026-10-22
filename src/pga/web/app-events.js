@@ -2,9 +2,9 @@
 /* ------------------------------------------------ events */
 document.addEventListener("contextmenu", (e) => {
   const lr = e.target.closest?.(".lrow[data-tline]");
-  if (lr && S.view === "chats") { e.preventDefault(); const xs = (S.tl?.sessions || []).filter((x) => x.line === lr.dataset.tline); if (xs.length) openTlCtx(e.clientX, e.clientY, xs[xs.length - 1].id); return; }
+  if (lr) { e.preventDefault(); const xs = (S.tl?.sessions || []).filter((x) => x.line === lr.dataset.tline); if (xs.length) openTlCtx(e.clientX, e.clientY, xs[xs.length - 1].id); return; }
   const ts = e.target.closest?.("[data-ts]");
-  if (ts && S.view === "chats") { e.preventDefault(); openTlCtx(e.clientX, e.clientY, ts.dataset.ts); return; }
+  if (ts) { e.preventDefault(); openTlCtx(e.clientX, e.clientY, ts.dataset.ts); return; }
   const t = e.target.closest?.("[data-tnode], [data-ctxnode]");
   if (!t || S.view !== "tree") { closeCtx(); return; }
   e.preventDefault();
@@ -34,9 +34,9 @@ document.addEventListener("click", async (e) => {
   if (t.id === "ctxBtn") { showContext(); return; }
   if (t.id === "dirBtn") { S.dir = S.dir === "down" ? "up" : "down"; store.set("pga_tree_dir", S.dir); renderBar(); drawTree(true); return; }
   if (t.id === "fold" || t.id === "unfold") { setMini(!S.mini); return; }
-  if (t.closest?.("[data-ts]") && t.dataset.ts) { openSession(t.dataset.ts); return; }
+  if (t.closest?.("[data-ts]") && t.dataset.ts) { if (S.view !== "chats") show("chats"); openSession(t.dataset.ts); return; }
   if (t.id === "tlImport") { showImport(); return; }
-  if (t.dataset.tline) { pickLine(t.dataset.tline); return; }
+  if (t.dataset.tline) { if (S.view !== "chats") show("chats"); pickLine(t.dataset.tline); return; }
   if (t.id === "looseToggle") { S.showLoose = !S.showLoose; renderTimeline(); return; }
   if (t.id === "accBrowse") { browseDirs($("#accFolder").value || ""); return; }
   if (t.dataset.dir) { browseDirs(t.dataset.dir); return; }

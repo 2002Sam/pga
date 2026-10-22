@@ -3,7 +3,10 @@
    are in it; click a topic to read its summary and its parts, talk to the whole topic, grow it one level down, or point a
    motivation at it. In a conversation, the row above the composer picks the level the agent reads: this conversation, or
    a topic above it (pga.worldtree.context). */
-const W = { data: null, nodes: [], byId: new Map(), root: null, collapsed: new Set(), poll: null, hues: new Map() };
+const W = { data: null, nodes: [], byId: new Map(), root: null, collapsed: new Set(), poll: null, hues: new Map(),
+  showAgent: (() => { try { return localStorage.getItem("pga_world_agent") === "1"; } catch { return false; } })(),    // a motivation's own thinking: detailed, hard to read at a glance
+  showGist: (() => { try { return localStorage.getItem("pga_world_gist") !== "0"; } catch { return true; } })() };
+const wShown = (n) => !n.hidden && (n.kind !== "leaf" || W.showAgent || n.who !== "agent");
 Object.assign(GT, {
   wroot: { zh: "世界", en: "World", c: () => cssv("--text") }, wtopic: { zh: "主题", en: "Topic", c: () => "#b48cff" },
   wleaf: { zh: "对话", en: "Conversation", c: () => "#8fb4ff" }, waim: { zh: "抱负", en: "Motivation", c: () => cssv("--accent") || "#e2b46a" },
@@ -13,20 +16,20 @@ const wtype = (n) => ({ root: "wroot", topic: "wtopic", leaf: "wleaf", aim: "wai
 
 async function loadWorld() {
   try { W.data = await api(`/v1/users/${S.uid}/world`); } catch (err) { toast(err.message); return; }
-  api(`/v1/users/${S.uid}/facts`).then((f) => { W.facts = f; if (S.view === "graph" && G.mode === "tree") drawWorldBar();
+  api(`/v1/users/${S.uid}/facts`).then((f) => { W.facts = f; if (S.view === "graph" && G.mode !== "net") drawWorldBar();
     clearTimeout(W.fpoll); if (f.filling?.state === "running") W.fpoll = setTimeout(() => { if (S.view === "graph") loadWorld(); }, 4000); }).catch(() => {});
   W.nodes = W.data.nodes.map((n) => ({ ...n, label: n.title, type: wtype(n) }));
   W.byId = new Map(W.nodes.map((n) => [n.id, n]));
   if (G.sel && !W.byId.has(G.sel)) G.sel = null;
-  layoutWorld(); drawWorldBar(); drawWorldSide(); drawWorld();
+  layoutWorld(); drawWorldBar(); drawWorldSide(); if (G.mode === "3d") w3Build(); else drawWorld();
   const b = W.data.building;
   clearTimeout(W.poll);
-  if (b?.state === "running") W.poll = setTimeout(() => { if (S.view === "graph" && G.mode === "tree") loadWorld(); }, 2500);
+  if (b?.state === "running") W.poll = setTimeout(() => { if (S.view === "graph" && G.mode !== "net") loadWorld(); }, 2500);
 }
 function layoutWorld() {
   const top = W.nodes.find((n) => n.kind === "root"); W.root = null;
   if (!top) return;
-  const kids = (id) => W.nodes.filter((n) => n.parent === id);
+  const kids = (id) => W.nodes.filter((n) => n.parent === id && wShown(n));
   const build = (n) => ({ node: n, children: W.collapsed.has(n.id) ? [] : kids(n.id).sort((a, b) => (a.kind === "leaf") - (b.kind === "leaf")).map(build) });
   const h = d3.hierarchy(build(top), (d) => d.children);
   const leaves = h.leaves().length, R = Math.max(320, leaves * 11 / (2 * Math.PI));
@@ -129,6 +132,8 @@ function drawWorldBar() {
       <button class="sm ghost" data-wact="place" title="${L("新对话现在就放到各自的位置（平时每 10 分钟自己做一次）", "Place new conversations now (it also happens every 10 minutes)")}">${L("整理新对话", "Place new ones")}</button>
       <button class="sm ghost" data-wact="rebuild" title="${L("从头重新分层（你手动移动过的会被覆盖）", "Rebuild from scratch (your own moves are lost)")}">${L("重新生成", "Rebuild")}</button></div>
       ${factRow}
+      <div class="wsw"><label class="lktog"><input type="checkbox" data-wsw="agent" ${W.showAgent ? "checked" : ""}><i></i>${L(`agent 自己的对话（${W.nodes.filter((x) => x.kind === "leaf" && x.who === "agent" && !x.hidden).length}）`, `Agents' own conversations (${W.nodes.filter((x) => x.kind === "leaf" && x.who === "agent" && !x.hidden).length})`)}</label>
+        <label class="lktog"><input type="checkbox" data-wsw="gist" ${W.showGist ? "checked" : ""}><i></i>${L("显示主旨", "Show gists")}</label></div>
       <div class="ghint dimt">${L("点对话直接进去 · 点主题看概括、和它对话、往下长 · 双击主题收起或展开 · 橙点表示概括待更新", "Click a conversation to open it · click a topic to read it, talk to it, grow it · double-click a topic to fold it · an orange dot: summary to be refreshed")}</div>`
       : `<div class="wempty">${L("世界树还没有生成。生成时，模型（DeepSeek）会读你所有对话的标题和开头片段，分出「进行研究 › 世界模型研究」这样的层级，再从下往上为每一层写概括；大约要调用十几次。之后每段新对话会自己挂到对应的位置。", "The world tree is not built yet. A model (DeepSeek) reads the titles and openings of all your conversations, draws levels like “Research › World models”, then summarises each level bottom-up — around a dozen calls. Afterwards every new conversation finds its own place.")}
         <div style="margin-top:10px"><button class="primary sm" data-wact="build" ${b?.state === "running" ? "disabled" : ""}>${L("生成世界树", "Build the world tree")}</button></div></div>`}
@@ -137,23 +142,31 @@ function drawWorldBar() {
 function worldPath(n) { const out = [n]; while (out[0].parent && W.byId.get(out[0].parent)) out.unshift(W.byId.get(out[0].parent)); return out; }
 function drawWorldSide() {
   const box = $("#gside"), n = W.byId.get(G.sel);
-  if (!n || G.mode !== "tree") { box.hidden = true; return; }
+  if (!n || G.mode === "net") { box.hidden = true; return; }
   box.hidden = false;
-  const kids = W.nodes.filter((x) => x.parent === n.id), topics = kids.filter((x) => x.kind !== "leaf"), convs = kids.filter((x) => x.kind === "leaf");
+  const kids = W.nodes.filter((x) => x.parent === n.id && wShown(x)), topics = kids.filter((x) => x.kind !== "leaf"), convs = kids.filter((x) => x.kind === "leaf");
+  const nAgent = W.nodes.filter((x) => x.parent === n.id && x.kind === "leaf" && x.who === "agent" && !x.hidden).length;
   const crumbs = worldPath(n).map((x) => `<a href="#" data-wsel="${x.id}">${esc(x.kind === "root" ? L("世界", "World") : x.title)}</a>`).join(" › ");
   const aims = (S.forest?.trees || []).filter((t) => t.task);
   box.innerHTML = `<div class="gs-h"><i style="background:${wColor(n)}"></i><span>${esc(L(GT[n.type].zh, GT[n.type].en))}${n.count ? L(` · ${n.count} 段对话`, ` · ${n.count} conversations`) : ""}</span><span class="grow"></span><button class="sm ghost" data-gclose="1">×</button></div>
     <div class="wcrumb">${crumbs}</div><h3>${esc(n.kind === "root" ? L("世界", "World") : n.title)}</h3>
+    ${n.kind === "leaf" && n.gist ? `<div class="wgist">${L("主旨：", "Gist: ")}${esc(n.gist)}</div>` : ""}
     ${n.summary ? `<div class="gs-sub md">${md(n.summary)}</div>` : n.kind === "leaf" && n.excerpt ? `<div class="gs-sub">${esc(n.excerpt)}</div>` : ""}
     <div class="gs-acts">${n.kind === "leaf" || n.kind === "aim" ? `<button class="sm primary" data-wact="open">${n.kind === "aim" ? L("打开这棵树", "Open the tree") : L("打开这段对话", "Open the conversation")}</button>` : ""}
       ${n.kind !== "leaf" ? `<button class="sm primary" data-wact="talk" title="${L("开一段新对话，agent 读的是这一层的概括、它的各部分，以及和你问的最相关的那几段对话", "A new conversation where the agent reads this level's summary, its parts, and the conversations closest to what you ask")}">${L("和这个主题对话", "Talk to this topic")}</button>` : ""}
       ${n.kind === "topic" || n.kind === "root" || n.kind === "plan" ? `<button class="sm" data-wact="expand" title="${L("让模型提出下一层值得做的几个方向", "Let a model suggest the next level of directions")}">${L("往下长一层", "Grow a level")}</button>` : ""}
       ${n.kind !== "leaf" ? `<button class="sm ghost" data-wact="ctx">${L("agent 会读到什么", "What an agent reads")}</button>` : ""}
       ${n.kind === "topic" || n.kind === "plan" ? `<button class="sm ghost" data-wact="rename">${L("改名", "Rename")}</button>` : ""}</div>
+    <div class="gs-acts wcrud">${n.kind !== "leaf" ? `<button class="sm ghost" data-wact="addtopic">${L("＋ 子主题", "+ Subtopic")}</button>` : ""}
+      ${n.kind === "topic" || n.kind === "root" || n.kind === "plan" ? `<button class="sm ghost" data-wact="resum">${L("改概括", "Edit summary")}</button>` : ""}
+      ${n.kind === "leaf" ? `<button class="sm ghost" data-wact="regist">${L("改主旨", "Edit gist")}</button>` : ""}
+      ${n.kind !== "root" ? `<select class="wmove" data-wmove="1"><option value="">${L("移到…", "Move to…")}</option>${W.nodes.filter((x) => (x.kind === "topic" || x.kind === "root" || x.kind === "plan") && x.id !== n.id && !worldPath(x).some((y) => y.id === n.id))
+          .map((x) => `<option value="${x.id}">${esc((x.kind === "root" ? L("世界", "World") : "  ".repeat(Math.max(0, worldPath(x).length - 2)) + x.title))}</option>`).join("")}</select>` : ""}
+      ${n.kind !== "root" ? `<button class="sm ghost danger" data-wact="remove">${n.kind === "leaf" ? L("移出世界树", "Take out of the tree") : L("删除主题", "Delete topic")}</button>` : ""}</div>
     ${n.kind !== "leaf" && aims.length ? `<div class="wfocus"><span class="label">${L("让抱负在这一层往下想", "Point a motivation here")}</span><select data-wfocus="1"><option value="">${L("选一个抱负…", "Choose a motivation…")}</option>${aims.map((t) => `<option value="${t.id}">${esc(t.text.slice(0, 30))}</option>`).join("")}</select></div>` : ""}
     <div class="wfacts" id="wfacts"></div>
     ${topics.length ? `<div class="gs-g"><div class="label">${L("下面的主题", "Topics under it")} · ${topics.length}</div>${topics.map((x) => `<div class="gs-n" data-wsel="${x.id}"><i style="background:${wColor(x)}"></i><span>${esc(x.title)}</span><em>${x.kind === "plan" ? L("计划", "planned") : x.kind === "aim" ? L("抱负", "motivation") : x.count ? x.count : ""}</em></div>`).join("")}</div>` : ""}
-    ${convs.length ? `<div class="gs-g"><div class="label">${L("对话", "Conversations")} · ${convs.length}</div>${convs.slice().sort((a, b) => String(b.last || "").localeCompare(String(a.last || ""))).slice(0, 60).map((x) => `<div class="gs-n" data-wopen="${x.id}" title="${L("点一下进入这段对话", "Click to open")}"><i style="background:${wColor(x)}"></i><span>${esc(x.title)}</span><em>${x.last ? esc(ago(x.last)) : ""}</em></div>`).join("")}${convs.length > 60 ? `<div class="dimt">… ${convs.length - 60}</div>` : ""}</div>` : ""}`;
+    ${convs.length || nAgent ? `<div class="gs-g"><div class="label">${L("对话", "Conversations")} · ${convs.length}${nAgent && !W.showAgent ? L(`（另有 ${nAgent} 段 agent 自己的对话，已隐藏）`, ` (${nAgent} of agents' own hidden)`) : ""}</div>${convs.slice().sort((a, b) => String(b.last || "").localeCompare(String(a.last || ""))).slice(0, 60).map((x) => `<div class="gs-n wconv ${x.who === "agent" ? "agent" : ""}" data-wopen="${x.id}" title="${L("点一下进入这段对话", "Click to open")}"><i style="background:${wColor(x)}"></i><span>${esc(x.title)}${W.showGist && x.gist ? `<small>${esc(x.gist)}</small>` : ""}</span><em>${x.who === "agent" ? "agent · " : ""}${x.last ? esc(ago(x.last)) : ""}</em><button class="sm ghost" data-wsel="${x.id}" title="${L("看这段对话在树上的位置、改主旨、移动", "Its place, gist, move")}">⋯</button></div>`).join("")}${convs.length > 60 ? `<div class="dimt">… ${convs.length - 60}</div>` : ""}</div>` : ""}`;
 }
 const fday = (iso) => (iso ? new Date(iso).toLocaleDateString(EN ? "en-GB" : "zh-CN", { year: "numeric", month: "short", day: "numeric" }) : "");
 async function loadFacts(n) {
@@ -176,7 +189,7 @@ async function openLeaf(n) {
   if (x) openSession(x.id); else toast(L("这段对话现在不在「所有对话」里（可能已归档）", "This conversation is not in the list (archived?)"));
 }
 const _drawSideW = drawWorldSide;
-drawWorldSide = function () { _drawSideW(); const n = W.byId.get(G.sel); if (n && G.mode === "tree" && n.kind !== "leaf") loadFacts(n); };
+drawWorldSide = function () { _drawSideW(); const n = W.byId.get(G.sel); if (n && G.mode !== "net" && n.kind !== "leaf") loadFacts(n); };
 function worldClick(n) {
   if (!n) { G.sel = null; drawWorldSide(); drawWorld(); return; }
   if (n.kind === "leaf") { openLeaf(n); return; }                 // a conversation: straight into it
@@ -218,9 +231,26 @@ document.addEventListener("click", async (e) => {
   else if (a === "expand") { t.disabled = true; try { const made = await api(`/v1/world/${n.id}/expand`, { method: "POST" }); toast(L(`长出了 ${made.length} 个方向`, `${made.length} directions`)); W.collapsed.delete(n.id); } catch (err) { toast(err.message); } await loadWorld(); }
   else if (a === "ctx") { const r = await api(`/v1/world/${n.id}/context`).catch((err) => ({ context: err.message }));
     modal(`<h2>${L("和这一层对话时，agent 读到的", "What an agent reads at this level")}</h2><div class="muted" style="font-size:13px;margin-bottom:10px">${L("放在对话的开头（不变的部分，能命中缓存）；你每问一句，再把这一层下面和问题最相关的几段对话附在问题后面。", "At the start of the conversation (unchanging, so it caches); with each question, the conversations under it closest to the question go after it.")}</div><pre class="ctxpre">${esc(r.context)}</pre>`); }
+  else if (a === "addtopic") { const v = prompt(L("新主题的名字", "Name of the new topic"), ""); if (!v) return;
+    try { const r = await api(`/v1/world/${n.id}/children`, { body: { title: v } }); await loadWorld(); G.sel = r.id; drawWorldSide(); if (G.mode === "3d") w3Build(); } catch (err) { toast(err.message); } }
+  else if (a === "resum") { editText(L("改这一层的概括（之后自动更新不会覆盖你写的）", "Edit this level's summary (later updates keep yours)"), n.summary || "", async (v) => { await api(`/v1/world/${n.id}`, { method: "PATCH", body: { summary: v } }); await loadWorld(); }); }
+  else if (a === "regist") { const v = prompt(L("这段对话的主旨（一句话）", "This conversation's gist (one line)"), n.gist || ""); if (v == null) return; await api(`/v1/world/${n.id}`, { method: "PATCH", body: { gist: v } }).catch((err) => toast(err.message)); await loadWorld(); }
+  else if (a === "remove") { if (!confirm(n.kind === "leaf" ? L("把这段对话移出世界树？（它还在「所有对话」里）", "Take this conversation out of the tree? (It stays in your conversations.)") : L(`删除主题「${n.title}」？它下面的主题和对话会移到上一层。`, `Delete “${n.title}”? What is under it moves up a level.`))) return;
+    try { await api(`/v1/world/${n.id}`, { method: "DELETE" }); G.sel = n.parent; await loadWorld(); } catch (err) { toast(err.message); } }
   else if (a === "rename") { const v = prompt(L("新名字", "New name"), n.title); if (!v) return; await api(`/v1/world/${n.id}`, { method: "PATCH", body: { title: v } }).catch((err) => toast(err.message)); await loadWorld(); }
 });
+function editText(title, value, save) {
+  modal(`<h2>${esc(title)}</h2><textarea id="wedit" style="width:100%;min-height:160px">${esc(value)}</textarea><div class="row2"><span class="grow"></span><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="weditGo">${L("保存", "Save")}</button></div>`);
+  $("#weditGo").onclick = async () => { try { await save($("#wedit").value); document.querySelector(".modal")?.remove(); toast(L("改好了", "Saved")); } catch (err) { toast(err.message); } };
+}
 document.addEventListener("change", async (e) => {
+  const sw = e.target.closest?.("[data-wsw]");
+  if (sw) { const k = sw.dataset.wsw; if (k === "agent") W.showAgent = sw.checked; else W.showGist = sw.checked;
+    try { localStorage.setItem(k === "agent" ? "pga_world_agent" : "pga_world_gist", sw.checked ? "1" : "0"); } catch {}
+    layoutWorld(); drawWorldBar(); drawWorldSide(); if (G.mode === "3d") w3Build(); else drawWorld(); return; }
+  const mv = e.target.closest?.("[data-wmove]");
+  if (mv && mv.value) { const n = W.byId.get(G.sel); if (!n) return;
+    try { await api(`/v1/world/${n.id}`, { method: "PATCH", body: { parent: mv.value } }); toast(L("移好了", "Moved")); await loadWorld(); } catch (err) { toast(err.message); } return; }
   const s = e.target.closest?.("[data-wfocus]"); if (!s || !s.value) return;
   const n = W.byId.get(G.sel); if (!n) return;
   try { await api(`/v1/aims/${s.value}/perpetual`, { method: "PATCH", body: { settings: { world_focus: n.id } } });

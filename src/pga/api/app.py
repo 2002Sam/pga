@@ -339,6 +339,36 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(404, "no such topic")
         return n
 
+    PLACING: dict[str, float] = {}
+
+    def place_soon(uid: uuid.UUID, delay: float = 20.0) -> None:
+        """A conversation just got a question: in a moment (once the answer is in) it is placed in the world tree."""
+        import threading
+        import time as _t
+        key = str(uid)
+        if _t.time() - PLACING.get(key, 0) < 15:
+            return
+        PLACING[key] = _t.time()
+        sm = factory()
+
+        def run() -> None:
+            _t.sleep(delay)
+            from pga.worldtree import WorldTree, WorldTreeDeferred
+            with sm() as s2:
+                try:
+                    rt2 = make_runtime(s2)
+                    user = s2.get(User, uid)
+                    wt = WorldTree(rt2)
+                    if user is not None and wt.built(user):
+                        wt.place(user, limit=20)
+                        s2.commit()
+                except WorldTreeDeferred:
+                    s2.rollback()
+                except Exception:  # noqa: BLE001
+                    log.exception("placing a new conversation failed")
+                    s2.rollback()
+        threading.Thread(target=run, daemon=True, name="pga-world-place").start()
+
     @app.get("/v1/users/{user_id}/world")
     def world_tree(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         from pga.worldtree import WorldTree
@@ -401,8 +431,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(404, "no such topic")
         u = user_or_404(rt, n0.user_id)
         wt = WorldTree(rt)
-        if str(body.get("title") or "").strip():
-            n0.title = str(body["title"]).strip()[:200]
+        wt.edit(u, n0, title=str(body.get("title") or "") or None,
+                summary=str(body["summary"]) if "summary" in body else None, gist=str(body["gist"]) if "gist" in body else None)
         if body.get("parent"):
             try:
                 wt.move(u, n0, world_node_or_404(rt, u, uuid.UUID(str(body["parent"]))))
@@ -410,6 +440,41 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(422, str(exc)) from exc
         rt.session.flush()
         return {"id": str(n0.id), "title": n0.title, "parent": str(n0.parent_id) if n0.parent_id else None}
+
+    @app.post("/v1/world/{node_id}/children", status_code=201)
+    def world_add(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A topic you add by hand, under this one."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None or n0.kind == "leaf":
+            raise HTTPException(404, "no such topic")
+        title = str(body.get("title") or "").strip()
+        if not title:
+            raise HTTPException(422, "a title is needed")
+        m = WorldTree(rt).add_topic(user_or_404(rt, n0.user_id), n0, title, str(body.get("summary") or ""))
+        return {"id": str(m.id), "title": m.title}
+
+    @app.delete("/v1/world/{node_id}")
+    def world_remove(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """A topic goes (its parts move up a level); a conversation leaves the tree (it stays in 所有对话)."""
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        n0 = rt.session.get(WorldNode, node_id)
+        if n0 is None:
+            raise HTTPException(404, "no such topic")
+        try:
+            return WorldTree(rt).remove(user_or_404(rt, n0.user_id), n0)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/world/search")
+    def world_search(user_id: uuid.UUID, q: str = Query(..., min_length=1, max_length=200), rt: Runtime = Depends(get_rt)):
+        from pga.worldtree import WorldTree
+        u = user_or_404(rt, user_id)
+        wt = WorldTree(rt)
+        return [{"id": str(n.id), "title": n.title, "kind": n.kind, "gist": (n.data or {}).get("gist"), "summary": n.summary[:200],
+                 "path": " › ".join(x.title for x in wt.path(n)[1:-1])} for n in wt.search(u, q)]
 
     @app.post("/v1/world/{node_id}/expand")
     def world_expand(node_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
@@ -2405,6 +2470,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     rel = wt.related(node, text)
                     tail = "\n\n".join(x for x in [tail, rel] if x) or None
             acc = access_for(u, ckey, body)
+            if ckey and not ckey.startswith(("node:", "exchange:", "second:", "regen:", "multi:")):
+                place_soon(u.id)
             with rt.billing(user_ctx(u)):
                 return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
                                            access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"], web=bool(body.get("web")),

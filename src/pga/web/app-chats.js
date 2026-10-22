@@ -6,7 +6,7 @@ const CONN = { claude_code: "claude", codex: "codex", hermes: "hermes", workbudd
 function pollTidy(n = 0) { setTimeout(async () => { await loadTimeline(); if (S.tl?.pending && n < 40) pollTidy(n + 1); else if (n) toast(L("整理完了", "Tidied")); }, 6000); }
 async function loadTimeline() {
   try { S.tl = await api(`/v1/users/${S.uid}/timeline?days=120`); } catch { S.tl = S.tl || { sessions: [], lines: {} }; }
-  if (S.view === "chats") renderTimeline();
+  renderTimeline();                                    // the list lives in the rail now: every view shows it
 }
 const renderChatList = () => renderTimeline();
 /* rows go by time; each line holds a lane while it keeps talking (next session within a day); when it comes back later

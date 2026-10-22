@@ -16,6 +16,7 @@
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 <script src="/ui/shell.js"></script>
 <script src="/ui/tree.js"></script>
+<script type="importmap">{"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 <link rel="stylesheet" href="/ui/app.css">
 <link rel="stylesheet" href="/ui/skins.css">
 </head>
@@ -24,7 +25,8 @@
   <button id="unfold" title="展开">»</button><div class="split" data-split="railw"></div>
   <aside class="rail">
     <div class="brand"><a id="home" href="/" style="display:contents;color:inherit"><img src="/icons/favicon-32.png?v=3" alt=""><span class="t">PGA</span></a><span class="pulse" id="pulse"></span><button class="ghost fold" id="fold" title="收起 / 展开">«</button></div>
-    <div class="bars" id="bars"></div>
+    <section class="clist" id="clist"></section>
+    <div class="bars" id="bars" hidden></div>
     <div class="foot">
       <a href="#" id="toLib" data-view="home"><svg viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z"/></svg><span data-l="模型与知识库|Models and library">模型与知识库</span></a>
       <a href="#" id="toGraph" data-view="graph"><svg viewBox="0 0 24 24"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="6" r="2.2"/><circle cx="12" cy="17" r="2.6"/><path d="M8 8l2.8 7M16.4 7.6 13.4 15M8.2 7h7.6"/></svg><span data-l="世界树|World tree">世界树</span></a>
@@ -46,12 +48,12 @@
     </section>
   </main>
 
-  <main class="view" id="vChats" hidden><div class="split" data-split="tlw"></div>
-    <section class="clist" id="clist"></section>
-    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><aside class="cmap" id="cmap" hidden></aside><div class="ccomp" id="ccomp"></div></section>
+  <main class="view" id="vChats" hidden>
+    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><div class="ccomp" id="ccomp"></div></section>
+    <aside class="cact" id="cact"><div id="cactBody"></div><section class="cact-s cact-map"><h4 data-l="对话树|Conversation tree">对话树</h4><aside class="cmap wide" id="cmap" hidden></aside></section></aside>
   </main>
 
-  <main class="view" id="vGraph" hidden><canvas id="gcv"></canvas><div class="gbar card" id="gbar"></div><aside class="gside card" id="gside" hidden></aside><div class="gtip" id="gtip" hidden></div></main>
+  <main class="view" id="vGraph" hidden><canvas id="gcv"></canvas><div id="g3d" hidden></div><div id="g3dlab"></div><div class="gbar card" id="gbar"></div><aside class="gside card" id="gside" hidden></aside><div class="gtip" id="gtip" hidden></div></main>
   <main class="view" id="vLooks" hidden><div class="looks" id="looksBody"></div></main>
   <main class="view" id="vNotes" hidden><section class="nlist" id="nlist"></section><section class="npane" id="npane"></section></main>
 </div>
@@ -68,6 +70,8 @@
 <script src="/ui/app-looks.js"></script>
 <script src="/ui/app-graph.js"></script>
 <script src="/ui/app-world.js"></script>
+<script src="/ui/app-world3d.js"></script>
+<script src="/ui/app-activity.js"></script>
 <script src="/ui/app-events.js"></script>
 <script src="/ui/app-hand.js"></script>
 

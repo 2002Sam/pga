@@ -18,7 +18,7 @@ const GGROUPS = [["model", L("你和两个模型", "You and the models")], ["aim
 const EK = { is: L("是", "is"), sees: L("看到", "sees"), pursues: L("追求", "pursues"), grew: L("沉淀出", "grew"), references: L("引用", "references"), relates: L("相关", "relates"),
   derived_from: L("来自", "derived from"), depends_on: L("依赖", "depends on"), contradicts: L("矛盾", "contradicts"), "works on": L("在做", "works on"), in: L("属于", "in"), answered: L("回答过", "answered"), branched: L("分支", "branched") };
 const cssv = (k) => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
-const G = { mode: "tree", data: null, days: 90, off: new Set(), q: "", sel: null, hover: null, linkFrom: null, t: null, sim: null, nodes: [], edges: [] };
+const G = { mode: (() => { try { return localStorage.getItem("pga_world_mode") || "3d"; } catch { return "3d"; } })(), data: null, days: 90, off: new Set(), q: "", sel: null, hover: null, linkFrom: null, t: null, sim: null, nodes: [], edges: [] };
 
 function loadD3() {
   if (window.d3) return Promise.resolve();
@@ -28,10 +28,14 @@ async function showGraph() {
   document.title = L("世界树 · PGA", "World tree · PGA");
   $("#gbar").innerHTML = `<div class="gh"><b>${L("世界树", "World tree")}</b><span class="dimt" id="gcount">…</span></div>`;
   try { await loadD3(); } catch { $("#gbar").innerHTML += `<div class="empty">${L("没能载入画图用的库（d3）", "Could not load the drawing library (d3)")}</div>`; return; }
-  initCanvas();
-  if (G.mode === "tree") await loadWorld(); else await loadGraph();
+  initCanvas(); graphSurface();
+  if (G.mode !== "net") await loadWorld(); else await loadGraph();
 }
-const modeSeg = () => `<span class="seg gmode"><button class="${G.mode === "tree" ? "on" : ""}" data-gmode="tree">${L("层级", "Levels")}</button><button class="${G.mode === "net" ? "on" : ""}" data-gmode="net">${L("关系网", "Network")}</button></span>`;
+function graphSurface() {            /* the 3D sky draws in its own canvas; the levels and the network in the 2D one */
+  const three = G.mode === "3d"; $("#g3d").hidden = !three; $("#gcv").style.display = three ? "none" : "";
+  if (!three && typeof w3Pause === "function") w3Pause();
+}
+const modeSeg = () => `<span class="seg gmode"><button class="${G.mode === "3d" ? "on" : ""}" data-gmode="3d">${L("星空", "Sky")}</button><button class="${G.mode === "tree" ? "on" : ""}" data-gmode="tree">${L("层级", "Levels")}</button><button class="${G.mode === "net" ? "on" : ""}" data-gmode="net">${L("关系网", "Network")}</button></span>`;
 async function loadGraph() {
   try { G.data = await api(`/v1/users/${S.uid}/memory-graph?days=${G.days}`); } catch (err) { toast(err.message); return; }
   const keep = new Map((G.nodes || []).map((n) => [n.id, n]));
@@ -44,7 +48,7 @@ async function loadGraph() {
 function visible(n) { return !G.off.has((GT[n.type] || {}).g) || n.type === "you"; }
 function drawBar() {
   const c = G.data?.counts || {};
-  if (G.mode === "tree") { drawWorldBar(); return; }
+  if (G.mode !== "net") { drawWorldBar(); return; }
   $("#gbar").innerHTML = `<div class="gh"><b>${L("世界树", "World tree")}</b>${modeSeg()}<span class="dimt" id="gcount">${L(`${G.nodes.length} 个节点 · ${G.edges.length} 条连线`, `${G.nodes.length} nodes · ${G.edges.length} links`)}</span></div>
     <div class="gchips">${GGROUPS.map(([g, n]) => { const k = Object.entries(GT).filter(([, x]) => x.g === g).reduce((a, [t]) => a + (c[t] || 0), 0);
       return `<button class="gchip ${G.off.has(g) ? "" : "on"}" data-gg="${g}"><i style="background:${Object.values(GT).find((x) => x.g === g).c()}"></i>${n}<em>${k}</em></button>`; }).join("")}</div>
@@ -97,7 +101,7 @@ function pick(px, py) {
 }
 function neighbours(id) { const s = new Set([id]); for (const e of G.edges) { if (e.source.id === id) s.add(e.target.id); if (e.target.id === id) s.add(e.source.id); } return s; }
 function drawGraph() {
-  if (G.mode === "tree") { drawWorld(); return; }
+  if (G.mode !== "net") { if (G.mode === "tree") drawWorld(); return; }
   const cv = $("#gcv"); if (!cv || !G.t) return;
   const ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1, W = cv.width / dpr, H = cv.height / dpr;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
@@ -161,7 +165,7 @@ async function clickNode(n) {
   G.sel = n ? n.id : null; drawSide(); drawGraph();
 }
 function drawSide() {
-  if (G.mode === "tree") { drawWorldSide(); return; }
+  if (G.mode !== "net") { drawWorldSide(); return; }
   const box = $("#gside"), n = G.nodes.find((x) => x.id === G.sel);
   if (!n) { box.hidden = true; return; }
   box.hidden = false;
@@ -195,7 +199,8 @@ document.addEventListener("click", async (e) => {
   const t = e.target.closest("[data-gg], [data-gdays], [data-gclose], [data-gopen], [data-glink], [data-gfocus], [data-gunlink], [data-gcancel], [data-gmode]"); if (!t) return;
   e.preventDefault();
   if (t.dataset.gmode) { if (G.mode === t.dataset.gmode) return; G.mode = t.dataset.gmode; G.sel = null; G.hover = null; G.sim?.stop();
-    if (G.mode === "tree") await loadWorld(); else await loadGraph(); return; }
+    try { localStorage.setItem("pga_world_mode", G.mode); } catch {} graphSurface();
+    if (G.mode !== "net") await loadWorld(); else await loadGraph(); return; }
   if (t.dataset.gg) { const g = t.dataset.gg; G.off.has(g) ? G.off.delete(g) : G.off.add(g); drawBar(); drawGraph(); }
   else if (t.dataset.gdays) { G.days = Number(t.dataset.gdays); await loadGraph(); }
   else if (t.dataset.gclose) { G.sel = null; drawSide(); drawGraph(); }

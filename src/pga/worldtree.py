@@ -256,13 +256,14 @@ class WorldTree:
 
     def _leaf_data(self, x: dict) -> dict:
         return {"type": x["kind"], "agent": x["agent"], "project": x["project"], "excerpt": x["excerpt"], "line": x["line"],
-                "first": x["first"], "last": x["last"], "turns": x["turns"], "open": x["ref"]}
+                "first": x["first"], "last": x["last"], "turns": x["turns"], "open": x["ref"],
+                "who": "agent" if x["kind"] == "tree" else "me"}       # a motivation's own thinking vs a conversation you were in
 
     def _put(self, user: User, parent: WorldNode, x: dict) -> WorldNode:
         n = self.s.scalar(select(WorldNode).where(WorldNode.user_id == user.id, WorldNode.ref == x["key"]))
         kind = "aim" if x["kind"] == "aim" else "leaf"
         if n is None:
-            n = self._add(user, parent, kind, x["title"], ref=x["key"], data=self._leaf_data(x))
+            n = self._add(user, parent, kind, x["title"], ref=x["key"], data={**self._leaf_data(x), **({"gist": x["gist"]} if x.get("gist") else {})})
         else:
             n.parent_id, n.depth, n.title, n.data, n.updated_at = parent.id, parent.depth + 1, _clean(x["title"], 200) or n.title, {**(n.data or {}), **self._leaf_data(x)}, utcnow()
         self._stale(parent)
@@ -280,15 +281,21 @@ class WorldTree:
         rows = "\n".join(f"i{i} | {(x['first'] or '')[:10]} | {x['kind']} | {_clean(x['line_title'], 40) or '-'} | {_clean(x['title'], 80)} | {_clean(x['excerpt'], 140)}"
                          for i, x in enumerate(part))
         system = ("You place a person's conversations into their tree of topics. For each item, give the code of the deepest "
-                  "topic it clearly belongs to (a broader topic when unsure). "
+                  "topic it clearly belongs to (a broader topic when unsure), and a gist: one short line (at most 25 Chinese "
+                  "characters or 15 English words, the conversation's language) saying what the conversation is about and "
+                  "where it got to. "
                   + ("If a group of items clearly needs a topic that does not exist, open one under the closest topic: "
                      "\"new\": [{\"under\": \"<code>\", \"title\": \"...\", \"items\": [\"i3\"]}] (short title, the conversations' language). "
                      if allow_new else "")
-                  + "Reply with JSON only: {\"assign\": {\"i0\": \"1.2\", \"i1\": \"3\"}" + (", \"new\": []" if allow_new else "") + "}.")
+                  + "Reply with JSON only: {\"assign\": {\"i0\": \"1.2\", \"i1\": \"3\"}, \"gist\": {\"i0\": \"...\", \"i1\": \"...\"}" + (", \"new\": []" if allow_new else "") + "}.")
         prompt = "Topics:\n" + self._path_list(paths, summaries=allow_new) + "\n\n" + fence(
             "conversations", "item | date | kind | line | title | excerpt\n" + rows, 40000, kind="titles and excerpts of the person's conversations")
         d = self._ask(user, system, prompt, f"placing {len(part)} conversations in the world tree", 2500, now)
         placed = 0
+        gists = d.get("gist") if isinstance(d.get("gist"), dict) else {}
+        for k, x in names.items():
+            if isinstance(gists.get(k), str) and gists[k].strip():
+                x["gist"] = _clean(gists[k], 80)
         for g in (d.get("new") or []) if allow_new else []:
             under = paths.get(str(g.get("under") or ""))
             if under is None or not str(g.get("title") or "").strip():
@@ -356,12 +363,77 @@ class WorldTree:
         for b in range(0, min(len(todo), limit), BATCH):
             placed += self._assign(user, todo[b:b + BATCH], self._paths(user), now, allow_new=True)
         self.s.flush()
-        return {"placed": placed + quick, "by_line": quick, "left": max(0, len(todo) - limit)}
+        noted = self.annotate(user, now, limit=60)
+        return {"placed": placed + quick, "by_line": quick, "left": max(0, len(todo) - limit), "annotated": noted}
+
+    def annotate(self, user: User, now: datetime | None = None, limit: int = 60) -> int:
+        """标注: a one-line gist on each conversation that has none (what it is about, where it got to)."""
+        now = now or utcnow()
+        ls = [n for n in self.nodes(user.id) if n.kind == "leaf" and not (n.data or {}).get("gist") and not (n.data or {}).get("hidden")]
+        ls.sort(key=lambda n: (n.data or {}).get("last") or "", reverse=True)
+        done = 0
+        for b in range(0, min(len(ls), limit), BATCH):
+            part = ls[b:b + BATCH]
+            rows = "\n".join(f"i{i} | {_clean(n.title, 80)} | {_clean((n.data or {}).get('excerpt', ''), 200)}" for i, n in enumerate(part))
+            d = self._ask(user, "For each conversation write a gist: one short line (at most 25 Chinese characters or 15 English words, "
+                                "the conversation's language) on what it is about and where it got to. Reply with JSON only: {\"i0\": \"...\"}.",
+                          fence("conversations", "item | title | excerpt\n" + rows, 30000, kind="titles and excerpts of the person's conversations"),
+                          f"writing the gist of {len(part)} conversations", 2000, now)
+            for i, n in enumerate(part):
+                g = d.get(f"i{i}")
+                if isinstance(g, str) and g.strip():
+                    n.data = {**(n.data or {}), "gist": _clean(g, 80)}
+                    done += 1
+            self.s.flush()
+        return done
+
+    # -------------------------------------------------------------- your hands on it (增删改查)
+    def add_topic(self, user: User, parent: WorldNode, title: str, summary: str = "") -> WorldNode:
+        n = self._add(user, parent, "topic", title, summary=summary.strip()[:1200], data={"manual": True, **({"manual_summary": True} if summary.strip() else {})})
+        self._stale(parent)
+        return n
+
+    def remove(self, user: User, n: WorldNode) -> dict:
+        """A topic goes, its parts move up to its parent; a conversation leaves the tree (it stays in 所有对话)."""
+        if n.kind == "root":
+            raise ValueError("the root stays")
+        parent = self.s.get(WorldNode, n.parent_id) if n.parent_id else self.root(user)
+        if n.kind == "leaf":
+            n.data = {**(n.data or {}), "hidden": True}
+            self._stale(parent)
+            self.s.flush()
+            return {"hidden": str(n.id)}
+        kids = self.children(n)
+        for c in kids:
+            self.move(user, c, parent)
+        self.s.delete(n)
+        self._stale(parent)
+        self.s.flush()
+        return {"removed": str(n.id), "moved_up": len(kids)}
+
+    def edit(self, user: User, n: WorldNode, *, title: str | None = None, summary: str | None = None, gist: str | None = None) -> WorldNode:
+        if title and title.strip():
+            n.title = title.strip()[:200]
+        if summary is not None:                              # your own words: summaries written later leave it alone
+            n.summary = summary.strip()[:2000]
+            n.data = {**(n.data or {}), "manual_summary": bool(summary.strip())}
+        if gist is not None:
+            n.data = {**(n.data or {}), "gist": gist.strip()[:120], "manual_gist": True}
+        n.updated_at = utcnow()
+        self.s.flush()
+        return n
+
+    def search(self, user: User, q: str, k: int = 30) -> list[WorldNode]:
+        from pga.kg.search import bm25
+        ns = {str(n.id): n for n in self.nodes(user.id) if not (n.data or {}).get("hidden")}
+        ids = bm25({i: f"{n.title} {n.summary} {(n.data or {}).get('gist', '')}" for i, n in ns.items()}, q, k=k)
+        return [ns[i] for i in ids]
 
     # -------------------------------------------------------------- summaries, deepest first (RAPTOR)
     def refresh(self, user: User, now: datetime | None = None, limit: int = 40) -> dict:
         now = now or utcnow()
-        topics = [n for n in self.nodes(user.id) if n.kind in ("topic", "root") and ((n.data or {}).get("stale") or not n.summary)]
+        topics = [n for n in self.nodes(user.id) if n.kind in ("topic", "root") and ((n.data or {}).get("stale") or not n.summary)
+                  and not (n.data or {}).get("manual_summary")]
         topics.sort(key=lambda n: -n.depth)
         done = 0
         while topics and done < limit:
@@ -506,7 +578,9 @@ class WorldTree:
                            "title": n.title, "summary": n.summary, "ref": n.ref, "stale": bool((n.data or {}).get("stale")),
                            "count": (n.data or {}).get("count"), "agent": (n.data or {}).get("agent"), "last": (n.data or {}).get("last"),
                            "turns": (n.data or {}).get("turns"), "open": (n.data or {}).get("open"), "type": (n.data or {}).get("type"),
-                           "excerpt": _clean((n.data or {}).get("excerpt", ""), 200) if n.kind == "leaf" else None}
+                           "excerpt": _clean((n.data or {}).get("excerpt", ""), 200) if n.kind == "leaf" else None,
+                           "gist": (n.data or {}).get("gist"), "who": (n.data or {}).get("who") or ("agent" if (n.data or {}).get("type") == "tree" else "me"),
+                           "hidden": bool((n.data or {}).get("hidden")), "manual": bool((n.data or {}).get("manual") or (n.data or {}).get("manual_summary"))}
                           for n in ns]}
 
 
