@@ -523,6 +523,21 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"id": str(n.id), "ref": n.ref, "title": n.title, "questions": qs, "segments": segs,
                 "context": sg.context(rt, u, n.ref) if split else None}
 
+    @app.get("/v1/users/{user_id}/chats/{key}/context")
+    def chat_context(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
+        """One conversation's data tree, and its segments when it is in the world tree (worked out once and kept)."""
+        from pga import segments as sg
+        from pga.worldtree import WorldTree
+        u = user_or_404(rt, user_id)
+        leaf = WorldTree(rt).leaf_of(u, key)
+        qs = sg.questions(rt, u, key)
+        segs = []
+        if leaf is not None:
+            with rt.billing(user_ctx(u)):
+                segs = sg.segments(rt, u, leaf, qs)
+            rt.session.commit()
+        return {"key": key, "leaf": str(leaf.id) if leaf else None, "questions": qs, "segments": segs, "context": sg.context(rt, u, key)}
+
     @app.get("/v1/users/{user_id}/inputs-index")
     def inputs_index_get(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
         from pga import segments as sg

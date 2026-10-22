@@ -44,21 +44,12 @@ async function w3Build() {
     el.addEventListener("pointerleave", () => { W3.hover = null; tip(null); });
     el.addEventListener("click", (e) => { if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return; const n = hit(e);
       if (!n) { G.sel = null; drawWorldSide(); return; }
-      if (typeof wtEnter === "function") { wtEnter(n, w3Screen(n)); return; }                    // into its branch, laid out level
-      G.sel = n.id; drawWorldSide(); w3FlyTo(n); });
-    el.addEventListener("contextmenu", (e) => { const n = hit(e); if (!n) return; e.preventDefault(); G.sel = n.id; drawWorldSide(); w3FlyTo(n); });   // right-click: select it (the side panel), the centre it turns round
-    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n && typeof wtEnter === "function") wtEnter(n, w3Screen(n)); });   // a conversation: double-click opens it
+      G.sel = n.id; drawWorldSide(); w3FlyTo(n); });                    // what you click becomes the centre it turns round
+    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n?.kind === "leaf") openLeaf(n); });   // a conversation: double-click opens it   // a conversation: double-click opens it
     new ResizeObserver(() => w3Size()).observe(box);
   }
   w3Scene(); w3Size();
   if (!W3.raf) W3.raf = requestAnimationFrame(w3Frame);
-}
-function w3Screen(n) {                           // where a node is on screen, and the angle of the branch from its parent to it
-  const box = $("#g3d"), p = W3.L?.pos.get(n.id); if (!box || !p) return null;
-  const r = box.getBoundingClientRect(), v = p.clone().project(W3.cam), x = (v.x * .5 + .5) * r.width, y = (-v.y * .5 + .5) * r.height;
-  const pp = n.parent && W3.L.pos.get(n.parent); let angle = 0;
-  if (pp) { const u = pp.clone().project(W3.cam); angle = Math.atan2(y - (-u.y * .5 + .5) * r.height, x - (u.x * .5 + .5) * r.width) * 180 / Math.PI; }
-  return { x: x + r.left, y: y + r.top, angle };
 }
 function w3Size() { const box = $("#g3d"); if (!box || !W3.ren) return; const w = box.clientWidth, h = box.clientHeight; if (!w || !h) return; W3.ren.setSize(w, h); W3.cam.aspect = w / h; W3.cam.updateProjectionMatrix(); }
 
