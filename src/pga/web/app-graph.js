@@ -89,6 +89,7 @@ function initCanvas() {
     cv.addEventListener("mouseleave", () => { G.hover = null; tip(null); drawGraph(); });
     cv.addEventListener("click", (e) => { const n = pickAny(e.offsetX, e.offsetY); if (G.mode === "tree") worldClick(n); else clickNode(n); });
     cv.addEventListener("dblclick", (e) => { const n = pickAny(e.offsetX, e.offsetY); if (!n) return; if (G.mode === "tree") worldDbl(n); else openNode(n); });
+    cv.addEventListener("contextmenu", (e) => { if (G.mode !== "tree") return; const n = pickAny(e.offsetX, e.offsetY); if (!n) return; e.preventDefault(); worldClick(n, true); });   // right-click: select it, its side panel
     new ResizeObserver(() => { if (S.view === "graph") { const w = cv.clientWidth, h = cv.clientHeight; cv.width = w * dpr; cv.height = h * dpr; drawGraph(); } }).observe(cv);
     (function pulse() { if (S.view === "graph" && G.mode === "net" && G.nodes.some((n) => n.new)) drawGraph(); requestAnimationFrame(() => setTimeout(pulse, 60)); })();
   }

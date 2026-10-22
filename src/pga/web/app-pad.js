@@ -61,7 +61,7 @@ function padMount() {
   if (document.documentElement.classList.contains("embed") || $("#pad")) return;
   const app = $(".app");
   app.insertAdjacentHTML("afterbegin", `<aside class="pad" id="pad"><i class="padgrip" id="padGrip"></i>
-    <div class="padh"><button class="ghost padrail" id="padRail" title="${L("对话列表和导航（⌘⇧S）", "Conversations and navigation (⌘⇧S)")}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><b>${L("笔记", "Notepad")}</b><span class="padst" id="padSt"></span><button class="ghost padfold" id="padFold" title="${L("收起 / 展开笔记", "Fold / unfold the notepad")}">«</button></div>
+    <div class="padh"><button class="ghost padrail" id="padRail" title="${L("对话列表和导航（⌘⇧S）", "Conversations and navigation (⌘⇧S)")}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><span class="padnav seg"><button data-view="chats" title="${L("按时间排的所有对话", "Every conversation, by time")}">${L("对话", "Chats")}</button><button data-view="graph" title="${L("按主题组织的世界树", "The world tree, by topic")}">${L("世界树", "World tree")}</button></span><b>${L("笔记", "Notepad")}</b><span class="padst" id="padSt"></span><button class="ghost padfold" id="padFold" title="${L("收起 / 展开笔记", "Fold / unfold the notepad")}">«</button></div>
     <div class="pade"><div class="padbg" id="padBg" aria-hidden="true"></div><textarea id="padText" spellcheck="false" placeholder="${L("随手写。空一行就是一个新想法。\n\n写完一段，按 ⌘↵ 或下面的按钮交给 agent，回答和它做的事出现在左边的画布上。\n\n这一页原样保存成一个文件，PGA 不会改它。", "Write freely. A blank line starts a new idea.\n\nWhen one is ready, ⌘↵ or the button below hands it to an agent; its answer and what it did appear on the canvas on the left.\n\nThis page is kept verbatim as a file; PGA never changes it.")}"></textarea></div>
     <div class="padf"><select id="padAgent"></select><button class="sm primary" id="padSend" title="${L("把光标所在的这个想法交给 agent（⌘↵）", "Hand the idea under the cursor to an agent (⌘↵)")}">${L("交给 agent", "Hand to agent")} ▸</button><button class="sm ghost" id="padAll" title="${L("每个还没交出的想法各交给一个 agent，同时做", "Each idea not yet handed out goes to its own agent, at the same time")}">${L("没交出的都交出去", "Hand out the rest")}</button></div>
     <div class="padl" id="padList"></div></aside>`);
@@ -117,14 +117,14 @@ async function padSend(idx) {
   if (was && padState(was) !== "gone") { await padLocate(was); if (padState(was) === "stale") cook(was.node, { force: true }); else toast(L("这个想法已经交出去了：在画布上看它的回答", "Already handed out: its answer is on the canvas")); return; }
   if (S.view !== "canvas") show("canvas");
   await CV.ready; if (!CV.data) return;
-  const lane = CV.data.nodes.filter((n) => n.pad), x = Math.min(-680, ...CV.data.nodes.filter((n) => !n.pad).map((n) => n.x - 680));
-  const y = lane.length ? Math.max(...lane.map((n) => n.y)) + 230 : Math.min(-80, ...CV.data.nodes.map((n) => n.y));
+  const lane = CV.data.nodes.filter((n) => n.pad), x = 40;
+  const y = Math.min(0, ...CV.data.nodes.filter((n) => !n.eph).map((n) => n.y)) - 260;        // laid out as a row of this level right after
   const title = p.text.replace(/\s+/g, " ").slice(0, 24);
   const inp = addNode("input", { x: lane[0]?.x ?? x, y }, { title, text: p.text, pad: true, autoTitle: true });
   const ch = addNode("chat", { x: (lane[0]?.x ?? x) + 330, y }, { agent: PAD.agent, title, pad: true });
   link(inp.id, ch.id);
   const s = { id: nid(), text: p.text, board: CV.world, input: inp.id, node: ch.id, agent: PAD.agent, at: new Date().toISOString(), st: "run" };
-  PAD.sent.push(s); padSaveSent(); padPaint(); cvRender(); cvSave();
+  PAD.sent.push(s); padSaveSent(); padPaint(); if (typeof branchLayout === "function") branchLayout(); cvRender(); cvSave();
   cvFocus(ch.id);
   await cook(ch.id); padSync(); cvFocus(ch.id);
 }

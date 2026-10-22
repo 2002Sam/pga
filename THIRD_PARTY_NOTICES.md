@@ -29,7 +29,14 @@ and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), ea
 MIT License, Copyright (c) 2020 Jero Soler — full text in `third_party/drawflow/LICENSE`. `src/pga/web/app-canvas.js`
 contains its `createCurvature` (the wire's Bézier curve, default case only), marked in place.
 
+## Paperclip (paperclipai/paperclip)
+
+MIT License, Copyright (c) 2025 Paperclip AI. The full text is in `third_party/paperclip/LICENSE`.
+`src/pga/web/app-watchdog.js` adapts Paperclip's task watchdog: its default mandate, the stop fingerprint and the
+review-once rule. The file is marked with what PGA changed. See `notes/paperclip.md` for what else maps onto PGA.
+
 ## Designs followed without copying code
+
 
 
 - LLM Council (karpathy/llm-council, no licence published) — the blind review and chairman flow in `src/pga/agents/council.py` is reimplemented.

@@ -673,3 +673,10 @@ html.embed .pad { display: none; }
 .cvdraw[hidden], .cvtree[hidden], .cvbox[hidden] { display: none !important; }
 .cvo { max-height: 160px; } .k-board .cvo { max-height: 7.8em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .padh b { flex: none; white-space: nowrap; }
+.k-watch { --kc: #f08fb0; } .cvedge.k-watch { stroke: color-mix(in srgb, #f08fb0 70%, transparent); }
+.cvwl { display: grid; gap: 3px; max-height: 180px; overflow: auto; } .cvwi { display: flex; gap: 6px; font-size: 12px; align-items: baseline; } .cvwi b { width: 12px; flex: none; color: var(--dim); }
+.cvwi.done b { color: var(--green); } .cvwi.redo b { color: #e9b35f; } .cvwi.blocked b { color: var(--bad); } .cvwi em { color: var(--muted); font-style: normal; }
+.padnav { display: inline-flex; flex: none; } .padnav button { padding: 3px 9px; font-size: 12px; } .padnav button.on { background: var(--accent-soft); color: var(--text); }
+.app.padmin .padnav { display: none; }
+.cvwrap { flex-wrap: wrap; } .cvmenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
+#vCanvas, #vGraph { will-change: transform, opacity; }

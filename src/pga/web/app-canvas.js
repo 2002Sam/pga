@@ -27,7 +27,7 @@ const CV = { board: null, data: null, rev: 0, view: { x: 0, y: 0, z: 1 }, sel: n
   tree: (() => { try { return localStorage.getItem("pga_cv_tree") === "1"; } catch { return false; } })(),
   world: Q.get("b") || (() => { try { return localStorage.getItem("pga_cv_world") || "top"; } catch { return "top"; } })() };
 const KIND = {
-  input: ["输入", "Input"], dispatch: ["指派", "Assign"], chat: ["对话", "Conversation"], output: ["输出", "Output"],
+  input: ["输入", "Input"], dispatch: ["指派", "Assign"], chat: ["对话", "Conversation"], output: ["输出", "Output"], watch: ["验收", "Watchdog"],
   note: ["笔记", "Note"], skill: ["技能", "Skill"], image: ["图片", "Picture"], board: ["子画布", "Sub-board"], group: ["分组", "Group"] };
 const SOURCES = new Set(["input", "note", "skill", "image", "board", "group"]);       // nothing to cook: what they say is what they hold
 const PIN_Y = 19;
@@ -98,7 +98,8 @@ async function cvLoad(world, focus) {
     }
     if (typeof padApply === "function" && padApply(b.world)) changed = true;
     cvRender(true);
-    if ((CV.data.laid | 0) < 3) { relayout(); CV.data.laid = 3; changed = true; }
+    if (typeof branchLayout === "function") { await wtFetch(); branchLayout(); }     // the board as a level branch of the world tree
+    else if ((CV.data.laid | 0) < 3) { relayout(); CV.data.laid = 3; changed = true; }
     if (CV.peek && !cvNode(CV.peek)) peekClose(true);                  // the conversation open on the right was on another board
     CV.want = null;
     if (!focus && world !== b.world) focus = world;                       // a conversation was asked for: its topic's board, at its row
@@ -112,7 +113,8 @@ function cvSave(now) {
   clearTimeout(CV.saveT);
   const go = async () => {
     if (!CV.board) return; CV.data.view = { ...CV.view };
-    try { const r = await api(`/v1/users/${S.uid}/canvas/${CV.board.id}`, { method: "PUT", body: { data: CV.data, rev: CV.rev } }); CV.rev = r.rev; cvStatus(L("已保存", "Saved")); }
+    const data = { ...CV.data, nodes: CV.data.nodes.filter((n) => !n.eph), edges: CV.data.edges.filter((e) => !e.eph) };     // the branch around the board is drawn, not kept
+    try { const r = await api(`/v1/users/${S.uid}/canvas/${CV.board.id}`, { method: "PUT", body: { data, rev: CV.rev } }); CV.rev = r.rev; cvStatus(L("已保存", "Saved")); }
     catch (err) { if (/another window|409/.test(err.message)) { toast(L("这块画布在另一个窗口里改过了，已重新载入", "This board changed in another window; reloaded")); cvLoad(CV.world); } else cvStatus(err.message); }
   };
   if (now) return go(); CV.saveT = setTimeout(go, 700);
@@ -225,6 +227,7 @@ function nodeHtml(n) {
   else if (n.kind === "output") body = `<textarea class="cvt" data-f="text" rows="1" placeholder="${L("汇总成什么（可空）", "Merge into what (optional)")}">${esc(n.text || "")}</textarea>${out ? `<div class="cvo ${n.open ? "open" : ""}">${md(out)}</div>` : `<div class="cvdim">${L("把连进来的各分支合成一个回答", "Merges the branches wired in into one answer")}</div>`}${n.err ? `<div class="cverr">${esc(n.err)}</div>` : ""}`;
   else if (n.kind === "skill") body = `<div class="cvdim">${esc(n.text || "")}</div><div class="cvsrc">${esc(n.source || "")}${n.category ? " · " + esc(n.category) : ""}</div>`;
   else if (n.kind === "image") body = `<img class="cvimg" src="/v1/users/${S.uid}/canvas-image?path=${encodeURIComponent(n.path)}" alt="">`;
+  else if (n.kind === "watch") body = watchBody(n);
   else if (n.kind === "board") body = `${n.out ? `<div class="cvo">${esc(n.out)}</div>` : ""}<div class="cvrow"><button class="sm" data-cva="enter">${L("进入", "Enter")} ›</button>${n.count ? `<span class="cvdim">${L(`${n.count} 段对话`, `${n.count} conversations`)}</span>` : ""}${n.plan ? `<span class="pill">${L("计划", "plan")}</span>` : ""}</div>`;
   const tag = n.kind === "chat" && n.who === "agent" ? `<span class="cvtag">agent</span>` : "";
   return `<div class="cvh"><i class="pin in" data-pin="in"></i><span class="cvk">${kname(n.kind)}</span><span class="cvti" title="${esc(n.title || "")}">${esc(n.title || kname(n.kind))}</span>${tag}
@@ -271,7 +274,7 @@ function cvBar() {
       <button class="sm ghost" data-cvt="fit" title="${L("看全整块画布（F）", "Frame the board (F)")}">⤢</button>
       <button class="sm ghost" data-cvt="undo" ${CV.undo.length ? "" : "disabled"} title="${L("撤销（⌘Z）", "Undo (⌘Z)")}">↶</button>
       <button class="sm ghost" data-cvt="export" title="${L("导出成 .canvas（JSON Canvas，Obsidian 能打开）", "Export as .canvas (JSON Canvas, opens in Obsidian)")}">⇩</button>
-      <button class="sm ghost ${CV.tree ? "on2" : ""}" data-cvt="tree" title="${L("世界树", "World tree")}">${L("世界树", "Tree")}</button>
+      <button class="sm" data-cvt="back" title="${L("回到整棵世界树", "Back to the whole world tree")}">← ${L("世界树", "World tree")}</button>
       ${running ? `<span class="cvdim"><span class="spin"></span> ${L(`${running} 个在跑`, `${running} running`)}</span>` : ""}<span class="cvdim" id="cvSt"></span></div>`;
 }
 function cvTree() {
@@ -381,6 +384,7 @@ async function cook(id, opts = {}) {
       if (n.kind === "chat") await cookChat(n);
       else if (n.kind === "dispatch") await cookDispatch(n, opts);
       else if (n.kind === "output") await cookOutput(n);
+      else if (n.kind === "watch") await cookWatch(n);
       n.cin = sig;
       if (isRef(n)) n.cin = inSig(n);                                     // its question now reads what it was asked
     } catch (err) { n.err = err.message; }
@@ -538,7 +542,7 @@ function palItems() {
   const q = (CV.pal?.q || "").toLowerCase(), hit = (...xs) => !q || xs.some((x) => String(x || "").toLowerCase().includes(q));
   const fresh = Date.now() / 1000 - 14 * 86400, out = [];
   const add = (sec, label, sub, make) => out.push({ sec, label, sub, make });
-  for (const k of ["input", "dispatch", "chat", "output", "note", "group"]) if (hit(kname(k), k, k === "group" ? "包含 框 子图" : "")) add(L("基本", "Basics"), kname(k), { input: L("一段要做的事", "Something to do"), dispatch: L("拆成几件同时做", "Split into things to do at once"), chat: L("问一个 agent", "Ask an agent"), output: L("合成一个回答", "Merge into one answer"), note: L("给连到的节点看的笔记", "A note for whatever it is wired to"), group: L("一个框：框住的节点一起移动、一起运行，可以折叠成一个节点", "A frame: what is inside moves and runs together, and folds into one node") }[k], (at) => k === "group" ? makeGroup(null, at) : addNode(k, at));
+  for (const k of ["input", "dispatch", "chat", "output", "watch", "note", "group"]) if (hit(kname(k), k, k === "group" ? "包含 框 子图" : k === "watch" ? "看门狗 检查 审核" : "")) add(L("基本", "Basics"), kname(k), { input: L("一段要做的事", "Something to do"), dispatch: L("拆成几件同时做", "Split into things to do at once"), chat: L("问一个 agent", "Ask an agent"), output: L("合成一个回答", "Merge into one answer"), watch: L("连进来的都停下后，派一个 agent 核对它们是否真的做完；没做完就让它接着做", "Once everything wired in has stopped, an agent checks it is really done, and sends back what is not"), note: L("给连到的节点看的笔记", "A note for whatever it is wired to"), group: L("一个框：框住的节点一起移动、一起运行，可以折叠成一个节点", "A frame: what is inside moves and runs together, and folds into one node") }[k], (at) => k === "group" ? makeGroup(null, at) : addNode(k, at, k === "watch" ? { agent: "auto", auto: true, rounds: 0, max: 3 } : {}));
   for (const a of S.agents) if (hit(a.name, "agent")) add("Agent", L(`对话 · ${a.name}`, `Ask · ${a.name}`), S.acctOf?.[a.name] || "", (at) => addNode("chat", at, { agent: a.name, title: a.name }));
   for (const s of CV.palette?.skills || []) if (hit(s.name, s.description, s.category, s.source)) add(L("技能", "Skills"), s.name, `${s.source === "hermes" ? "Hermes" : "Claude Code"}${s.category ? " · " + s.category : ""}${s.mtime > fresh ? " · " + L("新", "new") : ""} — ${s.description}`, async (at) => {
     let t = ""; try { t = (await api(`/v1/users/${S.uid}/canvas-skill?path=${encodeURIComponent(s.path)}`)).text; } catch {}
@@ -614,8 +618,8 @@ function peek(n, quiet) {                         // the conversation, docked on
     if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
     f.src = "/?" + q; f.dataset.key = n.key;
   }
-  requestAnimationFrame(() => { const el = document.querySelector(`[data-nid="${n.id}"]`), m = $("#cv").getBoundingClientRect();
-    if (el) { const r = el.getBoundingClientRect(); if (r.right > m.right - 20 || r.left < m.left) { CV.view.x += (m.left + m.width / 2) - (r.left + r.width / 2); animView(); } } });
+  setTimeout(() => { const el = document.querySelector(`[data-nid="${n.id}"]`), m = $("#cv").getBoundingClientRect();      // the canvas just got narrower: keep the node in sight
+    if (el) { const r = el.getBoundingClientRect(); if (r.right > m.right - 10 || r.left < m.left || r.top > m.bottom - 40 || r.bottom < m.top + 60) cvFocus(n.id); } }, 60);
 }
 function peekClose(skipSync) {
   if (!skipSync) syncFromChat(cvNode(CV.peek));
@@ -798,6 +802,7 @@ document.addEventListener("click", async (e) => {
   else if (k === "add") { const r = t.getBoundingClientRect(); const c = $("#cv").getBoundingClientRect(); palette(r.left, r.bottom + 6, toWorld(c.left + c.width / 2, c.top + c.height / 2)); }
   else if (k === "fit") cvFit();
   else if (k === "undo") undo(true);
+  else if (k === "back") wtLeave();
   else if (k === "tree") { CV.tree = !CV.tree; try { localStorage.setItem("pga_cv_tree", CV.tree ? "1" : "0"); } catch {} cvTree(); cvBar(); }
   else if (k === "export") cvExport();
 });
@@ -816,5 +821,6 @@ show = function (view, opts) {
   $("#vCanvas").hidden = true; return _showCv(view, opts);
 };
 const _renderRailCv = renderRail;
-renderRail = function () { _renderRailCv(); $("#toCanvas")?.classList.toggle("on", S.view === "canvas"); };
+renderRail = function () { _renderRailCv(); $("#toGraph")?.classList.toggle("on", S.view === "graph" || S.view === "canvas");
+  document.querySelectorAll(".padnav [data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === S.view || (b.dataset.view === "graph" && S.view === "canvas"))); };
 window.addEventListener("pga:look", () => { if (S.view === "canvas") cvRender(true); });

@@ -190,9 +190,14 @@ async function openLeaf(n) {
 }
 const _drawSideW = drawWorldSide;
 drawWorldSide = function () { _drawSideW(); const n = W.byId.get(G.sel); if (n && G.mode !== "net" && n.kind !== "leaf") loadFacts(n); };
-function worldClick(n) {
+function worldClick(n, select) {
   if (!n) { G.sel = null; drawWorldSide(); drawWorld(); return; }
-  if (n.kind === "leaf") { openLeaf(n); return; }                 // a conversation: straight into it
+  if (!select && typeof wtEnter === "function") {                   // into its branch, laid out level
+    const cv = $("#gcv"), r = cv.getBoundingClientRect(), [x, y] = G.t.apply([n.x, n.y]), p = n.parent && W.byId.get(n.parent);
+    let angle = 0; if (p && p.x != null) { const [px, py] = G.t.apply([p.x, p.y]); angle = Math.atan2(y - py, x - px) * 180 / Math.PI; }
+    wtEnter(n, { x: r.left + x, y: r.top + y, angle }); return;
+  }
+  if (n.kind === "leaf" && !select) { openLeaf(n); return; }
   G.sel = n.id; drawWorldSide(); drawWorld();
   const cv = $("#gcv"), room = cv.clientWidth - 380, k = Math.min(4, Math.max(G.t.k * 1.5, n.kind === "root" ? 0.6 : 1.2));   // zoom into it, clear of the side panel
   d3.select(cv).transition().duration(550).call(G.zoom.transform, d3.zoomIdentity.translate(room / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
