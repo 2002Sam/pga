@@ -47,7 +47,7 @@ async function w3Build() {
       if (typeof wtEnter === "function") { wtEnter(n, w3Screen(n)); return; }                    // into its branch, laid out level
       G.sel = n.id; drawWorldSide(); w3FlyTo(n); });
     el.addEventListener("contextmenu", (e) => { const n = hit(e); if (!n) return; e.preventDefault(); G.sel = n.id; drawWorldSide(); w3FlyTo(n); });   // right-click: select it (the side panel), the centre it turns round
-    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n && typeof cvOpen === "function") cvOpen(n.kind === "root" ? "top" : n.id); });   // double-click: into its graph   // a conversation: double-click opens it
+    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n && typeof wtEnter === "function") wtEnter(n, w3Screen(n)); });   // a conversation: double-click opens it
     new ResizeObserver(() => w3Size()).observe(box);
   }
   w3Scene(); w3Size();

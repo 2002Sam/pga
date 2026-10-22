@@ -134,7 +134,7 @@ function drawWorldBar() {
       ${factRow}
       <div class="wsw"><label class="lktog"><input type="checkbox" data-wsw="agent" ${W.showAgent ? "checked" : ""}><i></i>${L(`agent 自己的对话（${W.nodes.filter((x) => x.kind === "leaf" && x.who === "agent" && !x.hidden).length}）`, `Agents' own conversations (${W.nodes.filter((x) => x.kind === "leaf" && x.who === "agent" && !x.hidden).length})`)}</label>
         <label class="lktog"><input type="checkbox" data-wsw="gist" ${W.showGist ? "checked" : ""}><i></i>${L("显示主旨", "Show gists")}</label></div>
-      <div class="ghint dimt">${G.mode === "3d" ? L("拖动旋转、滚轮拉近 · 点任意节点：它变成旋转中心，周围高亮，右边看详情 · 双击对话进入", "Drag to turn, scroll to zoom · click any node: it becomes the centre, its surroundings light up · double-click a conversation to open it") + "</div><div hidden>" : ""}${L("点对话直接进去 · 点主题看概括、和它对话、往下长 · 双击主题收起或展开 · 橙点表示概括待更新", "Click a conversation to open it · click a topic to read it, talk to it, grow it · double-click a topic to fold it · an orange dot: summary to be refreshed")}</div>`
+      <div class="ghint dimt">${G.mode === "3d" ? L("拖动旋转、滚轮拉近 · 点任意节点：放大并把这一支拉直，增删改、分段、数据树都在那里 · 右键：选中它，看右边的详情", "Drag to turn, scroll to zoom · click a node: up close, its branch straightened, with editing, segments and the data tree · right-click: select it") + "</div><div hidden>" : ""}${L("点任意节点：放大并把这一支拉直 · 右键：选中它，看右边的详情 · 橙点表示概括待更新", "Click a node: up close, its branch straightened · right-click: select it · an orange dot: summary to be refreshed")}</div>`
       : `<div class="wempty">${L("世界树还没有生成。生成时，模型（DeepSeek）会读你所有对话的标题和开头片段，分出「进行研究 › 世界模型研究」这样的层级，再从下往上为每一层写概括；大约要调用十几次。之后每段新对话会自己挂到对应的位置。", "The world tree is not built yet. A model (DeepSeek) reads the titles and openings of all your conversations, draws levels like “Research › World models”, then summarises each level bottom-up — around a dozen calls. Afterwards every new conversation finds its own place.")}
         <div style="margin-top:10px"><button class="primary sm" data-wact="build" ${b?.state === "running" ? "disabled" : ""}>${L("生成世界树", "Build the world tree")}</button></div></div>`}
     ${prog}`;
@@ -153,7 +153,7 @@ function drawWorldSide() {
     ${n.kind === "leaf" && n.gist ? `<div class="wgist">${L("主旨：", "Gist: ")}${esc(n.gist)}</div>` : ""}
     ${n.summary ? `<div class="gs-sub md">${md(n.summary)}</div>` : n.kind === "leaf" && n.excerpt ? `<div class="gs-sub">${esc(n.excerpt)}</div>` : ""}
     <div class="gs-acts">${n.kind === "leaf" || n.kind === "aim" ? `<button class="sm primary" data-wact="open">${n.kind === "aim" ? L("打开这棵树", "Open the tree") : L("打开这段对话", "Open the conversation")}</button>` : ""}
-      ${n.kind !== "leaf" ? `<button class="sm primary" data-wact="talk" title="${L("开一段新对话，agent 读的是这一层的概括、它的各部分，以及和你问的最相关的那几段对话", "A new conversation where the agent reads this level's summary, its parts, and the conversations closest to what you ask")}">${L("和这个主题对话", "Talk to this topic")}</button>` : ""}<button class="sm primary" data-cvopen="${n.kind === "root" ? "top" : n.id}" title="${L("双击节点也可以", "Double-clicking the node does this too")}">${n.kind === "leaf" ? L("在图里看这段对话 →", "See it in the graph →") : L("进入这一层的图 →", "Into this level's graph →")}</button>
+      ${n.kind !== "leaf" ? `<button class="sm primary" data-wact="talk" title="${L("开一段新对话，agent 读的是这一层的概括、它的各部分，以及和你问的最相关的那几段对话", "A new conversation where the agent reads this level's summary, its parts, and the conversations closest to what you ask")}">${L("和这个主题对话", "Talk to this topic")}</button>` : ""}<button class="sm primary" data-wbenter="${n.id}" title="${L("单击节点也可以", "Clicking the node does this too")}">${n.kind === "leaf" ? L("展开这段对话 →", "Open it up close →") : L("放大这一支 →", "Up close →")}</button>
       ${n.kind === "topic" || n.kind === "root" || n.kind === "plan" ? `<button class="sm" data-wact="expand" title="${L("让模型提出下一层值得做的几个方向", "Let a model suggest the next level of directions")}">${L("往下长一层", "Grow a level")}</button>` : ""}
       ${n.kind !== "leaf" ? `<button class="sm ghost" data-wact="ctx">${L("agent 会读到什么", "What an agent reads")}</button>` : ""}
       ${n.kind === "topic" || n.kind === "plan" ? `<button class="sm ghost" data-wact="rename">${L("改名", "Rename")}</button>` : ""}</div>
@@ -202,8 +202,8 @@ function worldClick(n, select) {
   const cv = $("#gcv"), room = cv.clientWidth - 380, k = Math.min(4, Math.max(G.t.k * 1.5, n.kind === "root" ? 0.6 : 1.2));   // zoom into it, clear of the side panel
   d3.select(cv).transition().duration(550).call(G.zoom.transform, d3.zoomIdentity.translate(room / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
 }
-function worldDbl(n) {                           // double-click: into that level's graph on the canvas (a conversation: its row there)
-  if (typeof cvOpen === "function") cvOpen(n.kind === "root" ? "top" : n.id);
+function worldDbl(n) {                           // double-click: up close, like a click
+  if (typeof wtEnter === "function") wtEnter(n);
 }
 async function talkTo(n) {
   const key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

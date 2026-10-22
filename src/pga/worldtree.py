@@ -529,6 +529,7 @@ class WorldTree:
             if s > 0:
                 scored.append((s, x))
         scored.sort(key=lambda z: -z[0])
+        self.last_related = [x for _, x in scored[:k]]             # for the data tree: which conversations went in (pga.segments)
         if not scored:
             return fact_block
         body = "\n".join(f"- «{x.title}» ({((x.data or {}).get('last') or '')[:10]}, {(x.data or {}).get('agent') or ''}): {_clean((x.data or {}).get('excerpt', ''), 400)}"

@@ -1,13 +1,13 @@
 /* PGA app · 常驻笔记, a notepad on the left of every page that never changes under you.
 
    - Write freely; a blank line (two Enters) starts a new idea.
-   - When an idea is ready, ⌘↵ or the button hands it to an agent: it becomes an input wired to a conversation on the
-     canvas, and the answer and what the agent did appear there, on the left.
+   - When an idea is ready, ⌘↵ or the button hands it to an agent: it starts a conversation of its own, which opens in
+     the conversations page, and lands in the world tree like any other.
    - The page itself is kept verbatim as a Markdown file (pga/pad.py: notes/pad/<you>/pad.md, with earlier versions in
      history/). PGA never writes into it.
    - Ideas already handed out are marked in place.
-   - If you edit an idea after handing it out, its input on the canvas follows and the conversation turns stale; run it
-     again when you want. */
+   - Edit one after handing it out and it is marked "edited"; handing it out again asks its conversation the new
+     version. */
 
 const PAD = { text: "", rev: 0, sent: [], path: "", open: (() => { try { return localStorage.getItem("pga_pad") !== "0"; } catch { return true; } })(),
   agent: (() => { try { return localStorage.getItem("pga_pad_agent") || "auto"; } catch { return "auto"; } })(), saveT: null, loaded: false,
@@ -33,28 +33,9 @@ function padMatch() {
   }
   return { ps, of };
 }
-function padEdited(s) {                           // an idea you changed after handing it out: its input on the canvas follows
-  if (S.view !== "canvas" || CV.world !== s.board || !CV.data) { padSaveSent(); return; }
-  if (padApply(s.board)) { cvRender(); cvSave(); }
-}
-function padApply(world) {                        // called when a board loads: bring its inputs up to date with the notepad
-  let ch = false;
-  for (const s of PAD.sent.filter((x) => x.board === world && x.pending)) {
-    const n = cvNode(s.input); if (n && n.text !== s.text) { n.text = s.text; n.title = s.text.replace(/\s+/g, " ").slice(0, 24); ch = true; }
-    s.pending = false;
-  }
-  if (ch) padSaveSent();
-  return ch;
-}
-function padState(s) {
-  if (CV.world === s.board && CV.data) { const n = cvNode(s.node); if (!n) return "gone"; const st = state(n); return st === "fresh" ? "done" : st === "running" ? "run" : st === "error" ? "err" : "stale"; }
-  return s.st || "done";
-}
-function padSync() {                              // a node finished: remember how its idea went, for when its board is not open
-  let ch = false;
-  for (const s of PAD.sent) if (CV.world === s.board) { const st = padState(s); if (st !== s.st && st !== "gone") { s.st = st; ch = true; } }
-  if (ch) padSaveSent(); padPaint();
-}
+function padEdited() { padSaveSent(); }         // an idea you changed after handing it out: marked, sent again when you say
+function padState(s) { return s.pending ? "stale" : s.st || "done"; }
+function padSync() { padSaveSent(); padPaint(); }
 
 /* ------------------------------------------------ the panel */
 function padMount() {
@@ -74,7 +55,7 @@ function padMount() {
   $("#padGrip").addEventListener("pointerdown", (e) => {
     e.preventDefault(); app.classList.add("resizing");
     const mv = (ev) => { PAD.w = Math.round(Math.max(240, Math.min(innerWidth * .5, ev.clientX - app.getBoundingClientRect().left))); padLayout(); };
-    const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); app.classList.remove("resizing"); try { localStorage.setItem("pga_pad_w", PAD.w); } catch {} if (S.view === "canvas") cvRender(); };
+    const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); app.classList.remove("resizing"); try { localStorage.setItem("pga_pad_w", PAD.w); } catch {} };
     document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
   });
   const w = setInterval(() => { if (S.uid) { clearInterval(w); padLoad(); } }, 200);
@@ -114,19 +95,19 @@ async function padSend(idx) {
   const { ps, of } = padMatch(), p = idx != null ? ps[idx] : padCurrent(ps, t.selectionStart ?? 0);
   if (!p) { toast(L("先写一个想法", "Write an idea first")); return; }
   const was = of.get(ps.indexOf(p));
-  if (was && padState(was) !== "gone") { await padLocate(was); if (padState(was) === "stale") cook(was.node, { force: true }); else toast(L("这个想法已经交出去了：在画布上看它的回答", "Already handed out: its answer is on the canvas")); return; }
-  if (S.view !== "canvas") show("canvas");
-  await CV.ready; if (!CV.data) return;
-  const lane = CV.data.nodes.filter((n) => n.pad), x = 40;
-  const y = Math.min(0, ...CV.data.nodes.filter((n) => !n.eph).map((n) => n.y)) - 260;        // laid out as a row of this level right after
-  const title = p.text.replace(/\s+/g, " ").slice(0, 24);
-  const inp = addNode("input", { x: lane[0]?.x ?? x, y }, { title, text: p.text, pad: true, autoTitle: true });
-  const ch = addNode("chat", { x: (lane[0]?.x ?? x) + 330, y }, { agent: PAD.agent, title, pad: true });
-  link(inp.id, ch.id);
-  const s = { id: nid(), text: p.text, board: CV.world, input: inp.id, node: ch.id, agent: PAD.agent, at: new Date().toISOString(), st: "run" };
-  PAD.sent.push(s); padSaveSent(); padPaint(); if (typeof branchLayout === "function") branchLayout(); cvRender(); cvSave();
-  cvFocus(ch.id);
-  await cook(ch.id); padSync(); cvFocus(ch.id);
+  if (was?.key && !was.pending) { padLocate(was); toast(L("这个想法已经交出去了：这是它的对话", "Already handed out: here is its conversation")); return; }
+  const s = was?.key ? was : { id: Math.random().toString(36).slice(2, 10), key: `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, agent: PAD.agent };
+  const text = was?.key ? L(`（我改了这个想法，新的版本是：）\n${p.text}`, `(I changed this idea; the new version:)\n${p.text}`) : p.text;
+  Object.assign(s, { text: p.text, at: new Date().toISOString(), st: "run", pending: false });
+  if (!was) PAD.sent.push(s);
+  padSaveSent(); padPaint();
+  const acc = S.acc?.["*new"] || {};
+  const job = api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: s.agent || "auto", conversation: s.key, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } })
+    .then((r) => { s.st = r?.error && !r?.text ? "err" : "done"; })
+    .catch(() => { s.st = "err"; })
+    .finally(() => { padSync(); loadChats(); loadTimeline?.(); if (S.view === "chats" && S.chat === s.key) loadChat(s.key); });
+  setTimeout(() => padLocate(s), 400);        // its conversation, with the question on the page while the agent works
+  return job;
 }
 async function padSendAll() {
   const { ps, of } = padMatch(), todo = ps.map((p, i) => i).filter((i) => !of.has(i));
@@ -136,14 +117,15 @@ async function padSendAll() {
   await Promise.all(jobs);
 }
 async function padLocate(s) {
-  if (S.view !== "canvas") show("canvas");
-  if (CV.world !== s.board) await cvLoad(s.board, s.node); else { await CV.ready; cvFocus(s.node); }
+  if (!s.key) return;
+  if (S.view !== "chats") show("chats");
+  S.lineView = null; S.imp = null; S.treeItem = null; S.chat = s.key; history.replaceState(null, "", qs()); renderChat(); loadChat(s.key);
 }
 document.addEventListener("click", (e) => {
   if (e.target.closest("#padSend")) { padSend(); return; }
   if (e.target.closest("#padAll")) { padSendAll(); return; }
   if (e.target.closest("#padRail")) { setMini(!S.mini); return; }
-  if (e.target.closest("#padFold")) { PAD.open = !PAD.open; try { localStorage.setItem("pga_pad", PAD.open ? "1" : "0"); } catch {} padLayout(); if (S.view === "canvas") setTimeout(cvRender, 220); return; }
+  if (e.target.closest("#padFold")) { PAD.open = !PAD.open; try { localStorage.setItem("pga_pad", PAD.open ? "1" : "0"); } catch {} padLayout(); return; }
   const go = e.target.closest("[data-padgo]"); if (go) { padSend(Number(go.dataset.padgo)); return; }
   const it = e.target.closest("[data-padi]"); if (it) {
     const i = Number(it.dataset.padi), { ps, of } = padMatch(), s = of.get(i), t = $("#padText");

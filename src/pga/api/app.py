@@ -331,6 +331,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     # ---------------------------------------------------------------- 世界树: every conversation in one hierarchy of topics (pga.worldtree)
     WORLD_BUILD: dict[str, dict] = {}
+    INPUTS_INDEX: dict[str, dict] = {}
 
     def world_node_or_404(rt, u, node_id):
         from pga.worldtree import WorldTree
@@ -501,6 +502,59 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if n0 is None:
             raise HTTPException(404, "no such topic")
         return {"context": WorldTree(rt).context(n0, q)}
+
+    # ---------------------------------------------------------------- the finest level: segments, the data tree, every question
+    @app.get("/v1/world/{node_id}/detail")
+    def world_detail(node_id: uuid.UUID, split: bool = True, rt: Runtime = Depends(get_rt)):
+        """A conversation in the world tree, in full: your questions, the segments they fall into (worked out once and
+        kept), and its data tree (what it read, cited and did)."""
+        from pga import segments as sg
+        from pga.db.models import WorldNode
+        n = rt.session.get(WorldNode, node_id)
+        if n is None:
+            raise HTTPException(404, "no such node")
+        u = rt.session.get(User, n.user_id)
+        if n.kind != "leaf":
+            raise HTTPException(422, "only a conversation has segments")
+        qs = sg.questions(rt, u, n.ref)
+        with rt.billing(user_ctx(u)):
+            segs = sg.segments(rt, u, n, qs, use_model=split)               # split=false: only what was worked out before
+        rt.session.commit()
+        return {"id": str(n.id), "ref": n.ref, "title": n.title, "questions": qs, "segments": segs,
+                "context": sg.context(rt, u, n.ref) if split else None}
+
+    @app.get("/v1/users/{user_id}/inputs-index")
+    def inputs_index_get(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga import segments as sg
+        u = user_or_404(rt, user_id)
+        p = sg.INDEX_DIR / f"{u.id}.md"
+        return {**(INPUTS_INDEX.get(str(u.id)) or {}), "path": str(p), "exists": p.exists(),
+                "updated": datetime.fromtimestamp(p.stat().st_mtime).isoformat() if p.exists() else None}
+
+    @app.post("/v1/users/{user_id}/inputs-index", status_code=202)
+    def inputs_index_build(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Write every question you asked into one file (notes/inputs/<you>.md), by topic, conversation and segment."""
+        import threading
+        u = user_or_404(rt, user_id)
+        key = str(u.id)
+        if (INPUTS_INDEX.get(key) or {}).get("state") == "running":
+            return INPUTS_INDEX[key]
+        INPUTS_INDEX[key] = {"state": "running"}
+        sm = factory()
+
+        def run() -> None:
+            from pga import segments as sg
+            with sm() as s2:
+                try:
+                    rt2 = make_runtime(s2)
+                    INPUTS_INDEX[key] = {"state": "done", **sg.build_index(rt2, s2.get(User, u.id))}
+                    s2.commit()
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("the questions index failed")
+                    s2.rollback()
+                    INPUTS_INDEX[key] = {"state": "error", "error": str(exc)[:300]}
+        threading.Thread(target=run, daemon=True, name="pga-inputs-index").start()
+        return INPUTS_INDEX[key]
 
     # ---------------------------------------------------------------- 无限画布 (pga.canvas) and the notepad (pga.pad)
     @app.get("/v1/users/{user_id}/canvas")
@@ -2544,9 +2598,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 context = ((context or "") + "\n\n<your_instructions_for_this_conversation>\n" + sysp + "\n</your_instructions_for_this_conversation>").strip()
             from pga.worldtree import WorldTree, chat_node
             wn = (chat_node(u, ckey) if ckey else None) or (str(body.get("world")) if body.get("world") else None)
+            wt, node = WorldTree(rt), None
             if wn:
                 try:
-                    wt = WorldTree(rt)
                     node = wt.get(u, uuid.UUID(wn))
                 except ValueError:
                     node = None
@@ -2554,11 +2608,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     context = ((context or "") + "\n\n" + wt.context(node)).strip()
                     rel = wt.related(node, text)
                     tail = "\n\n".join(x for x in [tail, rel] if x) or None
+            from pga.segments import used_in_ask
+            used = used_in_ask(wt, node, getattr(wt, "last_related", []), [str(x) for x in body.get("refs") or []], rt, u)
             acc = access_for(u, ckey, body)
             if ckey and not ckey.startswith(("node:", "exchange:", "second:", "regen:", "multi:")):
                 place_soon(u.id)
             with rt.billing(user_ctx(u)):
-                return AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
+                res = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
                                            access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"], web=bool(body.get("web")),
                                            model=str(body["model"]) if body.get("model") else None,
                                            effort=str(body["effort"]) if body.get("effort") else None,
@@ -2568,6 +2624,16 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None)
+            if used and res.get("run_id"):                       # what this question was given, for the conversation's data tree
+                from pga.db.models import AgentRun
+                try:
+                    run = rt.session.get(AgentRun, uuid.UUID(res["run_id"]))
+                except ValueError:
+                    run = None
+                if run is not None:
+                    run.data = {**(run.data or {}), "context_used": used}
+                    rt.session.commit()
+            return res
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 

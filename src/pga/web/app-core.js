@@ -6,7 +6,7 @@ const Q = new URLSearchParams(location.search), AS_UID = Q.get("as");
 const LANG = Q.get("lang") || store.get("pga_lang") || "zh", EN = LANG === "en";
 PGATree.setLang(LANG); document.documentElement.lang = EN ? "en" : "zh-CN";
 const L = (zh, en) => (EN ? en : zh);
-const S = { uid: AS_UID || store.get("pga_uid"), view: Q.get("view") || (Q.get("tree") ? "tree" : "graph"), aim: Q.get("tree"), node: Q.get("node"),
+const S = { uid: AS_UID || store.get("pga_uid"), view: (Q.get("view") === "canvas" ? "graph" : Q.get("view")) || (Q.get("tree") ? "tree" : "graph"), aim: Q.get("tree"), node: Q.get("node"),
   mode: store.get("pga_tree_mode") || "thought", dir: store.get("pga_tree_dir") || "down", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
   drawer: false, search: "", seen: new Set(), agents: [], sending: false, op: null, showHidden: false, forest: null, draft: "", proc: null, live: [],
   chats: null, chat: Q.get("c"), chatTurns: {}, chatDraft: "", chatRefs: [], chatAgent: store.get("pga_chat_agent") || "auto", planting: false };
@@ -30,7 +30,6 @@ const qs = () => {
   if (S.view === "tree" && S.aim) { q.set("tree", S.aim); if (S.node) q.set("node", S.node); }
   if (S.view === "chats") { q.set("view", "chats"); if (S.chat) q.set("c", S.chat); }
   if (["notes", "looks", "graph", "home"].includes(S.view)) q.set("view", S.view);
-  if (S.view === "canvas" && typeof CV !== "undefined" && CV.world && CV.world !== "top") q.set("b", CV.world);
   if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
   const s = q.toString(); return s ? "?" + s : location.pathname;
 };
