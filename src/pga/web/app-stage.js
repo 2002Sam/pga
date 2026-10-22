@@ -50,7 +50,7 @@ function stApply() {
   if (ST.wins.some((m) => m.mode === "max")) { w.style.transform = "none"; w.style.left = x + "px"; w.style.top = y + "px"; }   // no transform: the big window must be free to fill the app
   else { w.style.left = "0px"; w.style.top = "0px"; w.style.transform = `translate(${x}px, ${y}px) scale(${z})`; }
   w.style.setProperty("--iz", (1 / z).toFixed(3));                     // dots and rails keep their size on screen
-  const s = 24 * z; g.style.backgroundSize = `${s}px ${s}px`; g.style.backgroundPosition = `${x}px ${y}px`;
+  // the ground stays where it is: only the band of windows moves over it
   const zoomed = z < .99; if ($("#vStage").classList.contains("zoomed") !== zoomed) { $("#vStage").classList.toggle("zoomed", zoomed); stBar(); }
   const vw = $("#vStage").clientWidth, left = x, right = x + ST.total * z;
   $("#vStage .slide.l").hidden = !ST.lefts?.length || left >= 0; $("#vStage .slide.r").hidden = !ST.lefts?.length || right <= vw;
@@ -82,20 +82,22 @@ function stZoomAt(sx, sy, z) {
 }
 
 /* ------------------------------------------------ the canvas: every conversation, behind the windows */
-function stCanvas() {
+function stCanvas() {                            // the other conversations, minimised, in the free space left and right of the windows
   const box = $("#stdots"); if (!box) return;
-  const items = recentItems().slice(0, 500), now = Date.now(), H = ST.H, X0 = ST.total + 260;     // now: just right of the windows
-  const groupOf = (key) => { let n = W.nodes.find((x) => x.ref === key); while (n && n.parent && W.byId.get(n.parent)?.kind !== "root") n = W.byId.get(n.parent); return n?.kind === "root" ? null : n; };
-  const groups = []; const gi = (g) => { const k = g?.id || "_"; let i = groups.findIndex((x) => x.id === k); if (i < 0) { groups.push({ id: k, title: g?.title || L("未归类", "Unsorted") }); i = groups.length - 1; } return i; };
-  const at = (days) => X0 - Math.log2(1 + days) * 320;
-  const pos = items.map((x) => ({ x, days: Math.max(0, (now - new Date(x.last || now).getTime()) / 864e5), g: gi(groupOf(x.item)) }));
-  const lane = (g) => 56 + (g % Math.max(1, groups.length)) * ((H - 112) / Math.max(1, groups.length - 1 || 1));
-  const parked = new Set(ST.wins.filter((w) => w.mode === "min").map((w) => w.key)), open = new Set(ST.wins.filter((w) => w.mode !== "min").map((w) => w.key));
-  box.innerHTML = groups.map((g, i) => `<div class="stlane" style="top:${lane(i)}px;left:${at(400)}px;width:${X0 - at(400) + 200}px"><span>${esc(g.title)}</span></div>`).join("")
-    + [0, 1, 7, 30, 120, 365].map((d) => `<div class="sttick" style="left:${at(d)}px;height:${H}px"><span>${d === 0 ? L("现在", "now") : d === 1 ? L("1 天前", "1 day") : L(`${d} 天前`, `${d} days`)}</span></div>`).join("")
-    + pos.map((d, i) => `<div class="stdot ${parked.has(d.x.item) ? "parked" : ""} ${open.has(d.x.item) ? "open" : ""}" data-stkey="${esc(d.x.item)}" style="left:${at(d.days)}px;top:${lane(d.g) + ((i * 29) % 46) - 23}px" title="${esc(d.x.title || "")}"><i></i>${parked.has(d.x.item) ? `<span>${esc((d.x.title || "").slice(0, 26))}</span>` : ""}</div>`).join("");
+  const open = new Set(ST.wins.filter((w) => w.mode !== "min").map((w) => w.key));
+  const items = recentItems().filter((x) => !open.has(x.item)).slice(0, 160);
+  const newest = Math.max(0, ...ST.wins.filter((w) => w.mode !== "min" && w.key).map((w) => new Date(stItem(w.key)?.last || 0).getTime()));
+  const right = items.filter((x) => new Date(x.last || 0).getTime() > newest).reverse(), left = items.filter((x) => new Date(x.last || 0).getTime() <= newest);
+  const CW = 170, CH = 104, G = 12, top = 52, rows = Math.max(1, Math.floor((ST.H - 2 * top + G) / (CH + G)));
+  const card = (x, i, side) => { const col = Math.floor(i / rows), row = i % rows;
+    const px = side < 0 ? -(col + 1) * (CW + G) - 24 : ST.total + 24 + col * (CW + G) + G, py = top + row * (CH + G);
+    const leaf = W.nodes.find((n) => n.ref === x.item), parked = ST.wins.some((w) => w.mode === "min" && w.key === x.item);
+    return `<div class="stcard ${parked ? "parked" : ""}" data-stkey="${esc(x.item)}" style="left:${px}px;top:${py}px;width:${CW}px;height:${CH}px" title="${esc(x.title || "")}">
+      <b>${esc((x.title || "").slice(0, 40))}</b><span>${esc((leaf?.gist || "").slice(0, 46))}</span><em>${esc(agentLabel(x.agent || ""))} · ${esc(ago(x.last))}</em></div>`; };
+  box.innerHTML = left.map((x, i) => card(x, i, -1)).join("") + right.map((x, i) => card(x, i, 1)).join("")
+    + (left.length ? `<div class="stside" style="left:${-24 - 2 * (CW + G)}px">${L("之前的对话 ←", "Earlier ←")}</div>` : "") + (right.length ? `<div class="stside" style="left:${ST.total + 36}px">${L("→ 之后的对话", "→ Later")}</div>` : "");
 }
-function stDotRect(key) { const el = document.querySelector(`.stdot[data-stkey="${CSS.escape(key)}"]`); return el ? el.getBoundingClientRect() : null; }
+function stDotRect(key) { const el = document.querySelector(`.stcard[data-stkey="${CSS.escape(key)}"]`); return el ? el.getBoundingClientRect() : null; }
 
 /* ------------------------------------------------ windows on the rails */
 function stOpen(key, opts = {}) {
@@ -142,7 +144,7 @@ function stLayout(opts = {}) {
   const keep = new Set(mids.map((w) => w.id));
   track.querySelectorAll(".stw").forEach((el) => { if (!keep.has(el.dataset.wid)) el.remove(); });
   const bw = v.clientWidth - 88, per = Math.max(1, Math.min(ST_MAX_PER, mids.length, Math.floor((bw + ST_GAP) / (ST_MIN_W + ST_GAP))));
-  const ww = mids.length === 1 ? Math.min(980, bw) : Math.floor((bw - (per - 1) * ST_GAP) / per);
+  const ww = Math.min(mids.length === 1 ? 760 : 560, Math.floor((bw - (per - 1) * ST_GAP) / per));     // room left and right for the other conversations
   ST.ww = ww; ST.per = per;
   mids.forEach((w, i) => {
     let el = track.querySelector(`.stw[data-wid="${w.id}"]`);
@@ -159,6 +161,7 @@ function stLayout(opts = {}) {
     if (el?.animate) { if (f) { const r = el.getBoundingClientRect(); el.animate([{ transformOrigin: "0 0", transform: `translate(${(f.left - r.left) / ST.cam.z}px, ${(f.top - r.top) / ST.cam.z}px) scale(.03)`, opacity: .3 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 460, easing: "cubic-bezier(.2,.8,.2,1)" }); }
       else el.animate([{ opacity: 0, transform: "translateY(40px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 360, easing: "cubic-bezier(.2,.8,.2,1)" }); } }
   mids.forEach((w) => stCtx(w));
+  if (ST.cardsAt !== `${ST.total}|${ST.H}|${mids.length}`) { ST.cardsAt = `${ST.total}|${ST.H}|${mids.length}`; stCanvas(); }     // the cards beside the windows follow their edges
   stApply(); stBar();
 }
 function stWinHtml(w) {
@@ -275,7 +278,7 @@ function stBind() {
     if (e.button !== 0 || e.target.closest(".stbar, .slide")) return;
     const rz = e.target.closest("[data-rz]"); if (rz) { stResizeStart(e, rz); return; }
     if (e.target.closest("button, input, iframe") || (e.target.closest(".stwin") && !e.target.closest(".stwh"))) return;
-    drag = { sx: e.clientX, sy: e.clientY, cx: ST.cam.x, cy: ST.cam.y, moved: false, dot: e.target.closest(".stdot")?.dataset.stkey, head: e.target.closest(".stwh")?.dataset.stfocus };
+    drag = { sx: e.clientX, sy: e.clientY, cx: ST.cam.x, cy: ST.cam.y, moved: false, dot: e.target.closest(".stcard")?.dataset.stkey, head: e.target.closest(".stwh")?.dataset.stfocus };
     v.setPointerCapture(e.pointerId); v.classList.add("panning"); cancelAnimationFrame(ST.camRaf);
   });
   v.addEventListener("pointermove", (e) => {
