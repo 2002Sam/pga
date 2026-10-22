@@ -96,18 +96,19 @@ async function padSend(idx) {
   if (!p) { toast(L("先写一个想法", "Write an idea first")); return; }
   const was = of.get(ps.indexOf(p));
   if (was?.key && !was.pending) { padLocate(was); toast(L("这个想法已经交出去了：这是它的对话", "Already handed out: here is its conversation")); return; }
-  const s = was?.key ? was : { id: Math.random().toString(36).slice(2, 10), key: `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, agent: PAD.agent };
+  const s = was?.key ? was : { id: Math.random().toString(36).slice(2, 10), key: null, agent: PAD.agent };
   const text = was?.key ? L(`（我改了这个想法，新的版本是：）\n${p.text}`, `(I changed this idea; the new version:)\n${p.text}`) : p.text;
   Object.assign(s, { text: p.text, at: new Date().toISOString(), st: "run", pending: false });
   if (!was) PAD.sent.push(s);
   padSaveSent(); padPaint();
-  const acc = S.acc?.["*new"] || {};
-  const job = api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: s.agent || "auto", conversation: s.key, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } })
-    .then((r) => { s.st = r?.error && !r?.text ? "err" : "done"; })
-    .catch(() => { s.st = "err"; })
-    .finally(() => { padSync(); loadChats(); loadTimeline?.(); if (S.view === "chats" && S.chat === s.key) loadChat(s.key); });
-  setTimeout(() => padLocate(s), 400);        // its conversation, with the question on the page while the agent works
-  return job;
+  if (was?.key) {                                 // asked again in its own conversation, its window brought up
+    padLocate(s);
+    const acc = S.acc?.["*new"] || {};
+    return api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: s.agent || "auto", conversation: s.key, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } })
+      .then((r) => { s.st = r?.error && !r?.text ? "err" : "done"; }).catch(() => { s.st = "err"; }).finally(padSync);
+  }
+  const r = await stAsk(text);                    // a window of its own on the stage, the question already sent
+  s.key = r.key; s.st = r.key ? "done" : "err"; padSync();
 }
 async function padSendAll() {
   const { ps, of } = padMatch(), todo = ps.map((p, i) => i).filter((i) => !of.has(i));
@@ -116,11 +117,7 @@ async function padSendAll() {
   const jobs = []; for (const i of todo) { jobs.push(padSend(i)); await new Promise((ok) => setTimeout(ok, 120)); }
   await Promise.all(jobs);
 }
-async function padLocate(s) {
-  if (!s.key) return;
-  if (S.view !== "chats") show("chats");
-  S.lineView = null; S.imp = null; S.treeItem = null; S.chat = s.key; history.replaceState(null, "", qs()); renderChat(); loadChat(s.key);
-}
+async function padLocate(s) { if (s.key) { if (S.view !== "stage") show("stage"); stOpen(s.key); } }
 document.addEventListener("click", (e) => {
   if (e.target.closest("#padSend")) { padSend(); return; }
   if (e.target.closest("#padAll")) { padSendAll(); return; }

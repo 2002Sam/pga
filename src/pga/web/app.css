@@ -735,3 +735,40 @@ html.embed .pad { display: none; }
 .wbside .p2h { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line); } .wbside .p2h b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .wbempty { padding: 8px 0; }
 .wbflash { animation: wbflash 1.6s ease; } @keyframes wbflash { 0%, 40% { box-shadow: 0 0 0 3px var(--accent); border-radius: 14px; } 100% { box-shadow: none; } }
+
+/* ---------------------------------------------------------------- the stage (app-stage.js) */
+#vStage { position: relative; overflow: hidden; background: var(--canvas); }
+.stcv { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; background-image: radial-gradient(circle, var(--line-2) 1px, transparent 1.3px); }
+.stcw { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.stlane { position: absolute; left: -2600px; width: 2800px; height: 120px; border-top: 1px dashed var(--line); pointer-events: none; } .stlane span { position: absolute; right: 210px; top: 4px; font-size: 11px; color: var(--dim); white-space: nowrap; }
+.sttick { position: absolute; top: -40px; height: 3000px; border-left: 1px dashed var(--line); pointer-events: none; } .sttick span { position: absolute; top: 0; left: 6px; font-size: 11px; color: var(--dim); white-space: nowrap; }
+.stdot { position: absolute; display: flex; align-items: center; gap: 6px; cursor: pointer; transform: translate(-50%, -50%); }
+.stdot i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-3); transition: transform .15s; } .stdot:hover i { transform: scale(1.8); background: var(--accent); }
+.stdot span { font-size: 11.5px; color: var(--muted); white-space: nowrap; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.stdot.parked i { width: 12px; height: 12px; background: var(--blue); box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 22%, transparent); }
+.stdot.open i { background: var(--accent); } .stdot.focus i { box-shadow: 0 0 0 5px var(--accent-soft); }
+.stbar { position: absolute; left: 14px; right: 14px; top: 10px; z-index: 6; display: flex; align-items: center; gap: 10px; padding: 6px 10px; flex-wrap: wrap; }
+.stax button { padding: 3px 10px; font-size: 12px; } .stax button.on { background: var(--accent-soft); color: var(--text); }
+.strange { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); } .strange input { width: 90px; } .strange em { font-style: normal; color: var(--text); min-width: 1.5em; }
+.band { position: absolute; left: 0; right: 0; top: 64px; bottom: 14px; z-index: 4; overflow: hidden; pointer-events: none; transition: top .4s ease, opacity .3s; }
+.band.empty { opacity: 0; } .band > * { pointer-events: auto; }
+.band .rail { position: absolute; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--line-3) 8%, var(--line-3) 92%, transparent); pointer-events: none; }
+.band .rail.top { top: 40px; } .band .rail.bot { bottom: 40px; }
+.track { position: absolute; left: 44px; top: 0; bottom: 0; display: flex; gap: 14px; transition: left .45s cubic-bezier(.2,.8,.2,1); }
+.band.sliding .track { transition: none; }
+.stw { position: relative; display: grid; grid-template-rows: 40px minmax(0, 1fr) 40px; height: 100%; flex: none; transition: width .4s cubic-bezier(.2,.8,.2,1); }
+.stctx { display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; padding: 0 4px; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.stc { flex: none; display: inline-flex; align-items: baseline; gap: 5px; max-width: 220px; font-size: 11.5px; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.stc em { font-style: normal; color: var(--dim); font-size: 10.5px; } .stc:hover { border-color: var(--accent); }
+.stc.dim, .stc.path, .stc.data { cursor: default; color: var(--muted); } .stc.dim { border-style: dashed; } .stc.data { background: var(--soft); }
+.stl { flex: none; font-size: 10.5px; color: var(--dim); letter-spacing: .04em; } .stsep { font-style: normal; color: var(--dim); font-size: 11px; }
+.stwin { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; background: var(--bg); border: 1px solid var(--line-2); border-radius: 14px; overflow: hidden; box-shadow: 0 14px 40px rgba(0,0,0,.3); }
+.stw.focus .stwin { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), 0 16px 44px rgba(0,0,0,.34); }
+.stwh { display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); background: var(--panel); cursor: default; min-width: 0; }
+.stwt { font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stb { width: 24px; height: 22px; padding: 0; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted); cursor: pointer; font-size: 13px; line-height: 1; } .stb:hover { background: var(--hover); color: var(--text); }
+.stwin iframe { width: 100%; height: 100%; border: 0; background: var(--bg); }
+.stwin.max { position: fixed; z-index: 30; inset: var(--stmax-top, 0) 0 0 var(--stmax-left, 0); border-radius: 0; }
+#vStage.hasmax .stbar, #vStage.hasmax .slide { visibility: hidden; }
+.slide { position: absolute; top: 50%; z-index: 5; width: 30px; height: 64px; margin-top: -32px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text); cursor: pointer; font-size: 18px; } .slide.l { left: 6px; } .slide.r { right: 6px; } .slide[hidden] { display: none; }
+html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { grid-template-columns: minmax(0, 1fr) var(--actw, 330px) !important; }

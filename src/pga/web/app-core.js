@@ -6,7 +6,7 @@ const Q = new URLSearchParams(location.search), AS_UID = Q.get("as");
 const LANG = Q.get("lang") || store.get("pga_lang") || "zh", EN = LANG === "en";
 PGATree.setLang(LANG); document.documentElement.lang = EN ? "en" : "zh-CN";
 const L = (zh, en) => (EN ? en : zh);
-const S = { uid: AS_UID || store.get("pga_uid"), view: (Q.get("view") === "canvas" ? "chats" : Q.get("view")) || (Q.get("tree") ? "tree" : "chats"), aim: Q.get("tree"), node: Q.get("node"),
+const S = { uid: AS_UID || store.get("pga_uid"), view: (Q.get("view") === "canvas" ? "stage" : Q.get("view")) || (Q.get("tree") ? "tree" : "stage"), aim: Q.get("tree"), node: Q.get("node"),
   mode: store.get("pga_tree_mode") || "thought", dir: store.get("pga_tree_dir") || "down", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
   drawer: false, search: "", seen: new Set(), agents: [], sending: false, op: null, showHidden: false, forest: null, draft: "", proc: null, live: [],
   chats: null, chat: Q.get("c"), chatTurns: {}, chatDraft: "", chatRefs: [], chatAgent: store.get("pga_chat_agent") || "auto", planting: false };
