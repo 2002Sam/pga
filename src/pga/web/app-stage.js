@@ -77,7 +77,8 @@ function stSync() {                               // who is on the stage: window
   // the cards: what the focused conversation links to, and the windows you minimised
   for (const c of stCards()) {
     const id = "c-" + c.item; want.add(id);
-    const b = stBody(id, "card", () => "", c.from || { x: A.w - 100, y: 80 + Math.random() * (A.h - 160), s: .3 });
+    const spot = ST.spot?.item === c.item ? ST.spot : null;
+    const b = stBody(id, "card", () => "", spot ? { x: spot.x, y: spot.y, s: .2 } : c.from || { x: A.w - 100, y: 80 + Math.random() * (A.h - 160), s: .3 });
     b.card = c; b.bw = ST_CW; b.bh = ST_CH;
     b.el.innerHTML = `<div class="stcard ${c.parked ? "parked" : ""}" data-stkey="${esc(c.item)}" title="${esc(c.title || "")}"><i class="stcrel">${esc(c.rel)}</i><b>${esc((c.title || "").slice(0, 40))}</b><span>${esc((c.gist || "").slice(0, 46))}</span><em>${esc(agentLabel(c.agent || ""))} · ${esc(ago(c.last))}</em></div>`;
   }
@@ -117,8 +118,8 @@ function stStep() {
       const dx = b.x - a.x, dy = b.y - a.y, ox = aw + bw + ST_GAP - Math.abs(dx), oy = ah + bh + ST_GAP - Math.abs(dy);
       if (ox <= 0 || oy <= 0) continue;
       const ma = a.pin ? 0 : 1 / (a.bw * a.bh * a.s * a.s), mb = b.pin ? 0 : 1 / (b.bw * b.bh * b.s * b.s), m = ma + mb; if (!m) continue;
-      if (ox < oy) { const d = ox * .5 * Math.sign(dx || 1); a.x -= d * ma / m; b.x += d * mb / m; a.vx -= d * ma / m * .2; b.vx += d * mb / m * .2; a.cx += ox; b.cx += ox; }
-      else { const d = oy * .5 * Math.sign(dy || 1); a.y -= d * ma / m; b.y += d * mb / m; a.vy -= d * ma / m * .2; b.vy += d * mb / m * .2; a.cy += oy; b.cy += oy; }
+      if (ox < oy) { const d = ox * .35 * Math.sign(dx || 1); a.x -= d * ma / m; b.x += d * mb / m; a.vx -= d * ma / m * .05; b.vx += d * mb / m * .05; a.cx += ox; b.cx += ox; }
+      else { const d = oy * .35 * Math.sign(dy || 1); a.y -= d * ma / m; b.y += d * mb / m; a.vy -= d * ma / m * .05; b.vy += d * mb / m * .05; a.cy += oy; b.cy += oy; }
       a.press += Math.min(ox, oy); b.press += Math.min(ox, oy);
     }
     for (const b of bs) {                         // the walls push back
@@ -136,12 +137,11 @@ function stStep() {
     b.p = b.p * .9 + b.press * .1;                // how squeezed it has been lately
     const min = ST_MIN[b.kind], grow = now - b.born < 700;
     if (grow) b.s = Math.min(1, b.s + .06);       // coming in: grows to size
-    else if (b.p > 5 && !b.pin) b.s = Math.max(min, b.s - .004 * Math.min(4, b.p / 5));
+    else if (b.p > 5 && !b.pin && ST.busy) b.s = Math.max(min, b.s - .003 * Math.min(3, b.p / 5));
     else if (b.p < 2 && b.s < 1) { b.s = Math.min(1, b.s + .006); energy += 1; }      // room again: swells back
-    if (b.kind === "card" && b.s <= min + .001 && b.p > 18) { b.squeezed = (b.squeezed || 0) + 1; if (b.squeezed > 70) { ST.out.add(b.card.item); stDrop(b.id); continue; } } else b.squeezed = 0;
-    if (!b.pin) { b.vy += (A.h / 2 - b.y) * .0015; b.vx += ((b.kind === "found" ? 0 : A.w / 2) - b.x) * .0004;     // a gentle pull to the middle (the foundations lean left)
-      b.x += b.vx; b.y += b.vy; b.vx *= .78; b.vy *= .78; }
-    b.sx += ((1 - Math.min(.1, b.cx / 260)) - b.sx) * .3; b.sy += ((1 - Math.min(.1, b.cy / 260)) - b.sy) * .3;       // squashed where it is pressed
+    if (b.kind === "card" && ST.busy && b.s <= min + .001 && b.p > 18) { b.squeezed = (b.squeezed || 0) + 1; if (b.squeezed > 70) { ST.out.add(b.card.item); stDrop(b.id); continue; } } else b.squeezed = 0;
+    if (!b.pin) { b.x += b.vx; b.y += b.vy; b.vx *= .6; b.vy *= .6; }
+    b.sx += ((1 - (ST.busy ? Math.min(.035, b.cx / 600) : 0)) - b.sx) * .2; b.sy += ((1 - (ST.busy ? Math.min(.035, b.cy / 600) : 0)) - b.sy) * .2;       // a slight squash where it is pressed, only while you move things
     energy += Math.abs(b.vx) + Math.abs(b.vy) + b.press + (grow ? 1 : 0) + Math.abs(1 - b.sx) * 40;
     b.el.style.width = b.bw + "px"; b.el.style.height = b.bh + "px";
     b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - b.bh / 2}px) scale(${(b.s * b.sx).toFixed(4)}, ${(b.s * b.sy).toFixed(4)})`;
@@ -150,6 +150,14 @@ function stStep() {
   ST.idle = energy < .6 ? ST.idle + 1 : 0;
   if (ST.idle < 30 || bs.some((b) => b.pin)) ST.raf = requestAnimationFrame(stStep);
 }
+setInterval(() => {                               // squeezed out: back in on its own once there is room
+  if (S.view !== "stage" || ST.busy || !ST.out.size) return;
+  const A = stArena(), bs = [...ST.bodies.values()], w = ST_CW * .7, h = ST_CH * .7;      // a free spot a shrunk card fits in
+  const free = (x, y) => x - w / 2 > ST_PAD && x + w / 2 < A.w - ST_PAD && y - h / 2 > ST_PAD && y + h / 2 < A.h - ST_PAD
+    && bs.every((b) => Math.abs(b.x - x) > (b.bw * b.s + w) / 2 + ST_GAP || Math.abs(b.y - y) > (b.bh * b.s + h) / 2 + ST_GAP);
+  for (let y = h / 2 + ST_PAD + 4; y < A.h; y += 24) for (let x = A.w - w / 2 - ST_PAD - 4; x > 0; x -= 24)
+    if (free(x, y)) { const k = [...ST.out].pop(); ST.out.delete(k); ST.spot = { item: k, x, y }; stSync(); return; }
+}, 1500);
 new ResizeObserver(() => { if (S.view === "stage") { for (const b of ST.bodies.values()) if (b.kind === "win" && !b.win?.bh) b.bh = stWinH(); stKick(); } }).observe(document.body);
 
 /* ------------------------------------------------ the windows */
@@ -207,7 +215,7 @@ function stHold(f, w) {                          // inside a conversation: press
 function stGrab(id, sx, sy) {                     // screen coordinates (screenX/Y work across the frames)
   const b = ST.bodies.get(id); if (!b) return;
   ST.drag = { b, sx, sy, x0: b.x, y0: b.y, lx: sx, ly: sy, moved: false }; b.pin = true; b.vx = b.vy = 0;
-  b.el.classList.add("held"); $("#vStage").classList.add("dragging"); stKick();
+  b.el.classList.add("held"); $("#vStage").classList.add("dragging"); ST.busy = true; clearTimeout(ST.bt); stKick();
 }
 function stDragTo(sx, sy) {
   const d = ST.drag; if (!d) return; const b = d.b;
@@ -215,7 +223,8 @@ function stDragTo(sx, sy) {
   b.x = d.x0 + (sx - d.sx); b.y = d.y0 + (sy - d.sy); b.vx = (sx - d.lx) * .6; b.vy = (sy - d.ly) * .6; d.lx = sx; d.ly = sy; stKick();
 }
 function stRelease() {
-  const d = ST.drag; ST.drag = null; if (!d) return; d.b.pin = false; d.b.el.classList.remove("held"); $("#vStage").classList.remove("dragging"); stKick();
+  const d = ST.drag; ST.drag = null; if (!d) return; d.b.pin = false; d.b.el.classList.remove("held"); $("#vStage").classList.remove("dragging");
+  clearTimeout(ST.bt); ST.bt = setTimeout(() => { ST.busy = false; stKick(); }, 500); stKick();
   return d;
 }
 
@@ -223,7 +232,7 @@ function stRelease() {
 function stResizeStart(e, rz) {
   const b = ST.bodies.get(rz.closest(".stbody").dataset.bid); if (!b || b.kind !== "win" || b.max) return;
   ST.rz = { b, d: rz.dataset.rz, x: e.clientX, y: e.clientY, w0: b.bw, h0: b.bh, x0: b.x, y0: b.y }; b.pin = true;
-  $("#vStage").classList.add("dragging"); e.preventDefault(); stFocus(b.win.id); stKick();
+  $("#vStage").classList.add("dragging"); ST.busy = true; clearTimeout(ST.bt); e.preventDefault(); stFocus(b.win.id); stKick();
 }
 function stResizeMove(e) {
   const r = ST.rz, b = r.b, A = stArena(), dx = (e.clientX - r.x) / b.s, dy = (e.clientY - r.y) / b.s;
@@ -235,7 +244,7 @@ function stResizeMove(e) {
   b.y = r.y0 + (r.d.includes("s") ? 1 : r.d.includes("n") ? -1 : 0) * (h - r.h0) * b.s / 2;
   b.bw = Math.round(w); b.bh = Math.round(h); b.win.bw = b.bw; b.win.bh = b.bh; stKick();
 }
-function stResizeEnd() { const r = ST.rz; ST.rz = null; if (r) r.b.pin = false; $("#vStage").classList.remove("dragging"); stSave(); stKick(); }
+function stResizeEnd() { const r = ST.rz; ST.rz = null; if (r) r.b.pin = false; $("#vStage").classList.remove("dragging"); clearTimeout(ST.bt); ST.bt = setTimeout(() => { ST.busy = false; stKick(); }, 500); stSave(); stKick(); }
 function stFocus(id) { if (ST.focus === id) return; ST.focus = id; for (const b of ST.bodies.values()) if (b.kind === "win") b.el.classList.toggle("focus", b.win?.id === id); clearTimeout(ST.ft); ST.ft = setTimeout(stSync, 250); }
 setInterval(() => {                               // a new conversation in a window gets its key once you send; titles follow
   for (const w of ST.wins) {
