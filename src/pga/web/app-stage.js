@@ -13,17 +13,16 @@
 const ST = { wins: [], focus: null, ctx: {}, bodies: new Map(), out: new Set(), raf: 0, idle: 0,
   axis: (() => { try { return localStorage.getItem("pga_st_axis") || "time"; } catch { return "time"; } })(),
   range: (() => { try { return Number(localStorage.getItem("pga_st_range")) || 6; } catch { return 6; } })() };
-const ST_GAP = 12, ST_PAD = 10, ST_WIN_W = 300, ST_FW = 270, ST_CW = 170, ST_CH = 104;
+const ST_GAP = 12, ST_PAD = 10, ST_WIN_W = 380, ST_FW = 270, ST_CW = 170, ST_CH = 104;
 const ST_MIN = { win: .45, found: .62, card: .62 };
 const stItem = (key) => recentItems().find((x) => x.item === key);
 const stTitle = (key) => (key ? stItem(key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
 function stSave() { try { localStorage.setItem("pga_st_wins", JSON.stringify(ST.wins.map((w) => ({ key: w.key, mode: w.mode === "max" ? "mid" : w.mode, bw: w.bw, bh: w.bh })).slice(-24))); } catch {} }
-const stEW = (b) => b.bw * (b.kind === "win" ? 1 : b.s), stEH = (b) => b.bh * b.s;     // a window keeps its width, only its height gives way
+const stEW = (b) => b.bw * b.s, stEH = (b) => b.bh * (b.kind === "win" ? 1 : b.s);     // a window keeps its full height, only its width gives way
 const stArena = () => { const a = $("#starena"); return a ? { w: a.clientWidth, h: a.clientHeight } : { w: 1000, h: 700 }; };
-const stWinW = () => { const A = stArena(), n = Math.max(1, ST.wins.filter((w) => w.mode !== "min").length);      // the windows share all the width left by the foundations
-  return Math.max(300, Math.floor((A.w - 2 * ST_PAD - (ST_CW + ST_GAP) - n * ST_GAP) / n)); };
-const stWinH = () => Math.round(stArena().h * .75);
+const stWinW = () => ST_WIN_W;                   // one width for every window; they stand the full height
+const stWinH = () => stArena().h - 2 * ST_PAD;
 
 /* ------------------------------------------------ the page */
 function showStage() {
@@ -146,9 +145,9 @@ function stStep() {
     if (!b.pin) { b.x += b.vx; b.y += b.vy; b.vx *= .6; b.vy *= .6; }
     b.sx += ((1 - (ST.busy ? Math.min(.035, b.cx / 600) : 0)) - b.sx) * .2; b.sy += ((1 - (ST.busy ? Math.min(.035, b.cy / 600) : 0)) - b.sy) * .2;       // a slight squash where it is pressed, only while you move things
     energy += Math.abs(b.vx) + Math.abs(b.vy) + b.press + (grow ? 1 : 0) + Math.abs(1 - b.sx) * 40;
-    if (b.kind === "win") {                        // a window really gets shorter (no shrunk text): its height is set, not scaled
-      const h = Math.round(stEH(b)); b.el.style.width = b.bw + "px"; b.el.style.height = h + "px";
-      b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - h / 2}px) scale(${b.sx.toFixed(4)}, ${b.sy.toFixed(4)})`;
+    if (b.kind === "win") {                        // a window really gets narrower (no shrunk text): its width is set, not scaled
+      const w = Math.round(stEW(b)); b.el.style.width = w + "px"; b.el.style.height = b.bh + "px";
+      b.el.style.transform = `translate(${b.x - w / 2}px, ${b.y - b.bh / 2}px) scale(${b.sx.toFixed(4)}, ${b.sy.toFixed(4)})`;
     } else {
       b.el.style.width = b.bw + "px"; b.el.style.height = b.bh + "px";
       b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - b.bh / 2}px) scale(${(b.s * b.sx).toFixed(4)}, ${(b.s * b.sy).toFixed(4)})`;
