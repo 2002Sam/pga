@@ -47,11 +47,26 @@ function stBody(id, kind, make, at) {            // a soft body: its element, ce
   if (!b) {
     const el = document.createElement("div"); el.className = `stbody k-${kind}`; el.dataset.bid = id; el.innerHTML = make();
     $("#starena").appendChild(el);
-    const A = stArena();
-    b = { id, kind, el, x: at?.x ?? A.w * (.3 + Math.random() * .4), y: at?.y ?? A.h * (.3 + Math.random() * .4), s: at?.s ?? .2, vx: 0, vy: 0, p: 0, px: 0, py: 0, sx: 1, sy: 1, born: performance.now() };
+    const A = stArena(), kept = stKept()[id];
+    const p = kept && kept.x > 0 && kept.x < A.w && kept.y > 0 && kept.y < A.h ? kept : at || { x: A.w / 2, y: A.h / 2 };
+    b = { id, kind, el, x: p.x, y: p.y, s: 1, vx: 0, vy: 0, p: 0, px: 0, py: 0, sx: 1, sy: 1, born: 0 };
     ST.bodies.set(id, b);
   }
   return b;
+}
+function stKept() { try { return JSON.parse(localStorage.getItem("pga_st_pos") || "{}"); } catch { return {}; } }
+function stKeep() { try { const o = {}; for (const b of ST.bodies.values()) o[b.id] = { x: Math.round(b.x), y: Math.round(b.y) }; localStorage.setItem("pga_st_pos", JSON.stringify(o)); } catch {} }
+function stCrowded() {
+  const bs = [...ST.bodies.values()].filter((b) => !b.max);
+  for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) { const a = bs[i], b = bs[j];
+    if ((stEW(a) + stEW(b)) / 2 - Math.abs(a.x - b.x) > 2 && (stEH(a) + stEH(b)) / 2 - Math.abs(a.y - b.y) > 2) return true; }
+  return false;
+}
+function stFreeSpot() {                           // the first place a card fits without touching anything: right side first, then down the left
+  const A = stArena(), bs = [...ST.bodies.values()], w = ST_CW, h = ST_CH;
+  const free = (x, y) => bs.every((b) => Math.abs(b.x - x) > (stEW(b) + w) / 2 + ST_GAP || Math.abs(b.y - y) > (stEH(b) + h) / 2 + ST_GAP);
+  for (let x = A.w - ST_PAD - w / 2; x > w / 2; x -= w + ST_GAP) for (let y = ST_PAD + h / 2; y < A.h - h / 2; y += h + ST_GAP) if (free(x, y)) return { x, y };
+  return { x: A.w - ST_PAD - w / 2, y: A.h / 2 };
 }
 function stDrop(id) {
   const b = ST.bodies.get(id); if (!b) return; ST.bodies.delete(id);
@@ -64,14 +79,15 @@ function stSync() {                               // who is on the stage: window
   // the foundations, at the left
   for (const [k, i] of [["world", 0], ["self", 1]]) {
     const id = "f-" + k; want.add(id);
-    const b = stBody(id, "found", () => "", { x: 20 + ST_CW / 2, y: A.h / 2 - ST_CH / 2 - 8 + i * (ST_CH + 16), s: .3 });
+    const b = stBody(id, "found", () => "", { x: ST_PAD + ST_CW / 2, y: ST_PAD + ST_CH / 2 + i * (ST_CH + ST_GAP) });
     b.bw = ST_CW; b.bh = ST_CH;                     // the same size as the other cards
   }
   stFoundRender();
   // the windows
   ST.wins.filter((w) => w.mode !== "min").forEach((w, i) => {
     const id = "w-" + w.id; want.add(id);
-    const b = stBody(id, "win", () => stWinHtml(w), { x: Math.min(A.w - 160, 2 * (ST_FW + ST_GAP) + 40 + ST_WIN_W / 2 + i * (ST_WIN_W + ST_GAP)), y: A.h / 2, s: .3 });
+    const bw = w.bw || ST_WIN_W, left = ST_PAD + ST_CW + ST_GAP + ST.wins.filter((x) => x.mode !== "min").slice(0, i).reduce((t, x) => t + (x.bw || ST_WIN_W) + ST_GAP, 0);
+    const b = stBody(id, "win", () => stWinHtml(w), { x: left + bw / 2, y: A.h / 2 });
     if (!b.framed) { b.framed = true; b.win = w; stFrame(w, b.el); }
     b.bw = w.bw || stWinW(); b.bh = w.bh || stWinH();
     b.el.classList.toggle("focus", ST.focus === w.id);
@@ -80,12 +96,12 @@ function stSync() {                               // who is on the stage: window
   for (const c of stCards()) {
     const id = "c-" + c.item; want.add(id);
     const spot = ST.spot?.item === c.item ? ST.spot : null;
-    const b = stBody(id, "card", () => "", spot ? { x: spot.x, y: spot.y, s: .2 } : c.from || { x: A.w - 100, y: 80 + Math.random() * (A.h - 160), s: .3 });
+    const b = stBody(id, "card", () => "", spot ? { x: spot.x, y: spot.y } : c.from || stFreeSpot());
     b.card = c; b.bw = ST_CW; b.bh = ST_CH;
     b.el.innerHTML = `<div class="stcard ${c.parked ? "parked" : ""}" data-stkey="${esc(c.item)}" title="${esc(c.title || "")}"><i class="stcrel">${esc(c.rel)}</i><b>${esc((c.title || "").slice(0, 40))}</b><span>${esc((c.gist || "").slice(0, 46))}</span><em>${esc(agentLabel(c.agent || ""))} · ${esc(ago(c.last))}</em></div>`;
   }
   for (const id of [...ST.bodies.keys()]) if (!want.has(id)) stDrop(id);
-  stSettle(); stBar();
+  if (stCrowded()) stSettle(); else stKick(); stBar();      // only when something overlaps does anything move
 }
 function stCards() {
   const w = ST.wins.find((x) => x.id === ST.focus), open = new Set(ST.wins.filter((x) => x.mode !== "min").map((x) => x.key)), R = ST.range, out = [];
@@ -156,6 +172,7 @@ function stStep() {
   }
   stLinks();
   ST.idle = energy < .6 ? ST.idle + 1 : 0;
+  if (ST.idle === 29) stKeep();
   if (ST.idle < 30 || bs.some((b) => b.pin)) ST.raf = requestAnimationFrame(stStep);
 }
 setInterval(() => {                               // squeezed out: back in on its own once there is room
