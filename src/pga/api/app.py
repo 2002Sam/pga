@@ -3400,7 +3400,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         anchor_n = leaf or bnode
         world = {"leaf": str(leaf.id) if leaf else None, "talks_to": bound,
                  "path": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in wt.path(anchor_n)] if anchor_n else []}
+        from pga.dispatch import of as dispatch_of
+        dispatches = [r.data["dispatch"] for r in runs if (r.data or {}).get("dispatch")] or dispatch_of(u, key)
         return {"key": key, "turns": out, "branch": b, "context": ctx, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids, "world": world,
+                "dispatch": dispatches,
                 "system": ((u.preferences or {}).get("chat_system") or {}).get(key)}
 
     @app.post("/v1/users/{user_id}/chats/regen")
@@ -3486,6 +3489,41 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         return {"ok": True}
+
+    @app.post("/v1/users/{user_id}/chats/split")
+    def chats_split(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """分工: the points of one message as tasks that different agents can do at the same time."""
+        from pga.dispatch import DispatchError, split
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return {"tasks": split(rt, u, str(body.get("text") or ""), str(body.get("context") or ""))}
+        except DispatchError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.put("/v1/users/{user_id}/chats/dispatch")
+    def chats_dispatch(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Which branches (and agents) the tasks of one message went to, so the conversation can follow them. Kept on
+        the message's own run (`run`), not in your preferences: the agents answering at the same moment write those."""
+        from pga.db.models import AgentRun
+        from pga.dispatch import record
+        u = user_or_404(rt, user_id)
+        key = str(body.get("key") or "")[:120]
+        e = body.get("entry") if isinstance(body.get("entry"), dict) else None
+        if not key or not e:
+            raise HTTPException(422, "key and entry are needed")
+        entry = {"id": str(e.get("id") or uuid.uuid4().hex[:8])[:20], "text": str(e.get("text") or "")[:4000], "at": utcnow().isoformat(),
+                 "tasks": [{"title": str(t.get("title") or "")[:60], "key": str(t.get("key") or "")[:120], "agent": str(t.get("agent") or "")[:40]}
+                           for t in (e.get("tasks") or [])[:8] if isinstance(t, dict)], "merged": str(e.get("merged") or "")[:120],
+                 "run": str(body.get("run") or e.get("run") or "")[:40]}
+        try:
+            r = rt.session.get(AgentRun, uuid.UUID(str(body.get("run") or "")))
+        except ValueError:
+            r = None
+        if r is not None and r.user_id == u.id:
+            r.data = {**(r.data or {}), "dispatch": entry}
+            return {"dispatch": [entry]}
+        return {"dispatch": record(u, key, entry)}
 
     @app.post("/v1/users/{user_id}/chats/council")
     def chats_council(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
