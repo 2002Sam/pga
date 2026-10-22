@@ -772,3 +772,16 @@ html.embed .pad { display: none; }
 #vStage.hasmax .stbar, #vStage.hasmax .slide { visibility: hidden; }
 .slide { position: absolute; top: 50%; z-index: 5; width: 30px; height: 64px; margin-top: -32px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--text); cursor: pointer; font-size: 18px; } .slide.l { left: 6px; } .slide.r { right: 6px; } .slide[hidden] { display: none; }
 html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { grid-template-columns: minmax(0, 1fr) var(--actw, 330px) !important; }
+.stmid { position: relative; min-height: 0; }
+.stmid > .stwin { position: absolute; left: 0; right: 0; top: 0; bottom: 0; } .stmid > .stwin.sized { bottom: auto; }
+.stwh { cursor: grab; } .band.sliding .stwh, .band.sliding { cursor: grabbing; }
+.band.resizing iframe, .band.sliding iframe { pointer-events: none; }
+.band.resizing .stw, .band.resizing .track { transition: none; }
+.rz { position: absolute; z-index: 3; } .rz-n, .rz-s { left: 10px; right: 10px; height: 8px; cursor: ns-resize; } .rz-n { top: -4px; } .rz-s { bottom: -4px; }
+.rz-e, .rz-w { top: 10px; bottom: 10px; width: 8px; cursor: ew-resize; } .rz-e { right: -4px; } .rz-w { left: -4px; }
+.rz-ne, .rz-nw, .rz-se, .rz-sw { width: 16px; height: 16px; } .rz-ne { top: -5px; right: -5px; cursor: nesw-resize; } .rz-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.rz-nw { top: -5px; left: -5px; cursor: nwse-resize; } .rz-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+.rz:hover { background: color-mix(in srgb, var(--accent) 35%, transparent); border-radius: 4px; }
+.stwin { overflow: visible; } .stwin > iframe { border-radius: 0 0 14px 14px; } .stwin > .stwh { border-radius: 14px 14px 0 0; }
+.stwin.max .rz { display: none; } .stwin.max { height: auto !important; top: var(--stmax-top, 0) !important; }
+.stmid > .stwin.max { position: fixed; inset: 0; top: 0 !important; bottom: 0; height: auto !important; z-index: 30; border-radius: 0; }

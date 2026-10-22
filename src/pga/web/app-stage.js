@@ -14,7 +14,7 @@ const ST_GAP = 14, ST_MIN_W = 320, ST_MAX_PER = 4;
 const stItem = (key) => recentItems().find((x) => x.item === key);
 const stTitle = (key) => (key ? stItem(key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
-function stSave() { try { localStorage.setItem("pga_st_wins", JSON.stringify(ST.wins.map((w) => ({ key: w.key, mode: w.mode === "max" ? "mid" : w.mode })).slice(-24))); } catch {} }
+function stSave() { try { localStorage.setItem("pga_st_wins", JSON.stringify(ST.wins.map((w) => ({ key: w.key, mode: w.mode === "max" ? "mid" : w.mode, w: w.w, h: w.h, top: w.top })).slice(-24))); } catch {} }
 
 /* ------------------------------------------------ the page */
 function showStage() {
@@ -28,7 +28,7 @@ function showStage() {
         <button class="slide l" data-st="left" title="${L("往左滑", "Slide left")}">‹</button><button class="slide r" data-st="right" title="${L("往右滑", "Slide right")}">›</button></section>`;
     stBind();
     let saved = []; try { saved = JSON.parse(localStorage.getItem("pga_st_wins") || "[]"); } catch {}
-    ST.wins = saved.filter((x) => x.key).map((x) => ({ id: stId(), key: x.key, mode: x.mode === "min" ? "min" : "mid" }));
+    ST.wins = saved.filter((x) => x.key).map((x) => ({ id: stId(), key: x.key, mode: x.mode === "min" ? "min" : "mid", ...(x.w ? { w: x.w } : {}), ...(x.h ? { h: x.h, top: x.top || 0 } : {}) }));
     if (!ST.wins.some((w) => w.mode === "mid")) { const r = recentItems()[0]; if (r) ST.wins.push({ id: stId(), key: r.item, mode: "mid" }); }
     ST.focus = ST.wins.find((w) => w.mode === "mid")?.id || null;
     wtFetch().then(() => { stCanvas(); stLayout(); });
@@ -103,19 +103,24 @@ function stLayout(opts = {}) {
   ST.ww = ww; ST.per = per;
   mids.forEach((w, i) => {
     let el = track.querySelector(`.stw[data-wid="${w.id}"]`);
-    if (!el) { el = document.createElement("div"); el.className = "stw"; el.dataset.wid = w.id; el.innerHTML = stWinHtml(w); track.appendChild(el); stFrame(w, el); }
-    if (track.children[i] !== el) track.insertBefore(el, track.children[i]);
-    el.style.width = ww + "px"; el.classList.toggle("focus", ST.focus === w.id);
+    if (!el) {                                    // put in its place; the others are never moved (moving a frame reloads it)
+      el = document.createElement("div"); el.className = "stw"; el.dataset.wid = w.id; el.innerHTML = stWinHtml(w);
+      track.insertBefore(el, track.children[i] || null); stFrame(w, el);
+    }
+    el.style.width = (w.w || ww) + "px"; el.classList.toggle("focus", ST.focus === w.id);
+    const win = el.querySelector(".stwin"); win.style.top = w.top ? w.top + "px" : ""; win.style.height = w.h ? w.h + "px" : ""; win.classList.toggle("sized", !!w.h);
   });
-  const total = mids.length * ww + (mids.length - 1) * ST_GAP;
+  const widths = mids.map((w) => w.w || ww), lefts = widths.map((_, i) => widths.slice(0, i).reduce((a, b) => a + b + ST_GAP, 0));
+  const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, mids.length - 1) * ST_GAP;
+  ST.lefts = lefts;
   const fi = Math.max(0, mids.findIndex((w) => w.id === ST.focus));
   const maxOff = Math.max(0, total - bw);
-  if (opts.keep !== true) {                      // keep the focused window in view
-    const left = fi * (ww + ST_GAP);
-    if (left < ST.off) ST.off = left; else if (left + ww > ST.off + bw) ST.off = left + ww - bw;
+  if (opts.keep !== true && mids.length) {       // keep the focused window in view
+    const left = lefts[fi], wf = widths[fi];
+    if (left < ST.off) ST.off = left; else if (left + wf > ST.off + bw) ST.off = left + wf - bw;
   }
   ST.off = Math.max(0, Math.min(maxOff, ST.off));
-  track.style.left = 44 + (mids.length === 1 ? (bw - ww) / 2 : total < bw ? (bw - total) / 2 : 0) - ST.off + "px";     // left, not a transform: a maximised window must be free to fill the app
+  track.style.left = 44 + (total < bw ? (bw - total) / 2 : 0) - ST.off + "px";     // left, not a transform: a maximised window must be free to fill the app
   band.querySelector(".slide.l").hidden = ST.off <= 0; band.querySelector(".slide.r").hidden = ST.off >= maxOff;
   if (opts.grow) { const el = track.querySelector(`.stw[data-wid="${opts.grow}"]`), f = opts.from;
     if (el?.animate) { if (f) { const r = el.getBoundingClientRect(); el.animate([{ transformOrigin: "0 0", transform: `translate(${f.left - r.left}px, ${f.top - r.top}px) scale(.03)`, opacity: .3 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 460, easing: "cubic-bezier(.2,.8,.2,1)" }); }
@@ -125,9 +130,9 @@ function stLayout(opts = {}) {
 }
 function stWinHtml(w) {
   return `<div class="stctx top" data-ctx="top"></div>
-    <div class="stwin"><div class="stwh" data-stfocus="${w.id}"><b class="stwt">${esc(stTitle(w.key))}</b><span class="grow"></span>
+    <div class="stmid"><div class="stwin">${["n", "s", "e", "w", "ne", "nw", "se", "sw"].map((d) => `<i class="rz rz-${d}" data-rz="${d}" title="${L("拖动改大小，双击还原", "Drag to resize, double-click to reset")}"></i>`).join("")}<div class="stwh" data-stfocus="${w.id}"><b class="stwt">${esc(stTitle(w.key))}</b><span class="grow"></span>
       <button class="stb" data-stw="min" title="${L("最小化：变成画布上的一个节点", "Minimise: a node on the canvas")}">–</button><button class="stb" data-stw="max" title="${L("最大化：占满整个窗口（Esc 还原）", "Maximise: the whole window (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉这个窗口（对话还在）", "Close the window (the conversation stays)")}">×</button></div>
-      <iframe title="conversation"></iframe></div>
+      <iframe title="conversation"></iframe></div></div>
     <div class="stctx bot" data-ctx="bot"></div>`;
 }
 function stFrame(w, el) {
@@ -135,8 +140,41 @@ function stFrame(w, el) {
   if (w.key) { if (S.allChats?.some((c) => c.key === w.key) || w.key.startsWith("chat:")) q.set("c", w.key); else q.set("item", w.key); }
   if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
   const f = el.querySelector("iframe"); f.src = "/?" + q;
-  f.addEventListener("load", () => { try { f.contentWindow.addEventListener("pointerdown", () => stFocus(w.id), true); } catch {} });
+  f.addEventListener("load", () => { try { stHold(f, w); } catch {} });
 }
+function stHold(f, w) {                          // inside a conversation: press and hold (~0.3 s, still), then move to slide the rails
+  const cw = f.contentWindow, doc = cw.document; let h = null;
+  doc.addEventListener("pointerdown", (e) => {
+    stFocus(w.id);
+    if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], .cbar")) return;
+    h = { sx: e.screenX, sy: e.screenY, off: ST.off, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab"); $("#band").classList.add("sliding"); cw.getSelection()?.removeAllRanges(); }, 300) };
+  }, true);
+  doc.addEventListener("pointermove", (e) => {
+    if (!h) return;
+    if (!h.on) { if (Math.hypot(e.screenX - h.sx, e.screenY - h.sy) > 5) { clearTimeout(h.t); h = null; } return; }     // moved before the hold: selecting text
+    e.preventDefault(); cw.getSelection()?.removeAllRanges(); ST.off = h.off + (h.sx - e.screenX); stLayout({ keep: true });
+  }, true);
+  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); $("#band").classList.remove("sliding"); if (was) stSnap(); };
+  doc.addEventListener("pointerup", end, true); doc.addEventListener("pointercancel", end, true);
+  doc.addEventListener("selectstart", (e) => { if (h?.on) e.preventDefault(); }, true);
+  const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
+}
+/* free size: drag an edge or a corner; the window keeps its place on the rails, the others make room */
+function stResizeStart(e, rz) {
+  const el = rz.closest(".stw"), w = ST.wins.find((x) => x.id === el.dataset.wid); if (!w || w.mode === "max") return;
+  const win = el.querySelector(".stwin"), mid = el.querySelector(".stmid");
+  ST.rz = { w, d: rz.dataset.rz, x: e.clientX, y: e.clientY, w0: el.offsetWidth, h0: win.offsetHeight, t0: win.offsetTop, H: mid.clientHeight, off: ST.off };
+  $("#band").setPointerCapture(e.pointerId); $("#band").classList.add("resizing"); e.preventDefault(); stFocus(w.id);
+}
+function stResizeMove(e) {
+  const r = ST.rz, dx = e.clientX - r.x, dy = e.clientY - r.y, bw = $("#band").clientWidth - 88;
+  if (r.d.includes("e")) r.w.w = Math.round(Math.max(300, Math.min(bw, r.w0 + dx)));
+  if (r.d.includes("w")) { r.w.w = Math.round(Math.max(300, Math.min(bw, r.w0 - dx))); ST.off = r.off + (r.w.w - r.w0); }      // the right edge stays put
+  if (r.d.includes("s")) r.w.h = Math.round(Math.max(220, Math.min(r.H - r.t0, r.h0 + dy)));
+  if (r.d.includes("n")) { const t = Math.max(0, Math.min(r.t0 + r.h0 - 220, r.t0 + dy)); r.w.top = Math.round(t); r.w.h = Math.round(r.h0 + (r.t0 - t)); }
+  stLayout({ keep: true });
+}
+function stResizeEnd() { ST.rz = null; $("#band").classList.remove("resizing"); stSave(); }
 function stFocus(id) { if (ST.focus === id) return; ST.focus = id; document.querySelectorAll(".stw").forEach((el) => el.classList.toggle("focus", el.dataset.wid === id)); stShowFocus(); }
 function stShowFocus() { const w = ST.wins.find((x) => x.id === ST.focus); document.querySelectorAll(".stdot.focus").forEach((d) => d.classList.remove("focus")); if (w?.key) document.querySelector(`.stdot[data-stkey="${CSS.escape(w.key)}"]`)?.classList.add("focus"); }
 setInterval(() => {                               // a new conversation in a window gets its key once you send; titles follow
@@ -198,9 +236,17 @@ function stBind() {
     ST.off += d; stLayout({ keep: true }); stParallax(d);
   }, { passive: false });
   let drag = null;
-  band.addEventListener("pointerdown", (e) => { if (e.target.closest(".stwin, button, input")) return; drag = { x: e.clientX, off: ST.off }; band.setPointerCapture(e.pointerId); band.classList.add("sliding"); });
-  band.addEventListener("pointermove", (e) => { if (!drag) return; const d = drag.x - e.clientX; ST.off = drag.off + d; stLayout({ keep: true }); });
-  band.addEventListener("pointerup", () => { if (!drag) return; drag = null; band.classList.remove("sliding"); stSnap(); });
+  band.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const rz = e.target.closest("[data-rz]");
+    if (rz) { stResizeStart(e, rz); return; }
+    if (e.target.closest("button, input, iframe") || (e.target.closest(".stwin") && !e.target.closest(".stwh"))) return;
+    drag = { x: e.clientX, off: ST.off, moved: false, head: e.target.closest(".stwh")?.dataset.stfocus };
+    band.setPointerCapture(e.pointerId); band.classList.add("sliding");
+  });
+  band.addEventListener("pointermove", (e) => { if (ST.rz) { stResizeMove(e); return; } if (!drag) return; const d = drag.x - e.clientX; if (Math.abs(d) > 4) drag.moved = true; ST.off = drag.off + d; stLayout({ keep: true }); });
+  band.addEventListener("pointerup", (e) => { if (ST.rz) { stResizeEnd(); return; } if (!drag) return; const d = drag; drag = null; band.classList.remove("sliding"); if (d.moved) stSnap(); else if (d.head) stFocus(d.head); });
+  band.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (!rz) return; const w = ST.wins.find((x) => x.id === rz.closest(".stw").dataset.wid); if (w) { delete w.w; delete w.h; delete w.top; stSave(); stLayout({ keep: true }); } });
   cv.addEventListener("wheel", (e) => { e.preventDefault();
     if (e.ctrlKey || e.metaKey) { const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, z0 = ST.cv.z, z = Math.max(.2, Math.min(3, z0 * Math.exp(-e.deltaY * .008))); ST.cv = { z, x: mx - (mx - ST.cv.x) * z / z0, y: my - (my - ST.cv.y) * z / z0 }; }
     else { ST.cv.x -= e.deltaX; ST.cv.y -= e.deltaY; } stCvApply(); }, { passive: false });
@@ -210,11 +256,11 @@ function stBind() {
   cv.addEventListener("pointerup", () => { pan = null; });
   new ResizeObserver(() => stLayout({ keep: true })).observe(band);
 }
-function stSnap() { const step = (ST.ww || 400) + ST_GAP; ST.off = Math.round(ST.off / step) * step; stLayout({ keep: true }); }
+function stSnap() { const ls = ST.lefts || [0]; ST.off = ls.reduce((best, l) => (Math.abs(l - ST.off) < Math.abs(best - ST.off) ? l : best), ls[0]); stLayout({ keep: true }); }
 function stParallax(d) {                          // the context on the rails trails the windows a little as they slide
   document.querySelectorAll(".stctx").forEach((c) => c.animate?.([{ transform: `translateX(${Math.max(-40, Math.min(40, d * .6))}px)` }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" }));
 }
-function stSlide(dir) { const step = (ST.ww || 400) + ST_GAP; ST.off += dir * step; stLayout({ keep: true }); stParallax(dir * 60); }
+function stSlide(dir) { const ls = ST.lefts || [0], i = ls.findIndex((l) => l >= ST.off - 2); ST.off = ls[Math.max(0, Math.min(ls.length - 1, (i < 0 ? ls.length - 1 : i) + dir))] ?? 0; stLayout({ keep: true }); stParallax(dir * 60); }
 
 document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;
