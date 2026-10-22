@@ -106,23 +106,28 @@ function w3Scene() {
     g.setAttribute("position", new T.BufferAttribute(a, 3));
     sc.add(new T.Points(g, new T.PointsMaterial({ size: 2.2, sizeAttenuation: false, color: 0xffffff, transparent: true, opacity: .35, depthWrite: false }))); }
   // the tree's lines: gentle curves bowing outwards
-  const lines = [], cols = [];
+  const lines = [], cols = [], segs = [];
   for (const n of W.nodes) {
     const p = L3.pos.get(n.id), q = n.parent && L3.pos.get(n.parent); if (!p || !q) continue;
     const mid = p.clone().add(q).multiplyScalar(0.5); const bow = mid.clone().normalize().multiplyScalar(p.distanceTo(q) * 0.12); mid.add(bow);
     const c = new T.QuadraticBezierCurve3(q, mid, p).getPoints(n.kind === "leaf" ? 6 : 12);
     const col = w3Hue(n, n.kind === "leaf" ? 0.55 : 0.6, 0.5);
-    for (let i = 0; i < c.length - 1; i++) { lines.push(c[i].x, c[i].y, c[i].z, c[i + 1].x, c[i + 1].y, c[i + 1].z); cols.push(col.r, col.g, col.b, col.r, col.g, col.b); }
+    for (let i = 0; i < c.length - 1; i++) { lines.push(c[i].x, c[i].y, c[i].z, c[i + 1].x, c[i + 1].y, c[i + 1].z); cols.push(col.r, col.g, col.b, col.r, col.g, col.b); segs.push(n.id, n.id); }
   }
   { const g = new T.BufferGeometry(); g.setAttribute("position", new T.Float32BufferAttribute(lines, 3)); g.setAttribute("color", new T.Float32BufferAttribute(cols, 3));
-    W3.lines = new T.LineSegments(g, new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: .32, depthWrite: false })); sc.add(W3.lines); }
+    g.setAttribute("alpha", new T.Float32BufferAttribute(new Float32Array(segs.length).fill(.32), 1));
+    W3.lines = new T.LineSegments(g, new T.ShaderMaterial({ transparent: true, depthWrite: false, vertexColors: true,
+      vertexShader: "attribute float alpha; varying vec3 vC; varying float vA; void main(){ vC = color; vA = alpha; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+      fragmentShader: "varying vec3 vC; varying float vA; void main(){ gl_FragColor = vec4(vC, vA); }" }));
+    W3.lines.userData.segs = segs; sc.add(W3.lines); }
   // conversations: points of light
   { const ls = W.nodes.filter((n) => n.kind === "leaf" && L3.pos.has(n.id)), g = new T.BufferGeometry(), a = new Float32Array(ls.length * 3), c = new Float32Array(ls.length * 3), sz = new Float32Array(ls.length);
     ls.forEach((n, i) => { const p = L3.pos.get(n.id); a.set([p.x, p.y, p.z], i * 3); const col = w3Hue(n, n.who === "agent" ? 0.45 : 0.7, n.who === "agent" ? 0.25 : 0.65); c.set([col.r, col.g, col.b], i * 3); sz[i] = 7 + Math.min(10, (n.turns || 1) / 6); });
     g.setAttribute("position", new T.BufferAttribute(a, 3)); g.setAttribute("color", new T.BufferAttribute(c, 3)); g.setAttribute("size", new T.BufferAttribute(sz, 1));
+    g.setAttribute("alpha", new T.BufferAttribute(new Float32Array(ls.length).fill(1), 1));
     const mat = new T.ShaderMaterial({ transparent: true, depthWrite: false, vertexColors: true, uniforms: { map: { value: w3Dot() }, scale: { value: 1 } },
-      vertexShader: "attribute float size; varying vec3 vC; void main(){ vC = color; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = size * (900.0 / -mv.z); gl_Position = projectionMatrix * mv; }",
-      fragmentShader: "uniform sampler2D map; varying vec3 vC; void main(){ vec4 t = texture2D(map, gl_PointCoord); if (t.a < .05) discard; gl_FragColor = vec4(vC, t.a); }" });
+      vertexShader: "attribute float size; attribute float alpha; varying vec3 vC; varying float vA; void main(){ vC = color; vA = alpha; vec4 mv = modelViewMatrix * vec4(position,1.0); gl_PointSize = size * (900.0 / -mv.z) * (0.6 + 0.4 * alpha); gl_Position = projectionMatrix * mv; }",
+      fragmentShader: "uniform sampler2D map; varying vec3 vC; varying float vA; void main(){ vec4 t = texture2D(map, gl_PointCoord); if (t.a * vA < .02) discard; gl_FragColor = vec4(vC, t.a * vA); }" });
     const pts = new T.Points(g, mat); pts.userData.nodes = ls; sc.add(pts); W3.pick.push(pts); W3.points = pts; }
   // topics, motivations and the world: solid lit bodies
   for (const n of W.nodes) {
@@ -130,14 +135,31 @@ function w3Scene() {
     const r = n.kind === "root" ? 22 : n.kind === "aim" ? 11 : Math.max(5, 15 - (n.depth3 || 1) * 3 + Math.min(8, Math.sqrt(n.count || 1) * 1.3));
     const col = w3Hue(n);
     const mat = n.kind === "plan" ? new T.MeshBasicMaterial({ color: col, wireframe: true, transparent: true, opacity: .7 })
-      : new T.MeshStandardMaterial({ color: col, roughness: .45, metalness: .15, emissive: col.clone().multiplyScalar(n.kind === "root" ? .9 : .18) });
+      : new T.MeshStandardMaterial({ color: col, roughness: .45, metalness: .15, emissive: col.clone().multiplyScalar(n.kind === "root" ? .9 : .18), transparent: true });
     const m = new T.Mesh(new T.SphereGeometry(r, 32, 16), mat); m.position.copy(L3.pos.get(n.id)); m.userData.node = n; sc.add(m); W3.pick.push(m); W3.objs.set(n.id, m);
     if (n.kind === "root") { const halo = new T.Mesh(new T.SphereGeometry(r * 1.9, 32, 16), new T.MeshBasicMaterial({ color: col, transparent: true, opacity: .07, depthWrite: false })); m.add(halo); }
     if ((n.depth3 || 0) <= 2 || n.kind === "aim") W3.labels.push({ n, r });
   }
+  W3.lastSel = undefined;
   const R = L3.R; if (!W3.placed) { W3.placed = true; W3.cam.position.set(R * 0.4, R * 0.7, R * 2.7); W3.ctl.target.set(0, 0, 0); }
 }
 
+function w3Hops(id) {                     // tree distance from the selected node to every other (parent and child links)
+  const adj = new Map(), add = (a, b) => { if (!adj.has(a)) adj.set(a, []); adj.get(a).push(b); };
+  for (const n of W.nodes) if (n.parent && W3.L.pos.has(n.id)) { add(n.id, n.parent); add(n.parent, n.id); }
+  const d = new Map([[id, 0]]), q = [id];
+  while (q.length) { const x = q.shift(); for (const y of adj.get(x) || []) if (!d.has(y)) { d.set(y, d.get(x) + 1); q.push(y); } }
+  return d;
+}
+const w3Alpha = (h) => (h == null ? 0.04 : h <= 1 ? 1 : h === 2 ? 0.9 : h === 3 ? 0.7 : Math.max(0.04, 0.7 * Math.pow(0.45, h - 3)));
+function w3Focus(sel) {
+  W3.lastSel = sel; W3.hops = sel ? w3Hops(sel) : null;
+  const A = (id) => (W3.hops ? w3Alpha(W3.hops.get(id)) : 1);
+  if (W3.points) { const at = W3.points.geometry.getAttribute("alpha"); W3.points.userData.nodes.forEach((n, i) => { at.array[i] = A(n.id); }); at.needsUpdate = true; }
+  if (W3.lines) { const at = W3.lines.geometry.getAttribute("alpha"), segs = W3.lines.userData.segs;
+    for (let i = 0; i < segs.length; i++) { const n = W.byId.get(segs[i]), a = W3.hops ? Math.min(A(segs[i]), A(n?.parent)) : .32; at.array[i] = W3.hops ? Math.max(.03, a * .85) : .32; } at.needsUpdate = true; }
+  for (const [id, m] of W3.objs) { const a = A(id); if (m.material) { m.material.opacity = a; m.material.depthWrite = a > .5; } }
+}
 function w3FlyTo(n) {
   const p = W3.L?.pos.get(n.id); if (!p) return;
   const from = W3.cam.position.clone(), fromT = W3.ctl.target.clone(), dirv = p.clone().normalize();
@@ -151,18 +173,19 @@ function w3Frame(now) {
     W3.cam.position.lerpVectors(W3.tween.from, W3.tween.to, e); W3.ctl.target.lerpVectors(W3.tween.fromT, W3.tween.toT, e); if (k >= 1) W3.tween = null; }
   W3.ctl.update();
   const focus = G.sel || W3.hover;
-  if (W3.lines) W3.lines.material.opacity = focus ? 0.18 : 0.32;
+  if (W3.lastSel !== (G.sel || null)) w3Focus(G.sel || null);
   for (const [id, m] of W3.objs) { const on = id === G.sel; m.scale.setScalar(on ? 1.35 + Math.sin(now / 300) * .06 : 1); }
   W3.ren.render(W3.scene, W3.cam);
   // labels: topics (and the hovered or selected body) as text beside them, fading with distance
   const box = $("#g3dlab"), w = W3.ren.domElement.clientWidth, h = W3.ren.domElement.clientHeight, v = new W3.T.Vector3();
-  const items = W3.labels.slice(); const hn = W3.hover && W.byId.get(W3.hover); if (hn && !items.some((x) => x.n.id === hn.id)) items.push({ n: hn, r: 4 });
+  const items = W3.labels.slice(); if (W3.hops && W3.points) W3.points.userData.nodes.forEach((n) => { if ((W3.hops.get(n.id) ?? 99) <= 2) items.push({ n, r: 3 }); }); const hn = W3.hover && W.byId.get(W3.hover); if (hn && !items.some((x) => x.n.id === hn.id)) items.push({ n: hn, r: 4 });
   let html = ""; const taken = [];
   const cands = items.map(({ n, r }) => { const p = W3.L.pos.get(n.id); if (!p) return null; v.copy(p).project(W3.cam); if (v.z > 1) return null;
     return { n, r, x: (v.x * .5 + .5) * w, y: (-v.y * .5 + .5) * h, dist: W3.cam.position.distanceTo(p) }; }).filter(Boolean)
     .sort((a, b) => ((a.n.id === focus) ? -1 : 0) - ((b.n.id === focus) ? -1 : 0) || (a.n.depth3 || 0) - (b.n.depth3 || 0) || a.dist - b.dist);
   for (const { n, r, x, y, dist } of cands) {
-    const p = W3.L.pos.get(n.id), a = Math.max(0.35, Math.min(1, 2.4 - dist / (W3.L.R * 2.2)));
+    const p = W3.L.pos.get(n.id), a = Math.max(0.35, Math.min(1, 2.4 - dist / (W3.L.R * 2.2))) * (W3.hops ? w3Alpha(W3.hops.get(n.id)) : 1);
+    if (W3.hops && (W3.hops.get(n.id) ?? 99) > 3 && n.id !== focus) continue;           // far from the selection: no label
     if ((n.depth3 || 0) >= 2 && n.id !== focus && dist > W3.L.R * 2.2) continue;          // deeper topics show as you come closer
     const lw = Math.min(220, (n.title || "").length * 12 + 10), lh = 18, ly = y + r * 0.6 * (h / dist);
     if (n.id !== focus && taken.some((t) => Math.abs(t.x - x) < (t.w + lw) / 2 && Math.abs(t.y - ly) < lh)) continue;

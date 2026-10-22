@@ -35,7 +35,7 @@ function graphSurface() {            /* the 3D sky draws in its own canvas; the 
   const three = G.mode === "3d"; $("#g3d").hidden = !three; $("#gcv").style.display = three ? "none" : "";
   if (!three && typeof w3Pause === "function") w3Pause();
 }
-const modeSeg = () => `<span class="seg gmode"><button class="${G.mode === "3d" ? "on" : ""}" data-gmode="3d">${L("星空", "Sky")}</button><button class="${G.mode === "tree" ? "on" : ""}" data-gmode="tree">${L("层级", "Levels")}</button><button class="${G.mode === "net" ? "on" : ""}" data-gmode="net">${L("关系网", "Network")}</button></span>`;
+const modeSeg = () => `${G.mode !== "net" ? `<button class="sm g2d3d" data-gmode="${G.mode === "3d" ? "tree" : "3d"}" title="${L("在三维星空和二维层级之间切换", "Switch between the 3D sky and the 2D levels")}">${G.mode === "3d" ? L("切到 2D", "Switch to 2D") : L("切到 3D", "Switch to 3D")}</button>` : ""}<span class="seg gmode"><button class="${G.mode === "3d" ? "on" : ""}" data-gmode="3d">${L("3D 星空", "3D sky")}</button><button class="${G.mode === "tree" ? "on" : ""}" data-gmode="tree">${L("2D 层级", "2D levels")}</button><button class="${G.mode === "net" ? "on" : ""}" data-gmode="net">${L("关系网", "Network")}</button></span>`;
 async function loadGraph() {
   try { G.data = await api(`/v1/users/${S.uid}/memory-graph?days=${G.days}`); } catch (err) { toast(err.message); return; }
   const keep = new Map((G.nodes || []).map((n) => [n.id, n]));

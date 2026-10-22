@@ -206,6 +206,12 @@ class AgentRouter:
             liked = rating_table(self.rt, user_id).get(category, {})
         except Exception:  # noqa: BLE001 - ratings only nudge the order
             liked = {}
+        try:                                                  # the arena: blind reviews and the versions you picked (agents/council.py)
+            from pga.agents.council import elo_bonus
+            from pga.db.models import User as _U
+            arena = elo_bonus(self.rt.session.get(_U, user_id) if user_id else None)
+        except Exception:  # noqa: BLE001
+            arena = {}
         out = []
         for i, name in enumerate(prefer + extra):
             if name not in self.pool.adapters:
@@ -218,7 +224,7 @@ class AgentRouter:
             good, bad = liked.get(name, [0, 0])
             fb = 1.5 * (good - bad) / (good + bad + 2)        # your marks on its answers to this kind of question
             score = (w_pref * pref + w_q * (t.get("quality", 3) / 5) + w_s * (t.get("speed", 3) / 5)
-                     - w_c * (t.get("cost", 3) / 5) + w_r * rem + fb)
+                     - w_c * (t.get("cost", 3) / 5) + w_r * rem + fb + 0.5 * arena.get(name, 0.0))
             ok, why_not = self.pool.usable(name, spent)
             if ok and (q.exhausted or (q.remaining is not None and q.remaining < float(self.cfg.get("min_remaining", 0.1)))):
                 ok, why_not = False, f"剩余用量不足（{q.detail}）"

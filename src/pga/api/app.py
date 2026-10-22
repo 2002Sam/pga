@@ -3380,7 +3380,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             cur = current(r, alts)
             out.append({"role": "agent", **answer(cur), "run": str(r.id), "version": str(cur.id),
                         "versions": [answer(v) for v in vs] if len(vs) > 1 else [],
-                        **({"second": r.data["second"]} if (r.data or {}).get("second") else {})})
+                        **({"second": r.data["second"]} if (r.data or {}).get("second") else {}),
+                        **({"council": {k: r.data["council"].get(k) for k in ("ranking", "review", "merged", "labels")}} if (r.data or {}).get("council") else {})})
         b = branch_of(u, key)
         ctx = history(rt, u, b["from"], uuid.UUID(b["upto"])) if b else []
         from pga.chats import children
@@ -3476,12 +3477,33 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.post("/v1/users/{user_id}/chats/pick")
     def chats_pick(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """Which version of an answer the conversation goes on from."""
+        from pga.agents.council import picked
         from pga.chats import ChatError, pick
         try:
-            pick(rt, user_or_404(rt, user_id), uuid.UUID(str(body.get("run"))), uuid.UUID(str(body.get("version"))))
+            u = user_or_404(rt, user_id)
+            pick(rt, u, uuid.UUID(str(body.get("run"))), uuid.UUID(str(body.get("version"))))
+            picked(rt, u, uuid.UUID(str(body.get("run"))), uuid.UUID(str(body.get("version"))))   # a vote in the arena
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         return {"ok": True}
+
+    @app.post("/v1/users/{user_id}/chats/council")
+    def chats_council(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """评审与合成: the answers several agents gave to one question, reviewed blind and ranked, then merged into one
+        answer (a new version of the turn). After LLM Council (design), Mixture-of-Agents (aggregator) and Chatbot Arena (Elo)."""
+        from pga.agents.council import CouncilError, convene
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return convene(rt, u, uuid.UUID(str(body.get("run"))))
+        except (CouncilError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.get("/v1/users/{user_id}/arena")
+    def arena(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """The agents' Elo from blind reviews and the versions you picked."""
+        from pga.agents.council import leaderboard
+        return leaderboard(user_or_404(rt, user_id))
 
     @app.post("/v1/users/{user_id}/chats/rate")
     def chats_rate(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

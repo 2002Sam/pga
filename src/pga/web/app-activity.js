@@ -49,6 +49,10 @@ function renderActivity() {
         <small>${esc([b.model, `${L("读", "in")} ${caK(b.in)}`, b.cached ? `${L("缓存", "cached")} ${caK(b.cached)}` : "", `${L("写", "out")} ${caK(b.out)}`, `${Math.round(b.secs)}s`].filter(Boolean).join(" · "))}</small></div>`).join("")}
       <div style="margin-top:6px"><a href="#" id="usageBtn">${L("所有 agent 的额度与用量 →", "All agents' quota and usage →")}</a></div></section>`;
   }
+  // the arena
+  if (S.arena === undefined || S.arena === null) { S.arena = []; api(`/v1/users/${S.uid}/arena`).then((r) => { S.arena = r; renderActivity(); }).catch(() => {}); }
+  if ((S.arena || []).length) html += `<section class="cact-s"><h4>${L("agent 排行（Elo）", "Agents' Elo")}<span>${L("盲评与你选的版本", "blind reviews and your picks")}</span></h4>
+    ${S.arena.slice(0, 8).map((x, i) => `<div class="ca-row"><b>${i + 1}. ${esc(agentLabel(x.agent))}</b><em>${x.elo}</em><small>${L(`${x.games} 场 · 赢 ${x.wins}`, `${x.games} games · ${x.wins} wins`)}</small></div>`).join("")}</section>`;
   // context
   const last = agents[agents.length - 1], lh = last?.how || {}, lu = lh.usage || {}, win = lh.window || 0;
   const w = S.chatWorld?.[key], lvl = w?.talks_to ? (w.path || []).find((x) => x.id === w.talks_to) : null, acc = S.acc?.[key] || S.acc?.["*new"];

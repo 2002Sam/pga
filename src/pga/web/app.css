@@ -491,3 +491,8 @@ pre.codeblk > code { display: block; padding: 10px 14px !important; overflow: au
 .ca-empty { color: var(--dim); font-size: 12px; } .ca-live { border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 10px; padding: 8px 10px; }
 @media (max-width: 1100px) { #vChats { grid-template-columns: minmax(0, 1fr) !important; } .cact { display: none; } }
 .rail .brand .pulse { white-space: nowrap; overflow: hidden; }
+.g2d3d { margin-left: 6px; border-color: color-mix(in srgb, var(--accent) 40%, transparent) !important; color: var(--accent) !important; }
+.gbar .gh { flex-wrap: wrap; row-gap: 6px; } .gbar .gh b { white-space: nowrap; }
+.sbs-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0; font-size: 12.5px; }
+.sbs-rank b { font-weight: 500; margin-right: 8px; } .sbr { font-size: 11px; font-weight: 700; color: var(--accent); }
+.sbc.merged { border-color: color-mix(in srgb, var(--accent) 50%, transparent); } .sbs-review { font-size: 12.5px; margin: 4px 0 8px; } .sbs-review summary { cursor: pointer; color: var(--muted); }

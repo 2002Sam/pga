@@ -18,7 +18,15 @@ keeps Graphiti's copyright notice and says what was changed:
 `src/pga/kg/service.py` follows Graphiti's `add_episode` pipeline but is PGA's own code (Postgres instead of a graph
 database, PGA's model router, no embeddings).
 
+## Mixture-of-Agents (togethercomputer/MoA) and FastChat (lm-sys/FastChat)
+
+Both licensed under the Apache License, Version 2.0 — full texts in `third_party/moa/LICENSE` and
+`third_party/fastchat/LICENSE`. `src/pga/agents/council.py` contains MoA's aggregator prompt (from `moa.py` / `utils.py`)
+and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), each marked and with what PGA changed.
+
 ## Designs followed without copying code
+
+- LLM Council (karpathy/llm-council, no licence published) — the blind review and chairman flow in `src/pga/agents/council.py` is reimplemented.
 
 - RAPTOR (MIT), GraphRAG (MIT), MemTree — the world tree (`src/pga/worldtree.py`); see `notes/world-tree.md`.
 - Open WebUI — interaction designs reimplemented in the web app; no code copied (see `notes/open-webui-study.md`).
