@@ -153,7 +153,7 @@ function drawWorldSide() {
     ${n.kind === "leaf" && n.gist ? `<div class="wgist">${L("主旨：", "Gist: ")}${esc(n.gist)}</div>` : ""}
     ${n.summary ? `<div class="gs-sub md">${md(n.summary)}</div>` : n.kind === "leaf" && n.excerpt ? `<div class="gs-sub">${esc(n.excerpt)}</div>` : ""}
     <div class="gs-acts">${n.kind === "leaf" || n.kind === "aim" ? `<button class="sm primary" data-wact="open">${n.kind === "aim" ? L("打开这棵树", "Open the tree") : L("打开这段对话", "Open the conversation")}</button>` : ""}
-      ${n.kind !== "leaf" ? `<button class="sm primary" data-wact="talk" title="${L("开一段新对话，agent 读的是这一层的概括、它的各部分，以及和你问的最相关的那几段对话", "A new conversation where the agent reads this level's summary, its parts, and the conversations closest to what you ask")}">${L("和这个主题对话", "Talk to this topic")}</button><button class="sm" data-cvopen="${n.kind === "root" ? "top" : n.id}" title="${L("这一层在画布上的蓝图：输入 → 指派 → 各分支 → 输出", "This level's blueprint on the canvas: input → assign → branches → output")}">${L("在画布中打开", "Open on the canvas")}</button>` : ""}
+      ${n.kind !== "leaf" ? `<button class="sm primary" data-wact="talk" title="${L("开一段新对话，agent 读的是这一层的概括、它的各部分，以及和你问的最相关的那几段对话", "A new conversation where the agent reads this level's summary, its parts, and the conversations closest to what you ask")}">${L("和这个主题对话", "Talk to this topic")}</button>` : ""}<button class="sm primary" data-cvopen="${n.kind === "root" ? "top" : n.id}" title="${L("双击节点也可以", "Double-clicking the node does this too")}">${n.kind === "leaf" ? L("在图里看这段对话 →", "See it in the graph →") : L("进入这一层的图 →", "Into this level's graph →")}</button>
       ${n.kind === "topic" || n.kind === "root" || n.kind === "plan" ? `<button class="sm" data-wact="expand" title="${L("让模型提出下一层值得做的几个方向", "Let a model suggest the next level of directions")}">${L("往下长一层", "Grow a level")}</button>` : ""}
       ${n.kind !== "leaf" ? `<button class="sm ghost" data-wact="ctx">${L("agent 会读到什么", "What an agent reads")}</button>` : ""}
       ${n.kind === "topic" || n.kind === "plan" ? `<button class="sm ghost" data-wact="rename">${L("改名", "Rename")}</button>` : ""}</div>
@@ -197,9 +197,8 @@ function worldClick(n) {
   const cv = $("#gcv"), room = cv.clientWidth - 380, k = Math.min(4, Math.max(G.t.k * 1.5, n.kind === "root" ? 0.6 : 1.2));   // zoom into it, clear of the side panel
   d3.select(cv).transition().duration(550).call(G.zoom.transform, d3.zoomIdentity.translate(room / 2 - n.x * k, cv.clientHeight / 2 - n.y * k).scale(k));
 }
-function worldDbl(n) {
-  if (n.kind === "leaf" || n.kind === "root") return;
-  W.collapsed.has(n.id) ? W.collapsed.delete(n.id) : W.collapsed.add(n.id); layoutWorld(); drawWorld();
+function worldDbl(n) {                           // double-click: into that level's graph on the canvas (a conversation: its row there)
+  if (typeof cvOpen === "function") cvOpen(n.kind === "root" ? "top" : n.id);
 }
 async function talkTo(n) {
   const key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

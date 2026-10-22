@@ -6,7 +6,10 @@ import pytest
 
 from pga import canvas, pad
 from pga.canvas import Boards, CanvasConflict, CanvasError
-from pga.db.models import WorldNode
+import json
+from datetime import datetime, timezone
+
+from pga.db.models import AgentRun, WorldNode
 
 
 def world(rt, user):
@@ -26,8 +29,17 @@ def world(rt, user):
     return root, res, dev, sub, a
 
 
+def turn(rt, user, key, q, a, h):
+    t = datetime(2026, 10, 2, h, tzinfo=timezone.utc)
+    rt.session.add(AgentRun(user_id=user.id, workflow="ask", pattern="single", step="answer", agent="deepseek", adapter="llm", status="succeeded",
+                            prompt=q, output=json.dumps({"answer": a}), started_at=t, finished_at=t, data={"conversation": key, "agent": "deepseek"}))
+    rt.session.flush()
+
+
 def test_a_topic_board_is_input_assign_branches_output(rt, user):
     root, res, dev, sub, a = world(rt, user)
+    turn(rt, user, "chat:a", "帮我写引言", "初稿", 1)
+    turn(rt, user, "chat:a", "引言再短一点", "就这样改", 2)
     b = Boards(rt)
     top = b.board(user, "top")
     kinds = {n["id"]: n["kind"] for n in top.data["nodes"]}
@@ -36,11 +48,13 @@ def test_a_topic_board_is_input_assign_branches_output(rt, user):
     c = b.board(user, str(res.id))
     ns = c.data["nodes"]
     chat = next(n for n in ns if n["kind"] == "chat")
-    assert chat["key"] == "chat:a" and chat["out"] == "改引言"                        # the hidden one is not a branch
+    assert chat["key"] == "chat:a" and chat["out"] == "就这样改"                        # the hidden one is not a branch
+    ask = next(n for n in ns if n["id"] == chat["askIn"])
+    assert ask["kind"] == "input" and ask["text"] == "引言再短一点" and ask["title"] == "提问 · 第 2 轮" and chat["prev"]
     assert [n["title"] for n in ns if n["kind"] == "board"] == ["世界模型"]
     assert next(n for n in ns if n["id"] == "out")["out"] == "做研究"
     es = {(e["fromNode"], e["toNode"]) for e in c.data["edges"]}
-    assert ("in", "assign") in es and ("assign", chat["id"]) in es and (chat["id"], "out") in es
+    assert ("in", "assign") in es and (ask["id"], chat["id"]) in es and (chat["id"], "out") in es
     assert b.board(user, str(a.id)).id == c.id                                         # a conversation opens its topic's board
     assert [x["title"] for x in b.crumbs(user, c)] == ["顶层", "研究"]
 
@@ -63,9 +77,17 @@ def test_the_board_follows_the_tree_and_keeps_your_work(rt, user):
     assert c.rev == rev + 1
     ns = {n.get("key") or n["id"]: n for n in c.data["nodes"]}
     assert "chat:n" in ns and ns["chat:a"]["gone"] is True and "mine" in ns      # moved away: greyed out, not removed
-    assert any(e["toNode"] == ns["chat:n"]["id"] and e["fromNode"] == "assign" for e in c.data["edges"])
+    assert any(e["toNode"] == ns["chat:n"]["id"] and e["fromNode"] == ns["chat:n"]["askIn"] for e in c.data["edges"])
+    q = next(n for n in c.data["nodes"] if n["id"] == ns["chat:n"]["askIn"])
+    assert q["text"] == "新对话" and next(n for n in c.data["nodes"] if n["id"] == ns["chat:a"]["askIn"])["gone"] is True
     rev = c.rev
     assert b.board(user, str(res.id)).rev == rev                                   # nothing changed: not saved again
+    turn(rt, user, "chat:n", "后来问的", "后来的回答", 5)                           # the conversation went on elsewhere
+    new.data = {**new.data, "last": "2026-10-04"}
+    rt.session.flush()
+    c = b.board(user, str(res.id))
+    n = next(x for x in c.data["nodes"] if x.get("key") == "chat:n")
+    assert n["out"] == "后来的回答" and next(x for x in c.data["nodes"] if x["id"] == n["askIn"])["text"] == "后来问的"
     with pytest.raises(CanvasError):
         b.board(user, "00000000-0000-0000-0000-000000000000")
 

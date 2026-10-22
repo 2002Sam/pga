@@ -28,8 +28,8 @@ const CV = { board: null, data: null, rev: 0, view: { x: 0, y: 0, z: 1 }, sel: n
   world: Q.get("b") || (() => { try { return localStorage.getItem("pga_cv_world") || "top"; } catch { return "top"; } })() };
 const KIND = {
   input: ["输入", "Input"], dispatch: ["指派", "Assign"], chat: ["对话", "Conversation"], output: ["输出", "Output"],
-  note: ["笔记", "Note"], skill: ["技能", "Skill"], image: ["图片", "Picture"], board: ["子画布", "Sub-board"] };
-const SOURCES = new Set(["input", "note", "skill", "image", "board"]);       // nothing to cook: what they say is what they hold
+  note: ["笔记", "Note"], skill: ["技能", "Skill"], image: ["图片", "Picture"], board: ["子画布", "Sub-board"], group: ["分组", "Group"] };
+const SOURCES = new Set(["input", "note", "skill", "image", "board", "group"]);       // nothing to cook: what they say is what they hold
 const PIN_Y = 19;
 const kname = (k) => L(...(KIND[k] || [k, k]));
 
@@ -48,6 +48,8 @@ const cvOuts = (id) => CV.data.edges.filter((e) => e.fromNode === id).map((e) =>
 const fnv = (s) => { let h = 0x811c9dc5; s = String(s); for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); } return (h >>> 0).toString(36); };
 const nid = () => Math.random().toString(36).slice(2, 10);
 const isRef = (n) => n.kind === "chat" && n.seeded && !n.task;                // a conversation already under the topic: it stands on its own
+const askOf = (n) => (n.askIn ? cvNode(n.askIn) : null);                       // …with the question it answered in the input before it
+const edited = (n) => { const q = askOf(n); return !!q && !!(q.text || "").trim() && (q.text || "").trim() !== (n.ask0 || "").trim(); };
 function outOf(n) {
   if (!n) return "";
   if (n.bypass) return cvIns(n.id).map(outOf).filter(Boolean).join("\n\n");
@@ -57,7 +59,7 @@ function outOf(n) {
 }
 function inSig(n) {
   const own = JSON.stringify([n.kind, n.text || "", n.agent || "", n.path || "", n.world || "", !!n.bypass]);
-  if (isRef(n)) return fnv(own);
+  if (isRef(n)) return fnv(own + "|" + (askOf(n)?.text || ""));
   return fnv(own + "|" + cvIns(n.id).filter((u) => !u.gone).map((u) => u.id + ":" + fnv(outOf(u))).join("|"));
 }
 function state(n) {
@@ -68,7 +70,7 @@ function state(n) {
   if (!n.cin) return "new";
   return n.cin === inSig(n) ? "fresh" : "stale";
 }
-const canCook = (n) => !SOURCES.has(n.kind) && !n.lock && !n.gone && (!!(n.text || "").trim() && n.kind === "chat" || !isRef(n) && cvIns(n.id).some((u) => !u.gone && (outOf(u) || u.kind === "image")));
+const canCook = (n) => !SOURCES.has(n.kind) && !n.lock && !n.gone && (!!(n.text || "").trim() && n.kind === "chat" || (isRef(n) ? edited(n) : cvIns(n.id).some((u) => !u.gone && (outOf(u) || u.kind === "image"))));
 function dirty(n, memo = new Map()) {          // stale itself, or something before it is (Houdini's dirty flag, propagated)
   if (memo.has(n.id)) return memo.get(n.id); memo.set(n.id, false);
   const s = state(n); let d = (s === "stale" || (s === "new" && canCook(n)));
@@ -78,8 +80,9 @@ function dirty(n, memo = new Map()) {          // stale itself, or something bef
 
 /* ------------------------------------------------ loading and keeping a board */
 async function cvOpen(world, focus) {
-  if (S.view !== "canvas") show("canvas");
-  await cvLoad(world || "top", focus);
+  CV.world = world || "top"; CV.want = focus || null;
+  if (S.view !== "canvas") show("canvas"); else await cvLoad(CV.world, CV.want);
+  await CV.ready;
 }
 async function cvLoad(world, focus) {
   CV.ready = (async () => {
@@ -95,9 +98,11 @@ async function cvLoad(world, focus) {
     }
     if (typeof padApply === "function" && padApply(b.world)) changed = true;
     cvRender(true);
-    if ((CV.data.laid | 0) < 2) { relayout(); CV.data.laid = 2; changed = true; }
+    if ((CV.data.laid | 0) < 3) { relayout(); CV.data.laid = 3; changed = true; }
     if (CV.peek && !cvNode(CV.peek)) peekClose(true);                  // the conversation open on the right was on another board
-    const f = cvNode(focus || hotNode());
+    CV.want = null;
+    if (!focus && world !== b.world) focus = world;                       // a conversation was asked for: its topic's board, at its row
+    const f = cvNode(focus) || CV.data.nodes.find((n) => focus && (n.world === focus || n.key === focus) && n.kind !== "board") || cvNode(hotNode());   // a conversation clicked in the world tree: its row
     if (f) { cvFocus(f.id); if (f.kind === "chat" && f.key && !f.seeded) peek(f, true); } else cvFit();
     if (changed) cvSave();
   })();
@@ -134,7 +139,7 @@ function showCanvas() {
   }
   if (!S.acc?.["*new"] && typeof loadAcc === "function") loadAcc("");
   wtFetch().then(cvTree);
-  if (!CV.board || CV.board.world !== CV.world) cvLoad(CV.world); else { cvRender(true); cvApplyView(); }
+  if (!CV.board || CV.board.world !== CV.world || CV.want) cvLoad(CV.world, CV.want); else { cvRender(true); cvApplyView(); }
 }
 function cvApplyView() {
   const w = $("#cvw"), cv = $("#cv"); if (!w) return; const { x, y, z } = CV.view;
@@ -145,16 +150,26 @@ function cvApplyView() {
 const toWorld = (cx, cy) => { const r = $("#cv").getBoundingClientRect(); return { x: (cx - r.left - CV.view.x) / CV.view.z, y: (cy - r.top - CV.view.y) / CV.view.z }; };
 function unstack() {                             // nodes in one column must not overlap once their real heights are known
   const cols = new Map(); let moved = false;
-  for (const n of CV.data.nodes) { const k = Math.round(n.x / 60); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(n); }
+  for (const n of CV.data.nodes) { if (n.kind === "group" || hidden(n)) continue; const k = Math.round(n.x / 60); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(n); }
   for (const col of cols.values()) {
     col.sort((a, b) => a.y - b.y);
     for (let i = 1; i < col.length; i++) { const p = col[i - 1], h = document.querySelector(`[data-nid="${p.id}"]`)?.offsetHeight || 150; if (col[i].y < p.y + h + 18) { col[i].y = Math.round(p.y + h + 18); moved = true; } }
   }
   return moved;
 }
-function relayout() {                            // input, assign, branches, output in four close columns (boards laid out before were wider)
-  for (const n of CV.data.nodes) { if (n.id === "in") n.x = 0; else if (n.id === "assign") n.x = 340; else if (n.id === "out") n.x = 980; else if (n.seeded) n.x = 640; }
-  tidy();
+function relayout() {                            // a row per conversation (question → answer) and sub-topic, under the new input and assign
+  const X = { in: 0, assign: 340, out: 1040 }, h = (n) => document.querySelector(`[data-nid="${n.id}"]`)?.offsetHeight || 160;
+  const seeded = CV.data.nodes.filter((n) => n.seeded && !X[n.id] && n.id !== "out");
+  for (const n of CV.data.nodes) if (X[n.id] != null) n.x = X[n.id]; else if (n.seeded) n.x = n.kind === "input" ? 340 : 680;
+  const lead = seeded.filter((n) => n.kind !== "input").sort((a, b) => (a.row ?? 1e9) - (b.row ?? 1e9) || a.y - b.y);
+  lead.forEach((n, i) => { n.row = i; const q = askOf(n); if (q) q.row = i; });
+  cvRender(true);
+  for (const id of ["in", "assign"]) if (cvNode(id)) cvNode(id).y = 0;
+  const top = Math.max(0, ...["in", "assign"].map((id) => (cvNode(id) ? h(cvNode(id)) : 0))) + 70;
+  let y = top;
+  for (const n of lead) { const row = [n, askOf(n)].filter(Boolean); row.forEach((m) => { m.y = y; }); y += Math.max(...row.map(h)) + 22; }
+  const o = cvNode("out"); if (o) o.y = Math.round(Math.min(top + 500, top + Math.max(0, (y - top) / 2 - h(o) / 2)));
+  cvRender(true);
 }
 function tidy() {
   unstack();
@@ -200,10 +215,12 @@ function nodeHtml(n) {
   const agents = S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === n.agent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("");
   const out = outOf(n), hv = (n.hist || []).length;
   let body = "";
-  if (n.kind === "input" || n.kind === "note") body = `<textarea class="cvt" data-f="text" rows="${n.kind === "input" ? 4 : 3}" placeholder="${n.kind === "input" ? L("写下要做的事：交给「指派」拆分，或直接连一个对话", "What to do: wire it to Assign to split it, or straight to a conversation") : L("笔记：连到哪个节点，哪个节点就读到它", "A note: whatever it is wired to reads it")}">${esc(n.text || "")}</textarea>`;
+  const qOf = n.askOf ? cvNode(n.askOf) : null, qEdited = qOf && edited(qOf);
+  if (n.kind === "input" && n.askOf) body = `<textarea class="cvt" data-f="text" rows="4">${esc(n.text || "")}</textarea><div class="cvdim">${qEdited ? L("改过了：运行右边的对话，会从这一问之前分出一段新对话重问，原来的对话不动", "Edited: running the conversation asks again in a branch from before this question; the original stays") : L("这段对话问的（最后一问）。改了再运行，就从这里分支重问", "What this conversation asked (its last question). Edit and run to ask again in a branch")}</div>`;
+  else if (n.kind === "input" || n.kind === "note") body = `<textarea class="cvt" data-f="text" rows="${n.kind === "input" ? 4 : 3}" placeholder="${n.kind === "input" ? L("写下要做的事：交给「指派」拆分，或直接连一个对话", "What to do: wire it to Assign to split it, or straight to a conversation") : L("笔记：连到哪个节点，哪个节点就读到它", "A note: whatever it is wired to reads it")}">${esc(n.text || "")}</textarea>`;
   else if (n.kind === "chat") body = `<div class="cvrow"><select data-f="agent"><option value="auto" ${!n.agent || n.agent === "auto" ? "selected" : ""}>${L("自动选 agent", "Auto")}</option>${agents}</select>${n.key ? `<button class="sm ghost" data-cva="peek" title="${L("在旁边看这段对话", "Read it beside the board")}">${L("看对话", "Read")}</button>` : ""}</div>
-      <textarea class="cvt" data-f="text" rows="2" placeholder="${isRef(n) ? L("接着这段对话问…（可空）", "Carry on this conversation… (optional)") : L("要问它的话（可空：只用连进来的内容）", "What to ask (optional: just what is wired in)")}">${esc(n.text || "")}</textarea>
-      ${out ? `<div class="cvo ${n.open ? "open" : ""}">${md(out.length > 4000 && !n.open ? out.slice(0, 4000) + "…" : out)}</div>` : ""}${n.err ? `<div class="cverr">${esc(n.err)}</div>` : ""}`;
+      <textarea class="cvt" data-f="text" rows="2" placeholder="${isRef(n) ? L("接着这段对话再问一句…（可空）", "Ask this conversation one more thing… (optional)") : L("要问它的话（可空：只用连进来的内容）", "What to ask (optional: just what is wired in)")}">${esc(n.text || "")}</textarea>
+      ${out ? `${n.askIn || n.ask ? `<div class="cvlab">${L("回答", "Answer")}${n.turns > 1 ? ` · ${L(`共 ${n.turns} 轮`, `${n.turns} turns`)}` : ""}</div>` : ""}<div class="cvo ${n.open ? "open" : ""}">${md(out.length > 4000 && !n.open ? out.slice(0, 4000) + "…" : out)}</div>` : ""}${n.err ? `<div class="cverr">${esc(n.err)}</div>` : ""}`;
   else if (n.kind === "dispatch") body = `<div class="cvdim">${L("把连进来的话拆成几件可以同时做的事，每件派给一个 agent", "Splits what is wired in into things to do at once, one agent each")}</div>${(n.tasks || []).length ? `<ol class="cvtasks">${n.tasks.map((t) => `<li>${esc(t.title)}</li>`).join("")}</ol>` : ""}${n.err ? `<div class="cverr">${esc(n.err)}</div>` : ""}`;
   else if (n.kind === "output") body = `<textarea class="cvt" data-f="text" rows="1" placeholder="${L("汇总成什么（可空）", "Merge into what (optional)")}">${esc(n.text || "")}</textarea>${out ? `<div class="cvo ${n.open ? "open" : ""}">${md(out)}</div>` : `<div class="cvdim">${L("把连进来的各分支合成一个回答", "Merges the branches wired in into one answer")}</div>`}${n.err ? `<div class="cverr">${esc(n.err)}</div>` : ""}`;
   else if (n.kind === "skill") body = `<div class="cvdim">${esc(n.text || "")}</div><div class="cvsrc">${esc(n.source || "")}${n.category ? " · " + esc(n.category) : ""}</div>`;
@@ -217,27 +234,31 @@ function nodeHtml(n) {
 }
 function cvRender(full) {
   const box = $("#cvn"); if (!box || !CV.data) return;
-  const keep = new Set(CV.data.nodes.map((n) => n.id));
-  CV.hop = CV.sel.size ? hops([...CV.sel].filter((id) => keep.has(id))) : null;      // focus: what is wired near the selection stays clear, the rest fades
-  const far = (id) => !CV.hop ? "" : (CV.hop.get(id) ?? 9) <= 1 ? "" : CV.hop.get(id) === 2 ? "h2" : "h3";
+  const keep = new Set(CV.data.nodes.filter((n) => n.kind !== "group").map((n) => n.id));
   box.querySelectorAll(".cvnode").forEach((el) => { if (!keep.has(el.dataset.nid)) el.remove(); });
+  renderGroups();
   for (const n of CV.data.nodes) {
+    if (n.kind === "group") continue;
     let el = box.querySelector(`[data-nid="${n.id}"]`);
     if (!el) { el = document.createElement("div"); el.className = "cvnode"; el.dataset.nid = n.id; box.appendChild(el); full = true; }
     const sig = fnv(JSON.stringify(n) + state(n) + (CV.busy[n.id] ? Math.floor(Date.now() / 1000) : "") + dirty(n) + S.agents.length);
     if (el.dataset.sig !== sig && !el.contains(document.activeElement)) { el.innerHTML = nodeHtml(n); el.dataset.sig = sig; }
-    el.className = `cvnode k-${n.kind} ${far(n.id)} ${CV.sel.has(n.id) ? "sel" : ""} ${n.gone ? "gone" : ""} ${n.bypass ? "byp" : ""} ${CV.link === n.id ? "linking" : ""}`;
+    el.className = `cvnode k-${n.kind} ${hidden(n) ? "hid" : ""} ${CV.sel.has(n.id) ? "sel" : ""} ${n.gone ? "gone" : ""} ${n.bypass ? "byp" : ""} ${CV.link === n.id ? "linking" : ""}`;
     el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.width = (n.width || 260) + "px";
   }
   cvEdges(); cvBar();
 }
-function pinPos(n, side) { const el = document.querySelector(`[data-nid="${n.id}"]`); return { x: n.x + (side === "out" ? (el?.offsetWidth || n.width || 260) : 0), y: n.y + PIN_Y }; }
+function pinPos(n, side) {
+  const g = hidden(n); if (g) return { x: g.x + (side === "out" ? GROUP_MIN.w : 0), y: g.y + 22 };            // inside a folded group: its edge
+  const el = document.querySelector(`[data-nid="${n.id}"]`); return { x: n.x + (side === "out" ? (el?.offsetWidth || n.width || 260) : 0), y: n.y + PIN_Y };
+}
 function cvEdges() {
   const g = $("#cveg"); if (!g) return;
   g.innerHTML = CV.data.edges.map((e) => {
     const a = cvNode(e.fromNode), b = cvNode(e.toNode); if (!a || !b) return "";
-    const p = pinPos(a, "out"), q = pinPos(b, "in"), live = CV.busy[b.id] || CV.busy[a.id], h = CV.hop ? Math.max(CV.hop.get(a.id) ?? 9, CV.hop.get(b.id) ?? 9) : 0;
-    return `<path class="cvedge k-${a.kind} ${h >= 3 ? "h3" : h === 2 ? "h2" : ""} ${live ? "live" : ""} ${a.gone || b.gone ? "gone" : ""} ${CV.selEdge === e.id ? "sel" : ""}" data-eid="${e.id}" d="${curve(p.x, p.y, q.x, q.y, .5)}"/>`;
+    const ga = hidden(a), gb = hidden(b); if (ga && ga === gb) return "";                                      // both inside one folded group
+    const p = pinPos(a, "out"), q = pinPos(b, "in"), live = CV.busy[b.id] || CV.busy[a.id];
+    return `<path class="cvedge k-${a.kind} ${live ? "live" : ""} ${a.gone || b.gone ? "gone" : ""} ${CV.selEdge === e.id ? "sel" : ""}" data-eid="${e.id}" d="${curve(p.x, p.y, q.x, q.y, .5)}"/>`;
   }).join("");
 }
 function cvBar() {
@@ -294,6 +315,59 @@ function duplicate(id) {
   CV.sel = new Set([c.id]); cvRender();
 }
 
+
+/* ------------------------------------------------ 分组: a frame that holds nodes (JSON Canvas's group, Blueprint's collapsed graph,
+   Houdini's subnet). What is inside moves and runs together; folded, it stands as one node and the wires meet its edges. */
+const GROUP_MIN = { w: 260, h: 64 };
+function members(g) {
+  if (g.collapsed) return (g.inside || []).map(cvNode).filter(Boolean);
+  return CV.data.nodes.filter((n) => n.kind !== "group" && n.x >= g.x && n.y >= g.y && n.x + (n.width || 260) / 2 <= g.x + g.width && n.y + 40 <= g.y + g.height);
+}
+function hidden(n) { return n.kind === "group" ? null : CV.data.nodes.find((g) => g.kind === "group" && g.collapsed && (g.inside || []).includes(n.id)) || null; }
+function makeGroup(ids, at) {
+  snap();
+  const ns = (ids || []).map(cvNode).filter((n) => n && n.kind !== "group");
+  let g;
+  if (ns.length) {
+    const box = (n) => document.querySelector(`[data-nid="${n.id}"]`);
+    const x0 = Math.min(...ns.map((n) => n.x)) - 24, y0 = Math.min(...ns.map((n) => n.y)) - 54;
+    const x1 = Math.max(...ns.map((n) => n.x + (box(n)?.offsetWidth || n.width || 260))) + 24, y1 = Math.max(...ns.map((n) => n.y + (box(n)?.offsetHeight || 160))) + 24;
+    g = { id: nid(), kind: "group", x: Math.round(x0), y: Math.round(y0), width: Math.round(x1 - x0), height: Math.round(y1 - y0), title: L("一组", "Group") };
+  } else g = { id: nid(), kind: "group", x: Math.round(at.x), y: Math.round(at.y), width: 620, height: 380, title: L("一组", "Group") };
+  CV.data.nodes.unshift(g); cvRender(); cvSave();
+  setTimeout(() => { const v = prompt(L("这一组叫什么？", "Name this group"), ""); if (v) { g.title = v.trim(); cvRender(); cvSave(); } }, 30);
+  return g;
+}
+function groupFold(g) {
+  snap();
+  if (!g.collapsed) { g.inside = members(g).map((n) => n.id); g.open = { w: g.width, h: g.height }; g.collapsed = true; }
+  else { g.collapsed = false; if (g.open) { g.width = g.open.w; g.height = g.open.h; } g.inside = []; }
+  cvRender(); cvSave();
+}
+function groupState(g) {
+  const ms = members(g), st = ms.map(state);
+  return { n: ms.length, running: st.filter((x) => x === "running").length, stale: ms.filter((m) => canCook(m) && dirty(m)).length };
+}
+function renderGroups() {
+  const box = $("#cvn"); const gs = CV.data.nodes.filter((n) => n.kind === "group"), keep = new Set(gs.map((g) => g.id));
+  box.querySelectorAll(".cvgroup").forEach((el) => { if (!keep.has(el.dataset.gid)) el.remove(); });
+  for (const g of gs) {
+    let el = box.querySelector(`[data-gid="${g.id}"]`);
+    if (!el) { el = document.createElement("div"); el.className = "cvgroup"; el.dataset.gid = g.id; box.prepend(el); }
+    const st = groupState(g);
+    el.className = `cvgroup ${g.collapsed ? "folded" : ""} ${CV.sel.has(g.id) ? "sel" : ""}`;
+    el.style.left = g.x + "px"; el.style.top = g.y + "px";
+    el.style.width = (g.collapsed ? GROUP_MIN.w : g.width) + "px"; el.style.height = (g.collapsed ? GROUP_MIN.h : g.height) + "px";
+    el.innerHTML = `<div class="gh"><span class="cvk">${kname("group")}</span><b>${esc(g.title || "")}</b><span class="cvdim">${L(`${st.n} 个节点`, `${st.n} nodes`)}${st.running ? ` · <span class="spin"></span> ${st.running}` : ""}${st.stale ? ` · <span class="gst">${L(`${st.stale} 个过期`, `${st.stale} stale`)}</span>` : ""}</span><span class="grow"></span>
+      <button class="cvrun" data-gact="run" title="${L("运行组里过期的节点", "Run what is stale inside")}">▶</button><button class="cvrun" data-gact="fold" title="${g.collapsed ? L("展开", "Unfold") : L("折叠成一个节点", "Fold into one node")}">${g.collapsed ? "▸" : "▾"}</button></div>${g.collapsed ? `<i class="pin in gpin"></i><i class="pin out gpin"></i>` : `<i class="grs" data-grs="1"></i>`}`;
+  }
+}
+async function groupRun(g) {
+  const ms = members(g), todo = ms.filter((n) => canCook(n) && dirty(n));
+  const sinks = todo.filter((n) => !cvOuts(n.id).some((o) => todo.includes(o)));
+  await Promise.all(sinks.map((n) => cook(n.id)));
+}
+
 /* ------------------------------------------------ cooking */
 async function cook(id, opts = {}) {
   if (CV.cooking[id]) return CV.cooking[id];
@@ -308,12 +382,13 @@ async function cook(id, opts = {}) {
       else if (n.kind === "dispatch") await cookDispatch(n, opts);
       else if (n.kind === "output") await cookOutput(n);
       n.cin = sig;
+      if (isRef(n)) n.cin = inSig(n);                                     // its question now reads what it was asked
     } catch (err) { n.err = err.message; }
     finally { delete CV.busy[id]; n.running = false; cvRender(); if (unstack()) cvRender(); cvSave(); if (CV.peek === id) peekReload(n); if (typeof padSync === "function") padSync(); }
   })();
   CV.cooking[id] = p; try { await p; } finally { delete CV.cooking[id]; }
 }
-function keepVersion(n) { if (n.out) n.hist = [...(n.hist || []), { out: n.out, at: n.at, run: n.run, agent: n.used }].slice(-12); }
+function keepVersion(n) { if (n.out) n.hist = [...(n.hist || []), { out: n.out, at: n.at, run: n.run, agent: n.used, key: n.key, ask: n.ask0 }].slice(-12); }
 function inputText(n, seen = new Set()) {         // the words that started this branch: the nearest input before it
   if (seen.has(n.id)) return ""; seen.add(n.id);
   for (const u of cvIns(n.id)) { if (u.kind === "input" && u.text) return u.text; const t = inputText(u, seen); if (t) return t; }
@@ -323,7 +398,39 @@ async function imageData(path) {
   const b = await fetch(`/v1/users/${S.uid}/canvas-image?path=${encodeURIComponent(path)}`).then((r) => r.blob());
   return await new Promise((ok) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.readAsDataURL(b); });
 }
+async function cookRef(n) {                      // an existing conversation: an edited question asks again in a branch; a new line carries it on
+  const q = askOf(n), own = (n.text || "").trim(), base = n.base || n.key, again = edited(n);
+  let key = n.key, history = [], turns = [];
+  if (base?.startsWith("chat:") || S.allChats?.some((c) => c.key === base)) { try { turns = (await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(again ? base : key)}`)).turns || []; } catch {} }
+  else if (base?.startsWith("c:")) { try { turns = ((await api(`/v1/users/${S.uid}/imported/${base.slice(2)}`)).turns || []).map((t) => ({ ...t, role: t.role === "user" ? "user" : "agent" })); } catch {} }   // imported from another app: carried on as a new PGA conversation
+  const hist = (ts) => ts.slice(-12).map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text }));
+  let text;
+  if (again) {
+    const lastQ = turns.map((t) => t.role).lastIndexOf("user");
+    history = hist(lastQ > 0 ? turns.slice(0, lastQ) : []);
+    key = null;
+    if (n.prev && base?.startsWith("chat:")) { try { key = (await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: base, upto: n.prev } })).key; } catch {} }
+    if (!key) { key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; if (!turns.length && n.out) history = [{ role: "assistant", text: n.out }]; }
+    text = [q.text.trim(), own].filter(Boolean).join("\n\n");
+  } else {
+    history = hist(turns);
+    if (!key?.startsWith("chat:") && !S.allChats?.some((c) => c.key === key)) { history = n.out ? [{ role: "assistant", text: n.out }] : []; n.was = n.was || key; key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
+    text = own;
+  }
+  const lastRun = turns.filter((t) => t.run).pop()?.run;
+  const acc = S.acc?.[key] || S.acc?.["*new"] || {};
+  n.base = base; n.key = key; cvSave(true);
+  if (!CV.peek || CV.peek === n.id) setTimeout(() => peek(n, true), 600);
+  const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: n.agent || "auto", conversation: key, history,
+    world: CV.world !== "top" ? CV.world : undefined, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } });
+  if (!r?.text && r?.error) throw new Error(r.error);
+  keepVersion(n); n.out = r.text || ""; n.used = r.agent; n.run = r.run_id; n.at = new Date().toISOString();
+  if (again) { n.ask0 = q.text; n.turns = (history.filter((t) => t.role === "user").length || 0) + 1; }
+  else { q && (q.text = own); n.ask0 = own; n.text = ""; n.prev = lastRun || n.prev; n.base = key; n.turns = (n.turns || 1) + 1; }
+  loadChats(); loadTimeline?.();
+}
 async function cookChat(n) {
+  if (isRef(n)) return cookRef(n);
   const ups = isRef(n) ? [] : cvIns(n.id).filter((u) => !u.gone && u.id !== n.from), ctx = [], images = [];
   for (const u of ups) {
     if (u.kind === "image") { try { images.push({ name: u.title, data: await imageData(u.path) }); ctx.push(`[${L("附上了图片", "picture attached")}: ${u.title}]`); } catch {} continue; }
@@ -431,7 +538,7 @@ function palItems() {
   const q = (CV.pal?.q || "").toLowerCase(), hit = (...xs) => !q || xs.some((x) => String(x || "").toLowerCase().includes(q));
   const fresh = Date.now() / 1000 - 14 * 86400, out = [];
   const add = (sec, label, sub, make) => out.push({ sec, label, sub, make });
-  for (const k of ["input", "dispatch", "chat", "output", "note"]) if (hit(kname(k), k)) add(L("基本", "Basics"), kname(k), { input: L("一段要做的事", "Something to do"), dispatch: L("拆成几件同时做", "Split into things to do at once"), chat: L("问一个 agent", "Ask an agent"), output: L("合成一个回答", "Merge into one answer"), note: L("给连到的节点看的笔记", "A note for whatever it is wired to") }[k], (at) => addNode(k, at));
+  for (const k of ["input", "dispatch", "chat", "output", "note", "group"]) if (hit(kname(k), k, k === "group" ? "包含 框 子图" : "")) add(L("基本", "Basics"), kname(k), { input: L("一段要做的事", "Something to do"), dispatch: L("拆成几件同时做", "Split into things to do at once"), chat: L("问一个 agent", "Ask an agent"), output: L("合成一个回答", "Merge into one answer"), note: L("给连到的节点看的笔记", "A note for whatever it is wired to"), group: L("一个框：框住的节点一起移动、一起运行，可以折叠成一个节点", "A frame: what is inside moves and runs together, and folds into one node") }[k], (at) => k === "group" ? makeGroup(null, at) : addNode(k, at));
   for (const a of S.agents) if (hit(a.name, "agent")) add("Agent", L(`对话 · ${a.name}`, `Ask · ${a.name}`), S.acctOf?.[a.name] || "", (at) => addNode("chat", at, { agent: a.name, title: a.name }));
   for (const s of CV.palette?.skills || []) if (hit(s.name, s.description, s.category, s.source)) add(L("技能", "Skills"), s.name, `${s.source === "hermes" ? "Hermes" : "Claude Code"}${s.category ? " · " + s.category : ""}${s.mtime > fresh ? " · " + L("新", "new") : ""} — ${s.description}`, async (at) => {
     let t = ""; try { t = (await api(`/v1/users/${S.uid}/canvas-skill?path=${encodeURIComponent(s.path)}`)).text; } catch {}
@@ -470,6 +577,7 @@ function nodeMenu(cx, cy, id) {
     (n.out || "").length > 600 && it("expand", n.open ? L("收起", "Collapse") : L("展开全部", "Show all")),
     !SOURCES.has(n.kind) && it("bypass", n.bypass ? L("取消旁路", "Stop bypassing") : L("旁路：直接把输入传下去", "Bypass: pass inputs through")),
     !SOURCES.has(n.kind) && it("lock", n.lock ? L("解锁", "Unlock") : L("锁定：保留现在的结果", "Lock: keep this result")),
+    CV.sel.size > 1 && it("pack", L(`把选中的 ${CV.sel.size} 个打包成一组（⌘G）`, `Group the ${CV.sel.size} selected (⌘G)`)),
     it("dup", L("复制", "Duplicate")), it("del", L("删除（⌘Z 可撤回）", "Delete (⌘Z to undo)"))].filter(Boolean).join("");
   document.body.appendChild(el);
 }
@@ -487,6 +595,7 @@ async function nodeAct(a, id, el) {
   else if (a === "bypass") { snap(); n.bypass = !n.bypass; cvRender(); cvSave(); }
   else if (a === "lock") { snap(); n.lock = !n.lock; cvRender(); cvSave(); }
   else if (a === "dup") duplicate(id);
+  else if (a === "pack") makeGroup([...CV.sel]);
   else if (a === "del") { CV.sel = new Set([id]); removeSel(); }
 }
 function versions(n) {
@@ -553,6 +662,13 @@ function cvBind() {
       else { CV.pan = { x: e.clientX, y: e.clientY, vx: CV.view.x, vy: CV.view.y, moved: false }; cv.classList.add("panning"); }
       cv.setPointerCapture(e.pointerId); return;
     }
+    const gh = e.target.closest(".cvgroup .gh"), gr = e.target.closest("[data-grs]");
+    if ((gh || gr) && e.button === 0 && !e.target.closest("button")) {
+      const g = cvNode(e.target.closest(".cvgroup").dataset.gid); snap();
+      if (gr) CV.grs = { g, x: e.clientX, y: e.clientY, w: g.width, h: g.height };
+      else { const ms = members(g); CV.sel = new Set([g.id]); CV.drag = { x: e.clientX, y: e.clientY, ids: [g.id, ...ms.map((m) => m.id)], start: [g, ...ms].map((n) => [n.x, n.y]), moved: false, id: g.id }; }
+      cv.setPointerCapture(e.pointerId); e.preventDefault(); cvRender(); return;
+    }
     const pin = e.target.closest("[data-pin]"), el = e.target.closest(".cvnode");
     if (pin && el && e.button === 0) {
       const id = el.dataset.nid;
@@ -575,6 +691,7 @@ function cvBind() {
     if (CV.pan) { const dx = e.clientX - CV.pan.x, dy = e.clientY - CV.pan.y; if (Math.abs(dx) + Math.abs(dy) > 3) CV.pan.moved = true; CV.view.x = CV.pan.vx + dx; CV.view.y = CV.pan.vy + dy; cvApplyView(); return; }
     if (CV.box) { const b = $("#cvbox"), r = cv.getBoundingClientRect(); b.hidden = false; Object.assign(b.style, { left: Math.min(CV.box.cx, e.clientX) - r.left + "px", top: Math.min(CV.box.cy, e.clientY) - r.top + "px", width: Math.abs(e.clientX - CV.box.cx) + "px", height: Math.abs(e.clientY - CV.box.cy) + "px" }); return; }
     if (CV.rs) { CV.rs.n.width = Math.max(180, Math.round(CV.rs.w + (e.clientX - CV.rs.x) / CV.view.z)); cvRender(); return; }
+    if (CV.grs) { const g = CV.grs.g; g.width = Math.max(300, Math.round(CV.grs.w + (e.clientX - CV.grs.x) / CV.view.z)); g.height = Math.max(160, Math.round(CV.grs.h + (e.clientY - CV.grs.y) / CV.view.z)); renderGroups(); return; }
     if (CV.wire && (CV.wire.from || CV.wire.to)) {
       const p = toWorld(e.clientX, e.clientY), w = $("#cvwire");
       if (CV.wire.from) { const a = pinPos(cvNode(CV.wire.from), "out"); w.setAttribute("d", curve(a.x, a.y, p.x, p.y, .5)); }
@@ -585,7 +702,7 @@ function cvBind() {
       const dx = (e.clientX - CV.drag.x) / CV.view.z, dy = (e.clientY - CV.drag.y) / CV.view.z;
       if (!CV.drag.moved && Math.abs(dx) + Math.abs(dy) < 3) return;
       if (!CV.drag.moved) { snap(); CV.drag.moved = true; }
-      CV.drag.ids.forEach((id, i) => { const n = cvNode(id); n.x = Math.round(CV.drag.start[i][0] + dx); n.y = Math.round(CV.drag.start[i][1] + dy); const el = document.querySelector(`[data-nid="${id}"]`); if (el) { el.style.left = n.x + "px"; el.style.top = n.y + "px"; } });
+      CV.drag.ids.forEach((id, i) => { const n = cvNode(id); n.x = Math.round(CV.drag.start[i][0] + dx); n.y = Math.round(CV.drag.start[i][1] + dy); const el = document.querySelector(`[data-nid="${id}"], [data-gid="${id}"]`); if (el) { el.style.left = n.x + "px"; el.style.top = n.y + "px"; } });
       cvEdges();
     }
   });
@@ -597,6 +714,7 @@ function cvBind() {
       CV.box = null; $("#cvbox").hidden = true; cvRender(); return;
     }
     if (CV.rs) { CV.rs = null; cvSave(); return; }
+    if (CV.grs) { CV.grs = null; cvRender(); cvSave(); return; }
     if (CV.wire && (CV.wire.from || CV.wire.to)) {
       const over = document.elementsFromPoint(e.clientX, e.clientY).find((x) => x.classList?.contains("cvnode"));
       const w = CV.wire;
@@ -623,6 +741,8 @@ function cvBind() {
   cv.addEventListener("contextmenu", (e) => {
     e.preventDefault(); palClose();
     const ed = e.target.closest(".cvedge"); if (ed) { CV.selEdge = ed.dataset.eid; CV.sel.clear(); cvEdges(); const m = document.createElement("div"); m.className = "cvpal cvmenu card"; m.style.left = e.clientX + "px"; m.style.top = e.clientY + "px"; m.innerHTML = `<button data-cvedel="${ed.dataset.eid}">${L("删除这根连线", "Remove this wire")}</button>`; document.body.appendChild(m); return; }
+    const ge = e.target.closest(".cvgroup .gh"); if (ge) { const id = ge.parentElement.dataset.gid; const m = document.createElement("div"); m.className = "cvpal cvmenu card"; m.dataset.id = id; m.style.left = e.clientX + "px"; m.style.top = e.clientY + "px";
+      m.innerHTML = `<button data-gm="run">${L("运行组里过期的节点", "Run what is stale inside")}</button><button data-gm="fold">${cvNode(id)?.collapsed ? L("展开", "Unfold") : L("折叠成一个节点", "Fold into one node")}</button><button data-gm="rename">${L("改名", "Rename")}</button><button data-gm="ungroup">${L("解散（节点留下）", "Ungroup (nodes stay)")}</button>`; document.body.appendChild(m); return; }
     const el = e.target.closest(".cvnode"); if (el) { if (!CV.sel.has(el.dataset.nid)) { CV.sel = new Set([el.dataset.nid]); cvRender(); } nodeMenu(e.clientX, e.clientY, el.dataset.nid); return; }
     palette(e.clientX, e.clientY);
   });
@@ -653,6 +773,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); removeSel(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(!e.shiftKey); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "d" && CV.sel.size === 1) { e.preventDefault(); duplicate([...CV.sel][0]); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g" && CV.sel.size) { e.preventDefault(); makeGroup([...CV.sel]); return; }
   if (e.key === "f" || e.key === "F") { cvFit([...CV.sel]); return; }
   if (e.key === "Tab") { e.preventDefault(); palette(CV.mouse.x || innerWidth / 2, CV.mouse.y || innerHeight / 2); }
 });
@@ -662,6 +783,11 @@ document.addEventListener("click", async (e) => {
   const op = e.target.closest("[data-cvopen]"); if (op) { e.preventDefault(); e.stopPropagation(); cvOpen(op.dataset.cvopen); return; }
   const pi = e.target.closest("[data-pi]"); if (pi) { await palPick(Number(pi.dataset.pi)); return; }
   const m = e.target.closest("[data-cvm]"); if (m) { const menu = m.closest(".cvmenu"), id = menu.dataset.id; const r = menu.getBoundingClientRect(); menu.remove(); nodeAct(m.dataset.cvm, id, { getBoundingClientRect: () => r }); return; }
+  const ga = e.target.closest("[data-gact]"); if (ga) { const g = cvNode(ga.closest(".cvgroup").dataset.gid); if (g) ga.dataset.gact === "run" ? groupRun(g) : groupFold(g); return; }
+  const gm = e.target.closest("[data-gm]"); if (gm) { const menu = gm.closest(".cvmenu"), g = cvNode(menu.dataset.id); menu.remove(); if (!g) return;
+    if (gm.dataset.gm === "run") groupRun(g); else if (gm.dataset.gm === "fold") groupFold(g);
+    else if (gm.dataset.gm === "rename") { const v = prompt(L("这一组叫什么？", "Name this group"), g.title || ""); if (v != null) { g.title = v.trim(); cvRender(); cvSave(); } }
+    else { snap(); if (g.collapsed) groupFold(g); CV.data.nodes = CV.data.nodes.filter((n) => n !== g); cvRender(); cvSave(); } return; }
   const ed = e.target.closest("[data-cvedel]"); if (ed) { snap(); CV.data.edges = CV.data.edges.filter((x) => x.id !== ed.dataset.cvedel); ed.closest(".cvmenu").remove(); CV.selEdge = null; cvRender(); cvSave(); return; }
   const v = e.target.closest("[data-cvver]"); if (v) { const n = cvNode(v.dataset.id), i = Number(v.dataset.cvver); if (n?.hist?.[i]) { snap(); const h = n.hist[i]; n.hist[i] = { out: n.out, at: n.at, run: n.run, agent: n.used }; n.out = h.out; n.at = h.at; n.run = h.run; n.used = h.agent; cvRender(); cvSave(); document.querySelector(".modal")?.remove(); } return; }
   const a = e.target.closest("[data-cva]"); if (a && S.view === "canvas") { const el = a.closest(".cvnode"); if (el) { e.stopPropagation(); nodeAct(a.dataset.cva, el.dataset.nid, a); } return; }
@@ -677,6 +803,7 @@ document.addEventListener("click", async (e) => {
 });
 function cvExport() {      // JSON Canvas 1.0: text and file nodes, edges right → left
   const nodes = CV.data.nodes.map((n) => { const el = document.querySelector(`[data-nid="${n.id}"]`), base = { id: n.id, x: n.x, y: n.y, width: el?.offsetWidth || n.width || 260, height: el?.offsetHeight || 160 };
+    if (n.kind === "group") return { ...base, width: n.width, height: n.height, type: "group", label: n.title || "" };
     return n.kind === "image" ? { ...base, type: "file", file: n.path } : { ...base, type: "text", text: `## ${n.title || kname(n.kind)}\n\n${n.text ? n.text + "\n\n" : ""}${n.out && n.kind !== "skill" ? n.out : ""}`.trim() }; });
   const doc = { nodes, edges: CV.data.edges.map((e) => ({ id: e.id, fromNode: e.fromNode, fromSide: "right", toNode: e.toNode, toSide: "left" })) };
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(doc, null, 2)], { type: "application/json" })); a.download = `${(CV.board?.title || "board").replace(/[\\/:*?"<>|]/g, "_")}.canvas`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);

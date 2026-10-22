@@ -46,9 +46,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 TOP = "top"
-COL = {"input": 0, "dispatch": 340, "branch": 640, "output": 980}
-HEIGHT = {"chat": 150, "board": 150}
-GAP = 18
+COL = {"input": 0, "dispatch": 340, "branch": 680, "output": 1040}
 SKILL_ROOTS = {"hermes": Path.home() / ".hermes" / "skills", "claude": Path.home() / ".claude" / "skills"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -154,72 +152,143 @@ class Boards:
         leaves = sorted([k for k in kids if k.kind == "leaf"], key=lambda k: str((k.data or {}).get("last") or ""), reverse=True)
         return groups + leaves[:60]
 
-    @staticmethod
-    def _branch(k: WorldNode) -> dict:
+    def _convo(self, user: User, ref: str | None) -> dict | None:
+        """What a conversation asked last and what came back. Only PGA's own conversations have their turns here; an
+        imported session has just the tree's gist."""
+        from pga.chats import current, fold, runs_of
+        from pga.tree import _answer
+        if not ref:
+            return None
+        if ref.startswith("c:"):                                   # imported from another app (Claude Code, Codex…): read from its own store
+            return self._imported(user, ref[2:])
+        try:
+            turns, alts = fold(runs_of(self.rt, user.id, ref))
+        except Exception:  # noqa: BLE001 - a key PGA cannot read turns for
+            return None
+        turns = [t for t in turns if not (t.data or {}).get("note")]
+        if not turns:
+            return None
+        a = current(turns[-1], alts)
+        return {"ask": (turns[-1].prompt or "")[:3000], "answer": (_answer(a.output) or "")[:6000], "turns": len(turns),
+                "prev": str(turns[-2].id) if len(turns) > 1 else None, "agent": (a.data or {}).get("agent") or a.agent}
+
+    def _imported(self, user: User, cid: str) -> dict | None:
+        from pga.db.models import AgentConversation, LinkedAgent
+        from pga.hub.connectors import full_turns
+        try:
+            c = self.s.get(AgentConversation, uuid.UUID(cid))
+            a = self.s.get(LinkedAgent, c.linked_agent_id) if c else None
+            if a is None or a.user_id != user.id:
+                return None
+            turns = [t for t in full_turns(a.connector, c.external_id) if (t.get("text") or "").strip()]
+        except Exception:  # noqa: BLE001 - the app's store is gone or unreadable: the tree's gist stands
+            return None
+        qs = [i for i, t in enumerate(turns) if t["role"] == "user"]
+        if not qs:
+            return None
+        ans = next((t["text"] for t in reversed(turns[qs[-1]:]) if t["role"] != "user"), "")
+        ask = re.sub(r"^\s*<(\w+)>\s*([\s\S]*?)\s*</\1>\s*$", r"\2", turns[qs[-1]]["text"])       # the app's own wrapper tag around what you typed
+        return {"ask": ask[:3000], "answer": ans[:6000], "turns": len(qs), "prev": None, "agent": a.name}
+
+    def _fill(self, user: User, k: WorldNode, q: dict, c: dict) -> None:
+        """The conversation as it stands: its question in the input, its answer in the conversation node."""
+        d, cv = k.data or {}, self._convo(user, k.ref)
+        ask = cv["ask"] if cv else _clip(k.title, 300)
+        q.update(text=ask, title="提问" + (f" · 第 {cv['turns']} 轮" if cv and cv["turns"] > 1 else ""))
+        c.update(out=cv["answer"] if cv and cv["answer"] else _clip(d.get("gist") or d.get("excerpt") or k.summary, 600), ask0=ask,
+                 prev=cv["prev"] if cv else None, turns=cv["turns"] if cv else None, last=d.get("last"), gist=_clip(d.get("gist"), 200),
+                 agent=(cv or {}).get("agent") or d.get("agent") or "auto", cin=None)
+
+    def _branch(self, user: User, k: WorldNode, row: int) -> list[dict]:
+        """A sub-topic is one node (its own board); a conversation is two: what was asked → the conversation, showing its answer."""
         d = k.data or {}
-        if k.kind == "leaf":
-            return {"id": "c-" + _short(k.ref or str(k.id)), "kind": "chat", "key": k.ref, "world": str(k.id), "title": _clip(k.title, 80),
-                    "agent": d.get("agent") or "auto", "out": _clip(d.get("gist") or d.get("excerpt") or k.summary, 600), "seeded": True,
-                    "who": d.get("who") or ("agent" if d.get("type") == "tree" else "me"), "last": d.get("last"), "width": 280}
-        return {"id": "w-" + str(k.id)[:10], "kind": "board", "world": str(k.id), "title": _clip(k.title, 80), "plan": k.kind == "plan",
-                "out": _clip(k.summary, 600), "count": d.get("count"), "seeded": True, "width": 260}
+        if k.kind != "leaf":
+            return [{"id": "w-" + str(k.id)[:10], "kind": "board", "world": str(k.id), "title": _clip(k.title, 80), "plan": k.kind == "plan",
+                     "out": _clip(k.summary, 600), "count": d.get("count"), "seeded": True, "width": 270, "row": row,
+                     "x": COL["branch"], "y": 200 + row * 240}]
+        cid = "c-" + _short(k.ref or str(k.id))
+        q = {"id": "q-" + cid[2:], "kind": "input", "seeded": True, "askOf": cid, "width": 280, "row": row, "x": COL["dispatch"], "y": 200 + row * 240}
+        c = {"id": cid, "kind": "chat", "key": k.ref, "world": str(k.id), "title": _clip(k.title, 80), "seeded": True, "askIn": q["id"],
+             "who": d.get("who") or ("agent" if d.get("type") == "tree" else "me"), "width": 290, "row": row, "x": COL["branch"], "y": 200 + row * 240}
+        self._fill(user, k, q, c)
+        return [q, c]
+
+    @staticmethod
+    def _wire(nodes: list[dict]) -> list[dict]:
+        out = []
+        for n in nodes:
+            if n["kind"] == "input":
+                out.append({"id": "e-q-" + n["id"], "fromNode": n["id"], "toNode": n["askOf"]})
+            else:
+                out.append({"id": "e-o-" + n["id"], "fromNode": n["id"], "toNode": "out"})
+        return out
 
     def seed(self, user: User, topic: WorldNode | None) -> dict:
-        """input → assign → (each branch) → output: the topic's conversations and sub-topics are its branches, the output
-        starts as the topic's summary."""
+        """A row for each sub-topic and conversation (what was asked → its answer), all flowing into the output, which starts
+        as the topic's summary; above them, a new input and the assign node for what you ask next."""
         root = topic or self.wt.root(user, create=False)
-        branches = [self._branch(k) for k in self._children(user, topic)]
-        total = sum(HEIGHT[b["kind"]] + GAP for b in branches)
-        y = -total / 2
-        for b in branches:
-            b["x"], b["y"] = COL["branch"], round(y)
-            y += HEIGHT[b["kind"]] + GAP
-        title = topic.title if topic else "顶层"
-        nodes = [{"id": "in", "kind": "input", "x": COL["input"], "y": -80, "width": 280, "title": "输入", "text": ""},
-                 {"id": "assign", "kind": "dispatch", "x": COL["dispatch"], "y": -60, "width": 240, "title": "指派"},
-                 *branches,
-                 {"id": "out", "kind": "output", "x": COL["output"], "y": -80, "width": 300, "title": "输出",
+        rows = [n for i, k in enumerate(self._children(user, topic)) for n in self._branch(user, k, i)]
+        nodes = [{"id": "in", "kind": "input", "x": COL["input"], "y": 0, "width": 280, "title": "新的输入", "text": "", "row": -1},
+                 {"id": "assign", "kind": "dispatch", "x": COL["dispatch"], "y": 0, "width": 280, "title": "指派", "row": -1},
+                 *rows,
+                 {"id": "out", "kind": "output", "x": COL["output"], "y": 0, "width": 310, "title": "输出",
                   "out": _clip(root.summary if root else "", 1600), "seeded": True}]
-        edges = [{"id": "e-in", "fromNode": "in", "toNode": "assign"}]
-        for b in branches:
-            edges += [{"id": "e-a-" + b["id"], "fromNode": "assign", "toNode": b["id"]}, {"id": "e-o-" + b["id"], "fromNode": b["id"], "toNode": "out"}]
-        return {"v": 1, "title": title, "nodes": nodes, "edges": edges, "view": None}
+        edges = [{"id": "e-in", "fromNode": "in", "toNode": "assign"}, {"id": "e-a-out", "fromNode": "assign", "toNode": "out"}] + self._wire(rows)
+        return {"v": 3, "title": topic.title if topic else "顶层", "nodes": nodes, "edges": edges, "view": None}
 
     def sync(self, user: User, topic: WorldNode | None, data: dict) -> dict | None:
-        """New branches from the world tree join the board; branches that moved away are greyed out (gone), not removed."""
+        """Keep the board in step with the world tree and the conversations themselves:
+        - new conversations and sub-topics join as new rows;
+        - ones that moved away are greyed out (gone), never removed;
+        - a conversation that went on elsewhere shows its latest question and answer, unless you changed that row here
+          (then yours stays, and the conversation is not touched)."""
         nodes, edges = list(data.get("nodes") or []), list(data.get("edges") or [])
-        want = {b["world"]: b for b in (self._branch(k) for k in self._children(user, topic))}
+        kids = {str(k.id): k for k in self._children(user, topic)}
         have = {n.get("world"): n for n in nodes if n.get("seeded") and n.get("world") and n.get("kind") in ("chat", "board")}
+        by_id = {n.get("id"): n for n in nodes}
         keys = {n.get("key") for n in nodes if n.get("key")}
         changed = False
         for w, n in have.items():
-            gone = w not in want
-            if bool(n.get("gone")) != gone:
-                n["gone"] = gone
+            gone = w not in kids
+            q = by_id.get(n.get("askIn"))
+            for x in (n, q):
+                if x is not None and bool(x.get("gone")) != gone:
+                    x["gone"] = gone
+                    changed = True
+            if gone:
+                continue
+            k = kids[w]
+            if n["kind"] == "board":
+                if n.get("out") != _clip(k.summary, 600):
+                    n["out"], n["count"] = _clip(k.summary, 600), (k.data or {}).get("count")
+                    changed = True
+                continue
+            if q is None:                                           # a board laid out before conversations had their question
+                q = {"id": "q-" + n["id"][2:], "kind": "input", "seeded": True, "askOf": n["id"], "width": 280, "row": n.get("row"),
+                     "x": float(n.get("x") or COL["branch"]) - (COL["branch"] - COL["dispatch"]), "y": n.get("y") or 0}
+                nodes.append(q)
+                by_id[q["id"]] = q
+                n["askIn"] = q["id"]
+                edges = [e for e in edges if not (e.get("fromNode") == "assign" and e.get("toNode") == n["id"])]
+                edges.append({"id": "e-q-" + q["id"], "fromNode": q["id"], "toNode": n["id"]})
+                self._fill(user, k, q, n)
                 changed = True
-            if not gone and n["kind"] == "board" and n.get("out") != want[w].get("out"):
-                n["out"], n["count"] = want[w].get("out"), want[w].get("count")
+            elif not n.get("hist") and not (n.get("text") or "").strip() and q.get("text") == n.get("ask0") and n.get("last") != (k.data or {}).get("last"):
+                self._fill(user, k, q, n)
                 changed = True
         root = topic or self.wt.root(user, create=False)
         out = next((n for n in nodes if n.get("id") == "out" and n.get("seeded") and not n.get("hist")), None)
         if out is not None and (changed or out.get("out") != _clip(root.summary if root else "", 1600)):
             out["out"], out["cin"] = _clip(root.summary if root else "", 1600), None     # never run by you: it follows the topic's summary
             changed = True
-        new = [b for w, b in want.items() if w not in have and not (b.get("key") and b["key"] in keys)]
+        new = [k for w, k in kids.items() if w not in have and not (k.ref and k.ref in keys)]
         if new:
-            col = [n for n in nodes if abs(float(n.get("x") or 0) - COL["branch"]) < 200]
-            y = max((float(n.get("y") or 0) + HEIGHT.get(n.get("kind"), 140) for n in col), default=0) + GAP
+            row = max((int(n.get("row") or 0) for n in nodes if n.get("row") is not None), default=-1) + 1
             ids = {n.get("id") for n in nodes}
-            src = "assign" if "assign" in ids else None
-            dst = "out" if "out" in ids else None
-            for b in new:
-                b["x"], b["y"] = COL["branch"], round(y)
-                y += HEIGHT[b["kind"]] + GAP
-                nodes.append(b)
-                if src:
-                    edges.append({"id": "e-a-" + b["id"], "fromNode": src, "toNode": b["id"]})
-                if dst:
-                    edges.append({"id": "e-o-" + b["id"], "fromNode": b["id"], "toNode": dst})
+            for i, k in enumerate(new):
+                made = self._branch(user, k, row + i)
+                nodes += made
+                edges += [e for e in self._wire(made) if e["toNode"] != "out" or "out" in ids]
             changed = True
         return {**data, "nodes": nodes, "edges": edges} if changed else None
 
