@@ -46,9 +46,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 TOP = "top"
-COL = {"input": 0, "dispatch": 380, "branch": 760, "output": 1200}
-HEIGHT = {"chat": 150, "board": 120}
-GAP = 34
+COL = {"input": 0, "dispatch": 340, "branch": 640, "output": 980}
+HEIGHT = {"chat": 150, "board": 150}
+GAP = 18
 SKILL_ROOTS = {"hermes": Path.home() / ".hermes" / "skills", "claude": Path.home() / ".claude" / "skills"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -200,6 +200,11 @@ class Boards:
             if not gone and n["kind"] == "board" and n.get("out") != want[w].get("out"):
                 n["out"], n["count"] = want[w].get("out"), want[w].get("count")
                 changed = True
+        root = topic or self.wt.root(user, create=False)
+        out = next((n for n in nodes if n.get("id") == "out" and n.get("seeded") and not n.get("hist")), None)
+        if out is not None and (changed or out.get("out") != _clip(root.summary if root else "", 1600)):
+            out["out"], out["cin"] = _clip(root.summary if root else "", 1600), None     # never run by you: it follows the topic's summary
+            changed = True
         new = [b for w, b in want.items() if w not in have and not (b.get("key") and b["key"] in keys)]
         if new:
             col = [n for n in nodes if abs(float(n.get("x") or 0) - COL["branch"]) < 200]

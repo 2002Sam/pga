@@ -8,13 +8,14 @@ document.addEventListener("pointerdown", (e) => {
   const sp = e.target.closest?.(".split"); if (!sp || e.button !== 0) return;
   e.preventDefault(); const k = sp.dataset.split, [sel, min, maxR] = SPLITS[k], box = $(sel), r = box.getBoundingClientRect();
   $(".app").classList.add("resizing"); sp.classList.add("on");
-  const move = (ev) => { const max = maxR < 0 ? r.width + maxR : maxR, v = Math.round(Math.max(min, Math.min(max, ev.clientX - r.left))); box.style.setProperty("--" + k, v + "px"); store.set("pga_split_" + k, v); };
+  const off = k === "railw" ? ($("#pad")?.offsetWidth || 0) : 0;       // the notepad sits left of the rail
+  const move = (ev) => { const max = maxR < 0 ? r.width + maxR : maxR, v = Math.round(Math.max(min, Math.min(max, ev.clientX - r.left - off))); box.style.setProperty("--" + k, v + "px"); store.set("pga_split_" + k, v); };
   const up = () => { document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up); $(".app").classList.remove("resizing"); sp.classList.remove("on");
     if (S.view === "tree" && S.tree) drawTree(false); renderTimeline(); };
   document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
 });
 function setMini(on) {
-  S.mini = on; store.set("pga_rail_mini", on ? "1" : "0");
+  S.mini = on; store.set("pga_rail_open", on ? "0" : "1");
   $(".app").classList.toggle("mini", on); $("#fold").textContent = "«"; $("#fold").title = on ? L("展开", "Expand") : L("收起", "Collapse");
   setTimeout(() => { if (S.tree && S.view === "tree") drawTree(false); renderTimeline(); }, 230);
 }
@@ -64,7 +65,7 @@ document.addEventListener("pointerup", async (e) => {
 });
 
 async function boot() {
-  setMini(store.get("pga_rail_mini") === "1"); applySplits();
+  setMini(store.get("pga_rail_open") !== "1"); applySplits();          // the conversation list stays folded unless you opened it
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
     api(`/v1/agents`).then((d) => { const A = d.agents || {}; S.acctOf = Object.fromEntries(Object.entries(A).map(([k, v]) => [k, v.account || ""])); }).catch(() => {})]);

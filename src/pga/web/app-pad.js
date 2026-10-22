@@ -1,4 +1,4 @@
-/* PGA app · 常驻笔记, a notepad on the right of every page that never changes under you.
+/* PGA app · 常驻笔记, a notepad on the left of every page that never changes under you.
 
    - Write freely; a blank line (two Enters) starts a new idea.
    - When an idea is ready, ⌘↵ or the button hands it to an agent: it becomes an input wired to a conversation on the
@@ -11,7 +11,7 @@
 
 const PAD = { text: "", rev: 0, sent: [], path: "", open: (() => { try { return localStorage.getItem("pga_pad") !== "0"; } catch { return true; } })(),
   agent: (() => { try { return localStorage.getItem("pga_pad_agent") || "auto"; } catch { return "auto"; } })(), saveT: null, loaded: false,
-  w: (() => { try { return Number(localStorage.getItem("pga_pad_w")) || 340; } catch { return 340; } })() };
+  w: (() => { try { return Number(localStorage.getItem("pga_pad_w")) || 300; } catch { return 300; } })() };
 
 function paraRanges(t) {                          // each idea: where it starts and ends in the page
   const out = [], re = /\n[ \t]*\n\s*/g; let last = 0, m;
@@ -60,8 +60,8 @@ function padSync() {                              // a node finished: remember h
 function padMount() {
   if (document.documentElement.classList.contains("embed") || $("#pad")) return;
   const app = $(".app");
-  app.insertAdjacentHTML("beforeend", `<aside class="pad" id="pad"><i class="padgrip" id="padGrip"></i>
-    <div class="padh"><button class="ghost padfold" id="padFold" title="${L("收起 / 展开笔记", "Fold / unfold the notepad")}">»</button><b>${L("笔记", "Notepad")}</b><span class="padst" id="padSt"></span></div>
+  app.insertAdjacentHTML("afterbegin", `<aside class="pad" id="pad"><i class="padgrip" id="padGrip"></i>
+    <div class="padh"><button class="ghost padrail" id="padRail" title="${L("对话列表和导航（⌘⇧S）", "Conversations and navigation (⌘⇧S)")}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><b>${L("笔记", "Notepad")}</b><span class="padst" id="padSt"></span><button class="ghost padfold" id="padFold" title="${L("收起 / 展开笔记", "Fold / unfold the notepad")}">«</button></div>
     <div class="pade"><div class="padbg" id="padBg" aria-hidden="true"></div><textarea id="padText" spellcheck="false" placeholder="${L("随手写。空一行就是一个新想法。\n\n写完一段，按 ⌘↵ 或下面的按钮交给 agent，回答和它做的事出现在左边的画布上。\n\n这一页原样保存成一个文件，PGA 不会改它。", "Write freely. A blank line starts a new idea.\n\nWhen one is ready, ⌘↵ or the button below hands it to an agent; its answer and what it did appear on the canvas on the left.\n\nThis page is kept verbatim as a file; PGA never changes it.")}"></textarea></div>
     <div class="padf"><select id="padAgent"></select><button class="sm primary" id="padSend" title="${L("把光标所在的这个想法交给 agent（⌘↵）", "Hand the idea under the cursor to an agent (⌘↵)")}">${L("交给 agent", "Hand to agent")} ▸</button><button class="sm ghost" id="padAll" title="${L("每个还没交出的想法各交给一个 agent，同时做", "Each idea not yet handed out goes to its own agent, at the same time")}">${L("没交出的都交出去", "Hand out the rest")}</button></div>
     <div class="padl" id="padList"></div></aside>`);
@@ -73,13 +73,13 @@ function padMount() {
   $("#padAgent").addEventListener("change", (e) => { PAD.agent = e.target.value; try { localStorage.setItem("pga_pad_agent", PAD.agent); } catch {} });
   $("#padGrip").addEventListener("pointerdown", (e) => {
     e.preventDefault(); app.classList.add("resizing");
-    const mv = (ev) => { PAD.w = Math.round(Math.max(240, Math.min(innerWidth * .5, innerWidth - ev.clientX))); padLayout(); };
+    const mv = (ev) => { PAD.w = Math.round(Math.max(240, Math.min(innerWidth * .5, ev.clientX - app.getBoundingClientRect().left))); padLayout(); };
     const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); app.classList.remove("resizing"); try { localStorage.setItem("pga_pad_w", PAD.w); } catch {} if (S.view === "canvas") cvRender(); };
     document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
   });
   const w = setInterval(() => { if (S.uid) { clearInterval(w); padLoad(); } }, 200);
 }
-function padLayout() { const app = $(".app"); app.style.setProperty("--padw", (PAD.open ? PAD.w : 34) + "px"); app.classList.toggle("padmin", !PAD.open); const f = $("#padFold"); if (f) f.textContent = PAD.open ? "»" : "«"; }
+function padLayout() { const app = $(".app"); app.style.setProperty("--padw", (PAD.open ? PAD.w : 34) + "px"); app.classList.toggle("padmin", !PAD.open); const f = $("#padFold"); if (f) f.textContent = PAD.open ? "«" : "»"; }
 async function padLoad() {
   try { const r = await api(`/v1/users/${S.uid}/pad`); PAD.text = r.text; PAD.rev = r.rev; PAD.sent = r.sent || []; PAD.path = r.path; PAD.loaded = true; } catch { return; }
   const t = $("#padText"); if (t && document.activeElement !== t) t.value = PAD.text;
@@ -117,16 +117,16 @@ async function padSend(idx) {
   if (was && padState(was) !== "gone") { await padLocate(was); if (padState(was) === "stale") cook(was.node, { force: true }); else toast(L("这个想法已经交出去了：在画布上看它的回答", "Already handed out: its answer is on the canvas")); return; }
   if (S.view !== "canvas") show("canvas");
   await CV.ready; if (!CV.data) return;
-  const lane = CV.data.nodes.filter((n) => n.pad), x = Math.min(-760, ...CV.data.nodes.filter((n) => !n.pad).map((n) => n.x - 760));
+  const lane = CV.data.nodes.filter((n) => n.pad), x = Math.min(-680, ...CV.data.nodes.filter((n) => !n.pad).map((n) => n.x - 680));
   const y = lane.length ? Math.max(...lane.map((n) => n.y)) + 230 : Math.min(-80, ...CV.data.nodes.map((n) => n.y));
   const title = p.text.replace(/\s+/g, " ").slice(0, 24);
   const inp = addNode("input", { x: lane[0]?.x ?? x, y }, { title, text: p.text, pad: true, autoTitle: true });
-  const ch = addNode("chat", { x: (lane[0]?.x ?? x) + 340, y }, { agent: PAD.agent, title, pad: true });
+  const ch = addNode("chat", { x: (lane[0]?.x ?? x) + 330, y }, { agent: PAD.agent, title, pad: true });
   link(inp.id, ch.id);
   const s = { id: nid(), text: p.text, board: CV.world, input: inp.id, node: ch.id, agent: PAD.agent, at: new Date().toISOString(), st: "run" };
   PAD.sent.push(s); padSaveSent(); padPaint(); cvRender(); cvSave();
   cvFocus(ch.id);
-  await cook(ch.id); padSync();
+  await cook(ch.id); padSync(); cvFocus(ch.id);
 }
 async function padSendAll() {
   const { ps, of } = padMatch(), todo = ps.map((p, i) => i).filter((i) => !of.has(i));
@@ -142,6 +142,7 @@ async function padLocate(s) {
 document.addEventListener("click", (e) => {
   if (e.target.closest("#padSend")) { padSend(); return; }
   if (e.target.closest("#padAll")) { padSendAll(); return; }
+  if (e.target.closest("#padRail")) { setMini(!S.mini); return; }
   if (e.target.closest("#padFold")) { PAD.open = !PAD.open; try { localStorage.setItem("pga_pad", PAD.open ? "1" : "0"); } catch {} padLayout(); if (S.view === "canvas") setTimeout(cvRender, 220); return; }
   const go = e.target.closest("[data-padgo]"); if (go) { padSend(Number(go.dataset.padgo)); return; }
   const it = e.target.closest("[data-padi]"); if (it) {

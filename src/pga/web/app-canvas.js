@@ -24,7 +24,7 @@
 
 const CV = { board: null, data: null, rev: 0, view: { x: 0, y: 0, z: 1 }, sel: new Set(), busy: {}, undo: [], redo: [], cooking: {},
   palette: null, pal: null, wire: null, drag: null, pan: null, box: null, link: null, mouse: { x: 0, y: 0 }, saveT: null, ready: null,
-  tree: (() => { try { return localStorage.getItem("pga_cv_tree") !== "0"; } catch { return true; } })(),
+  tree: (() => { try { return localStorage.getItem("pga_cv_tree") === "1"; } catch { return false; } })(),
   world: Q.get("b") || (() => { try { return localStorage.getItem("pga_cv_world") || "top"; } catch { return "top"; } })() };
 const KIND = {
   input: ["输入", "Input"], dispatch: ["指派", "Assign"], chat: ["对话", "Conversation"], output: ["输出", "Output"],
@@ -95,8 +95,10 @@ async function cvLoad(world, focus) {
     }
     if (typeof padApply === "function" && padApply(b.world)) changed = true;
     cvRender(true);
-    if (!CV.data.laid) { tidy(); CV.data.laid = true; changed = true; }
-    if (focus) cvFocus(focus); else if (CV.data.view) { CV.view = { ...CV.data.view }; cvApplyView(); } else cvFit();
+    if ((CV.data.laid | 0) < 2) { relayout(); CV.data.laid = 2; changed = true; }
+    if (CV.peek && !cvNode(CV.peek)) peekClose(true);                  // the conversation open on the right was on another board
+    const f = cvNode(focus || hotNode());
+    if (f) { cvFocus(f.id); if (f.kind === "chat" && f.key && !f.seeded) peek(f, true); } else cvFit();
     if (changed) cvSave();
   })();
   return CV.ready;
@@ -124,9 +126,11 @@ function showCanvas() {
   const v = $("#vCanvas");
   if (!v.dataset.ready) {
     v.dataset.ready = "1";
-    v.innerHTML = `<div class="cv" id="cv"><div class="cvw" id="cvw"><svg class="cve" id="cve"><g id="cveg"></g><path id="cvwire" class="cvwire" d=""/></svg><div id="cvn"></div></div><div class="cvbox" id="cvbox" hidden></div></div>
-      <div class="cvbar card" id="cvbar"></div><aside class="cvtree card" id="cvtree"></aside><aside class="cvdraw" id="cvdraw" hidden></aside>`;
-    cvBind();
+    v.innerHTML = `<section class="cvmain"><div class="cv" id="cv"><div class="cvw" id="cvw"><svg class="cve" id="cve"><g id="cveg"></g><path id="cvwire" class="cvwire" d=""/></svg><div id="cvn"></div></div><div class="cvbox" id="cvbox" hidden></div></div>
+      <div class="cvbar card" id="cvbar"></div><aside class="cvtree card" id="cvtree"></aside></section>
+      <aside class="cvside" id="cvside" hidden><i class="cvsgrip" id="cvsGrip"></i><div class="p2h" id="cvsh"></div><iframe id="cvsf" title="conversation"></iframe></aside>`;
+    try { const w = Number(localStorage.getItem("pga_cv_side")); if (w) v.style.setProperty("--cvsw", w + "px"); } catch {}
+    cvBind(); sideGrip();
   }
   if (!S.acc?.["*new"] && typeof loadAcc === "function") loadAcc("");
   wtFetch().then(cvTree);
@@ -135,7 +139,7 @@ function showCanvas() {
 function cvApplyView() {
   const w = $("#cvw"), cv = $("#cv"); if (!w) return; const { x, y, z } = CV.view;
   w.style.transform = `translate(${x}px, ${y}px) scale(${z})`;
-  const g = 22 * z; cv.style.backgroundSize = `${g}px ${g}px, ${g * 5}px ${g * 5}px, ${g * 5}px ${g * 5}px`; cv.style.backgroundPosition = `${x}px ${y}px`;
+  const g = 24 * z; cv.style.backgroundSize = `${g}px ${g}px`; cv.style.backgroundPosition = `${x}px ${y}px`;
   cv.classList.toggle("far", z < .55);
 }
 const toWorld = (cx, cy) => { const r = $("#cv").getBoundingClientRect(); return { x: (cx - r.left - CV.view.x) / CV.view.z, y: (cy - r.top - CV.view.y) / CV.view.z }; };
@@ -144,9 +148,13 @@ function unstack() {                             // nodes in one column must not
   for (const n of CV.data.nodes) { const k = Math.round(n.x / 60); if (!cols.has(k)) cols.set(k, []); cols.get(k).push(n); }
   for (const col of cols.values()) {
     col.sort((a, b) => a.y - b.y);
-    for (let i = 1; i < col.length; i++) { const p = col[i - 1], h = document.querySelector(`[data-nid="${p.id}"]`)?.offsetHeight || 150; if (col[i].y < p.y + h + 26) { col[i].y = Math.round(p.y + h + 26); moved = true; } }
+    for (let i = 1; i < col.length; i++) { const p = col[i - 1], h = document.querySelector(`[data-nid="${p.id}"]`)?.offsetHeight || 150; if (col[i].y < p.y + h + 18) { col[i].y = Math.round(p.y + h + 18); moved = true; } }
   }
   return moved;
+}
+function relayout() {                            // input, assign, branches, output in four close columns (boards laid out before were wider)
+  for (const n of CV.data.nodes) { if (n.id === "in") n.x = 0; else if (n.id === "assign") n.x = 340; else if (n.id === "out") n.x = 980; else if (n.seeded) n.x = 640; }
+  tidy();
 }
 function tidy() {
   unstack();
@@ -155,22 +163,34 @@ function tidy() {
     for (const n of CV.data.nodes) if (["in", "assign", "out"].includes(n.id)) n.y = Math.round(mid - 70); }
   cvRender(true);
 }
-function cvFit(ids) {
-  const ns = (ids?.length ? ids.map(cvNode) : CV.data?.nodes || []).filter(Boolean); const cv = $("#cv"); if (!ns.length || !cv) { CV.view = { x: 80, y: 200, z: 1 }; cvApplyView(); return; }
+function fitTo(ns, zmin, zmax, anchor, ax = .5) {   // frame these nodes; too many to read at zmin: centre on the anchor instead
+  const cv = $("#cv"); ns = ns.filter(Boolean); if (!ns.length || !cv) { CV.view = { x: 80, y: 200, z: 1 }; cvApplyView(); return; }
   const els = ns.map((n) => [n, document.querySelector(`[data-nid="${n.id}"]`)]);
   const x0 = Math.min(...ns.map((n) => n.x)), y0 = Math.min(...ns.map((n) => n.y));
   const x1 = Math.max(...els.map(([n, el]) => n.x + (el?.offsetWidth || n.width || 260))), y1 = Math.max(...els.map(([n, el]) => n.y + (el?.offsetHeight || 140)));
-  const r = cv.getBoundingClientRect(), padL = CV.tree ? 250 : 40, padT = 70;
-  const z = Math.max(ids?.length ? .2 : .42, Math.min(1.1, (r.width - padL - 40) / (x1 - x0 + 1), (r.height - padT - 40) / (y1 - y0 + 1)));
-  const fx = (r.width - padL - 40 - (x1 - x0) * z) / 2, fy = (r.height - padT - 40 - (y1 - y0) * z) / 2;    // too big to fit at a readable size: start from its left, level with the input
-  const inp = cvNode("in");
-  CV.view = { z, x: padL + Math.max(0, fx) - x0 * z, y: fy >= 0 ? padT + fy - y0 * z : inp ? r.height * .42 - (inp.y + 60) * z : padT - y0 * z };
+  const r = cv.getBoundingClientRect(), padL = CV.tree ? 250 : 36, padT = 68, W = r.width - padL - 36, H = r.height - padT - 36;
+  const z = Math.max(zmin, Math.min(zmax, W / (x1 - x0 + 1), H / (y1 - y0 + 1))), a = anchor || ns[0];
+  const ae = document.querySelector(`[data-nid="${a.id}"]`);
+  CV.view = { z, x: (x1 - x0) * z <= W ? padL + (W - (x1 - x0) * z) / 2 - x0 * z : padL + W * ax - (a.x + (ae?.offsetWidth || a.width || 260) / 2) * z,
+    y: (y1 - y0) * z <= H ? padT + (H - (y1 - y0) * z) / 2 - y0 * z : padT + H * .42 - (a.y + (ae?.offsetHeight || 140) / 2) * z };
   animView();
 }
-function cvFocus(id) {
-  const n = cvNode(id); if (!n) return; const r = $("#cv").getBoundingClientRect(), z = Math.max(CV.view.z, .9), padL = CV.tree ? 240 : 0;
-  CV.view = { z, x: padL + (r.width - padL) * .5 - (n.x + (n.width || 260) / 2) * z, y: r.height * .4 - (n.y + 60) * z };
-  CV.sel = new Set([id]); animView(); cvRender();
+function cvFit(ids) { fitTo(ids?.length ? ids.map(cvNode) : CV.data?.nodes || [], ids?.length ? .2 : .3, 1.1, cvNode("in"), .3); }
+function hotNode() {                              // where the work is: the node that ran last (in the last three days), else the input
+  const t = (n) => Math.max(n.runAt || 0, Date.parse(n.at || "") || 0);
+  const hot = CV.data.nodes.filter((n) => !n.gone && t(n)).sort((a, b) => t(b) - t(a))[0];
+  return hot && t(hot) > Date.now() - 3 * 86400e3 ? hot.id : cvNode("in") ? "in" : CV.data.nodes[0]?.id;
+}
+function hops(from) {                             // distance along the wires, either way
+  const d = new Map(from.map((id) => [id, 0])), q = [...from];
+  while (q.length) { const x = q.shift(); for (const e of CV.data.edges) { const y = e.fromNode === x ? e.toNode : e.toNode === x ? e.fromNode : null; if (y && !d.has(y)) { d.set(y, d.get(x) + 1); q.push(y); } } }
+  return d;
+}
+function cvFocus(id) {                            // the node and what is wired to it, up to two steps, framed at a readable size
+  const n = cvNode(id); if (!n) return; const d = hops([id]);
+  const near = [...d.keys()].filter((k) => d.get(k) <= 2).map(cvNode).filter((m) => m && !m.gone)
+    .sort((a, b) => d.get(a.id) - d.get(b.id) || Math.abs(a.y - n.y) - Math.abs(b.y - n.y)).slice(0, 7);
+  CV.sel = new Set([id]); cvRender(); fitTo(near, .62, 1, n, .5);
 }
 function animView() { const w = $("#cvw"); w?.classList.add("anim"); cvApplyView(); setTimeout(() => w?.classList.remove("anim"), 380); cvSave(); }
 
@@ -198,13 +218,15 @@ function nodeHtml(n) {
 function cvRender(full) {
   const box = $("#cvn"); if (!box || !CV.data) return;
   const keep = new Set(CV.data.nodes.map((n) => n.id));
+  CV.hop = CV.sel.size ? hops([...CV.sel].filter((id) => keep.has(id))) : null;      // focus: what is wired near the selection stays clear, the rest fades
+  const far = (id) => !CV.hop ? "" : (CV.hop.get(id) ?? 9) <= 1 ? "" : CV.hop.get(id) === 2 ? "h2" : "h3";
   box.querySelectorAll(".cvnode").forEach((el) => { if (!keep.has(el.dataset.nid)) el.remove(); });
   for (const n of CV.data.nodes) {
     let el = box.querySelector(`[data-nid="${n.id}"]`);
     if (!el) { el = document.createElement("div"); el.className = "cvnode"; el.dataset.nid = n.id; box.appendChild(el); full = true; }
     const sig = fnv(JSON.stringify(n) + state(n) + (CV.busy[n.id] ? Math.floor(Date.now() / 1000) : "") + dirty(n) + S.agents.length);
     if (el.dataset.sig !== sig && !el.contains(document.activeElement)) { el.innerHTML = nodeHtml(n); el.dataset.sig = sig; }
-    el.className = `cvnode k-${n.kind} ${CV.sel.has(n.id) ? "sel" : ""} ${n.gone ? "gone" : ""} ${n.bypass ? "byp" : ""} ${CV.link === n.id ? "linking" : ""}`;
+    el.className = `cvnode k-${n.kind} ${far(n.id)} ${CV.sel.has(n.id) ? "sel" : ""} ${n.gone ? "gone" : ""} ${n.bypass ? "byp" : ""} ${CV.link === n.id ? "linking" : ""}`;
     el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.width = (n.width || 260) + "px";
   }
   cvEdges(); cvBar();
@@ -214,8 +236,8 @@ function cvEdges() {
   const g = $("#cveg"); if (!g) return;
   g.innerHTML = CV.data.edges.map((e) => {
     const a = cvNode(e.fromNode), b = cvNode(e.toNode); if (!a || !b) return "";
-    const p = pinPos(a, "out"), q = pinPos(b, "in"), live = CV.busy[b.id] || CV.busy[a.id];
-    return `<path class="cvedge k-${a.kind} ${live ? "live" : ""} ${a.gone || b.gone ? "gone" : ""} ${CV.selEdge === e.id ? "sel" : ""}" data-eid="${e.id}" d="${curve(p.x, p.y, q.x, q.y, .5)}"/>`;
+    const p = pinPos(a, "out"), q = pinPos(b, "in"), live = CV.busy[b.id] || CV.busy[a.id], h = CV.hop ? Math.max(CV.hop.get(a.id) ?? 9, CV.hop.get(b.id) ?? 9) : 0;
+    return `<path class="cvedge k-${a.kind} ${h >= 3 ? "h3" : h === 2 ? "h2" : ""} ${live ? "live" : ""} ${a.gone || b.gone ? "gone" : ""} ${CV.selEdge === e.id ? "sel" : ""}" data-eid="${e.id}" d="${curve(p.x, p.y, q.x, q.y, .5)}"/>`;
   }).join("");
 }
 function cvBar() {
@@ -287,7 +309,7 @@ async function cook(id, opts = {}) {
       else if (n.kind === "output") await cookOutput(n);
       n.cin = sig;
     } catch (err) { n.err = err.message; }
-    finally { delete CV.busy[id]; n.running = false; cvRender(); if (unstack()) cvRender(); cvSave(); if (typeof padSync === "function") padSync(); }
+    finally { delete CV.busy[id]; n.running = false; cvRender(); if (unstack()) cvRender(); cvSave(); if (CV.peek === id) peekReload(n); if (typeof padSync === "function") padSync(); }
   })();
   CV.cooking[id] = p; try { await p; } finally { delete CV.cooking[id]; }
 }
@@ -324,6 +346,7 @@ async function cookChat(n) {
   else { if (key && n.out) { history = [{ role: "assistant", text: n.out }]; n.was = n.was || key; } key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; }
   const acc = S.acc?.[key] || S.acc?.["*new"] || {};
   n.key = key; n.ask = text.slice(0, 400); cvSave(true);
+  if (n.pad || !CV.peek || CV.peek === n.id) setTimeout(() => peek(n, true), 600);        // its conversation opens on the right as it starts
   const r = await api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: n.agent || "auto", conversation: key, history, images,
     world: CV.world !== "top" ? CV.world : undefined, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } });
   if (!r?.text && r?.error) throw new Error(r.error);
@@ -471,13 +494,43 @@ function versions(n) {
   modal(`<h2>${L("这个节点的各个版本", "This node's versions")}</h2><div class="muted" style="font-size:13px;margin-bottom:10px">${L("每次重新运行，之前的结果都留在这里；选一个版本作为它现在的输出，后面的节点会变成过期。", "Each run keeps the earlier result here; pick one as its output now, and what comes after turns stale.")}</div>
     ${all.map((v, i) => `<div class="cvver ${v.cur ? "cur" : ""}"><div class="cvvh"><b>v${i + 1}</b><span class="cvdim">${esc(v.agent || "")} ${v.at ? when(v.at) : ""}</span><span class="grow"></span>${v.cur ? `<span class="pill">${L("现在用的", "in use")}</span>` : `<button class="sm" data-cvver="${i}" data-id="${n.id}">${L("用这个版本", "Use this one")}</button>`}</div><div class="cvo open">${md(String(v.out || "").slice(0, 3000))}</div></div>`).reverse().join("")}`);
 }
-function peek(n) {
-  if (!n.key) { toast(L("它还没开始：先运行", "Not started yet: run it first")); return; }
-  const d = $("#cvdraw"); d.hidden = false; CV.peek = n.id;
-  const q = new URLSearchParams({ view: "chats", embed: "1", c: n.key }); if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
-  const el = document.querySelector(`[data-nid="${n.id}"]`), c = $("#cv").getBoundingClientRect(), dr = d.getBoundingClientRect();
-  if (el) { const r = el.getBoundingClientRect(); if (r.right > dr.left - 20) { CV.view.x -= r.right - (dr.left - 40); animView(); } }       // keep the node in sight beside the drawer
-  d.innerHTML = `<div class="p2h"><b>${esc(n.title || "")}</b><span class="grow"></span><button class="sm ghost" data-cvd="open">${L("全屏打开", "Open")}</button><button class="sm ghost" data-cvd="close">×</button></div><iframe src="/?${q}" title="conversation"></iframe>`;
+function peek(n, quiet) {                         // the conversation, docked on the right: the conversation page itself (?embed=1), to read and carry on
+  if (!n?.key) { if (!quiet) toast(L("它还没开始：先运行", "Not started yet: run it first")); return; }
+  const prev = cvNode(CV.peek); if (prev && prev !== n) syncFromChat(prev);
+  CV.peek = n.id; $("#cvside").hidden = false; $("#vCanvas").classList.add("side");
+  $("#cvsh").innerHTML = `<b title="${esc(n.title || "")}">${esc(n.title || "")}</b><span class="cvdim">${esc(n.used || (n.agent !== "auto" ? n.agent : "") || "")}</span><span class="grow"></span><button class="sm ghost" data-cvd="focus" title="${L("在画布上找到它", "Find it on the canvas")}">◎</button><button class="sm ghost" data-cvd="open">${L("全屏打开", "Open")}</button><button class="sm ghost" data-cvd="close" title="${L("收起", "Close")}">×</button>`;
+  const f = $("#cvsf");
+  if (f.dataset.key !== n.key) {
+    const q = new URLSearchParams({ view: "chats", embed: "1" }); if (S.allChats?.some((c) => c.key === n.key) || n.key.startsWith("chat:")) q.set("c", n.key); else q.set("item", n.key);
+    if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
+    f.src = "/?" + q; f.dataset.key = n.key;
+  }
+  requestAnimationFrame(() => { const el = document.querySelector(`[data-nid="${n.id}"]`), m = $("#cv").getBoundingClientRect();
+    if (el) { const r = el.getBoundingClientRect(); if (r.right > m.right - 20 || r.left < m.left) { CV.view.x += (m.left + m.width / 2) - (r.left + r.width / 2); animView(); } } });
+}
+function peekClose(skipSync) {
+  if (!skipSync) syncFromChat(cvNode(CV.peek));
+  CV.peek = null; const f = $("#cvsf"); if (f) { f.dataset.key = ""; f.src = "about:blank"; }
+  $("#cvside") && ($("#cvside").hidden = true); $("#vCanvas")?.classList.remove("side");
+}
+function peekReload(n) { const f = $("#cvsf"); if (f && n?.key && f.dataset.key === n.key) f.src = f.src; }
+async function syncFromChat(n) {                  // you carried on in the conversation on the right: the node shows its latest answer (the old one kept as a version)
+  if (!n?.key || n.seeded || CV.busy[n.id]) return;
+  try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(n.key)}`); const a = (r.turns || []).filter((t) => t.role === "agent" && t.text).pop();
+    if (a && a.text !== n.out && (!n.at || Date.parse(a.at) > Date.parse(n.at) + 1000)) { keepVersion(n); n.out = a.text; n.at = a.at; n.run = a.run; n.used = a.agent; cvRender(); cvSave(); } } catch {}
+}
+function sideGrip() {
+  $("#cvsGrip").addEventListener("pointerdown", (e) => {
+    e.preventDefault(); const v = $("#vCanvas"); $(".app").classList.add("resizing"); $("#cvsf").style.pointerEvents = "none";
+    const mv = (ev) => { const r = v.getBoundingClientRect(), w = Math.round(Math.max(320, Math.min(r.width - 320, r.right - ev.clientX))); v.style.setProperty("--cvsw", w + "px"); try { localStorage.setItem("pga_cv_side", w); } catch {} };
+    const up = () => { document.removeEventListener("pointermove", mv); document.removeEventListener("pointerup", up); $(".app").classList.remove("resizing"); $("#cvsf").style.pointerEvents = ""; cvRender(); };
+    document.addEventListener("pointermove", mv); document.addEventListener("pointerup", up);
+  });
+}
+setInterval(() => { if (S.view === "canvas" && CV.peek && !document.hidden) syncFromChat(cvNode(CV.peek)); }, 20000);
+if (Q.get("embed") && Q.get("item")) {            // a conversation that is not a PGA chat (an imported session), opened in the docked panel
+  const k = Q.get("item"), t = setInterval(() => { if (typeof recentItems === "function" && recentItems().some((y) => y.item === k)) { clearInterval(t); openItem(k); } }, 400);
+  setTimeout(() => clearInterval(t), 20000);
 }
 
 /* ------------------------------------------------ pointer and keys */
@@ -612,7 +665,7 @@ document.addEventListener("click", async (e) => {
   const ed = e.target.closest("[data-cvedel]"); if (ed) { snap(); CV.data.edges = CV.data.edges.filter((x) => x.id !== ed.dataset.cvedel); ed.closest(".cvmenu").remove(); CV.selEdge = null; cvRender(); cvSave(); return; }
   const v = e.target.closest("[data-cvver]"); if (v) { const n = cvNode(v.dataset.id), i = Number(v.dataset.cvver); if (n?.hist?.[i]) { snap(); const h = n.hist[i]; n.hist[i] = { out: n.out, at: n.at, run: n.run, agent: n.used }; n.out = h.out; n.at = h.at; n.run = h.run; n.used = h.agent; cvRender(); cvSave(); document.querySelector(".modal")?.remove(); } return; }
   const a = e.target.closest("[data-cva]"); if (a && S.view === "canvas") { const el = a.closest(".cvnode"); if (el) { e.stopPropagation(); nodeAct(a.dataset.cva, el.dataset.nid, a); } return; }
-  const d = e.target.closest("[data-cvd]"); if (d) { const n = cvNode(CV.peek); if (d.dataset.cvd === "open" && n) nodeAct("open", n.id); $("#cvdraw").hidden = true; $("#cvdraw").innerHTML = ""; return; }
+  const d = e.target.closest("[data-cvd]"); if (d) { const n = cvNode(CV.peek); if (d.dataset.cvd === "focus" && n) { cvFocus(n.id); return; } if (d.dataset.cvd === "open" && n) nodeAct("open", n.id); peekClose(); return; }
   const t = e.target.closest("[data-cvt]"); if (!t) return;
   const k = t.dataset.cvt;
   if (k === "runall") runStale();
