@@ -1,16 +1,23 @@
-/* PGA app · the stage. Conversations are windows on an infinite canvas, at three sizes:
-   - smallest: a node on the canvas, among every other conversation (left to right by time, in bands by world-tree
-     topic);
-   - middle: on a band between two horizontal rails. Up to four sit side by side, and more slide along the rails, left
-     and right. Above and below each window, on the rails, ride the conversations it is linked to by the context you
-     pick (time, content, data, with how far it reaches), and they move with it;
-   - largest: filling the whole app, the conversation page itself.
-   Each window is the conversation page (?view=chats&embed=1), so each has its own agent, composer and live answer. */
+/* PGA app · the stage: conversation windows on an infinite canvas.
 
-const ST = { wins: [], focus: null, off: 0, cv: { x: 0, y: 0, z: 1 }, ctx: {},
+   One camera moves everything together: the dotted ground, every conversation's dot on it (left to right by time, in
+   lanes by world-tree topic), the two rails, and the windows between them. Press and drag anywhere outside a
+   conversation's text, or hold still inside it for a moment and then drag, to move freely.
+   - At full size the windows ride the rails: you move left and right, as far as you like.
+   - Zoomed out (pinch, or ⌘ and scroll), you move in every direction over the canvas, rails and all. Zooming back in
+     sets them on the rails again.
+
+   A window has three sizes:
+   - smallest: its dot on the canvas;
+   - middle: on the rails, up to four side by side, any size you drag its edges and corners to; on the rails above and
+     below it ride the conversations it links to (time, content, data, and how far that reaches);
+   - largest: the whole app, the conversation page itself.
+   Each window is the conversation page (?view=chats&embed=1), with its own agent, composer and live answer. */
+
+const ST = { wins: [], focus: null, cam: { x: 44, y: 64, z: 1 }, ctx: {}, H: 600, total: 0,
   axis: (() => { try { return localStorage.getItem("pga_st_axis") || "time"; } catch { return "time"; } })(),
   range: (() => { try { return Number(localStorage.getItem("pga_st_range")) || 6; } catch { return 6; } })() };
-const ST_GAP = 14, ST_MIN_W = 320, ST_MAX_PER = 4;
+const ST_GAP = 14, ST_MIN_W = 320, ST_MAX_PER = 4, ST_TOP = 64, ST_BOT = 14;
 const stItem = (key) => recentItems().find((x) => x.item === key);
 const stTitle = (key) => (key ? stItem(key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
@@ -22,83 +29,119 @@ function showStage() {
   const v = $("#vStage");
   if (!v.dataset.ready) {
     v.dataset.ready = "1";
-    v.innerHTML = `<div class="stcv" id="stcv"><div class="stcw" id="stcw"></div></div>
+    v.innerHTML = `<div class="stground" id="stground"></div>
+      <div class="stworld" id="stworld"><div class="stdots" id="stdots"></div><i class="rail top"></i><i class="rail bot"></i><div class="track" id="track"></div></div>
       <div class="stbar card" id="stbar"></div>
-      <section class="band" id="band"><i class="rail top"></i><i class="rail bot"></i><div class="track" id="track"></div>
-        <button class="slide l" data-st="left" title="${L("往左滑", "Slide left")}">‹</button><button class="slide r" data-st="right" title="${L("往右滑", "Slide right")}">›</button></section>`;
+      <button class="slide l" data-st="left" title="${L("往左一个窗口", "One window left")}">‹</button><button class="slide r" data-st="right" title="${L("往右一个窗口", "One window right")}">›</button>`;
     stBind();
     let saved = []; try { saved = JSON.parse(localStorage.getItem("pga_st_wins") || "[]"); } catch {}
     ST.wins = saved.filter((x) => x.key).map((x) => ({ id: stId(), key: x.key, mode: x.mode === "min" ? "min" : "mid", ...(x.w ? { w: x.w } : {}), ...(x.h ? { h: x.h, top: x.top || 0 } : {}) }));
     if (!ST.wins.some((w) => w.mode === "mid")) { const r = recentItems()[0]; if (r) ST.wins.push({ id: stId(), key: r.item, mode: "mid" }); }
     ST.focus = ST.wins.find((w) => w.mode === "mid")?.id || null;
-    wtFetch().then(() => { stCanvas(); stLayout(); });
+    stLayout(); stHome(false);
+    wtFetch().then(() => stCanvas());
   }
-  stBar(); stCanvas(); stLayout();
+  stBar(); stLayout(); stCanvas();
 }
 
-/* ------------------------------------------------ the infinite canvas underneath */
+/* ------------------------------------------------ the camera */
+function stApply() {
+  const w = $("#stworld"), g = $("#stground"), { x, y, z } = ST.cam; if (!w) return;
+  if (ST.wins.some((m) => m.mode === "max")) { w.style.transform = "none"; w.style.left = x + "px"; w.style.top = y + "px"; }   // no transform: the big window must be free to fill the app
+  else { w.style.left = "0px"; w.style.top = "0px"; w.style.transform = `translate(${x}px, ${y}px) scale(${z})`; }
+  w.style.setProperty("--iz", (1 / z).toFixed(3));                     // dots and rails keep their size on screen
+  const s = 24 * z; g.style.backgroundSize = `${s}px ${s}px`; g.style.backgroundPosition = `${x}px ${y}px`;
+  const zoomed = z < .99; if ($("#vStage").classList.contains("zoomed") !== zoomed) { $("#vStage").classList.toggle("zoomed", zoomed); stBar(); }
+  const vw = $("#vStage").clientWidth, left = x, right = x + ST.total * z;
+  $("#vStage .slide.l").hidden = !ST.lefts?.length || left >= 0; $("#vStage .slide.r").hidden = !ST.lefts?.length || right <= vw;
+}
+function stPanTo(x, y) { ST.cam.x = x; if (ST.cam.z < .99) ST.cam.y = y; stApply(); }
+function stCamTo(to, ms = 420) {                  // a smooth move of the camera
+  const from = { ...ST.cam }, t0 = performance.now(); cancelAnimationFrame(ST.camRaf);
+  const step = (t) => { const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+    ST.cam = { x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e, z: from.z + (to.z - from.z) * e }; stApply();
+    if (k < 1) ST.camRaf = requestAnimationFrame(step); };
+  ST.camRaf = requestAnimationFrame(step);
+}
+function stSettle() { if (ST.cam.z >= .99 && (ST.cam.z !== 1 || ST.cam.y !== ST_TOP)) stCamTo({ x: ST.cam.x, y: ST_TOP, z: 1 }, 300); }     // back on the rails
+function stHome(anim = true) {                    // the windows centred on the rails
+  const vw = $("#vStage").clientWidth, to = { x: ST.total < vw - 88 ? (vw - ST.total) / 2 : 44, y: ST_TOP, z: 1 };
+  if (anim) stCamTo(to); else { ST.cam = to; stApply(); }
+}
+function stReveal(id) {                           // bring a window into view, as little movement as it takes
+  const i = ST.wins.filter((w) => w.mode !== "min").findIndex((w) => w.id === id); if (i < 0 || !ST.lefts) return;
+  const vw = $("#vStage").clientWidth, z = ST.cam.z, l = ST.cam.x + ST.lefts[i] * z, r = l + ST.widths[i] * z;
+  let x = ST.cam.x; if (l < 44) x += 44 - l; else if (r > vw - 44) x -= r - (vw - 44);
+  if (x !== ST.cam.x) stCamTo({ x, y: ST.cam.y, z });
+}
+function stZoomAt(sx, sy, z) {
+  const r = $("#vStage").getBoundingClientRect(), mx = sx - r.left, my = sy - r.top, z0 = ST.cam.z;
+  z = Math.max(.2, Math.min(1, z));
+  ST.cam = { z, x: mx - (mx - ST.cam.x) * z / z0, y: my - (my - ST.cam.y) * z / z0 }; stApply();
+  clearTimeout(ST.zt); ST.zt = setTimeout(stSettle, 250);
+}
+
+/* ------------------------------------------------ the canvas: every conversation, behind the windows */
 function stCanvas() {
-  const box = $("#stcw"); if (!box) return;
-  const items = recentItems().slice(0, 500), now = Date.now();
+  const box = $("#stdots"); if (!box) return;
+  const items = recentItems().slice(0, 500), now = Date.now(), H = ST.H, X0 = ST.total + 260;     // now: just right of the windows
   const groupOf = (key) => { let n = W.nodes.find((x) => x.ref === key); while (n && n.parent && W.byId.get(n.parent)?.kind !== "root") n = W.byId.get(n.parent); return n?.kind === "root" ? null : n; };
   const groups = []; const gi = (g) => { const k = g?.id || "_"; let i = groups.findIndex((x) => x.id === k); if (i < 0) { groups.push({ id: k, title: g?.title || L("未归类", "Unsorted") }); i = groups.length - 1; } return i; };
+  const at = (days) => X0 - Math.log2(1 + days) * 320;
+  const pos = items.map((x) => ({ x, days: Math.max(0, (now - new Date(x.last || now).getTime()) / 864e5), g: gi(groupOf(x.item)) }));
+  const lane = (g) => 56 + (g % Math.max(1, groups.length)) * ((H - 112) / Math.max(1, groups.length - 1 || 1));
   const parked = new Set(ST.wins.filter((w) => w.mode === "min").map((w) => w.key)), open = new Set(ST.wins.filter((w) => w.mode !== "min").map((w) => w.key));
-  const dots = items.map((x, i) => {
-    const days = Math.max(0, (now - new Date(x.last || now).getTime()) / 864e5), g = gi(groupOf(x.item));
-    return { x, px: -Math.log2(1 + days) * 260, py: g * 130 + ((i * 37) % 90) };
-  });
-  box.innerHTML = groups.map((g, i) => `<div class="stlane" style="top:${i * 130 - 18}px"><span>${esc(g.title)}</span></div>`).join("")
-    + [0, 1, 7, 30, 120, 365].map((d) => `<div class="sttick" style="left:${-Math.log2(1 + d) * 260}px"><span>${d === 0 ? L("现在", "now") : d === 1 ? L("1 天前", "1 day") : L(`${d} 天前`, `${d} days`)}</span></div>`).join("")
-    + dots.map((d) => `<div class="stdot ${parked.has(d.x.item) ? "parked" : ""} ${open.has(d.x.item) ? "open" : ""}" data-stkey="${esc(d.x.item)}" style="left:${d.px}px;top:${d.py}px" title="${esc(d.x.title || "")}"><i></i>${parked.has(d.x.item) || open.has(d.x.item) ? `<span>${esc((d.x.title || "").slice(0, 26))}</span>` : ""}</div>`).join("");
-  ST.dots = new Map(dots.map((d) => [d.x.item, d]));
-  if (!ST.cvSet) { const r = $("#stcv").getBoundingClientRect(); ST.cv = { x: r.width - 140, y: 90, z: 1 }; ST.cvSet = true; }
-  stCvApply();
+  box.innerHTML = groups.map((g, i) => `<div class="stlane" style="top:${lane(i)}px;left:${at(400)}px;width:${X0 - at(400) + 200}px"><span>${esc(g.title)}</span></div>`).join("")
+    + [0, 1, 7, 30, 120, 365].map((d) => `<div class="sttick" style="left:${at(d)}px;height:${H}px"><span>${d === 0 ? L("现在", "now") : d === 1 ? L("1 天前", "1 day") : L(`${d} 天前`, `${d} days`)}</span></div>`).join("")
+    + pos.map((d, i) => `<div class="stdot ${parked.has(d.x.item) ? "parked" : ""} ${open.has(d.x.item) ? "open" : ""}" data-stkey="${esc(d.x.item)}" style="left:${at(d.days)}px;top:${lane(d.g) + ((i * 29) % 46) - 23}px" title="${esc(d.x.title || "")}"><i></i>${parked.has(d.x.item) ? `<span>${esc((d.x.title || "").slice(0, 26))}</span>` : ""}</div>`).join("");
 }
-function stCvApply() { const w = $("#stcw"); if (w) w.style.transform = `translate(${ST.cv.x}px, ${ST.cv.y}px) scale(${ST.cv.z})`; const c = $("#stcv"); if (c) { const g = 24 * ST.cv.z; c.style.backgroundSize = `${g}px ${g}px`; c.style.backgroundPosition = `${ST.cv.x}px ${ST.cv.y}px`; } }
 function stDotRect(key) { const el = document.querySelector(`.stdot[data-stkey="${CSS.escape(key)}"]`); return el ? el.getBoundingClientRect() : null; }
 
-/* ------------------------------------------------ windows on the band */
+/* ------------------------------------------------ windows on the rails */
 function stOpen(key, opts = {}) {
   let w = key && ST.wins.find((x) => x.key === key);
   const from = key ? stDotRect(key) : null;
-  if (w) { w.mode = "mid"; }
+  if (w) w.mode = "mid";
   else {
     w = { id: stId(), key: key || null, mode: "mid", fresh: !key };
     const at = opts.after ? ST.wins.findIndex((x) => x.id === opts.after) + 1 : ST.wins.length;
     ST.wins.splice(at || ST.wins.length, 0, w);
   }
-  ST.focus = w.id; stSave(); stLayout({ grow: w.id, from });
-  stShowFocus(); stCanvas();
+  ST.focus = w.id; stSave(); stLayout({ grow: w.id, from }); stShowFocus(); stCanvas();
+  if (ST.cam.z < .99) stCamTo({ ...ST.cam, z: 1, y: ST_TOP }, 300);
+  setTimeout(() => stReveal(w.id), 30);
   return w;
 }
 function stClose(id) { const el = document.querySelector(`.stw[data-wid="${id}"]`); const done = () => { ST.wins = ST.wins.filter((w) => w.id !== id); if (ST.focus === id) ST.focus = ST.wins.find((w) => w.mode === "mid")?.id || null; stSave(); stLayout(); stCanvas(); };
   if (el?.animate) el.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.9) translateY(30px)" }], { duration: 220 }).finished.then(done); else done(); }
-function stMin(id) {                              // the window shrinks into its node on the canvas
+function stMin(id) {                              // the window shrinks into its dot on the canvas
   const w = ST.wins.find((x) => x.id === id); if (!w) return;
   const el = document.querySelector(`.stw[data-wid="${id}"] .stwin`), to = w.key ? stDotRect(w.key) : null;
   const finish = () => { w.mode = "min"; if (ST.focus === id) ST.focus = ST.wins.find((x) => x.mode === "mid")?.id || null; stSave(); stLayout(); stCanvas(); };
   if (el?.animate && to) { const r = el.getBoundingClientRect();
-    el.animate([{ transformOrigin: "0 0", transform: "none", opacity: 1 }, { transformOrigin: "0 0", transform: `translate(${to.left - r.left}px, ${to.top - r.top}px) scale(${Math.max(.02, to.width / r.width)})`, opacity: .2 }], { duration: 380, easing: "cubic-bezier(.5,0,.75,0)" }).finished.then(finish);
+    el.animate([{ transformOrigin: "0 0", transform: "none", opacity: 1 }, { transformOrigin: "0 0", transform: `translate(${(to.left - r.left) / ST.cam.z}px, ${(to.top - r.top) / ST.cam.z}px) scale(${Math.max(.02, to.width / r.width)})`, opacity: .2 }], { duration: 380, easing: "cubic-bezier(.5,0,.75,0)" }).finished.then(finish);
   } else finish();
 }
 function stMax(id, on = true) {                   // the whole app; the conversation page with its right panel
   const w = ST.wins.find((x) => x.id === id); if (!w) return;
   const el = document.querySelector(`.stw[data-wid="${id}"] .stwin`); if (!el) return;
   const r0 = el.getBoundingClientRect();
+  if (on && ST.cam.z !== 1) { ST.cam.z = 1; ST.cam.y = ST_TOP; }
   w.mode = on ? "max" : "mid"; ST.focus = id;
-  el.classList.toggle("max", on); $("#vStage").classList.toggle("hasmax", on);
+  el.classList.toggle("max", on); $("#vStage").classList.toggle("hasmax", on); stApply();
   try { el.querySelector("iframe").contentDocument.documentElement.classList.toggle("efull", on); } catch {}
   const r1 = el.getBoundingClientRect();
   el.animate?.([{ transformOrigin: "0 0", transform: `translate(${r0.left - r1.left}px, ${r0.top - r1.top}px) scale(${r0.width / r1.width}, ${r0.height / r1.height})` }, { transformOrigin: "0 0", transform: "none" }], { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" });
   stBar();
 }
 function stLayout(opts = {}) {
-  const band = $("#band"), track = $("#track"); if (!band || !track) return;
+  const v = $("#vStage"), track = $("#track"); if (!v || !track) return;
+  ST.H = Math.max(320, v.clientHeight - ST_TOP - ST_BOT);
+  $("#stworld").style.height = ST.H + "px";
   const mids = ST.wins.filter((w) => w.mode !== "min");
-  band.classList.toggle("empty", !mids.length);
   const keep = new Set(mids.map((w) => w.id));
   track.querySelectorAll(".stw").forEach((el) => { if (!keep.has(el.dataset.wid)) el.remove(); });
-  const bw = band.clientWidth - 2 * 44, per = Math.max(1, Math.min(ST_MAX_PER, mids.length, Math.floor((bw + ST_GAP) / (ST_MIN_W + ST_GAP))));
+  const bw = v.clientWidth - 88, per = Math.max(1, Math.min(ST_MAX_PER, mids.length, Math.floor((bw + ST_GAP) / (ST_MIN_W + ST_GAP))));
   const ww = mids.length === 1 ? Math.min(980, bw) : Math.floor((bw - (per - 1) * ST_GAP) / per);
   ST.ww = ww; ST.per = per;
   mids.forEach((w, i) => {
@@ -107,26 +150,16 @@ function stLayout(opts = {}) {
       el = document.createElement("div"); el.className = "stw"; el.dataset.wid = w.id; el.innerHTML = stWinHtml(w);
       track.insertBefore(el, track.children[i] || null); stFrame(w, el);
     }
-    el.style.width = (w.w || ww) + "px"; el.classList.toggle("focus", ST.focus === w.id);
+    el.style.width = (w.w || ww) + "px"; el.style.height = ST.H + "px"; el.classList.toggle("focus", ST.focus === w.id);
     const win = el.querySelector(".stwin"); win.style.top = w.top ? w.top + "px" : ""; win.style.height = w.h ? w.h + "px" : ""; win.classList.toggle("sized", !!w.h);
   });
-  const widths = mids.map((w) => w.w || ww), lefts = widths.map((_, i) => widths.slice(0, i).reduce((a, b) => a + b + ST_GAP, 0));
-  const total = widths.reduce((a, b) => a + b, 0) + Math.max(0, mids.length - 1) * ST_GAP;
-  ST.lefts = lefts;
-  const fi = Math.max(0, mids.findIndex((w) => w.id === ST.focus));
-  const maxOff = Math.max(0, total - bw);
-  if (opts.keep !== true && mids.length) {       // keep the focused window in view
-    const left = lefts[fi], wf = widths[fi];
-    if (left < ST.off) ST.off = left; else if (left + wf > ST.off + bw) ST.off = left + wf - bw;
-  }
-  ST.off = Math.max(0, Math.min(maxOff, ST.off));
-  track.style.left = 44 + (total < bw ? (bw - total) / 2 : 0) - ST.off + "px";     // left, not a transform: a maximised window must be free to fill the app
-  band.querySelector(".slide.l").hidden = ST.off <= 0; band.querySelector(".slide.r").hidden = ST.off >= maxOff;
+  ST.widths = mids.map((w) => w.w || ww); ST.lefts = ST.widths.map((_, i) => ST.widths.slice(0, i).reduce((a, b) => a + b + ST_GAP, 0));
+  ST.total = ST.widths.reduce((a, b) => a + b, 0) + Math.max(0, mids.length - 1) * ST_GAP;
   if (opts.grow) { const el = track.querySelector(`.stw[data-wid="${opts.grow}"]`), f = opts.from;
-    if (el?.animate) { if (f) { const r = el.getBoundingClientRect(); el.animate([{ transformOrigin: "0 0", transform: `translate(${f.left - r.left}px, ${f.top - r.top}px) scale(.03)`, opacity: .3 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 460, easing: "cubic-bezier(.2,.8,.2,1)" }); }
+    if (el?.animate) { if (f) { const r = el.getBoundingClientRect(); el.animate([{ transformOrigin: "0 0", transform: `translate(${(f.left - r.left) / ST.cam.z}px, ${(f.top - r.top) / ST.cam.z}px) scale(.03)`, opacity: .3 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 460, easing: "cubic-bezier(.2,.8,.2,1)" }); }
       else el.animate([{ opacity: 0, transform: "translateY(40px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 360, easing: "cubic-bezier(.2,.8,.2,1)" }); } }
   mids.forEach((w) => stCtx(w));
-  stBar();
+  stApply(); stBar();
 }
 function stWinHtml(w) {
   return `<div class="stctx top" data-ctx="top"></div>
@@ -147,14 +180,14 @@ function stHold(f, w) {                          // inside a conversation: press
   doc.addEventListener("pointerdown", (e) => {
     stFocus(w.id);
     if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], .cbar")) return;
-    h = { sx: e.screenX, sy: e.screenY, off: ST.off, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab"); $("#band").classList.add("sliding"); cw.getSelection()?.removeAllRanges(); }, 300) };
+    h = { sx: e.screenX, sy: e.screenY, cx: ST.cam.x, cy: ST.cam.y, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab"); $("#vStage").classList.add("panning"); cw.getSelection()?.removeAllRanges(); }, 300) };
   }, true);
   doc.addEventListener("pointermove", (e) => {
     if (!h) return;
     if (!h.on) { if (Math.hypot(e.screenX - h.sx, e.screenY - h.sy) > 5) { clearTimeout(h.t); h = null; } return; }     // moved before the hold: selecting text
-    e.preventDefault(); cw.getSelection()?.removeAllRanges(); ST.off = h.off + (h.sx - e.screenX); stLayout({ keep: true });
+    e.preventDefault(); cw.getSelection()?.removeAllRanges(); stPanTo(h.cx + (e.screenX - h.sx), h.cy + (e.screenY - h.sy));
   }, true);
-  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); $("#band").classList.remove("sliding"); if (was) stSnap(); };
+  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); $("#vStage").classList.remove("panning"); if (was) stSettle(); };
   doc.addEventListener("pointerup", end, true); doc.addEventListener("pointercancel", end, true);
   doc.addEventListener("selectstart", (e) => { if (h?.on) e.preventDefault(); }, true);
   const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
@@ -163,18 +196,18 @@ function stHold(f, w) {                          // inside a conversation: press
 function stResizeStart(e, rz) {
   const el = rz.closest(".stw"), w = ST.wins.find((x) => x.id === el.dataset.wid); if (!w || w.mode === "max") return;
   const win = el.querySelector(".stwin"), mid = el.querySelector(".stmid");
-  ST.rz = { w, d: rz.dataset.rz, x: e.clientX, y: e.clientY, w0: el.offsetWidth, h0: win.offsetHeight, t0: win.offsetTop, H: mid.clientHeight, off: ST.off };
-  $("#band").setPointerCapture(e.pointerId); $("#band").classList.add("resizing"); e.preventDefault(); stFocus(w.id);
+  ST.rz = { w, d: rz.dataset.rz, x: e.clientX, y: e.clientY, w0: el.offsetWidth, h0: win.offsetHeight, t0: win.offsetTop, H: mid.clientHeight, cx: ST.cam.x };
+  $("#vStage").setPointerCapture?.(e.pointerId); $("#vStage").classList.add("resizing"); e.preventDefault(); stFocus(w.id);
 }
 function stResizeMove(e) {
-  const r = ST.rz, dx = e.clientX - r.x, dy = e.clientY - r.y, bw = $("#band").clientWidth - 88;
+  const r = ST.rz, z = ST.cam.z, dx = (e.clientX - r.x) / z, dy = (e.clientY - r.y) / z, bw = $("#vStage").clientWidth / z - 88;
   if (r.d.includes("e")) r.w.w = Math.round(Math.max(300, Math.min(bw, r.w0 + dx)));
-  if (r.d.includes("w")) { r.w.w = Math.round(Math.max(300, Math.min(bw, r.w0 - dx))); ST.off = r.off + (r.w.w - r.w0); }      // the right edge stays put
+  if (r.d.includes("w")) { r.w.w = Math.round(Math.max(300, Math.min(bw, r.w0 - dx))); ST.cam.x = r.cx - (r.w.w - r.w0) * z; }      // the right edge stays put
   if (r.d.includes("s")) r.w.h = Math.round(Math.max(220, Math.min(r.H - r.t0, r.h0 + dy)));
   if (r.d.includes("n")) { const t = Math.max(0, Math.min(r.t0 + r.h0 - 220, r.t0 + dy)); r.w.top = Math.round(t); r.w.h = Math.round(r.h0 + (r.t0 - t)); }
-  stLayout({ keep: true });
+  stLayout();
 }
-function stResizeEnd() { ST.rz = null; $("#band").classList.remove("resizing"); stSave(); }
+function stResizeEnd() { ST.rz = null; $("#vStage").classList.remove("resizing"); stSave(); }
 function stFocus(id) { if (ST.focus === id) return; ST.focus = id; document.querySelectorAll(".stw").forEach((el) => el.classList.toggle("focus", el.dataset.wid === id)); stShowFocus(); }
 function stShowFocus() { const w = ST.wins.find((x) => x.id === ST.focus); document.querySelectorAll(".stdot.focus").forEach((d) => d.classList.remove("focus")); if (w?.key) document.querySelector(`.stdot[data-stkey="${CSS.escape(w.key)}"]`)?.classList.add("focus"); }
 setInterval(() => {                               // a new conversation in a window gets its key once you send; titles follow
@@ -224,61 +257,64 @@ function stBar() {
   bar.innerHTML = `<span class="seg stax">${[["time", L("时间", "Time")], ["content", L("内容", "Content")], ["data", L("数据", "Data")]].map(([k, t]) => `<button class="${ST.axis === k ? "on" : ""}" data-staxis="${k}">${t}</button>`).join("")}</span>
     <label class="strange" title="${L("上下文伸多远：显示几个相关的", "How far the context reaches")}">${L("范围", "Reach")}<input type="range" min="2" max="12" value="${ST.range}" id="stRange"><em>${ST.range}</em></label>
     <span class="grow"></span><span class="cvdim">${L(`${mids} 个窗口${parked ? ` · ${parked} 个最小化` : ""}`, `${mids} open${parked ? ` · ${parked} minimised` : ""}`)}</span>
-    <button class="sm" data-st="new">＋ ${L("新对话", "New chat")}</button><button class="sm ghost" data-st="all" title="${L("全部最小化，看整张画布", "Minimise all and see the whole canvas")}">${L("全景", "Overview")}</button>`;
+    <button class="sm" data-st="new">＋ ${L("新对话", "New chat")}</button><button class="sm ghost" data-st="${ST.cam.z < .99 ? "home" : "all"}" title="${ST.cam.z < .99 ? L("回到滑轨上（Esc）", "Back on the rails (Esc)") : L("缩小，看整张画布：可以上下左右自由移动", "Zoom out over the whole canvas, to move in every direction")}">${ST.cam.z < .99 ? L("回到滑轨", "Back on the rails") : L("全景", "Overview")}</button>`;
 }
 
-/* ------------------------------------------------ pointer: slide the rails, pan the canvas */
+/* ------------------------------------------------ pointer: move freely, zoom, resize */
 function stBind() {
-  const band = $("#band"), cv = $("#stcv");
-  band.addEventListener("wheel", (e) => {
-    if (e.target.closest(".stwin")) return;
-    const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY; e.preventDefault();
-    ST.off += d; stLayout({ keep: true }); stParallax(d);
+  const v = $("#vStage");
+  v.addEventListener("wheel", (e) => {
+    if (e.target.closest(".stbar")) return;
+    e.preventDefault();
+    if (e.ctrlKey || e.metaKey) { stZoomAt(e.clientX, e.clientY, ST.cam.z * Math.exp(-e.deltaY * .008)); return; }
+    if (ST.cam.z < .99) stPanTo(ST.cam.x - e.deltaX, ST.cam.y - e.deltaY);
+    else stPanTo(ST.cam.x - (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY), ST.cam.y);
   }, { passive: false });
   let drag = null;
-  band.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
-    const rz = e.target.closest("[data-rz]");
-    if (rz) { stResizeStart(e, rz); return; }
+  v.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".stbar, .slide")) return;
+    const rz = e.target.closest("[data-rz]"); if (rz) { stResizeStart(e, rz); return; }
     if (e.target.closest("button, input, iframe") || (e.target.closest(".stwin") && !e.target.closest(".stwh"))) return;
-    drag = { x: e.clientX, off: ST.off, moved: false, head: e.target.closest(".stwh")?.dataset.stfocus };
-    band.setPointerCapture(e.pointerId); band.classList.add("sliding");
+    drag = { sx: e.clientX, sy: e.clientY, cx: ST.cam.x, cy: ST.cam.y, moved: false, dot: e.target.closest(".stdot")?.dataset.stkey, head: e.target.closest(".stwh")?.dataset.stfocus };
+    v.setPointerCapture(e.pointerId); v.classList.add("panning"); cancelAnimationFrame(ST.camRaf);
   });
-  band.addEventListener("pointermove", (e) => { if (ST.rz) { stResizeMove(e); return; } if (!drag) return; const d = drag.x - e.clientX; if (Math.abs(d) > 4) drag.moved = true; ST.off = drag.off + d; stLayout({ keep: true }); });
-  band.addEventListener("pointerup", (e) => { if (ST.rz) { stResizeEnd(); return; } if (!drag) return; const d = drag; drag = null; band.classList.remove("sliding"); if (d.moved) stSnap(); else if (d.head) stFocus(d.head); });
-  band.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (!rz) return; const w = ST.wins.find((x) => x.id === rz.closest(".stw").dataset.wid); if (w) { delete w.w; delete w.h; delete w.top; stSave(); stLayout({ keep: true }); } });
-  cv.addEventListener("wheel", (e) => { e.preventDefault();
-    if (e.ctrlKey || e.metaKey) { const r = cv.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top, z0 = ST.cv.z, z = Math.max(.2, Math.min(3, z0 * Math.exp(-e.deltaY * .008))); ST.cv = { z, x: mx - (mx - ST.cv.x) * z / z0, y: my - (my - ST.cv.y) * z / z0 }; }
-    else { ST.cv.x -= e.deltaX; ST.cv.y -= e.deltaY; } stCvApply(); }, { passive: false });
-  let pan = null;
-  cv.addEventListener("pointerdown", (e) => { if (e.target.closest(".stdot")) return; pan = { x: e.clientX, y: e.clientY, cx: ST.cv.x, cy: ST.cv.y }; cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener("pointermove", (e) => { if (!pan) return; ST.cv.x = pan.cx + e.clientX - pan.x; ST.cv.y = pan.cy + e.clientY - pan.y; stCvApply(); });
-  cv.addEventListener("pointerup", () => { pan = null; });
-  new ResizeObserver(() => stLayout({ keep: true })).observe(band);
+  v.addEventListener("pointermove", (e) => {
+    if (ST.rz) { stResizeMove(e); return; }
+    if (!drag) return; const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+    if (Math.hypot(dx, dy) > 4) drag.moved = true;
+    stPanTo(drag.cx + dx, drag.cy + dy);
+  });
+  v.addEventListener("pointerup", () => {
+    if (ST.rz) { stResizeEnd(); return; }
+    if (!drag) return; const d = drag; drag = null; v.classList.remove("panning");
+    if (d.moved) { stSettle(); return; }
+    if (d.dot) stOpen(d.dot); else if (d.head) stFocus(d.head);
+  });
+  v.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (!rz) return; const w = ST.wins.find((x) => x.id === rz.closest(".stw").dataset.wid); if (w) { delete w.w; delete w.h; delete w.top; stSave(); stLayout(); } });
+  new ResizeObserver(() => { stLayout(); stCanvas(); }).observe(v);
 }
-function stSnap() { const ls = ST.lefts || [0]; ST.off = ls.reduce((best, l) => (Math.abs(l - ST.off) < Math.abs(best - ST.off) ? l : best), ls[0]); stLayout({ keep: true }); }
-function stParallax(d) {                          // the context on the rails trails the windows a little as they slide
-  document.querySelectorAll(".stctx").forEach((c) => c.animate?.([{ transform: `translateX(${Math.max(-40, Math.min(40, d * .6))}px)` }, { transform: "none" }], { duration: 420, easing: "cubic-bezier(.2,.8,.2,1)" }));
+function stSlide(dir) {                           // one window along the rails
+  const vw = $("#vStage").clientWidth, z = ST.cam.z, ls = ST.lefts || [];
+  const cur = ls.findIndex((l) => ST.cam.x + l * z >= 40); const i = Math.max(0, Math.min(ls.length - 1, (cur < 0 ? ls.length - 1 : cur) + dir));
+  stCamTo({ x: Math.min(44, vw - 44 - ST.total * z) > 44 ? ST.cam.x : 44 - (ls[i] || 0) * z, y: ST.cam.y, z });
 }
-function stSlide(dir) { const ls = ST.lefts || [0], i = ls.findIndex((l) => l >= ST.off - 2); ST.off = ls[Math.max(0, Math.min(ls.length - 1, (i < 0 ? ls.length - 1 : i) + dir))] ?? 0; stLayout({ keep: true }); stParallax(dir * 60); }
 
 document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;
-  const t = e.target.closest("[data-st], [data-stw], [data-staxis], [data-stopen], [data-stkey], [data-stfocus]"); if (!t) return;
+  const t = e.target.closest("[data-st], [data-stw], [data-staxis], [data-stopen]"); if (!t) return;
   if (t.dataset.stopen) { e.preventDefault(); stOpen(t.dataset.stopen, { after: t.dataset.from }); return; }
-  if (t.dataset.stkey) { stOpen(t.dataset.stkey); return; }
   if (t.dataset.staxis) { ST.axis = t.dataset.staxis; try { localStorage.setItem("pga_st_axis", ST.axis); } catch {} stBar(); ST.wins.filter((w) => w.mode !== "min").forEach(stCtx); return; }
   if (t.dataset.stw) { const id = t.closest(".stw").dataset.wid, w = ST.wins.find((x) => x.id === id);
     if (t.dataset.stw === "min") stMin(id); else if (t.dataset.stw === "close") stClose(id); else stMax(id, w?.mode !== "max"); return; }
-  if (t.dataset.stfocus && !e.target.closest("button")) { stFocus(t.dataset.stfocus); return; }
   const a = t.dataset.st;
   if (a === "new") stOpen(null);
-  else if (a === "all") { ST.wins.forEach((w) => { w.mode = "min"; }); ST.focus = null; stSave(); stLayout(); stCanvas(); }
+  else if (a === "all") { stCamTo({ x: ST.cam.x * .45 + $("#vStage").clientWidth * .3, y: ST_TOP + ST.H * .25, z: .45 }); }
+  else if (a === "home") stHome();
   else if (a === "left") stSlide(-1); else if (a === "right") stSlide(1);
 });
 document.addEventListener("input", (e) => { if (e.target.id !== "stRange") return; ST.range = Number(e.target.value); e.target.nextElementSibling.textContent = ST.range; try { localStorage.setItem("pga_st_range", ST.range); } catch {}
   clearTimeout(ST.rt); ST.rt = setTimeout(() => ST.wins.filter((w) => w.mode !== "min").forEach(stCtx), 200); });
-document.addEventListener("keydown", (e) => { if (S.view !== "stage" || e.key !== "Escape") return; const w = ST.wins.find((x) => x.mode === "max"); if (w) stMax(w.id, false); });
+document.addEventListener("keydown", (e) => { if (S.view !== "stage" || e.key !== "Escape") return; const w = ST.wins.find((x) => x.mode === "max"); if (w) stMax(w.id, false); else if (ST.cam.z < .99) stHome(); });
 
 /* a new window that is asked something right away (the notepad): type it into its composer and send */
 async function stAsk(text) {
@@ -293,6 +329,9 @@ async function stAsk(text) {
   for (let i = 0; i < 40; i++) { const f = document.querySelector(`.stw[data-wid="${w.id}"] iframe`); let k = null; try { k = f?.contentWindow?.S?.chat; } catch {} if (k) { w.key = k; stSave(); return { w, key: k }; } await new Promise((r) => setTimeout(r, 250)); }
   return { w, key: null };
 }
+
+const _loadTimelineST = loadTimeline;              // the canvas fills in once every conversation is known
+loadTimeline = async function (...a) { const r = await _loadTimelineST(...a); if (S.view === "stage") stCanvas(); return r; };
 
 /* ------------------------------------------------ inside a window (the embedded conversation page) */
 if (Q.get("embed") && Q.get("item")) {            // a conversation imported from another app
