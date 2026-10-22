@@ -792,3 +792,32 @@ html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { 
 .stcard em { font-style: normal; font-size: 10.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stcard.parked { border-color: var(--blue); box-shadow: 0 0 0 2px color-mix(in srgb, var(--blue) 25%, transparent); }
 .stside { position: absolute; top: 14px; font-size: 11.5px; color: var(--dim); white-space: nowrap; }
+
+/* the two foundations, their stacks, the roots into each window */
+.stfound { position: absolute; display: flex; gap: 12px; z-index: 1; }
+.stfc { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; border: 1px solid var(--line-2); overflow: hidden; position: relative;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fc) 16%, var(--panel)), var(--panel) 38%); box-shadow: 0 0 0 1px color-mix(in srgb, var(--fc) 18%, transparent), 0 18px 50px color-mix(in srgb, var(--fc) 14%, rgba(0,0,0,.35)); }
+.stfc::before { content: ""; position: absolute; inset: -40% -20% auto; height: 70%; background: radial-gradient(closest-side, color-mix(in srgb, var(--fc) 30%, transparent), transparent); opacity: .5; pointer-events: none; animation: stglow 7s ease-in-out infinite alternate; }
+@keyframes stglow { to { transform: translate(18%, 12%) scale(1.1); opacity: .25; } }
+.stfc.world { --fc: #6fa8ff; } .stfc.self { --fc: #e9b35f; }
+.stfh { display: flex; align-items: baseline; gap: 8px; cursor: pointer; position: relative; } .stfk { font-size: 17px; font-weight: 700; letter-spacing: .02em; background: linear-gradient(90deg, var(--text), var(--fc)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.stfh em { font-style: normal; font-size: 11px; color: var(--dim); }
+.stfb { font-size: 12px; line-height: 1.6; color: var(--muted); max-height: 300px; overflow: auto; position: relative; } .stfb p { margin: 0 0 6px; } .stfg { color: var(--text); font-weight: 500; }
+.stfd { position: relative; padding: 5px 0 7px; border-top: 1px solid var(--line); } .stfd span { font-size: 10.5px; letter-spacing: .06em; color: var(--fc); } .stfd p { margin: 2px 0 0; font-size: 11.5px; color: var(--text); }
+.stfd i { position: absolute; left: 0; bottom: 2px; height: 2px; width: var(--c); background: var(--fc); border-radius: 2px; opacity: .7; }
+.stfs { display: flex; flex-direction: column; gap: 7px; overflow: auto; min-height: 0; flex: 1 1 auto; position: relative; padding-left: 14px; }
+.stfs::before { content: ""; position: absolute; left: 4px; top: 4px; bottom: 34px; width: 2px; background: linear-gradient(var(--fc), transparent); opacity: .6; }
+.stfi { position: relative; display: grid; gap: 2px; padding: 7px 26px 7px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--raised); cursor: pointer; }
+.stfi::before { content: ""; position: absolute; left: -14px; top: 15px; width: 10px; height: 2px; background: var(--fc); opacity: .6; }
+.stfi b { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .stfi span { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stfi i, .stpr i { font-style: normal; font-size: 10px; letter-spacing: .05em; width: fit-content; padding: 0 6px; border-radius: 99px; }
+.t-skill { color: #e9b35f; background: rgba(233,179,95,.12); } .t-doc { color: #7fcf9f; background: rgba(127,207,159,.12); } .t-file { color: #5fc9c0; background: rgba(95,201,192,.12); }
+.stfx { position: absolute; right: 6px; top: 6px; border: 0; background: none; color: var(--dim); cursor: pointer; } .stfx:hover { color: var(--bad); }
+.stfadd { border: 1px dashed var(--line-3); background: none; color: var(--muted); border-radius: 10px; padding: 7px; cursor: pointer; font-size: 12px; } .stfadd:hover { border-color: var(--fc); color: var(--text); }
+.stlinks { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 0; }
+.stlinks path { fill: none; stroke-width: calc(1.6px * var(--iz, 1)); stroke-dasharray: 5 7; animation: stflow 2.4s linear infinite; }
+.stlinks .lw { stroke: color-mix(in srgb, #6fa8ff 55%, transparent); } .stlinks .ls { stroke: color-mix(in srgb, #e9b35f 55%, transparent); }
+@keyframes stflow { to { stroke-dashoffset: -24; } }
+.stw.moving { z-index: 5; } .stw.moving .stwin { box-shadow: 0 30px 70px rgba(0,0,0,.5), 0 0 0 2px var(--accent); }
+.stpick { max-height: 60vh; overflow: auto; display: grid; gap: 4px; } .stpr { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; padding: 7px 9px; border-radius: 8px; cursor: pointer; } .stpr:hover { background: var(--hover); }
+.stpr span { grid-column: 2; font-size: 11.5px; color: var(--muted); } .stpr[hidden] { display: none; }

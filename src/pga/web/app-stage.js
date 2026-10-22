@@ -17,7 +17,7 @@
 const ST = { wins: [], focus: null, cam: { x: 44, y: 64, z: 1 }, ctx: {}, H: 600, total: 0,
   axis: (() => { try { return localStorage.getItem("pga_st_axis") || "time"; } catch { return "time"; } })(),
   range: (() => { try { return Number(localStorage.getItem("pga_st_range")) || 6; } catch { return 6; } })() };
-const ST_GAP = 14, ST_MIN_W = 320, ST_MAX_PER = 4, ST_TOP = 64, ST_BOT = 14;
+const ST_GAP = 14, ST_MIN_W = 320, ST_MAX_PER = 4, ST_TOP = 64, ST_BOT = 14, ST_FW = 290, ST_FOUNDW = 2 * 290 + 12 + 40;
 const stItem = (key) => recentItems().find((x) => x.item === key);
 const stTitle = (key) => (key ? stItem(key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
@@ -30,7 +30,7 @@ function showStage() {
   if (!v.dataset.ready) {
     v.dataset.ready = "1";
     v.innerHTML = `<div class="stground" id="stground"></div>
-      <div class="stworld" id="stworld"><div class="stdots" id="stdots"></div><i class="rail top"></i><i class="rail bot"></i><div class="track" id="track"></div></div>
+      <div class="stworld" id="stworld"><div class="stdots" id="stdots"></div><svg class="stlinks" id="stlinks"></svg><div class="stfound" id="stfound"></div><i class="rail top"></i><i class="rail bot"></i><div class="track" id="track"></div></div>
       <div class="stbar card" id="stbar"></div>
       <button class="slide l" data-st="left" title="${L("往左一个窗口", "One window left")}">‹</button><button class="slide r" data-st="right" title="${L("往右一个窗口", "One window right")}">›</button>`;
     stBind();
@@ -65,7 +65,7 @@ function stCamTo(to, ms = 420) {                  // a smooth move of the camera
 }
 function stSettle() { if (ST.cam.z >= .99 && (ST.cam.z !== 1 || ST.cam.y !== ST_TOP)) stCamTo({ x: ST.cam.x, y: ST_TOP, z: 1 }, 300); }     // back on the rails
 function stHome(anim = true) {                    // the windows centred on the rails
-  const vw = $("#vStage").clientWidth, to = { x: ST.total < vw - 88 ? (vw - ST.total) / 2 : 44, y: ST_TOP, z: 1 };
+  const vw = $("#vStage").clientWidth, all = ST.total + ST_FOUNDW, to = { x: all < vw - 60 ? (vw - all) / 2 + ST_FOUNDW : ST_FOUNDW + 30, y: ST_TOP, z: 1 };
   if (anim) stCamTo(to); else { ST.cam = to; stApply(); }
 }
 function stReveal(id) {                           // bring a window into view, as little movement as it takes
@@ -90,12 +90,12 @@ function stCanvas() {                            // the other conversations, min
   const right = items.filter((x) => new Date(x.last || 0).getTime() > newest).reverse(), left = items.filter((x) => new Date(x.last || 0).getTime() <= newest);
   const CW = 170, CH = 104, G = 12, top = 52, rows = Math.max(1, Math.floor((ST.H - 2 * top + G) / (CH + G)));
   const card = (x, i, side) => { const col = Math.floor(i / rows), row = i % rows;
-    const px = side < 0 ? -(col + 1) * (CW + G) - 24 : ST.total + 24 + col * (CW + G) + G, py = top + row * (CH + G);
+    const px = side < 0 ? -(col + 1) * (CW + G) - 24 - ST_FOUNDW : ST.total + 24 + col * (CW + G) + G, py = top + row * (CH + G);
     const leaf = W.nodes.find((n) => n.ref === x.item), parked = ST.wins.some((w) => w.mode === "min" && w.key === x.item);
     return `<div class="stcard ${parked ? "parked" : ""}" data-stkey="${esc(x.item)}" style="left:${px}px;top:${py}px;width:${CW}px;height:${CH}px" title="${esc(x.title || "")}">
       <b>${esc((x.title || "").slice(0, 40))}</b><span>${esc((leaf?.gist || "").slice(0, 46))}</span><em>${esc(agentLabel(x.agent || ""))} · ${esc(ago(x.last))}</em></div>`; };
   box.innerHTML = left.map((x, i) => card(x, i, -1)).join("") + right.map((x, i) => card(x, i, 1)).join("")
-    + (left.length ? `<div class="stside" style="left:${-24 - 2 * (CW + G)}px">${L("之前的对话 ←", "Earlier ←")}</div>` : "") + (right.length ? `<div class="stside" style="left:${ST.total + 36}px">${L("→ 之后的对话", "→ Later")}</div>` : "");
+    + (left.length ? `<div class="stside" style="left:${-24 - ST_FOUNDW - 2 * (CW + G)}px">${L("之前的对话 ←", "Earlier ←")}</div>` : "") + (right.length ? `<div class="stside" style="left:${ST.total + 36}px">${L("→ 之后的对话", "→ Later")}</div>` : "");
 }
 function stDotRect(key) { const el = document.querySelector(`.stcard[data-stkey="${CSS.escape(key)}"]`); return el ? el.getBoundingClientRect() : null; }
 
@@ -152,7 +152,7 @@ function stLayout(opts = {}) {
       el = document.createElement("div"); el.className = "stw"; el.dataset.wid = w.id; el.innerHTML = stWinHtml(w);
       track.insertBefore(el, track.children[i] || null); stFrame(w, el);
     }
-    el.style.width = (w.w || ww) + "px"; el.style.height = ST.H + "px"; el.classList.toggle("focus", ST.focus === w.id);
+    el.style.width = (w.w || ww) + "px"; el.style.height = ST.H + "px"; el.style.order = i; el.classList.toggle("focus", ST.focus === w.id);
     const win = el.querySelector(".stwin"); win.style.top = w.top ? w.top + "px" : ""; win.style.height = w.h ? w.h + "px" : ""; win.classList.toggle("sized", !!w.h);
   });
   ST.widths = mids.map((w) => w.w || ww); ST.lefts = ST.widths.map((_, i) => ST.widths.slice(0, i).reduce((a, b) => a + b + ST_GAP, 0));
@@ -161,6 +161,7 @@ function stLayout(opts = {}) {
     if (el?.animate) { if (f) { const r = el.getBoundingClientRect(); el.animate([{ transformOrigin: "0 0", transform: `translate(${(f.left - r.left) / ST.cam.z}px, ${(f.top - r.top) / ST.cam.z}px) scale(.03)`, opacity: .3 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 460, easing: "cubic-bezier(.2,.8,.2,1)" }); }
       else el.animate([{ opacity: 0, transform: "translateY(40px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 360, easing: "cubic-bezier(.2,.8,.2,1)" }); } }
   mids.forEach((w) => stCtx(w));
+  stFound(); stLinks();
   if (ST.cardsAt !== `${ST.total}|${ST.H}|${mids.length}`) { ST.cardsAt = `${ST.total}|${ST.H}|${mids.length}`; stCanvas(); }     // the cards beside the windows follow their edges
   stApply(); stBar();
 }
@@ -195,6 +196,84 @@ function stHold(f, w) {                          // inside a conversation: press
   doc.addEventListener("selectstart", (e) => { if (h?.on) e.preventDefault(); }, true);
   const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
 }
+/* moving a window: it follows the pointer, the others are pushed aside to make room (flex order; a frame is never moved) */
+function stMoveStart(e, id) {
+  const el = document.querySelector(`.stw[data-wid="${id}"]`); if (!el) return;
+  ST.mv = { id, el, sx: e.clientX, sy: e.clientY, moved: false }; stFocus(id); cancelAnimationFrame(ST.camRaf);
+}
+function stMoveMove(e) {
+  const m = ST.mv, z = ST.cam.z, dx = (e.clientX - m.sx) / z, dy = (e.clientY - m.sy) / z;
+  if (!m.moved && Math.hypot(dx, dy) < 4) return;
+  if (!m.moved) { m.moved = true; m.el.classList.add("moving"); $("#vStage").classList.add("resizing"); }
+  const mids = ST.wins.filter((w) => w.mode !== "min"), i = mids.findIndex((w) => w.id === m.id);
+  const centre = ST.lefts[i] + ST.widths[i] / 2 + dx - (m.shift || 0);
+  let j = mids.findIndex((w, k) => k !== i && centre < ST.lefts[k] + ST.widths[k] / 2); if (j < 0) j = mids.length - 1; else if (j > i) j -= 1;
+  if (j !== i) {                                  // swap places: the others slide over
+    const before = new Map(mids.map((w) => [w.id, document.querySelector(`.stw[data-wid="${w.id}"]`)?.getBoundingClientRect().left]));
+    const all = ST.wins, a = all.indexOf(mids[i]), b = all.indexOf(mids[j]); all.splice(a, 1); all.splice(b, 0, mids[i]);
+    const oldLeft = ST.lefts[i]; stLayout(); const ni = ST.wins.filter((w) => w.mode !== "min").findIndex((w) => w.id === m.id);
+    m.shift = (m.shift || 0) + (ST.lefts[ni] - oldLeft);
+    for (const w of ST.wins.filter((x) => x.mode !== "min" && x.id !== m.id)) {
+      const el = document.querySelector(`.stw[data-wid="${w.id}"]`), b0 = before.get(w.id); if (!el || b0 == null) continue;
+      const d = (b0 - el.getBoundingClientRect().left) / z; if (Math.abs(d) > 1) el.animate?.([{ transform: `translateX(${d}px)` }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(.2,.8,.2,1)" });
+    }
+  }
+  m.el.style.transform = `translate(${dx - (m.shift || 0)}px, ${dy * .15}px) rotate(${Math.max(-2, Math.min(2, (dx - (m.shift || 0)) / 200))}deg)`;
+  stLinks();
+}
+function stMoveEnd() {
+  const m = ST.mv; ST.mv = null; $("#vStage").classList.remove("resizing"); if (!m) return;
+  if (!m.moved) return;
+  const t = m.el.style.transform; m.el.style.transform = ""; m.el.classList.remove("moving");
+  m.el.animate?.([{ transform: t }, { transform: "none" }], { duration: 260, easing: "cubic-bezier(.2,.8,.2,1)" });
+  stSave(); stLinks();
+}
+
+/* ------------------------------------------------ the two foundations: what PGA knows of the world and of you, with what you stack under them */
+const ST_KIND = { skill: ["技能", "Skill"], doc: ["资料", "Library"], file: ["文件", "File"] };
+function stStacks() { try { return JSON.parse(localStorage.getItem("pga_st_found") || "{}"); } catch { return {}; } }
+function stFound() {
+  const box = $("#stfound"); if (!box) return;
+  const K = S.forest?.knowledge || [], world = K.find((k) => k.system === "world"), self = K.find((k) => k.system === "user"), P = S.forest?.personal, st = stStacks();
+  const dims = [["background", "背景", "Background"], ["goals", "目标", "Goals"], ["preferences", "偏好", "Preferences"], ["abilities", "能力", "Abilities"], ["state", "状态", "State"]];
+  const col = (k, title, sub, body, doc) => `<div class="stfc ${k}" style="width:${ST_FW}px;height:${ST.H - 84}px">
+      <div class="stfh" ${doc ? `data-doc="${doc}"` : ""}><span class="stfk">${title}</span><em>${sub}</em></div>
+      <div class="stfb">${body}</div>
+      <div class="stfs">${(st[k] || []).map((x, i) => `<div class="stfi" ${x.type === "doc" ? `data-doc="${esc(x.id)}"` : ""} title="${esc(x.sub || "")}"><i class="t-${x.type}">${L(...ST_KIND[x.type])}</i><b>${esc(x.title)}</b>${x.sub ? `<span>${esc(x.sub.slice(0, 70))}</span>` : ""}<button class="stfx" data-stunstack="${k}|${i}">×</button></div>`).join("")}
+        <button class="stfadd" data-ststack="${k}">＋ ${L("插入技能、资料或文件", "Insert a skill, a document or a file")}</button></div></div>`;
+  box.style.left = -ST_FOUNDW + "px"; box.style.top = "40px";
+  box.innerHTML = col("world", L("世界知识", "World knowledge"), world?.compiled_at ? ago(world.compiled_at) : L("还没有整理", "not compiled yet"),
+      `${world?.gist ? `<p class="stfg">${esc(world.gist)}</p>` : ""}${world?.brief ? `<p>${esc(world.brief.slice(0, 420))}</p>` : ""}`, world?.id)
+    + col("self", L("自我知识", "Self knowledge"), L("你是谁、要什么、会什么", "who you are, what you want, what you can do"),
+      P ? dims.map(([d, zh, en]) => `<div class="stfd"><span>${L(zh, en)}</span><p>${esc((P[d]?.summary || L("还看不出来", "Not enough to tell yet")).slice(0, 140))}</p><i style="--c:${Math.round((P[d]?.confidence || 0) * 100)}%"></i></div>`).join("") : `<p class="cvdim">${L("还没有整理成五个维度", "Not compiled yet")}</p>`, self?.id);
+}
+function stLinks() {                              // both foundations feed every window: a root for each
+  const svg = $("#stlinks"); if (!svg) return;
+  const mids = ST.wins.filter((w) => w.mode !== "min"), x0w = -ST_FOUNDW + ST_FW, x0s = -ST_FOUNDW + 2 * ST_FW + 12;
+  const path = (x0, y0, w, cls) => { const el = document.querySelector(`.stw[data-wid="${w.id}"]`); if (!el) return "";
+    const i = mids.indexOf(w), tx = (ST.lefts?.[i] || 0) + (ST.mv?.id === w.id ? 0 : 0), ty = 62 + (w.top || 0);
+    return `<path class="${cls}" d="M ${x0} ${y0} C ${x0 + 120} ${y0}, ${tx - 140} ${ty}, ${tx} ${ty}"/>`; };
+  svg.innerHTML = mids.map((w) => path(x0w, 92, w, "lw") + path(x0s, 132, w, "ls")).join("");
+}
+document.addEventListener("click", async (e) => {
+  const un = e.target.closest("[data-stunstack]"); if (un) { e.stopPropagation(); const [k, i] = un.dataset.stunstack.split("|"), st = stStacks(); (st[k] || []).splice(Number(i), 1); localStorage.setItem("pga_st_found", JSON.stringify(st)); stFound(); return; }
+  const add = e.target.closest("[data-ststack]"); if (!add) return;
+  const k = add.dataset.ststack;
+  let pal = { skills: [], images: [] }; try { pal = await api(`/v1/users/${S.uid}/canvas-palette`); } catch {}
+  const lib = (S.forest?.knowledge || []).filter((x) => !["user", "world"].includes(x.system));
+  const rows = [...lib.map((x) => ({ type: x.kind === "skill" ? "skill" : "doc", id: x.id, title: x.title, sub: x.gist || "" })),
+    ...pal.skills.map((x) => ({ type: "skill", id: x.path, title: x.name, sub: `${x.source === "hermes" ? "Hermes" : "Claude Code"} · ${x.description}` })),
+    ...pal.images.map((x) => ({ type: "file", id: x.path, title: x.name, sub: L("上传过的图片", "an uploaded picture") }))];
+  modal(`<h2>${k === "world" ? L("插到「世界知识」下面", "Insert under world knowledge") : L("插到「自我知识」下面", "Insert under self knowledge")}</h2>
+    <input id="stPick" placeholder="${L("搜技能、资料、文件…", "Search skills, documents, files…")}" style="width:100%;margin:6px 0 10px">
+    <div class="stpick" id="stPickList">${rows.map((r, i) => `<div class="stpr" data-stpick="${i}" data-q="${esc((r.title + " " + r.sub).toLowerCase())}"><i class="t-${r.type}">${L(...ST_KIND[r.type])}</i><b>${esc(r.title)}</b><span>${esc(r.sub.slice(0, 90))}</span></div>`).join("")}</div>`);
+  const box = $("#stPickList");
+  $("#stPick").addEventListener("input", (ev) => { const q = ev.target.value.toLowerCase(); box.querySelectorAll(".stpr").forEach((r) => { r.hidden = q && !r.dataset.q.includes(q); }); });
+  box.addEventListener("click", (ev) => { const r = ev.target.closest("[data-stpick]"); if (!r) return; const st = stStacks(); (st[k] = st[k] || []).push(rows[Number(r.dataset.stpick)]);
+    localStorage.setItem("pga_st_found", JSON.stringify(st)); document.querySelector(".modal")?.remove(); stFound();
+    document.querySelector(`.stfc.${k} .stfi:last-of-type`)?.animate?.([{ opacity: 0, transform: "translateY(-14px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" }); });
+});
+
 /* free size: drag an edge or a corner; the window keeps its place on the rails, the others make room */
 function stResizeStart(e, rz) {
   const el = rz.closest(".stw"), w = ST.wins.find((x) => x.id === el.dataset.wid); if (!w || w.mode === "max") return;
@@ -278,17 +357,21 @@ function stBind() {
     if (e.button !== 0 || e.target.closest(".stbar, .slide")) return;
     const rz = e.target.closest("[data-rz]"); if (rz) { stResizeStart(e, rz); return; }
     if (e.target.closest("button, input, iframe") || (e.target.closest(".stwin") && !e.target.closest(".stwh"))) return;
-    drag = { sx: e.clientX, sy: e.clientY, cx: ST.cam.x, cy: ST.cam.y, moved: false, dot: e.target.closest(".stcard")?.dataset.stkey, head: e.target.closest(".stwh")?.dataset.stfocus };
+    const head = e.target.closest(".stwh")?.dataset.stfocus;
+    if (head && ST.wins.find((w) => w.id === head)?.mode === "mid") { stMoveStart(e, head); v.setPointerCapture(e.pointerId); return; }
+    drag = { sx: e.clientX, sy: e.clientY, cx: ST.cam.x, cy: ST.cam.y, moved: false, dot: e.target.closest(".stcard")?.dataset.stkey, head };
     v.setPointerCapture(e.pointerId); v.classList.add("panning"); cancelAnimationFrame(ST.camRaf);
   });
   v.addEventListener("pointermove", (e) => {
     if (ST.rz) { stResizeMove(e); return; }
+    if (ST.mv) { stMoveMove(e); return; }
     if (!drag) return; const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
     if (Math.hypot(dx, dy) > 4) drag.moved = true;
     stPanTo(drag.cx + dx, drag.cy + dy);
   });
   v.addEventListener("pointerup", () => {
     if (ST.rz) { stResizeEnd(); return; }
+    if (ST.mv) { stMoveEnd(); return; }
     if (!drag) return; const d = drag; drag = null; v.classList.remove("panning");
     if (d.moved) { stSettle(); return; }
     if (d.dot) stOpen(d.dot); else if (d.head) stFocus(d.head);
