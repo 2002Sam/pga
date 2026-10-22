@@ -14,12 +14,15 @@ const ST = { wins: [], focus: null, ctx: {}, bodies: new Map(), out: new Set(), 
   axis: (() => { try { return localStorage.getItem("pga_st_axis") || "time"; } catch { return "time"; } })(),
   range: (() => { try { return Number(localStorage.getItem("pga_st_range")) || 6; } catch { return 6; } })() };
 const ST_GAP = 12, ST_PAD = 10, ST_WIN_W = 300, ST_FW = 270, ST_CW = 170, ST_CH = 104;
-const ST_MIN = { win: .55, found: .5, card: .62 };
+const ST_MIN = { win: .45, found: .62, card: .62 };
 const stItem = (key) => recentItems().find((x) => x.item === key);
 const stTitle = (key) => (key ? stItem(key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
 function stSave() { try { localStorage.setItem("pga_st_wins", JSON.stringify(ST.wins.map((w) => ({ key: w.key, mode: w.mode === "max" ? "mid" : w.mode, bw: w.bw, bh: w.bh })).slice(-24))); } catch {} }
+const stEW = (b) => b.bw * (b.kind === "win" ? 1 : b.s), stEH = (b) => b.bh * b.s;     // a window keeps its width, only its height gives way
 const stArena = () => { const a = $("#starena"); return a ? { w: a.clientWidth, h: a.clientHeight } : { w: 1000, h: 700 }; };
+const stWinW = () => { const A = stArena(), n = Math.max(1, ST.wins.filter((w) => w.mode !== "min").length);      // the windows share all the width left by the foundations
+  return Math.max(300, Math.floor((A.w - 2 * ST_PAD - (ST_CW + ST_GAP) - n * ST_GAP) / n)); };
 const stWinH = () => Math.round(stArena().h * .75);
 
 /* ------------------------------------------------ the page */
@@ -29,7 +32,7 @@ function showStage() {
   if (!v.dataset.ready) {
     v.dataset.ready = "1";
     v.innerHTML = `<div class="stground"></div><div class="stbar card" id="stbar"></div><div class="starena" id="starena"><svg class="stlinks" id="stlinks"></svg></div>`;
-    stBind();
+    stBind(); new ResizeObserver(stResized).observe($("#starena"));
     let saved = []; try { saved = JSON.parse(localStorage.getItem("pga_st_wins") || "[]"); } catch {}
     ST.wins = saved.filter((x) => x.key && x.mode !== "min").slice(0, 6).map((x) => ({ id: stId(), key: x.key, mode: "mid", ...(x.bw ? { bw: x.bw, bh: x.bh } : {}) }));
     if (!ST.wins.length) { const r = recentItems()[0]; if (r) ST.wins.push({ id: stId(), key: r.item, mode: "mid" }); }
@@ -62,8 +65,8 @@ function stSync() {                               // who is on the stage: window
   // the foundations, at the left
   for (const [k, i] of [["world", 0], ["self", 1]]) {
     const id = "f-" + k; want.add(id);
-    const b = stBody(id, "found", () => "", { x: 20 + ST_FW / 2 + i * (ST_FW + ST_GAP), y: A.h / 2, s: .3 });
-    b.bw = ST_FW; b.bh = Math.round(A.h * .86);
+    const b = stBody(id, "found", () => "", { x: 20 + ST_CW / 2, y: A.h / 2 - ST_CH / 2 - 8 + i * (ST_CH + 16), s: .3 });
+    b.bw = ST_CW; b.bh = ST_CH;                     // the same size as the other cards
   }
   stFoundRender();
   // the windows
@@ -71,7 +74,7 @@ function stSync() {                               // who is on the stage: window
     const id = "w-" + w.id; want.add(id);
     const b = stBody(id, "win", () => stWinHtml(w), { x: Math.min(A.w - 160, 2 * (ST_FW + ST_GAP) + 40 + ST_WIN_W / 2 + i * (ST_WIN_W + ST_GAP)), y: A.h / 2, s: .3 });
     if (!b.framed) { b.framed = true; b.win = w; stFrame(w, b.el); }
-    b.bw = w.bw || ST_WIN_W; b.bh = w.bh || stWinH();
+    b.bw = w.bw || stWinW(); b.bh = w.bh || stWinH();
     b.el.classList.toggle("focus", ST.focus === w.id);
   });
   // the cards: what the focused conversation links to, and the windows you minimised
@@ -83,7 +86,7 @@ function stSync() {                               // who is on the stage: window
     b.el.innerHTML = `<div class="stcard ${c.parked ? "parked" : ""}" data-stkey="${esc(c.item)}" title="${esc(c.title || "")}"><i class="stcrel">${esc(c.rel)}</i><b>${esc((c.title || "").slice(0, 40))}</b><span>${esc((c.gist || "").slice(0, 46))}</span><em>${esc(agentLabel(c.agent || ""))} · ${esc(ago(c.last))}</em></div>`;
   }
   for (const id of [...ST.bodies.keys()]) if (!want.has(id)) stDrop(id);
-  stBar(); stKick();
+  stSettle(); stBar();
 }
 function stCards() {
   const w = ST.wins.find((x) => x.id === ST.focus), open = new Set(ST.wins.filter((x) => x.mode !== "min").map((x) => x.key)), R = ST.range, out = [];
@@ -114,16 +117,16 @@ function stStep() {
   for (const b of bs) { b.fx = 0; b.fy = 0; b.press = 0; b.cx = 0; b.cy = 0; }
   for (let it = 0; it < 3; it++) {
     for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) {     // overlaps push apart, along the shorter way
-      const a = bs[i], b = bs[j], aw = a.bw * a.s / 2, ah = a.bh * a.s / 2, bw = b.bw * b.s / 2, bh = b.bh * b.s / 2;
+      const a = bs[i], b = bs[j], aw = stEW(a) / 2, ah = stEH(a) / 2, bw = stEW(b) / 2, bh = stEH(b) / 2;
       const dx = b.x - a.x, dy = b.y - a.y, ox = aw + bw + ST_GAP - Math.abs(dx), oy = ah + bh + ST_GAP - Math.abs(dy);
       if (ox <= 0 || oy <= 0) continue;
-      const ma = a.pin ? 0 : 1 / (a.bw * a.bh * a.s * a.s), mb = b.pin ? 0 : 1 / (b.bw * b.bh * b.s * b.s), m = ma + mb; if (!m) continue;
+      const ma = a.pin ? 0 : 1 / (stEW(a) * stEH(a) * (a.kind === "win" ? 4 : 1)), mb = b.pin ? 0 : 1 / (stEW(b) * stEH(b) * (b.kind === "win" ? 4 : 1)), m = ma + mb; if (!m) continue;
       if (ox < oy) { const d = ox * .35 * Math.sign(dx || 1); a.x -= d * ma / m; b.x += d * mb / m; a.vx -= d * ma / m * .05; b.vx += d * mb / m * .05; a.cx += ox; b.cx += ox; }
       else { const d = oy * .35 * Math.sign(dy || 1); a.y -= d * ma / m; b.y += d * mb / m; a.vy -= d * ma / m * .05; b.vy += d * mb / m * .05; a.cy += oy; b.cy += oy; }
       a.press += Math.min(ox, oy); b.press += Math.min(ox, oy);
     }
     for (const b of bs) {                         // the walls push back
-      const hw = b.bw * b.s / 2, hh = b.bh * b.s / 2;
+      const hw = stEW(b) / 2, hh = stEH(b) / 2;
       const l = ST_PAD + hw - b.x, r = b.x + hw - (A.w - ST_PAD), t = ST_PAD + hh - b.y, d = b.y + hh - (A.h - ST_PAD);
       const k = b.pin ? .35 : .6;
       if (l > 0) { b.x += l * k; b.vx = Math.abs(b.vx) * .3; b.press += l; b.cx += l; }
@@ -137,14 +140,19 @@ function stStep() {
     b.p = b.p * .9 + b.press * .1;                // how squeezed it has been lately
     const min = ST_MIN[b.kind], grow = now - b.born < 700;
     if (grow) b.s = Math.min(1, b.s + .06);       // coming in: grows to size
-    else if (b.p > 5 && !b.pin && ST.busy) b.s = Math.max(min, b.s - .003 * Math.min(3, b.p / 5));
-    else if (b.p < 2 && b.s < 1) { b.s = Math.min(1, b.s + .006); energy += 1; }      // room again: swells back
+    else if (b.p > 5 && !b.pin && ST.busy && (b.kind === "win" || (b.wait = (b.wait || 0) + 1) > 45)) b.s = Math.max(min, b.s - .003 * Math.min(3, b.p / 5));     // windows give way in height; the small ones move first, then shrink
+    else if (b.p < 2 && (b.wait = 0, b.s < 1)) { b.s = Math.min(1, b.s + .006); energy += 1; }      // room again: swells back
     if (b.kind === "card" && ST.busy && b.s <= min + .001 && b.p > 18) { b.squeezed = (b.squeezed || 0) + 1; if (b.squeezed > 70) { ST.out.add(b.card.item); stDrop(b.id); continue; } } else b.squeezed = 0;
     if (!b.pin) { b.x += b.vx; b.y += b.vy; b.vx *= .6; b.vy *= .6; }
     b.sx += ((1 - (ST.busy ? Math.min(.035, b.cx / 600) : 0)) - b.sx) * .2; b.sy += ((1 - (ST.busy ? Math.min(.035, b.cy / 600) : 0)) - b.sy) * .2;       // a slight squash where it is pressed, only while you move things
     energy += Math.abs(b.vx) + Math.abs(b.vy) + b.press + (grow ? 1 : 0) + Math.abs(1 - b.sx) * 40;
-    b.el.style.width = b.bw + "px"; b.el.style.height = b.bh + "px";
-    b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - b.bh / 2}px) scale(${(b.s * b.sx).toFixed(4)}, ${(b.s * b.sy).toFixed(4)})`;
+    if (b.kind === "win") {                        // a window really gets shorter (no shrunk text): its height is set, not scaled
+      const h = Math.round(stEH(b)); b.el.style.width = b.bw + "px"; b.el.style.height = h + "px";
+      b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - h / 2}px) scale(${b.sx.toFixed(4)}, ${b.sy.toFixed(4)})`;
+    } else {
+      b.el.style.width = b.bw + "px"; b.el.style.height = b.bh + "px";
+      b.el.style.transform = `translate(${b.x - b.bw / 2}px, ${b.y - b.bh / 2}px) scale(${(b.s * b.sx).toFixed(4)}, ${(b.s * b.sy).toFixed(4)})`;
+    }
   }
   stLinks();
   ST.idle = energy < .6 ? ST.idle + 1 : 0;
@@ -154,11 +162,18 @@ setInterval(() => {                               // squeezed out: back in on it
   if (S.view !== "stage" || ST.busy || !ST.out.size) return;
   const A = stArena(), bs = [...ST.bodies.values()], w = ST_CW * .7, h = ST_CH * .7;      // a free spot a shrunk card fits in
   const free = (x, y) => x - w / 2 > ST_PAD && x + w / 2 < A.w - ST_PAD && y - h / 2 > ST_PAD && y + h / 2 < A.h - ST_PAD
-    && bs.every((b) => Math.abs(b.x - x) > (b.bw * b.s + w) / 2 + ST_GAP || Math.abs(b.y - y) > (b.bh * b.s + h) / 2 + ST_GAP);
+    && bs.every((b) => Math.abs(b.x - x) > (stEW(b) + w) / 2 + ST_GAP || Math.abs(b.y - y) > (stEH(b) + h) / 2 + ST_GAP);
   for (let y = h / 2 + ST_PAD + 4; y < A.h; y += 24) for (let x = A.w - w / 2 - ST_PAD - 4; x > 0; x -= 24)
     if (free(x, y)) { const k = [...ST.out].pop(); ST.out.delete(k); ST.spot = { item: k, x, y }; stSync(); return; }
 }, 1500);
-new ResizeObserver(() => { if (S.view === "stage") { for (const b of ST.bodies.values()) if (b.kind === "win" && !b.win?.bh) b.bh = stWinH(); stKick(); } }).observe(document.body);
+function stSettle(ms = 1400) {                   // something was opened, closed or the room changed: everything finds its place once
+  ST.busy = true; clearTimeout(ST.bt); ST.bt = setTimeout(() => { if (!ST.drag && !ST.rz) ST.busy = false; stKick(); }, ms); stKick();
+}
+function stResized() {                           // the room changed size: windows and foundations follow it
+  if (S.view !== "stage") return; const A = stArena(); if (A.h < 200) return;
+  for (const b of ST.bodies.values()) { if (b.kind === "win") { if (!b.win?.bh) b.bh = stWinH(); if (!b.win?.bw) b.bw = stWinW(); } if (b.kind === "found") b.bh = Math.round(A.h * .86); }
+  stKick();
+}
 
 /* ------------------------------------------------ the windows */
 function stOpen(key, opts = {}) {
@@ -259,23 +274,18 @@ const ST_KIND = { skill: ["技能", "Skill"], doc: ["资料", "Library"], file: 
 function stStacks() { try { return JSON.parse(localStorage.getItem("pga_st_found") || "{}"); } catch { return {}; } }
 function stFoundRender() {
   const K = S.forest?.knowledge || [], world = K.find((k) => k.system === "world"), self = K.find((k) => k.system === "user"), P = S.forest?.personal, st = stStacks();
-  const dims = [["background", "背景", "Background"], ["goals", "目标", "Goals"], ["preferences", "偏好", "Preferences"], ["abilities", "能力", "Abilities"], ["state", "状态", "State"]];
-  const col = (k, title, sub, body, doc) => `<div class="stfc ${k}">
-      <div class="stfh" ${doc ? `data-doc="${doc}"` : ""}><span class="stfk">${title}</span><em>${sub}</em></div>
-      <div class="stfb">${body}</div>
-      <div class="stfs">${(st[k] || []).map((x, i) => `<div class="stfi" ${x.type === "doc" ? `data-doc="${esc(x.id)}"` : ""} title="${esc(x.sub || "")}"><i class="t-${x.type}">${L(...ST_KIND[x.type])}</i><b>${esc(x.title)}</b>${x.sub ? `<span>${esc(x.sub.slice(0, 70))}</span>` : ""}<button class="stfx" data-stunstack="${k}|${i}">×</button></div>`).join("")}
-        <button class="stfadd" data-ststack="${k}">＋ ${L("插入技能、资料或文件", "Insert a skill, a document or a file")}</button></div></div>`;
+  const card = (k, title, line, doc) => `<div class="stcard stfcard ${k}" title="${esc(line)}">
+      <b class="stfk" ${doc ? `data-doc="${doc}"` : ""}>${title}</b><span>${esc(line.slice(0, 60))}</span>
+      <em>${(st[k] || []).length ? L(`下面插了 ${(st[k] || []).length} 项`, `${(st[k] || []).length} stacked`) : L("还没插东西", "nothing stacked")}<button class="stfplus" data-ststack="${k}" title="${L("插入技能、资料或文件", "Insert a skill, a document or a file")}">＋</button></em></div>`;
   const html = {
-    world: col("world", L("世界知识", "World knowledge"), world?.compiled_at ? ago(world.compiled_at) : L("还没有整理", "not compiled yet"),
-      `${world?.gist ? `<p class="stfg">${esc(world.gist)}</p>` : ""}${world?.brief ? `<p>${esc(world.brief.slice(0, 420))}</p>` : ""}`, world?.id),
-    self: col("self", L("自我知识", "Self knowledge"), L("你是谁、要什么、会什么", "who you are, what you want, what you can do"),
-      P ? dims.map(([d, zh, en]) => `<div class="stfd"><span>${L(zh, en)}</span><p>${esc((P[d]?.summary || L("还看不出来", "Not enough to tell yet")).slice(0, 140))}</p><i style="--c:${Math.round((P[d]?.confidence || 0) * 100)}%"></i></div>`).join("") : `<p class="cvdim">${L("还没有整理成五个维度", "Not compiled yet")}</p>`, self?.id) };
+    world: card("world", L("世界知识", "World knowledge"), world?.gist || world?.brief || L("还没有整理", "not compiled yet"), world?.id),
+    self: card("self", L("自我知识", "Self knowledge"), P ? ["goals", "background", "abilities"].map((d) => P[d]?.summary).filter(Boolean)[0] || "" : L("还没有整理", "not compiled yet"), self?.id) };
   for (const k of ["world", "self"]) { const b = ST.bodies.get("f-" + k); if (b && b.el.dataset.sig !== html[k]) { b.el.dataset.sig = html[k]; b.el.innerHTML = html[k]; } }
 }
 function stLinks() {                              // both foundations feed every window: a root for each
   const svg = $("#stlinks"); if (!svg) return;
   const fw = ST.bodies.get("f-world"), fs = ST.bodies.get("f-self");
-  const root = (f, b, cls) => { if (!f || !b) return ""; const x0 = f.x + f.bw * f.s / 2, y0 = f.y - f.bh * f.s / 2 + 40, x1 = b.x - b.bw * b.s / 2, y1 = b.y - b.bh * b.s / 2 + 18;
+  const root = (f, b, cls) => { if (!f || !b) return ""; const x0 = f.x + stEW(f) / 2, y0 = f.y - stEH(f) / 2 + 40, x1 = b.x - stEW(b) / 2, y1 = b.y - stEH(b) / 2 + 18;
     return `<path class="${cls}" d="M ${x0} ${y0} C ${x0 + 90} ${y0}, ${x1 - 90} ${y1}, ${x1} ${y1}"/>`; };
   svg.innerHTML = [...ST.bodies.values()].filter((b) => b.kind === "win" && !b.max).map((b) => root(fw, b, "lw") + root(fs, b, "ls")).join("");
 }
@@ -328,7 +338,7 @@ function stBind() {
     const d = stRelease(); const c = ST.click; ST.click = null;
     if (d && !d.moved && c) { if (c.key) stOpen(c.key); else if (c.win) stFocus(c.win); }
   });
-  v.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (!rz) return; const b = ST.bodies.get(rz.closest(".stbody").dataset.bid); if (b?.win) { delete b.win.bw; delete b.win.bh; b.bw = ST_WIN_W; b.bh = stWinH(); stSave(); stKick(); } });
+  v.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (!rz) return; const b = ST.bodies.get(rz.closest(".stbody").dataset.bid); if (b?.win) { delete b.win.bw; delete b.win.bh; b.bw = stWinW(); b.bh = stWinH(); stSave(); stKick(); } });
 }
 document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;

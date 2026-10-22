@@ -835,3 +835,7 @@ html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { 
 .stcard { grid-template-rows: auto auto 1fr auto; }
 .stlinks { z-index: 0; } .stbody { z-index: 1; }
 .stbody > .stwin.max { position: fixed; inset: 0; z-index: 40; }
+.stfcard .stfk { font-size: 13px; font-weight: 700; background: linear-gradient(90deg, var(--text), var(--fc)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.stfcard.world { --fc: #6fa8ff; border-color: color-mix(in srgb, #6fa8ff 45%, var(--line-2)); } .stfcard.self { --fc: #e9b35f; border-color: color-mix(in srgb, #e9b35f 45%, var(--line-2)); }
+.stfcard { background: linear-gradient(160deg, color-mix(in srgb, var(--fc) 14%, var(--panel)), var(--panel) 60%); }
+.stfcard em { display: flex; align-items: center; gap: 6px; } .stfplus { margin-left: auto; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); border-radius: 6px; width: 20px; height: 18px; padding: 0; line-height: 1; cursor: pointer; } .stfplus:hover { border-color: var(--fc); }
