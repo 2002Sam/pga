@@ -909,3 +909,20 @@ html.embed.eside .cact .ecard { padding: 8px 10px; } html.embed.eside .cact .ero
 .stlr b { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .stlr em { font-style: normal; font-size: 10.5px; color: var(--dim); }
 .stlr.open b { color: var(--accent); } .stlr.wired b::after { content: " ↔"; color: var(--blue); }
 .stfold.list { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+/* folded things are horizontal tabs; pins pull wires */
+#stnodes { pointer-events: none; } #stnodes > * { pointer-events: auto; }
+.sttab { position: absolute; display: flex; align-items: center; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; box-shadow: 0 4px 14px rgba(0,0,0,.22); transition: left .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1); }
+.sttab span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .sttab:hover { border-color: var(--accent); }
+.sttab.win { background: color-mix(in srgb, var(--blue) 10%, var(--panel)); } .sttab.win span { color: var(--text); }
+.sttab.list { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+.stnode.tab > .stcard { display: flex; align-items: center; gap: 6px; height: 100%; padding: 0 12px; border-radius: 999px; border-left: 3px solid var(--tc); cursor: pointer; }
+.stnode.tab > .stcard > span, .stnode.tab .stx, .stnode.tab .stk, .stnode.tab textarea { display: none; }
+.stnode.tab > .stcard b { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; display: block; }
+.stnode.tab.t-note .stk { display: block; font-size: 12px; }
+.stin, .stout, .stnode .stpin.r { pointer-events: auto; cursor: crosshair; transition: transform .12s; }
+.stin:hover, .stout:hover, .stnode .stpin.r:hover, #vStage.wiring .stin { transform: scale(1.35); }
+.stout { position: absolute; right: -8px; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; z-index: 5; border: 2.5px solid; background: var(--panel); }
+.stout[data-pin="0"] { border-color: #8fb4ff; } .stout[data-pin="1"] { border-color: #7fcf9f; } .stout[data-pin="2"] { border-color: #e9b35f; }
+.stnode.tab .stpin.r { right: -6px; }
+.stwire.link { stroke-width: 2.6; stroke-dasharray: none; opacity: .9; } .stwire.tmp { stroke-dasharray: 4 5; opacity: .9; }
+.sthit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; } .sthit:hover { stroke: color-mix(in srgb, var(--red, #e5484d) 35%, transparent); }
