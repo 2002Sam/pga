@@ -875,3 +875,24 @@ html.embed, html.embed body { height: 100%; overflow: hidden !important; }
 html.embed .app { height: 100% !important; grid-template-columns: minmax(0, 1fr) !important; }
 html.embed #vChats { height: 100% !important; min-height: 0; grid-template-columns: minmax(0, 1fr) !important; }
 html.embed .cpane { min-height: 0 !important; height: 100%; }
+
+/* ---------------------------------------------------------------- the stage: windows with three inputs, columns, folds */
+#vStage .starena { cursor: default; }
+.stnode { transition: left .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1), width .28s, height .28s; }
+.stnode.held { transition: none; z-index: 20; } .stnode[hidden] { display: none; }
+#stnodes { position: absolute; inset: 0; } #stbars { position: absolute; inset: 0; pointer-events: none; } #stbars > * { pointer-events: auto; }
+.stwires { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.stwire { fill: none; stroke-width: 2.2; stroke-dasharray: 6 6; animation: stflow 1.8s linear infinite; } .stwire.z0 { stroke: #8fb4ff; } .stwire.z1 { stroke: #7fcf9f; } .stwire.z2 { stroke: #e9b35f; }
+.stball { stroke-width: 2.5; fill: var(--panel); } .stball.z0 { stroke: #8fb4ff; } .stball.z1 { stroke: #7fcf9f; } .stball.z2 { stroke: #e9b35f; }
+.stin { position: absolute; left: -8px; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; z-index: 5; pointer-events: none; border: 2.5px solid; background: var(--panel); }
+.stin[data-pin="0"] { border-color: #8fb4ff; } .stin[data-pin="1"] { border-color: #7fcf9f; } .stin[data-pin="2"] { border-color: #e9b35f; }
+.stin em { position: absolute; right: 16px; top: -3px; font-style: normal; font-size: 10px; white-space: nowrap; color: var(--dim); background: var(--canvas); padding: 0 4px; border-radius: 4px; }
+.stnode > .stcard { grid-template-rows: auto auto 1fr; } .stnode.short > .stcard span { -webkit-line-clamp: 1; } .stnode.short > .stcard b { -webkit-line-clamp: 1; }
+.stnode .stpin.r { position: absolute; right: -6px; top: 50%; margin-top: -6px; width: 11px; height: 11px; border-radius: 50%; background: var(--panel); border: 2.5px solid var(--tc); z-index: 3; }
+.stnode.shelved > .stcard { border-style: dashed; opacity: .85; } .stnode.shelved .stpin { display: none; }
+.stshelf { position: absolute; top: 4px; border: 1px dashed var(--line-2); border-radius: 14px; pointer-events: none !important; z-index: 0; } .stshelf em { position: absolute; top: -2px; left: 10px; font-style: normal; font-size: 10.5px; color: var(--dim); background: var(--canvas); padding: 0 4px; }
+.stfold { position: absolute; top: 8px; width: 34px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,.25); transition: left .28s cubic-bezier(.2,.8,.2,1); }
+.stfold:hover { border-color: var(--accent); } .stfold span { writing-mode: vertical-rl; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-height: 92%; }
+.stfold.win { background: color-mix(in srgb, var(--blue) 8%, var(--panel)); } .stfold.win span { color: var(--text); }
+.stmenu button em { float: right; font-style: normal; font-size: 10.5px; color: var(--dim); }
+.stnode.hascol .stin em { display: none; }
