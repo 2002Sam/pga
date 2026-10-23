@@ -870,3 +870,8 @@ html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { 
 .stnode > .stwin .rz-e, .stnode > .stwin .rz-w { position: absolute; top: 10px; bottom: 10px; width: 8px; z-index: 4; cursor: ew-resize; } .stnode > .stwin .rz-e { right: -4px; } .stnode > .stwin .rz-w { left: -4px; }
 .stnode > .stwin.max { position: fixed; inset: 0; z-index: 40; border-radius: 0; }
 .stmenu { width: 250px; } .stmh { font-size: 11px; color: var(--dim); padding: 4px 8px 6px; }
+/* a conversation in a window keeps the desktop layout however narrow: the turns scroll, the composer stays at the bottom */
+html.embed, html.embed body { height: 100%; overflow: hidden !important; }
+html.embed .app { height: 100% !important; grid-template-columns: minmax(0, 1fr) !important; }
+html.embed #vChats { height: 100% !important; min-height: 0; grid-template-columns: minmax(0, 1fr) !important; }
+html.embed .cpane { min-height: 0 !important; height: 100%; }

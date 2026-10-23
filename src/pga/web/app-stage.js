@@ -24,7 +24,7 @@ const stId = () => Math.random().toString(36).slice(2, 9);
 const stArena = () => { const a = $("#starena"); return a ? { w: a.clientWidth, h: a.clientHeight } : { w: 1000, h: 700 }; };
 const stW = (n) => (n.type === "win" ? n.bw || ST_WW : ST_CW), stH = (n) => (n.type === "win" ? stArena().h / ST.cam.z - 8 / ST.cam.z : ST_CH);
 const onAxis = (n) => n.type === "win" || Math.abs(n.y) < ST_AXIS;
-function stSave() { try { localStorage.setItem("pga_st2", JSON.stringify({ nodes: ST.nodes.map(({ el, ...n }) => n), cam: { x: ST.cam.x, z: ST.cam.z } })); } catch {} }
+function stSave() { try { localStorage.setItem("pga_st2", JSON.stringify({ nodes: ST.nodes.map(({ el, max, sent, ...n }) => n), cam: { x: ST.cam.x, z: ST.cam.z } })); } catch {} }     // a maximised window is not kept maximised
 
 /* ------------------------------------------------ the page */
 function showStage() {
@@ -35,7 +35,7 @@ function showStage() {
     v.innerHTML = `<div class="stground" id="stground"></div><div class="stbar card" id="stbar"></div>
       <div class="starena" id="starena"><div class="stworld" id="stworld"><i class="staxis"></i><svg class="stwires" id="stwires"></svg><div id="stnodes"></div></div></div>`;
     let saved = null; try { saved = JSON.parse(localStorage.getItem("pga_st2") || "null"); } catch {}
-    if (saved?.nodes?.length) { ST.nodes = saved.nodes; ST.cam.x = saved.cam?.x ?? 40; ST.cam.z = saved.cam?.z || 1; }
+    if (saved?.nodes?.length) { ST.nodes = saved.nodes.map(({ max, sent, ...n }) => n); ST.cam.x = saved.cam?.x ?? 40; ST.cam.z = saved.cam?.z || 1; }
     else stDefault();
     ST.focus = ST.nodes.find((n) => n.type === "win")?.id || null;
     stBind(); new ResizeObserver(() => stRender()).observe($("#starena"));
@@ -261,6 +261,7 @@ function stBar() {
 }
 
 /* ------------------------------------------------ pointer */
+function stCap(e) { try { $("#starena").setPointerCapture(e.pointerId); } catch {} }
 function stBind() {
   const v = $("#vStage"), arena = $("#starena");
   arena.addEventListener("wheel", (e) => {
@@ -274,12 +275,12 @@ function stBind() {
   arena.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return; document.querySelector(".stmenu")?.remove();
     const rz = e.target.closest("[data-rz]");
-    if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); ST.rz = { n, d: rz.dataset.rz, x: e.clientX, w0: stW(n), x0: n.x }; v.classList.add("dragging"); arena.setPointerCapture(e.pointerId); return; }
+    if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); ST.rz = { n, d: rz.dataset.rz, x: e.clientX, w0: stW(n), x0: n.x }; v.classList.add("dragging"); stCap(e); return; }
     if (e.target.closest("button, textarea, input, iframe, [data-doc]")) return;
     const el = e.target.closest(".stnode");
     if (el) { const n = ST.nodes.find((x) => x.id === el.dataset.nid); if (!n || n.max || (n.type === "win" && !e.target.closest(".stwh"))) return;
-      if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); arena.setPointerCapture(e.pointerId); return; }
-    ST.pan = { x: e.clientX, cx: ST.cam.x }; v.classList.add("panning"); arena.setPointerCapture(e.pointerId);
+      if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); stCap(e); return; }
+    ST.pan = { x: e.clientX, cx: ST.cam.x }; v.classList.add("panning"); stCap(e);
   });
   arena.addEventListener("pointermove", (e) => {
     if (ST.rz) { const r = ST.rz, dx = (e.clientX - r.x) / ST.cam.z, w = Math.max(300, r.w0 + (r.d === "e" ? dx : -dx)); r.n.bw = Math.round(w); r.n.x = r.x0 + (r.d === "e" ? 1 : -1) * (w - r.w0) / 2; stPush(r.n); stRender(); return; }
