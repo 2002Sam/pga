@@ -44,6 +44,12 @@ def test_upload_reference_and_retrieval(session_factory, policy, provider, backe
         c.put(f"/v1/users/{user.id}/chat-system", json={"key": "chat:k", "text": "用英文回答。"})
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:k"})
         assert "用英文回答" in seen[1]["context"] and c.get(f"/v1/users/{user.id}/chat-system", params={"key": "chat:k"}).json()["text"] == "用英文回答。"
+        c.put(f"/v1/users/{user.id}/chat-context", json={"key": "chat:k", "text": "笔记：只看 2025 年以后的论文"})      # wired in on the stage
+        c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:k"})
+        assert "只看 2025 年以后" in seen[2]["context"] and "context_wired_in_by_the_user" in seen[2]["context"]
+        c.put(f"/v1/users/{user.id}/chat-context", json={"key": "chat:k", "text": ""})
+        c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:k"})
+        assert "context_wired_in_by_the_user" not in seen[3]["context"]
 
 
 def test_your_edits_to_the_personal_model_survive_a_rebuild(session):

@@ -839,3 +839,34 @@ html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { 
 .stfcard.world { --fc: #6fa8ff; border-color: color-mix(in srgb, #6fa8ff 45%, var(--line-2)); } .stfcard.self { --fc: #e9b35f; border-color: color-mix(in srgb, #e9b35f 45%, var(--line-2)); }
 .stfcard { background: linear-gradient(160deg, color-mix(in srgb, var(--fc) 14%, var(--panel)), var(--panel) 60%); }
 .stfcard em { display: flex; align-items: center; gap: 6px; } .stfplus { margin-left: auto; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); border-radius: 6px; width: 20px; height: 18px; padding: 0; line-height: 1; cursor: pointer; } .stfplus:hover { border-color: var(--fc); }
+
+/* ---------------------------------------------------------------- the stage: one axis, wired like a blueprint */
+#vStage .starena { position: absolute; left: 0; right: 0; top: 56px; bottom: 0; overflow: hidden; cursor: grab; }
+#vStage.panning .starena { cursor: grabbing; }
+.stworld { position: absolute; left: 0; top: 0; width: 1px; height: 1px; transform-origin: 0 0; }
+.staxis { position: absolute; left: -100000px; width: 200000px; top: -1px; height: 2px; background: linear-gradient(90deg, transparent, var(--line-2) 10%, var(--line-2) 90%, transparent); pointer-events: none; }
+.stwires { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 2; }
+.stwire { fill: none; stroke: color-mix(in srgb, var(--blue) 55%, transparent); stroke-width: 2.4; stroke-dasharray: 7 6; animation: stflow 1.8s linear infinite; }
+.stwire.into { stroke: var(--accent); stroke-width: 3; } .stwire.from { stroke: color-mix(in srgb, var(--line-3) 90%, transparent); stroke-dasharray: 3 8; }
+.stball { fill: var(--panel); stroke: color-mix(in srgb, var(--blue) 80%, transparent); stroke-width: 2.5; } .stball.into { stroke: var(--accent); fill: var(--accent); }
+.stnode { position: absolute; z-index: 1; }
+.stnode.held { z-index: 5; } .stnode.held > .stcard, .stnode.held > .stwin { box-shadow: 0 24px 60px rgba(0,0,0,.5), 0 0 0 2px var(--accent); }
+.stnode > .stcard { position: absolute; inset: 0; display: grid; grid-template-rows: auto auto 1fr; gap: 3px; padding: 9px 11px; border-radius: 12px; cursor: grab; overflow: hidden;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--tc) 14%, var(--panel)), var(--panel) 60%); border: 1px solid color-mix(in srgb, var(--tc) 40%, var(--line-2)); box-shadow: 0 8px 22px rgba(0,0,0,.25); }
+.stnode > .stcard .stk { font-style: normal; font-size: 10px; letter-spacing: .06em; color: var(--tc); }
+.stnode > .stcard b { font-size: 12.5px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.stnode > .stcard span { font-size: 11px; color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.stnode > .stcard [data-doc] { cursor: pointer; } .stnode > .stcard [data-doc]:hover { text-decoration: underline; }
+.st-world b, .st-self b { font-size: 14px !important; font-weight: 700; background: linear-gradient(90deg, var(--text), var(--tc)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.stx { position: absolute; right: 6px; top: 5px; border: 0; background: none; color: var(--dim); cursor: pointer; font-size: 13px; } .stx:hover { color: var(--bad); }
+.stnote { width: 100%; height: 100%; resize: none; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; line-height: 1.5; padding: 0; outline: none; }
+.stnode.off > .stcard { opacity: .8; border-style: dashed; } .stnode.off .stpin { display: none; }
+.stpin { position: absolute; top: 50%; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%; background: var(--panel); border: 2.5px solid color-mix(in srgb, var(--blue) 80%, transparent); z-index: 3; pointer-events: none; }
+.stpin.l { left: -7px; } .stpin.r { right: -7px; } .stnode.t-win .stpin { border-color: var(--accent); background: var(--accent); }
+.stnode > .stwin { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--bg); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 14px 40px rgba(0,0,0,.3); }
+.stnode.t-win.focus > .stwin { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft), 0 16px 44px rgba(0,0,0,.34); }
+.stnode > .stwin > iframe { width: 100%; height: 100%; border: 0; border-radius: 0 0 12px 12px; }
+.stctxn { font-style: normal; font-size: 11px; color: var(--accent); white-space: nowrap; }
+.stnode > .stwin .rz-e, .stnode > .stwin .rz-w { position: absolute; top: 10px; bottom: 10px; width: 8px; z-index: 4; cursor: ew-resize; } .stnode > .stwin .rz-e { right: -4px; } .stnode > .stwin .rz-w { left: -4px; }
+.stnode > .stwin.max { position: fixed; inset: 0; z-index: 40; border-radius: 0; }
+.stmenu { width: 250px; } .stmh { font-size: 11px; color: var(--dim); padding: 4px 8px 6px; }

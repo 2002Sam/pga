@@ -2611,6 +2611,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             sysp = ((u.preferences or {}).get("chat_system") or {}).get(ckey) if ckey else None
             if sysp:                                               # your own instructions for this conversation
                 context = ((context or "") + "\n\n<your_instructions_for_this_conversation>\n" + sysp + "\n</your_instructions_for_this_conversation>").strip()
+            wired = ((u.preferences or {}).get("chat_ctx") or {}).get(ckey) if ckey else None
+            if wired:                                              # what you wired in front of it on the stage
+                from pga.agent.common import fence
+                context = ((context or "") + "\n\n" + fence("context_wired_in_by_the_user", wired, 40000, note="notes, skills, documents, files and other conversations the user put in front of this conversation")).strip()
             from pga.worldtree import WorldTree, chat_node
             wn = (chat_node(u, ckey) if ckey else None) or (str(body.get("world")) if body.get("world") else None)
             wt, node = WorldTree(rt), None
@@ -3741,6 +3745,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             cs.pop(key, None)
         u.preferences = {**(u.preferences or {}), "chat_system": dict(list(cs.items())[-1000:])}
         return {"key": key, "text": text}
+
+    @app.put("/v1/users/{user_id}/chat-context")
+    def chats_context_put(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """What you wired in front of a conversation on the stage (notes, skills, documents, files, other
+        conversations): every agent in it reads it, after your own instructions."""
+        u = user_or_404(rt, user_id)
+        key, text = str(body.get("key") or "")[:120], str(body.get("text") or "").strip()[:40000]
+        if not key:
+            raise HTTPException(422, "key is needed")
+        cx = dict((u.preferences or {}).get("chat_ctx") or {})
+        if text:
+            cx[key] = text
+        else:
+            cx.pop(key, None)
+        u.preferences = {**(u.preferences or {}), "chat_ctx": dict(list(cx.items())[-500:])}
+        return {"key": key, "chars": len(text)}
 
     @app.get("/v1/users/{user_id}/ratings")
     def ratings(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
