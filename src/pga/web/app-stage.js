@@ -14,8 +14,8 @@
    height; their width changes only when you drag their edges. Drag a window by its title bar to move it along the row:
    the others slide aside. */
 
-const ST = { nodes: [], focus: null, drag: null };
-const ST_GAP = 18, ST_CW = 190, ST_CH = 78, ST_WW = 440, ST_BAR = 34, ST_PADX = 12;
+const ST = { nodes: [], focus: null, drag: null, q: "", list: (() => { try { return localStorage.getItem("pga_st_list") !== "0"; } catch { return true; } })() };
+const ST_GAP = 18, ST_CW = 190, ST_CH = 78, ST_WW = 660, ST_BAR = 34, ST_PADX = 12, ST_LW = 240;
 const ST_T = {
   world: ["世界知识", "World knowledge", "#6fa8ff"], self: ["自我知识", "Self knowledge", "#e9b35f"], note: ["笔记", "Note", "#a1a1aa"],
   skill: ["技能", "Skill", "#e9b35f"], doc: ["资料", "Document", "#7fcf9f"], file: ["文件", "File", "#5fc9c0"], conv: ["对话", "Conversation", "#8fb4ff"],
@@ -54,7 +54,7 @@ function stLayout() {
   const A = stArena(), wins = stWins(), ids = new Set(wins.map((w) => w.id));
   for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: back on the shelf
   const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win);
-  const units = [];
+  const units = [{ kind: "list", w: ST_LW, open: ST.list }];
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
   for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_WW, open: true }); }
   const width = () => units.filter((u) => !u.hide).reduce((t, u) => t + (u.open ? u.w : ST_BAR) + ST_GAP, -ST_GAP);
@@ -63,9 +63,11 @@ function stLayout() {
   const fold = (pred) => { for (const u of units.filter(pred)) { if (width() <= room) return; u.open = false; } };
   if (width() > room) fold((u) => u.kind === "shelf");
   if (width() > room) fold((u) => u.kind === "col" && u.win.id !== ST.focus);
+  if (width() > room && !ST.listPin) fold((u) => u.kind === "list");      // opened from its bar: it stays, the other windows fold first
   const far = units.filter((u) => u.kind === "win" && u.win.id !== ST.focus).sort((a, b) => Math.abs(wins.indexOf(b.win) - fi) - Math.abs(wins.indexOf(a.win) - fi));
   for (const u of far) { if (width() <= room) break; u.open = false; const c = units.find((x) => x.kind === "col" && x.win === u.win); if (c) c.hide = true; }
   if (width() > room) fold((u) => u.kind === "col");
+  if (width() > room) fold((u) => u.kind === "list");
   let x = ST_PADX + Math.max(0, (room - width()) / 2);
   for (const u of units) { if (u.hide) continue; u.x = x; x += (u.open ? u.w : ST_BAR) + ST_GAP; }
   return { units, A };
@@ -75,8 +77,8 @@ function stLayout() {
 function stWinHtml(n) {
   return `<div class="stwin">${["e", "w"].map((d) => `<i class="rz rz-${d}" data-rz="${d}" title="${L("拖动改宽度，双击还原", "Drag to change the width, double-click to reset")}"></i>`).join("")}
     <div class="stwh" data-stfocus="${n.id}"><b class="stwt">${esc(stTitle(n.key))}</b><em class="stctxn" data-stctxn="${n.id}"></em><span class="grow"></span>
-      <button class="stb" data-stw="min" title="${L("收成一张对话卡片", "Fold into a conversation card")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉这个窗口（对话还在）", "Close the window (the conversation stays)")}">×</button></div>
-    <iframe title="conversation"></iframe></div>${ST_PINS.map((p, i) => `<i class="stin" style="top:${(i * 2 + 1) / 6 * 100}%" data-pin="${i}"><em>${L(...p)}</em></i>`).join("")}`;
+      <button class="stb ${n.side === false ? "" : "on"}" data-stw="side" title="${L("右侧栏：环境、上下文、世界树", "Side panel: environment, context, world tree")}">◧</button><button class="stb" data-stw="min" title="${L("收成一张对话卡片", "Fold into a conversation card")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉这个窗口（对话还在）", "Close the window (the conversation stays)")}">×</button></div>
+    <iframe title="conversation"></iframe></div>${ST_PINS.map((p, i) => `<i class="stin" style="top:${(i * 2 + 1) / 6 * 100}%" data-pin="${i}" title="${L(...p)}"></i>`).join("")}`;
 }
 function stCardHtml(n) {
   const t = ST_T[n.type], K = S.forest?.knowledge || [], P = S.forest?.personal;
@@ -100,6 +102,7 @@ function stRender() {
   const place = (e, x, y, w, h, show = true) => { if (e === held?.el) return; e.style.left = x + "px"; e.style.top = y + "px"; e.style.width = w + "px"; e.style.height = h + "px"; e.hidden = !show; };
   let barHtml = ""; const pos = new Map();
   for (const u of units) {
+    if (u.kind === "list") { stList(u, A); if (!u.open) barHtml += `<div class="stfold list" style="left:${u.x}px;height:${A.h - 16}px" data-stunfold="list"><span>${L("所有对话", "All conversations")}</span></div>`; continue; }
     if (u.kind === "win") {
       const e = el(u.win); u.win.el = e;
       if (u.hide || !u.open) { place(e, -9999, 0, u.w, A.h, false); if (!u.hide) barHtml += `<div class="stfold win" style="left:${u.x}px;height:${A.h - 16}px" data-stunfold="${u.win.id}" title="${esc(stTitle(u.win.key))}"><span>${esc(stTitle(u.win.key).slice(0, 40))}</span></div>`; continue; }
@@ -135,7 +138,7 @@ function stFrame(n, el) {
   if (n.key) { if (S.allChats?.some((c) => c.key === n.key) || n.key.startsWith("chat:")) q.set("c", n.key); else q.set("item", n.key); }
   if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
   const f = el.querySelector("iframe"); f.src = "/?" + q;
-  f.addEventListener("load", () => { try { stHold(f, n); } catch {} });
+  f.addEventListener("load", () => { try { stHold(f, n); stSide(n); } catch {} });
 }
 function stHold(f, n) {                          // inside a conversation: press and hold (~0.3 s, still), then move the window
   const cw = f.contentWindow, doc = cw.document; let h = null;
@@ -155,6 +158,39 @@ function stHold(f, n) {                          // inside a conversation: press
   const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
 }
 
+
+/* ------------------------------------------------ all conversations, at the left: click one to open it as a window, drag it
+   beside a window to wire it in as a reference */
+function stList(u, A) {
+  let box = $("#stlist");
+  if (!box) { $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist"><div class="stlh"><b>${L("所有对话", "All conversations")}</b><span class="grow"></span><button class="stb" data-stlistfold title="${L("收起", "Fold")}">«</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div></aside>`); box = $("#stlist");
+    $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); }); }
+  box.hidden = !u.open; if (!u.open) return;
+  box.style.left = u.x + "px"; box.style.height = A.h - 16 + "px";
+  if (box.dataset.n !== String(recentItems().length) + ST.nodes.filter((n) => n.type === "win").map((n) => n.key).join()) stListItems();
+}
+function stListItems() {
+  const box = $("#stli"); if (!box) return;
+  const open = new Set(ST.nodes.filter((n) => n.type === "win").map((n) => n.key)), wired = new Set(ST.nodes.filter((n) => n.type === "conv").map((n) => n.key));
+  const xs = recentItems().filter((x) => !ST.q || (x.title || "").toLowerCase().includes(ST.q)).slice(0, 300);
+  let day = "";
+  box.innerHTML = xs.map((x) => { const g = dayGroup(x.last); const head = g !== day ? `<div class="stlg">${esc((day = g))}</div>` : "";
+    return head + `<div class="stlr ${open.has(x.item) ? "open" : ""} ${wired.has(x.item) ? "wired" : ""}" data-stli="${esc(x.item)}" title="${esc(x.title || "")}"><b>${esc((x.title || x.item).slice(0, 60))}</b><em>${esc(agentLabel(x.agent || ""))} · ${esc(ago(x.last))}</em></div>`; }).join("")
+    || `<div class="cvdim" style="padding:8px">${L("没有找到", "Nothing found")}</div>`;
+  $("#stlist").dataset.n = String(recentItems().length) + ST.nodes.filter((n) => n.type === "win").map((n) => n.key).join();
+}
+function stListGrab(e, key) {                     // dragging a conversation out of the list: a card that follows the pointer
+  const x = recentItems().find((y) => y.item === key); if (!x) return;
+  const n = { id: stId(), type: "conv", key, title: x.title, win: null, fresh: true }; ST.nodes.push(n); stRender();
+  const el = document.querySelector(`.stnode[data-nid="${n.id}"]`), r = $("#starena").getBoundingClientRect();
+  el.hidden = false; el.style.left = e.clientX - r.left - ST_CW / 2 + "px"; el.style.top = e.clientY - r.top - ST_CH / 2 + "px"; el.style.width = ST_CW + "px"; el.style.height = ST_CH + "px";
+  stGrab(n, e.screenX, e.screenY); ST.drag.fromList = true;
+}
+
+/* the side panel inside a window: the conversation page's own right panel (environment, context, world tree) */
+function stSide(n) {
+  const f = document.querySelector(`.stnode[data-nid="${n.id}"] iframe`); try { f.contentDocument.documentElement.classList.toggle("eside", n.side !== false); f.contentWindow.renderChat?.(); } catch {}
+}
 
 /* ------------------------------------------------ moving: a card to another window or the shelf; a window along the row */
 function stGrab(n, sx, sy) {
@@ -181,8 +217,10 @@ function stDrop(sx) {
     const r = $("#starena").getBoundingClientRect(), cx = parseFloat(d.el.style.left) + ST_CW / 2;
     let best = null, bd = Infinity;
     for (const u of ST.units || []) { if (u.hide || u.x == null) continue; const w = u.open ? u.w : ST_BAR, c = u.x + w / 2, dd = Math.abs(cx - c); if (dd < bd) { bd = dd; best = u; } }
-    d.n.win = !best || best.kind === "shelf" ? null : best.win.id;
+    d.n.win = !best || ["shelf", "list"].includes(best.kind) ? null : best.win.id;
+    if (d.fromList && !d.n.win) ST.nodes = ST.nodes.filter((x) => x !== d.n);         // put back into the list: nothing made
   }
+  if (d.fromList && !d.moved) { ST.nodes = ST.nodes.filter((x) => x !== d.n); stRender(); stOpen(d.n.key); return null; }
   stRender(); stSave(); stContexts(); return d;
 }
 
@@ -283,7 +321,7 @@ async function stAdd(type, at) {
 /* ------------------------------------------------ the bar */
 function stBar() {
   const bar = $("#stbar"); if (!bar) return;
-  bar.innerHTML = `<span class="cvdim">${L("右键加节点 · 每个窗口左边三个接口：上对话、中数据、下技能 · 把卡片拖到别的窗口旁就连给它，拖到最左边就断开 · 放不下的折成两边的竖条", "Right-click to add · three inputs on each window: conversations, data, skills · drag a card beside another window to wire it there · what does not fit folds into bars")}</span>
+  bar.innerHTML = `<span class="cvdim">${L("左边是所有对话：点一下开成窗口，拖到某个窗口旁就成为它的引用 · 右键加节点 · 放不下的折成两边的竖条", "All conversations at the left: click to open, drag beside a window to wire it in · right-click to add · what does not fit folds into bars")}</span>
     <span class="grow"></span><button class="sm" data-st="new">＋ ${L("新对话", "New chat")}</button>`;
 }
 
@@ -297,6 +335,7 @@ function stBind() {
     const rz = e.target.closest("[data-rz]");
     if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); ST.rz = { n, d: rz.dataset.rz, x: e.clientX, w0: n.bw || ST_WW }; v.classList.add("dragging"); stCap(e); return; }
     if (e.target.closest("button, textarea, input, iframe, [data-doc], [data-stunfold]")) return;
+    const li = e.target.closest("[data-stli]"); if (li) { stListGrab(e, li.dataset.stli); stCap(e); return; }
     const el = e.target.closest(".stnode"); if (!el) return;
     const n = ST.nodes.find((x) => x.id === el.dataset.nid); if (!n || n.max || (n.type === "win" && !e.target.closest(".stwh"))) return;
     if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); stCap(e);
@@ -316,9 +355,11 @@ document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;
   if (!e.target.closest(".stmenu")) document.querySelector(".stmenu")?.remove();
   const add = e.target.closest("[data-stadd]"); if (add) { const m = add.closest(".stmenu"), at = JSON.parse(m.dataset.at); m.remove(); stAdd(add.dataset.stadd, at); return; }
-  const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
+  if (e.target.closest("[data-stlistfold]")) { ST.list = false; ST.listPin = false; try { localStorage.setItem("pga_st_list", "0"); } catch {} stRender(); return; }
+  const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "list") { ST.list = true; ST.listPin = true; try { localStorage.setItem("pga_st_list", "1"); } catch {} stRender(); $("#stlq")?.focus(); return; } if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
   const del = e.target.closest("[data-stdel]"); if (del) { ST.nodes = ST.nodes.filter((x) => x.id !== del.dataset.stdel); stRender(); stSave(); stContexts(); return; }
   const w = e.target.closest("[data-stw]"); if (w) { const n = ST.nodes.find((x) => x.id === w.closest(".stnode").dataset.nid); if (!n) return;
+    if (w.dataset.stw === "side") { n.side = n.side === false; w.classList.toggle("on", n.side); stSide(n); stSave(); return; }
     if (w.dataset.stw === "min") stMin(n); else if (w.dataset.stw === "close") stClose(n); else stMax(n, !n.max); return; }
   const t = e.target.closest("[data-st]"); if (t?.dataset.st === "new") stOpen(null);
 });
@@ -346,6 +387,11 @@ loadForest = async function (...a) { const r = await _loadForestST(...a); if (S.
 if (Q.get("embed") && Q.get("item")) {            // a conversation imported from another app
   const k = Q.get("item"), t0 = setInterval(() => { if (typeof recentItems === "function" && recentItems().some((y) => y.item === k)) { clearInterval(t0); openItem(k); } }, 400);
   setTimeout(() => clearInterval(t0), 20000);
+}
+
+if (Q.get("embed") && window.parent !== window) {
+  const _oft = openFromTree;
+  openFromTree = async function (n, el) { try { if (n.ref && window.parent.stOpen) { window.parent.stOpen(n.ref); return; } } catch {} return _oft(n, el); };
 }
 
 /* ------------------------------------------------ into the app */
