@@ -229,10 +229,15 @@ function stDragTo(sx, sy) {
   const A = stArena(), w = d.el.offsetWidth;
   const l = Math.max(0, Math.min(A.w - w, d.l0 + sx - d.sx)); d.el.style.left = l + "px";
   if (d.n.type !== "win") d.el.style.top = Math.max(0, Math.min(A.h - d.el.offsetHeight, d.t0 + sy - d.sy)) + "px";
-  if (d.n.type === "win") {                       // passing the middle of another window: they swap places, the others slide aside
+  if (d.n.type === "win") {                       // passing the middle of another window (or its tab): they swap places, the others slide aside
     const wins = stWins(), cx = l + w / 2, i = wins.indexOf(d.n);
-    const j = wins.findIndex((o) => o !== d.n && o.el && !o.el.hidden && Math.abs(cx - (parseFloat(o.el.style.left) + o.el.offsetWidth / 2)) < o.el.offsetWidth / 3);
+    const j = wins.findIndex((o) => { if (o === d.n) return false; const u = ST.units?.find((x) => x.kind === "win" && x.win === o); if (!u || u.hide || u.x == null) return false;
+      if (!u.open) { const tc = u.x + ST_TAB / 2; return wins.indexOf(o) > i ? l + w >= tc - 4 : l <= tc + 4; }      // a tab: once the edge reaches it
+      return Math.abs(cx - (u.x + u.w / 2)) < u.w / 3; });
     if (j >= 0) { wins.splice(i, 1); wins.splice(j, 0, d.n); wins.forEach((o, k) => { o.ord = k; }); stRender(); }
+    const me = ST.pos?.get(d.n.id);                // its wired cards come along, keeping their place beside it
+    if (me) { const dx = l - me.x; me.x = l;
+      for (const n of ST.nodes) { if (n.win !== d.n.id) continue; const p = ST.pos.get(n.id), e = document.querySelector(`.stnode[data-nid="${n.id}"]`); if (!p || !e || e.hidden) continue; p.x += dx; e.style.left = p.x + "px"; } }
   }
   stWires();
 }
