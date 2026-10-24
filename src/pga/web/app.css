@@ -936,3 +936,11 @@ html.embed.eside .cact .ecard { padding: 8px 10px; } html.embed.eside .cact .ero
 .drl { display: flex; gap: 8px; font-size: 13px; } .drl b { white-space: nowrap; color: var(--accent); font-weight: 600; }
 .drw { font-size: 12px; color: var(--muted); } .dra { display: flex; align-items: center; gap: 6px; }
 .drwhy { flex: 0 1 220px; font-size: 12px; padding: 4px 8px; } .drst { font-style: normal; font-size: 12px; color: var(--dim); } .drst.done { color: var(--accent); }
+/* the stage: no selecting text while something is pulled or moved; wider edges to pull; neighbours slide aside */
+body:has(#vStage.dragging) * { user-select: none !important; -webkit-user-select: none !important; }
+.stnode > .stwin .rz-e, .stnode > .stwin .rz-w { width: 12px; } .stnode > .stwin .rz-e { right: -6px; } .stnode > .stwin .rz-w { left: -6px; }
+#vStage.resizing, #vStage.resizing * { cursor: ew-resize !important; }
+.stnode, .sttab { transition: left .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1), width .28s, height .28s, transform .22s cubic-bezier(.2,.8,.2,1); }
+.stnode.held { transition: none; }
+#vStage.resizing .stnode { transition: none; }
+.stback { position: fixed; bottom: 22px; left: 50%; padding: 8px 16px; font-size: 13.5px; background: var(--accent); color: var(--canvas); border: 0; transform: translateX(-50%); z-index: 60; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
