@@ -249,3 +249,35 @@ def test_earlier_replies_can_be_translated_after_the_fact(session_factory, polic
     assert out[2].count("译：") == len([p for p in calls if p.startswith("para")]) >= 2
     assert out[3] == "boom"                                                       # a failed call leaves the original
     assert c.post(f"/v1/users/{uid}/agents/translate", json={"texts": []}).json() == {"texts": []}
+
+
+def test_claude_codes_own_limit_message_is_understood_and_its_reset_time_kept(rt, user):
+    from datetime import datetime, timedelta, timezone
+
+    from pga.db.models import AgentRun
+    at = datetime(2026, 10, 13, 12, 5, tzinfo=timezone.utc)                    # 20:05 in Shanghai
+    rt.session.add(AgentRun(user_id=user.id, workflow="ask", pattern="single", step="answer", agent="claude-x", adapter="claude_local",
+                            status="FAILED", prompt="q", started_at=at, finished_at=at,
+                            error="You've hit your weekly limit · resets Oct 17 at 6pm (Asia/Shanghai)"))
+    rt.session.flush()
+    q = quota.observed(rt.session, "claude-x", now=at + timedelta(hours=6))
+    assert q.exhausted and q.resets_at.startswith("2026-10-17T10:00")          # not just five hours
+    assert not quota.observed(rt.session, "claude-x", now=datetime(2026, 10, 17, 10, 1, tzinfo=timezone.utc)).exhausted
+    rt.session.add(AgentRun(user_id=user.id, workflow="ask", pattern="single", step="answer", agent="claude-x", adapter="claude_local",
+                            status="SUCCEEDED", prompt="q", started_at=at + timedelta(hours=7), finished_at=at + timedelta(hours=7)))
+    rt.session.flush()
+    assert not quota.observed(rt.session, "claude-x", now=at + timedelta(hours=8)).exhausted   # it got through: the limit is gone
+    assert quota.limit_resets("You've hit your session limit · resets 8:40pm (Asia/Shanghai)", at) == datetime(2026, 10, 13, 12, 40, tzinfo=timezone.utc)
+
+
+def test_a_follow_up_in_auto_mode_stays_with_the_agent_that_answered(rt, user, provider, cfg):
+    provider.handler = lambda s, m: "fast answered" if not s.startswith("You turn") else default_fake_reply("m", s, m)
+    r = AgentRouter(rt, AgentPool(rt, cfg))
+    first = r.ask(user, "帮我起草一封会议邮件", conversation="chat:sticky")
+    assert first["agent"] == "office"
+    again = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "再短一点", conversation="chat:sticky")
+    assert again["agent"] == "office" and "接着这段对话上一轮的 office" in again["why"] and again["category"] == "office"
+    other = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "再短一点", conversation="chat:elsewhere")
+    assert other["agent"] != "office"                                        # a new conversation is routed afresh
+    switch = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "这段 python 代码报错了怎么办", conversation="chat:sticky")
+    assert switch["category"] == "code" and "接着" not in switch["why"]     # a different kind of question is routed by itself

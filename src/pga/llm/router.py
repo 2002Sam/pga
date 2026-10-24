@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -87,6 +88,12 @@ class AnthropicProvider:
                          provider=self.name, tier=-1)
 
 
+class _Retry(Exception):
+    def __init__(self, message: str, resp=None):
+        super().__init__(message)
+        self.message, self.resp = message, resp
+
+
 class OpenAICompatibleProvider:
     """Chat-completions providers such as DeepSeek. The system prompt goes in as the first message."""
 
@@ -101,6 +108,25 @@ class OpenAICompatibleProvider:
                                   headers={"Authorization": f"Bearer {api_key}"})
         self.name = name
         self._client = client
+        self._sleep = time.sleep
+
+    # a busy or briefly unreachable provider (429, 5xx, a timeout, a dropped connection) is asked again a few times,
+    # after the wait it asks for (Retry-After) or a growing pause; anything else fails at once
+    RETRY_STATUS = (429, 500, 502, 503, 504)
+    RETRIES = 3
+
+    def _wait(self, attempt: int, resp=None) -> None:
+        after = None
+        try:
+            after = float(resp.headers.get("retry-after")) if resp is not None and resp.headers.get("retry-after") else None
+        except (TypeError, ValueError):
+            after = None
+        self._sleep(min(30.0, after if after is not None else 1.5 * 2 ** attempt))
+
+    @staticmethod
+    def _transient(exc: Exception) -> bool:
+        import httpx
+        return isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
 
     def complete(self, *, model: str, system: str, messages: list[dict[str, str]],
                  max_tokens: int, temperature: float | None) -> LLMResult:
@@ -108,7 +134,20 @@ class OpenAICompatibleProvider:
                                 "messages": ([{"role": "system", "content": system}] if system else []) + messages}
         if temperature is not None:
             body["temperature"] = temperature
-        resp = self._client.post("/chat/completions", json=body)
+        for attempt in range(self.RETRIES + 1):
+            try:
+                resp = self._client.post("/chat/completions", json=body)
+            except Exception as exc:  # noqa: BLE001 - only network trouble is retried
+                if attempt < self.RETRIES and self._transient(exc):
+                    log.info("%s: %s, asking again", self.name, type(exc).__name__)
+                    self._wait(attempt)
+                    continue
+                raise
+            if resp.status_code in self.RETRY_STATUS and attempt < self.RETRIES:
+                log.info("%s: HTTP %s, asking again", self.name, resp.status_code)
+                self._wait(attempt, resp)
+                continue
+            break
         if resp.status_code >= 400:
             raise LLMError(f"{self.name} returned HTTP {resp.status_code}: {resp.text[:300]}")
         data = resp.json()
@@ -127,9 +166,27 @@ class OpenAICompatibleProvider:
         if temperature is not None:
             body["temperature"] = temperature
         parts: list[str] = []
+        for attempt in range(self.RETRIES + 1):         # asked again only while nothing has been shown yet
+            try:
+                return self._stream_once(body, model, on_delta, parts)
+            except _Retry as r:
+                if attempt >= self.RETRIES or parts:
+                    raise LLMError(r.message) from r
+                log.info("%s: %s, asking again", self.name, r.message[:80])
+                self._wait(attempt, r.resp)
+            except Exception as exc:  # noqa: BLE001
+                if attempt >= self.RETRIES or parts or not self._transient(exc):
+                    raise
+                log.info("%s: %s, asking again", self.name, type(exc).__name__)
+                self._wait(attempt)
+        raise LLMError(f"{self.name}: no answer")
+
+    def _stream_once(self, body: dict, model: str, on_delta: Callable[[str], None], parts: list[str]) -> LLMResult:
         usage: dict = {}
         used_model = model
         with self._client.stream("POST", "/chat/completions", json=body) as resp:
+            if resp.status_code in self.RETRY_STATUS:
+                raise _Retry(f"{self.name} returned HTTP {resp.status_code}: {resp.read()[:300]!r}", resp)
             if resp.status_code >= 400:
                 raise LLMError(f"{self.name} returned HTTP {resp.status_code}: {resp.read()[:300]!r}")
             for line in resp.iter_lines():
@@ -282,6 +339,8 @@ class LLMRouter:
                  max_tokens: int = 1024, temperature: float | None = None,
                  usage: UsageContext | None = None, delegate: bool = True) -> LLMResult:
         model = self.model_for(tier)
+        from pga.redact import redact, redact_messages
+        system, messages = redact(system or ""), redact_messages(messages)     # no secret leaves in background work
         result = None
         kind = CURRENT_TASK.get()
         if delegate and self.delegate is not None and kind:

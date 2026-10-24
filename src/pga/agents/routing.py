@@ -174,6 +174,11 @@ def classify(text: str) -> tuple[str, str]:
     return "serious", "较长、没有明显类型，按严肃问题处理"
 
 
+def signals(text: str) -> int:
+    """How many words in the text say what kind of work it is (0: a follow-up such as "再短一点" or "继续")."""
+    return sum(len(rx.findall(text or "")) for _, rx in RULES)
+
+
 class AgentRouter:
     def __init__(self, rt: "Runtime", pool: AgentPool | None = None):
         self.rt = rt
@@ -181,6 +186,20 @@ class AgentRouter:
         self.cfg = self.pool.cfg["routing"]
 
     # -------------------------------------------------------------- choosing
+
+    def last_turn(self, user, conversation: str) -> dict | None:
+        """Who answered this conversation last, and what kind of question it was (from the latest chat run)."""
+        from sqlalchemy import select
+
+        from pga.db.models import AgentRun
+        conv = str(conversation)[:80]
+        for r in self.rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user.id, AgentRun.workflow == "ask",
+                                                                AgentRun.adapter == "pool", AgentRun.status == "SUCCEEDED")
+                                         .order_by(AgentRun.started_at.desc()).limit(200)):
+            d = r.data or {}
+            if d.get("conversation") == conv and d.get("agent") in self.pool.adapters:
+                return {"agent": d["agent"], "category": d.get("category")}
+        return None
 
     def quota(self, name: str) -> quotas.Quota:
         """Each agent's quota is looked up once per router (one request): ranking asks for it again per category."""
@@ -275,6 +294,21 @@ class AgentRouter:
                 order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]
             order = order[:3]
             why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}" + (" · 带图片" if images else "")
+            prev = self.last_turn(user, conversation) if conversation and user is not None and not category else None
+            if prev and (signals(text) == 0 or prev.get("category") == cat):     # a follow-up stays with who answered it
+                name = prev["agent"]
+                ad = self.pool.adapters[name]
+                tools = project is not None or folder or web or access in ("write", "full")
+                usable = {x["agent"] for x in ranked if x["usable"]}
+                if name not in usable and prev.get("category") in (self.cfg.get("categories") or {}):   # ranked for what it answered before
+                    usable |= {x["agent"] for x in self.rank(prev["category"], now, user.id) if x["usable"]}
+                ok = (name in usable and not (tools and ad.type == "llm")
+                      and not (images and not agent_options(name, ad, self.pool.cfg["agents"][name], self.rt)["images"]))
+                if ok:
+                    order = [name, *[n for n in order if n != name]][:3]
+                    why = f"接着这段对话上一轮的 {name}" + (f" · {cwhy}" if signals(text) else "")
+                    if not signals(text) and prev.get("category") in (self.cfg.get("categories") or {}):
+                        cat = prev["category"]                  # "再短一点" is still the kind of question it follows
             model = effort = None                        # a model you picked belongs to one agent, not to a whole category
         lang = _reader_lang(user)
         asked = text                                       # what you typed (kept for the record and the screen)

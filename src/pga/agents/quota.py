@@ -33,7 +33,37 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 CODEX_SESSIONS = Path.home() / ".codex" / "sessions"
 AUTH_ERROR = re.compile(r"(not logged in|authentication required|please run /login|unauthori[sz]ed|invalid api key|401|未登录)", re.I)
-LIMIT_ERROR = re.compile(r"(usage limit|rate limit|quota|exceeded your|too many requests|429|limit reached|额度|用量已)", re.I)
+LIMIT_ERROR = re.compile(r"(usage limit|rate limit|quota|exceeded your|too many requests|429|limit reached|hit your [\w ]*limit|"
+                         r"session limit|weekly limit|额度|用量已)", re.I)
+_MONTHS = {m: i + 1 for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"])}
+
+
+def limit_resets(error: str, at: datetime) -> datetime | None:
+    """When a limit the error names ends: Claude Code says "resets 8:40pm (Asia/Shanghai)" or "resets Oct 17 at 6pm
+    (Asia/Shanghai)"; the older form ends in "|<epoch seconds>". None when it does not say."""
+    m = re.search(r"\|(\d{10})\b", error or "")
+    if m:
+        return datetime.fromtimestamp(int(m.group(1)), timezone.utc)
+    m = re.search(r"resets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2})\s+at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*(?:\(([^)]+)\))?", error or "", re.I)
+    if not m:
+        return None
+    mon, day, hh, mm, ap, tzname = m.groups()
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tzname) if tzname else datetime.now().astimezone().tzinfo
+    except Exception:  # noqa: BLE001 - an unknown zone: this machine's own
+        tz = datetime.now().astimezone().tzinfo
+    h = int(hh) % 12 + (12 if ap.lower() == "pm" else 0)
+    local = at.astimezone(tz)
+    if mon and _MONTHS.get(mon.lower()[:3]):
+        t = local.replace(month=_MONTHS[mon.lower()[:3]], day=int(day), hour=h, minute=int(mm or 0), second=0, microsecond=0)
+        if t < local - timedelta(days=1):                  # "Jan 2" said in late December
+            t = t.replace(year=t.year + 1)
+    else:
+        t = local.replace(hour=h, minute=int(mm or 0), second=0, microsecond=0)
+        if t <= local:
+            t += timedelta(days=1)
+    return t.astimezone(timezone.utc)
 _CACHE: dict[str, tuple[float, "Quota"]] = {}
 
 
@@ -147,12 +177,18 @@ def observed(session: "Session", agent: str, window_hours: float = 5, window_run
     n = session.scalar(select(func.count()).select_from(AgentRun).where(
         AgentRun.agent == agent, AgentRun.started_at >= since, AgentRun.status.in_(["SUCCEEDED", "FAILED", "TIMEOUT"]),
         AgentRun.adapter != "pool")) or 0
-    hit = session.scalar(select(AgentRun).where(AgentRun.agent == agent, AgentRun.started_at >= since,
-                                                AgentRun.status == "FAILED", AgentRun.error.is_not(None))
-                         .order_by(AgentRun.started_at.desc()).limit(1))
-    if hit and LIMIT_ERROR.search(hit.error or ""):
-        until = hit.started_at + timedelta(hours=window_hours)
-        return Quota(0.0, f"触到用量上限（{hit.started_at.astimezone().strftime('%H:%M')}）", "observed", until.isoformat(), exhausted=True)
+    # the latest limit error in the last week; it holds until the time it names (or the window), unless a run got through since
+    fails = session.scalars(select(AgentRun).where(AgentRun.agent == agent, AgentRun.started_at >= now - timedelta(days=8),
+                                                   AgentRun.status == "FAILED", AgentRun.error.is_not(None))
+                            .order_by(AgentRun.started_at.desc()).limit(20))
+    hit = next((r for r in fails if LIMIT_ERROR.search(r.error or "")), None)
+    if hit is not None:
+        until = limit_resets(hit.error or "", hit.started_at) or hit.started_at + timedelta(hours=window_hours)
+        later = session.scalar(select(func.count()).select_from(AgentRun).where(
+            AgentRun.agent == agent, AgentRun.started_at > hit.started_at, AgentRun.status == "SUCCEEDED", AgentRun.adapter != "pool")) or 0
+        if now < until and not later:
+            return Quota(0.0, f"触到用量上限（{hit.started_at.astimezone().strftime('%m-%d %H:%M')}），{until.astimezone().strftime('%m-%d %H:%M')} 重置",
+                         "observed", until.isoformat(), exhausted=True)
     rem = max(0.0, 1 - n / window_runs) if window_runs else None
     return Quota(rem, f"{window_hours:g} 小时内用了 {n} / {window_runs} 次", "observed")
 

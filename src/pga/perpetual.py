@@ -1234,8 +1234,15 @@ class PerpetualRunner:
 
     def run_forever(self, stop: threading.Event) -> None:
         log.info("perpetual runner started")
-        last_idle, last_world = 0.0, time.monotonic()
+        last_idle, last_world, last_log = 0.0, time.monotonic(), 0.0
         while not stop.is_set():
+            if time.monotonic() - last_log > 3600:          # the log file stays small (pga.logrotate)
+                last_log = time.monotonic()
+                try:
+                    from pga.logrotate import rotate
+                    rotate()
+                except Exception:  # noqa: BLE001
+                    log.exception("log rotation failed")
             if time.monotonic() - last_idle > 30:
                 last_idle = time.monotonic()
                 self.idle_tick()
