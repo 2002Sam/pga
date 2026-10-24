@@ -422,6 +422,55 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except WorldTreeDeferred as exc:
             raise HTTPException(429, str(exc)) from exc
 
+    # ------------------------------------------------ 做梦: looking back while you are away, tidying with your say-so (pga.dream)
+    @app.get("/v1/users/{user_id}/dreams")
+    def dreams_list(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import Dream
+        from pga.dream import Dreamer, cfg
+        u = user_or_404(rt, user_id)
+        dm = Dreamer(rt)
+        ds = rt.session.scalars(select(Dream).where(Dream.user_id == u.id).order_by(Dream.created_at.desc()).limit(12))
+        return {"settings": cfg(u), "dreams": [dm.view(d) for d in ds]}
+
+    @app.post("/v1/users/{user_id}/dreams")
+    def dreams_now(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Dream now instead of waiting until you are away."""
+        from pga.dream import Dreamer
+        from pga.worldtree import WorldTreeDeferred
+        u = user_or_404(rt, user_id)
+        dm = Dreamer(rt)
+        try:
+            with rt.billing(user_ctx(u)):
+                d = dm.dream(u)
+        except WorldTreeDeferred as exc:
+            raise HTTPException(429, str(exc)) from exc
+        if d is None:
+            raise HTTPException(422, "nothing to dream over yet: the world tree has no conversations with a gist")
+        return dm.view(d)
+
+    @app.post("/v1/users/{user_id}/dreams/{dream_id}/ops/{i}")
+    def dreams_decide(user_id: uuid.UUID, dream_id: uuid.UUID, i: int, body: dict, rt: Runtime = Depends(get_rt)):
+        """Approve a proposal (it is carried out now) or reject it, with your reason if you like."""
+        from pga.db.models import Dream
+        from pga.dream import Dreamer
+        u = user_or_404(rt, user_id)
+        d = rt.session.get(Dream, dream_id)
+        if d is None or d.user_id != u.id:
+            raise HTTPException(404, "no such dream")
+        dm = Dreamer(rt)
+        try:
+            dm.decide(u, d, i, bool(body.get("approve")), str(body.get("reason") or ""))
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return dm.view(d)
+
+    @app.put("/v1/users/{user_id}/dream-settings")
+    def dreams_settings(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.dream import cfg
+        u = user_or_404(rt, user_id)
+        u.preferences = {**(u.preferences or {}), "dream": {**cfg(u), "on": bool(body.get("on"))}}
+        return cfg(u)
+
     @app.patch("/v1/world/{node_id}")
     def world_edit(node_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """Rename a topic, or move a topic or conversation under another topic."""
@@ -2627,6 +2676,21 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     context = ((context or "") + "\n\n" + wt.context(node)).strip()
                     rel = wt.related(node, text)
                     tail = "\n\n".join(x for x in [tail, rel] if x) or None
+            if node is None and text.strip():                       # not in the world tree yet: associations from all of it (pga.associate)
+                from pga.associate import block as assoc_block
+                try:
+                    rel, wt.last_related = assoc_block(rt, u.id, text)
+                except Exception:  # noqa: BLE001 - a bonus; the answer goes ahead without it
+                    rel = ""
+                tail = "\n\n".join(x for x in [tail, rel] if x) or None
+            earlier = None
+            if ckey.startswith("chat:"):                           # older turns than the composer sends: folded by topic (pga.fold)
+                from pga.fold import earlier as fold_earlier
+                try:
+                    hist_users = sum(1 for h in body.get("history") or [] if isinstance(h, dict) and h.get("role") == "user")
+                    earlier = fold_earlier(rt, u, ckey, text, recent=hist_users) or None
+                except Exception:  # noqa: BLE001 - without it the agent still has the recent turns
+                    earlier = None
             from pga.segments import used_in_ask
             used = used_in_ask(wt, node, getattr(wt, "last_related", []), [str(x) for x in body.get("refs") or []], rt, u)
             acc = access_for(u, ckey, body)
@@ -2642,7 +2706,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            translate=bool(body.get("translate")), project=project,
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
-                                           conversation=str(body["conversation"]) if body.get("conversation") else None)
+                                           conversation=str(body["conversation"]) if body.get("conversation") else None,
+                                           earlier=earlier)
             if used and res.get("run_id"):                       # what this question was given, for the conversation's data tree
                 from pga.db.models import AgentRun
                 try:

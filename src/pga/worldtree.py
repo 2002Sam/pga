@@ -367,22 +367,39 @@ class WorldTree:
         return {"placed": placed + quick, "by_line": quick, "left": max(0, len(todo) - limit), "annotated": noted}
 
     def annotate(self, user: User, now: datetime | None = None, limit: int = 60) -> int:
-        """标注: a one-line gist on each conversation that has none (what it is about, where it got to)."""
+        """标注: a one-line gist on each conversation that has none (what it is about, where it got to), and a few ordered
+        tags — the themes it touches, most central first — that link it to other conversations (联想召回, pga.associate)."""
         now = now or utcnow()
-        ls = [n for n in self.nodes(user.id) if n.kind == "leaf" and not (n.data or {}).get("gist") and not (n.data or {}).get("hidden")]
+        leaves = [n for n in self.nodes(user.id) if n.kind == "leaf" and not (n.data or {}).get("hidden")]
+        ls = [n for n in leaves if not (n.data or {}).get("gist") or not isinstance((n.data or {}).get("tags"), list)]
         ls.sort(key=lambda n: (n.data or {}).get("last") or "", reverse=True)
+        from collections import Counter
+        used = Counter(t for n in leaves for t in ((n.data or {}).get("tags") or []) if isinstance(t, str))
+        vocab = ", ".join(t for t, _ in used.most_common(120))
         done = 0
         for b in range(0, min(len(ls), limit), BATCH):
             part = ls[b:b + BATCH]
             rows = "\n".join(f"i{i} | {_clean(n.title, 80)} | {_clean((n.data or {}).get('excerpt', ''), 200)}" for i, n in enumerate(part))
             d = self._ask(user, "For each conversation write a gist: one short line (at most 25 Chinese characters or 15 English words, "
-                                "the conversation's language) on what it is about and where it got to. Reply with JSON only: {\"i0\": \"...\"}.",
+                                "the conversation's language) on what it is about and where it got to; and 3 to 6 tags: the themes it touches, "
+                                "most central first, each 1 to 4 words in the conversation's language — projects, goals, people, problems, "
+                                "feelings, events (an exam, a move, a deadline), causes. Use the same wording for the same theme every time"
+                                + (f"; tags already in use: {vocab}" if vocab else "") + ". Reply with JSON only: "
+                                "{\"i0\": {\"gist\": \"...\", \"tags\": [\"...\"]}}.",
                           fence("conversations", "item | title | excerpt\n" + rows, 30000, kind="titles and excerpts of the person's conversations"),
-                          f"writing the gist of {len(part)} conversations", 2000, now)
+                          f"writing the gist and tags of {len(part)} conversations", 3000, now)
             for i, n in enumerate(part):
                 g = d.get(f"i{i}")
-                if isinstance(g, str) and g.strip():
-                    n.data = {**(n.data or {}), "gist": _clean(g, 80)}
+                g, tags = (g, None) if isinstance(g, str) else ((g or {}).get("gist"), (g or {}).get("tags")) if isinstance(g, dict) else (None, None)
+                data = dict(n.data or {})
+                if isinstance(g, str) and g.strip() and not data.get("gist"):
+                    data["gist"] = _clean(g, 80)
+                if isinstance(tags, list):
+                    data["tags"] = [_clean(str(t), 40) for t in tags if str(t).strip()][:8]
+                elif g is not None:
+                    data.setdefault("tags", [])                  # answered without tags: not asked again
+                if data != (n.data or {}):
+                    n.data, n.updated_at = data, now
                     done += 1
             self.s.flush()
         return done
@@ -519,8 +536,9 @@ class WorldTree:
                       + "\n</facts_matching_the_question>") if facts else ""
         leaves = [x for x in self.leaves_under(n) if x.kind == "leaf"]
         q = set(_grams(question))
+        self.last_related = []
         if not leaves or not q:
-            return fact_block
+            return self._with_associations(n, question, fact_block, set())
         scored = []
         for x in leaves:
             text = f"{x.title} {(x.data or {}).get('excerpt', '')}"
@@ -531,10 +549,22 @@ class WorldTree:
         scored.sort(key=lambda z: -z[0])
         self.last_related = [x for _, x in scored[:k]]             # for the data tree: which conversations went in (pga.segments)
         if not scored:
-            return fact_block
+            return self._with_associations(n, question, fact_block, set())
         body = "\n".join(f"- «{x.title}» ({((x.data or {}).get('last') or '')[:10]}, {(x.data or {}).get('agent') or ''}): {_clean((x.data or {}).get('excerpt', ''), 400)}"
                          for _, x in scored[:k])
-        return ((fact_block + "\n\n") if fact_block else "") + "<conversations_under_this_topic note=\"the ones closest to what is asked\">\n" + body + "\n</conversations_under_this_topic>"
+        out = ((fact_block + "\n\n") if fact_block else "") + "<conversations_under_this_topic note=\"the ones closest to what is asked\">\n" + body + "\n</conversations_under_this_topic>"
+        return self._with_associations(n, question, out, {str(x.id) for _, x in scored[:k]})
+
+    def _with_associations(self, n: WorldNode, question: str, text: str, shown: set[str]) -> str:
+        """联想召回: conversations anywhere in the tree the question does not mention but its themes lead to (pga.associate)."""
+        from pga.associate import block
+        try:
+            assoc, xs = block(self.rt, n.user_id, question, exclude=shown | {str(n.id)})
+        except Exception as exc:  # noqa: BLE001 - associations are a bonus; the answer goes ahead without them
+            log.info("association failed: %s", exc)
+            return text
+        self.last_related = list(getattr(self, "last_related", [])) + xs
+        return "\n\n".join(x for x in [text, assoc] if x)
 
     def leaf_of(self, user: User, ref: str) -> WorldNode | None:
         return self.s.scalar(select(WorldNode).where(WorldNode.user_id == user.id, WorldNode.ref == ref))

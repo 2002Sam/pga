@@ -249,7 +249,7 @@ class AgentRouter:
             context: str | None = None, model: str | None = None, effort: str | None = None,
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
             project=None, tail: str | None = None, access: str | None = None, folder: str | None = None,
-            mcp: bool = False, web: bool = False) -> dict:
+            mcp: bool = False, web: bool = False, earlier: str | None = None) -> dict:
         """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
         the new message; one that does not gets the recent history written into the prompt.
 
@@ -288,6 +288,8 @@ class AgentRouter:
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         said_tail = f"\n\n{tail}" if tail else ""             # for this message only: after the question, so the opening stays cached
         prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text) + said_tail
+        if earlier:                                        # the older part, folded by topic (pga.fold); a held session has it already
+            prompt = f"{earlier}\n\n{prompt}"
         run_id, t0, steps = uuid.uuid4(), utcnow(), []
         result_text, used, docs, attached = "", None, files, []
         files = []
@@ -314,7 +316,7 @@ class AgentRouter:
                     "new_text": said + said_tail, **({"conversation": conv} if conv else {}), **({"mcp": bool(mcp)} if access or mcp else {}), **({"model": model} if model else {}),
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
-                    **({"effort": effort} if effort else {}), **({"images": pics} if pics else {})}
+                    **({"effort": effort} if effort else {}), **({"images": pics} if pics else {}), **({"earlier": earlier} if earlier else {})}
             system = ASK_SYSTEM + (f"\n\n{context}" if context else "") + (_project_note(project, ad.type) if project is not None else "") + (
                 "\n\nThe user's message was translated into English for you. Reply in English; it is translated back." if translate else "")
             step = self.pool._call(name, self.pool._task(name, prompt_now, system=system, kind=cat, workspace=ws, permissions=perms,

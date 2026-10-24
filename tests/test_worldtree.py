@@ -141,3 +141,19 @@ def test_every_conversation_gets_a_gist_and_you_can_add_edit_remove_and_find_top
     import pytest as _p
     with _p.raises(ValueError):
         wt.remove(user, wt.root(user))
+
+
+def test_annotating_writes_ordered_tags_that_link_conversations(rt, user, tree, monkeypatch):
+    wt, m = tree
+    wt.build(user)
+    def tagged(user_, system, prompt, why, max_tokens=3000, now=None):
+        assert "tags" in system and "most central first" in system
+        return {f"i{i}": {"gist": f"主旨{i}", "tags": ["世界模型", f"主题{i}"]} for i in range(80)}
+    monkeypatch.setattr(wt, "_ask", tagged)
+    for n in wt.nodes(user.id):
+        if n.kind == "leaf":
+            n.data = {k: v for k, v in (n.data or {}).items() if k != "tags"}
+    assert wt.annotate(user) >= 3
+    leaf = wt.leaf_of(user, "chat:a")
+    assert leaf.data["tags"][0] == "世界模型" and leaf.data["gist"]
+    assert wt.annotate(user) == 0                                     # done once

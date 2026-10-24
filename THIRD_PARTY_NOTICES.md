@@ -31,3 +31,8 @@ and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), ea
 - RAPTOR (MIT), GraphRAG (MIT), MemTree — the world tree (`src/pga/worldtree.py`); see `notes/world-tree.md`.
 - Open WebUI — interaction designs reimplemented in the web app; no code copied (see `notes/open-webui-study.md`).
 - DeepSeek's question index (the strip of marks beside a conversation) — the question strip in `src/pga/web/app-worldbranch.js`, reimplemented.
+- VCPToolBox (lioensky/VCPToolBox, CC BY-NC-SA 4.0) — four ideas reimplemented from its published descriptions, no code or prompts copied (see `notes/vcptoolbox-study.md`):
+  - the letter a perpetual cycle writes to its next one (`src/pga/perpetual.py`);
+  - tag co-occurrence association recall (`src/pga/associate.py`);
+  - folding older turns by topic (`src/pga/fold.py`);
+  - dreaming with approval (`src/pga/dream.py`).

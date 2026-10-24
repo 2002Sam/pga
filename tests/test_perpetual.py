@@ -35,9 +35,9 @@ if "Ask the next questions." in text:
     print(json.dumps({"questions": [
         {"q": topics[n % 8] + "？", "why": "浪费额度", "kind": "code", "priority": 0.9},
         {"q": "你最希望它先在哪方面变强？", "why": "方向只有你能定", "kind": "user", "priority": 0.6}],
-        "insight": "去重发生得太晚"}))
+        "insight": "去重发生得太晚", "next": {"after_minutes": 90, "note": "先看测试结果再回答"} if ("写一封信" in text or "Write a letter" in text) else None}))
 elif "Answer it." in text:
-    print(json.dumps({"answer": "是的：dedupe.py 把阈值写死成 0.5。", "evidence": ["src/pga/dedupe.py:1"], "confidence": 0.8,
+    print(json.dumps({"answer": ("读到了信：" if "<letter_from_your_past_self" in text else "") + "是的：dedupe.py 把阈值写死成 0.5。", "evidence": ["src/pga/dedupe.py:1"], "confidence": 0.8,
         "proposal": {"title": ["Raise dedupe threshold", "Shorten research cooldown", "Batch notifications daily", "Cache translations longer",
                                "Reserve quota for user", "Reorder dispatch fallbacks", "Retry failed runs once", "Refresh graph lazily"][n % 8],
                      "change": "raise THRESHOLD",
@@ -412,3 +412,21 @@ def test_reflection_revisits_the_shadow_paths(rt, user, setup):
     promoted = rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim.id, AimNote.kind == "insight")
                                   .order_by(AimNote.created_at.desc())).first()
     assert promoted.data["promoted"] == "A1" and "A1" in promoted.text
+
+
+def test_a_cycle_writes_a_letter_to_the_next_one_and_sleeps_as_it_asked(rt, user, setup):
+    eng, t, aim, _ = setup
+    aim2 = AimService(rt.session).create(user, "写一封信给以后的自己", "Write a letter")
+    t2 = eng.create(user, aim2, None, settings={"autonomy": "free", "samples": 1})
+    out = eng.cycle(t2)
+    assert out["action"] == "think" and out["ok"], out
+    gap = (t2.next_at - t2.updated_at).total_seconds()
+    assert 5300 < gap < 5500 and t2.phase == "letter" and "先看测试结果" in t2.phase_note          # 90 minutes, its own word
+    assert t2.settings["letter"]["note"] == "先看测试结果再回答" and not t2.settings["letter"]["read"]
+    out = eng.cycle(t2)                                                        # it wakes: the letter comes first, read once
+    assert out["action"] == "investigate" and out["ok"], out
+    ans = rt.session.scalars(select(AimNote).where(AimNote.aim_id == aim2.id, AimNote.kind == "answer")).all()
+    assert ans and ans[0].text.startswith("读到了信") and t2.settings["letter"]["read"]
+    t2.settings = {**t2.settings, "autonomy": "checkpoint", "letter": None}
+    assert eng._letter(t2, {"after_minutes": 1440, "note": "x"}, "gpt", "checkpoint", t2.updated_at)[0] == 6 * 3600   # clipped by autonomy
+    assert eng._letter(t2, "nonsense", "gpt", "free", t2.updated_at) == (0.0, "")

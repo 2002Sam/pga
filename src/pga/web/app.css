@@ -926,3 +926,13 @@ html.embed.eside .cact .ecard { padding: 8px 10px; } html.embed.eside .cact .ero
 .stnode.tab .stpin.r { right: -6px; }
 .stwire.link { stroke-width: 2.6; stroke-dasharray: none; opacity: .9; } .stwire.tmp { stroke-dasharray: 4 5; opacity: .9; }
 .sthit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; } .sthit:hover { stroke: color-mix(in srgb, var(--red, #e5484d) 35%, transparent); }
+/* 做梦 */
+.drn { font-style: normal; font-size: 10.5px; background: var(--accent); color: var(--canvas); border-radius: 999px; padding: 0 6px; margin-left: 3px; }
+.drmodal .box { width: min(760px, 94vw); max-height: 86vh; overflow: auto; }
+.drbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-size: 13px; }
+.drlist { display: grid; gap: 10px; } .drd { padding: 10px 12px; display: grid; gap: 6px; }
+.drh { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; } .drn2 { margin: 2px 0 4px; font-size: 13.5px; line-height: 1.6; }
+.drop { border: 1px solid var(--line-2); border-radius: 10px; padding: 8px 10px; display: grid; gap: 4px; } .drop.done { opacity: .7; } .drop.rejected { opacity: .55; }
+.drl { display: flex; gap: 8px; font-size: 13px; } .drl b { white-space: nowrap; color: var(--accent); font-weight: 600; }
+.drw { font-size: 12px; color: var(--muted); } .dra { display: flex; align-items: center; gap: 6px; }
+.drwhy { flex: 0 1 220px; font-size: 12px; padding: 4px 8px; } .drst { font-style: normal; font-size: 12px; color: var(--dim); } .drst.done { color: var(--accent); }

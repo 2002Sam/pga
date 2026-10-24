@@ -93,13 +93,14 @@ DEFAULTS: dict[str, Any] = {
     "world_focus": None,        # 世界树: the topic you pointed it at — it works on that level and its planned subtopics (pga.worldtree)
 }
 AUTONOMY = ("free", "checkpoint", "driven")
+LETTER_MAX_S = {"free": 24 * 3600, "checkpoint": 6 * 3600}     # how long it may choose to sleep on its own word, per autonomy level
 AUTONOMY_ZH = {"free": "完全自由", "checkpoint": "检查点", "driven": "用户驱动"}
 FLOOR = 0.2
 PAID = {"llm", "http"}          # billed per call; the subscriptions (Claude Code, Codex/ChatGPT, Hermes, CodeBuddy) have quotas
 CHANNELS = ("think", "investigate", "evolve", "reflect")
 PHASE_ZH = {"think": "思考：提出问题", "investigate": "研究：回答问题", "evolve": "进化：审核并实现改进", "reflect": "回顾：整理和反思",
             "rest": "休息", "quota": "等额度重置", "error": "出错后稍等", "starting": "启动中", "paused": "已暂停", "stopped": "已停止",
-            "checkpoint": "检查点：等你看", "driven": "用户驱动：等你的要求", "promote": "推广已验证的改进"}
+            "checkpoint": "检查点：等你看", "letter": "按自己留的信等待", "driven": "用户驱动：等你的要求", "promote": "推广已验证的改进"}
 PROTECTED_NOTE = ("permissions, the user's aims/motivation, safety policy, spending or publishing authority, migrations, "
                   "the evolution loop itself (src/pga/evolution/), src/pga/policy.yaml, src/pga/config.py, tests/conftest.py")
 
@@ -111,7 +112,8 @@ missing capabilities, what the user actually needs, how similar systems solve it
 code), product (answer by reasoning about the user's aim), research (needs outside knowledge), user (only the user
 can answer — use rarely, at most one). Write "q" and "why" in {lang}.
 Reply with JSON only: {{"questions": [{{"q": "...", "why": "...", "kind": "code|product|research|user", "priority": 0.0-1.0}}],
-"insight": "optional one-sentence observation in {lang}, or empty"}}"""
+"insight": "optional one-sentence observation in {lang}, or empty", "next": null}}
+{next_rule}"""
 
 INVESTIGATE = """You are {role} on a perpetual task. Answer ONE question about the project. {where}
 Be concrete; cite the files you rely on. {proposal_rule}
@@ -119,12 +121,17 @@ Write "answer" in {lang} (at most 250 words). Follow-up questions only if the an
 Reply with JSON only: {{"answer": "...", "evidence": ["path or source"], "confidence": 0.0-1.0,
 "proposal": null or {{"title": "≤8 words, English", "change": "what to change, concretely (English)", "files": ["src/pga/…"],
 "expected_gain": "...", "risk": "...", "evaluation_plan": "how a test shows it works", "rollback_condition": "..."}},
-"follow_up": [{{"q": "...", "why": "...", "kind": "code|product|research|user", "priority": 0.0-1.0}}]}}"""
+"follow_up": [{{"q": "...", "why": "...", "kind": "code|product|research|user", "priority": 0.0-1.0}}], "next": null}}
+{next_rule}"""
 
 PROPOSAL_RULE = ("If the answer shows a concrete, small, safe improvement to PGA's code, add it as a proposal: it is reviewed, "
                  "implemented in an isolated copy, tested with the full suite, and reaches the live code only when the user "
                  f"approves. Never propose touching: {PROTECTED_NOTE}. Otherwise proposal is null.")
 NO_PROPOSAL_RULE = "Set proposal to null; put any suggestion for the project in the answer."
+NEXT_RULE = ("\"next\" is a letter to your future self, usually null. Write it when the team should wait for something (a test run, "
+             "a promotion, an outside event, the user's answer) or when one thing must be looked at first next time: "
+             "{{\"after_minutes\": 0-1440 (0 = carry on now), \"note\": \"what to look at first when it wakes, in {lang}\"}}. "
+             "The system may shorten the wait.")
 
 REVIEW = """You are {role} on a perpetual task, reviewing proposed changes to PGA's own code before an isolated coding agent
 implements them (the full test suite runs afterwards and the user approves before anything reaches the live code).
@@ -151,7 +158,8 @@ only the user can decide? If shadow paths are listed (conclusions the team did N
 against what is known now: "promote" if the evidence now favours it over the main line, "keep" if still plausible,
 "drop" if it is dead; say why in one line. Write "summary", "ask_user" and the reasons in {lang}; ask_user may be empty.
 Reply with JSON only: {{"summary": "≤150 words", "drop": ["Q3"], "priorities": {{"Q5": 0.9}}, "ask_user": "",
-"shadows": {{"A1": {{"verdict": "promote|keep|drop", "why": "..."}}}}}}"""
+"shadows": {{"A1": {{"verdict": "promote|keep|drop", "why": "..."}}}}, "next": null}}
+{next_rule}"""
 
 
 def _cjk_grams(t: str) -> set[str]:
@@ -472,6 +480,7 @@ class Perpetual:
         agent = agents[0]
         if samples > 1:                                       # fewer agents than samples: the same agent again, another angle
             agents = [agents[i % len(agents)] for i in range(samples)]
+        self._read_letter(t)                              # the letter is read once, by the cycle it woke
         self._phase(t, action, f"{PHASE_ZH[action]}{f' · {samples} 次生成' if samples > 1 else ''} · {'、'.join(dict.fromkeys(agents))}", now)
         started = time.monotonic()
         try:
@@ -481,6 +490,7 @@ class Perpetual:
         except Exception as exc:  # noqa: BLE001 - one bad cycle must not end a perpetual task
             log.exception("perpetual cycle failed")
             out = {"ok": False, "error": f"{type(exc).__name__}: {exc}"[:300]}
+        self._letter_now = None
         spent = time.monotonic() - started
         t.work_s += spent
         t.cycles += 1
@@ -495,11 +505,43 @@ class Perpetual:
             t.next_at = end + timedelta(seconds=back)
         else:
             breath = min(c["breath_s"], max(0.0, c["max_rest_ratio"] * t.work_s - t.rest_s))
+            wait, note = self._letter(t, out.get("next"), agent, mode, end)
+            if wait > breath:                                 # it asked to sleep until something is ready: its own rhythm
+                breath = wait
+                t.phase, t.phase_note, t.phase_since = "letter", f"按自己留的信 {wait / 60:.0f} 分钟后再看：{note}"[:300], end
             t.rest_s += breath
             t.next_at = end + timedelta(seconds=breath)
         t.updated_at = end
         self.s.flush()
         return {"action": action, "agent": agent, **out}
+
+    # -------------------------------------------------------------- a letter to its future self
+
+    def _next_rule(self, t: PerpetualTask) -> str:
+        return NEXT_RULE.format(lang=self._lang(t))
+
+    def _letter(self, t: PerpetualTask, nxt, agent: str, mode: str, now: datetime) -> tuple[float, str]:
+        """Keep the letter a cycle wrote for the next one; the wait it asked for, clipped to what its autonomy allows."""
+        if not isinstance(nxt, dict):
+            return 0.0, ""
+        note = str(nxt.get("note") or "").strip()[:1200]
+        try:
+            mins = float(nxt.get("after_minutes") or 0)
+        except (TypeError, ValueError):
+            mins = 0.0
+        wait = max(0.0, min(mins * 60, LETTER_MAX_S.get(mode, 0)))
+        if note:
+            t.settings = {**(t.settings or {}), "letter": {"note": note, "by": agent, "at": now.isoformat(), "wake": (now + timedelta(seconds=wait)).isoformat(),
+                                                         "read": False}}
+        return wait, note
+
+    def _read_letter(self, t: PerpetualTask) -> str:
+        lt = (t.settings or {}).get("letter")
+        if not lt or lt.get("read"):
+            return ""
+        self._letter_now = lt
+        t.settings = {**(t.settings or {}), "letter": {**lt, "read": True}}
+        return lt.get("note", "")
 
     def _wait(self, t: PerpetualTask, phase: str, note: str, seconds: float, now: datetime, m: dict, pause: bool = False) -> dict:
         seconds = max(1.0, seconds)
@@ -528,7 +570,12 @@ class Perpetual:
         return f"You are inside the project folder {p.path} ({p.name}): read any file you need, but never modify anything."
 
     def context(self, t: PerpetualTask, aim: Aim, *, answers: int = 6) -> str:
-        parts = [self.team.context(aim)]
+        parts = []
+        lt = getattr(self, "_letter_now", None)
+        if lt and lt.get("note"):                            # what the last cycle asked this one to look at first
+            parts.append(f"<letter_from_your_past_self written=\"{lt.get('at', '')[:16]}\" by=\"{lt.get('by', '')}\">\n{lt['note']}\n"
+                         "</letter_from_your_past_self>")
+        parts.append(self.team.context(aim))
         from pga.tree import ThoughtTree, knowledge_context
         parts.append(knowledge_context(self.rt, aim))           # the user model, the world model, the datasets it refers to
         if (t.settings or {}).get("focus_node"):              # you picked a branch of the thought tree to continue
@@ -626,7 +673,7 @@ class Perpetual:
     # -------------------------------------------------------------- the four actions
 
     def _think(self, t: PerpetualTask, aim: Aim, role: str, agent: str, now: datetime) -> dict:
-        system = THINK.format(role=self._role_en(role), where=self._where(t, agent), lang=self._lang(t))
+        system = THINK.format(role=self._role_en(role), where=self._where(t, agent), lang=self._lang(t), next_rule=self._next_rule(t))
         text, err = self._ask(t, aim, role, agent, self.context(t, aim) + "\n\nAsk the next questions.", system, "think")
         d = self._json(text)
         if not d:
@@ -635,7 +682,7 @@ class Perpetual:
         ins = str(d.get("insight") or "").strip()
         if ins:
             self.team._note(aim, "insight", ins[:1500], role=role, agent=agent, now=utcnow(), data={"perpetual": str(t.id)})
-        return {"ok": True, "summary": f"新问题 {', '.join(added) or '无（都和已有的重复）'}" + (f"；想法：{ins[:80]}" if ins else "")}
+        return {"ok": True, "next": d.get("next"), "summary": f"新问题 {', '.join(added) or '无（都和已有的重复）'}" + (f"；想法：{ins[:80]}" if ins else "")}
 
     def _investigate(self, t: PerpetualTask, aim: Aim, role: str, agent: str, now: datetime) -> dict:
         qs = sorted(self.questions(t), key=lambda q: (-clamp01((q.data or {}).get("priority"), .5), q.created_at))
@@ -652,7 +699,7 @@ class Perpetual:
         code = (q.data or {}).get("code")
         evolve = self.cfg(t)["evolve"] and self.self_project(t)
         system = INVESTIGATE.format(role=self._role_en(role), where=self._where(t, agent), lang=self._lang(t),
-                                    proposal_rule=PROPOSAL_RULE if evolve else NO_PROPOSAL_RULE)
+                                    proposal_rule=PROPOSAL_RULE if evolve else NO_PROPOSAL_RULE, next_rule=self._next_rule(t))
         return system, (self.context(t, aim) + f"\n\n<question code=\"{code}\">\n{q.text}\n"
                         f"(why it matters: {(q.data or {}).get('why', '')})\n</question>\nAnswer it.")
 
@@ -823,7 +870,7 @@ class Perpetual:
         q.status = "answered"
         q.data = {**(q.data or {}), "answered_by": agent, "answered_at": later.isoformat()}
         follow = self._add_questions(t, aim, d.get("follow_up") or [], agent, role, later, parent=code)
-        return {"ok": True, "summary": f"回答了 {code}" + (f"，提出改进 {prop_code}" if prop_code else "") + (f"，追问 {', '.join(follow)}" if follow else "")}
+        return {"ok": True, "next": d.get("next"), "summary": f"回答了 {code}" + (f"，提出改进 {prop_code}" if prop_code else "") + (f"，追问 {', '.join(follow)}" if follow else "")}
 
     def _propose(self, t: PerpetualTask, p: dict, q: AimNote, agent: str, now: datetime) -> str | None:
         from pga.evolution.round import _similar
@@ -887,7 +934,7 @@ class Perpetual:
         return {"ok": True, "summary": f"进化轮 {str(rnd.id)[:8]}：{listing_zh}"}
 
     def _reflect(self, t: PerpetualTask, aim: Aim, role: str, agent: str, now: datetime) -> dict:
-        system = REFLECT.format(role=self._role_en(role), lang=self._lang(t))
+        system = REFLECT.format(role=self._role_en(role), lang=self._lang(t), next_rule=self._next_rule(t))
         recent = list(self.s.scalars(select(AimNote).where(AimNote.aim_id == t.aim_id).order_by(AimNote.created_at.desc()).limit(30)))
         board = "\n".join(f"[{n.kind}{' ' + str((n.data or {}).get('code')) if (n.data or {}).get('code') else ''}] {n.text[:400]}" for n in reversed(recent))
         shadows = self.shadows(aim)[:4]                       # the oldest paths not taken, revisited
@@ -931,7 +978,7 @@ class Perpetual:
         ask = str(d.get("ask_user") or "").strip()
         if ask:
             self._add_questions(t, aim, [{"q": ask, "kind": "user", "priority": 0.8, "why": "回顾时发现只有你能决定"}], agent, role, later)
-        return {"ok": True, "summary": f"回顾：{summary[:80]}" + (f"；放下 {', '.join(dropped)}" if dropped else "")}
+        return {"ok": True, "next": d.get("next"), "summary": f"回顾：{summary[:80]}" + (f"；放下 {', '.join(dropped)}" if dropped else "")}
 
     # -------------------------------------------------------------- checkpoints (autonomy: checkpoint)
 
@@ -1162,6 +1209,14 @@ class PerpetualRunner:
                     wt.place(u, limit=70)
                     wt.refresh(u, limit=24)
                 s.commit()
+                if u is not None:                               # 做梦: you have been away a while, once a day at most (pga.dream)
+                    from pga.dream import Dreamer
+                    dm = Dreamer(rt)
+                    if dm.due(u):
+                        d = dm.dream(u)
+                        s.commit()
+                        if d is not None:
+                            log.info("dreamt over %d conversations: %d proposal(s) wait for you", len(d.seeds) + len(d.recalled), len(d.ops))
                 if u is not None and wt.built(u):               # the fact graph: a few new conversations each time (pga.kg)
                     from pga.kg.service import FactGraph, FactGraphDeferred
                     try:

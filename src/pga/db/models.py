@@ -326,6 +326,22 @@ class KgEdge(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class Dream(Base):
+    """做梦: while you are away PGA looks back over a few of your conversations, follows what they link to, writes down
+    what it saw, and proposes tidying the world tree and your self knowledge. `ops` are proposals: each waits for you
+    (status pending → done | rejected, with your reason) and only then is carried out (pga.dream)."""
+    __tablename__ = "dreams"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    narrative: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    seeds: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)     # the world-tree nodes it started from
+    recalled: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)  # what it was led to
+    ops: Mapped[list[Any]] = mapped_column(JSONType, default=list, nullable=False)
+    status: Mapped[str] = mapped_column(String(12), default="pending", nullable=False)   # pending | done (nothing left to decide)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime | None] = mapped_column(Tz())
+
+
 class Canvas(Base):
     """无限画布: a board for each topic of the world tree (and one for the top), laid out like a blueprint — input →
     assign → branches → output — with conversations, skills, pictures and notes as nodes wired together (pga.canvas).

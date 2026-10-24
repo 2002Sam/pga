@@ -634,6 +634,8 @@ class LLM(Adapter):
         while hist and hist[0]["role"] != "user":
             hist.pop(0)
         ask = task.meta.get("new_text") if hist else task.prompt
+        if hist and task.meta.get("earlier"):             # the older turns, folded (pga.fold): the recent ones are the messages
+            system += "\n\n" + task.meta["earlier"]
         messages = hist + [{"role": "user", "content": ask + ("\n\nReply with JSON only." if task.want_json else "")}]
         lid, provider = task.meta.get("live_id"), self.rt.router.provider
         if lid and hasattr(provider, "stream") and not task.want_json:   # the answer flows onto the live board as it is written

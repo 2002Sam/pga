@@ -933,10 +933,11 @@ def api_chat(ad: "Adapter", task: AgentTask) -> AgentResult:
         raise LinkDown("only the Anthropic API is wired for agents")
     import anthropic
     client = anthropic.Anthropic(api_key=key, base_url=api.get("base_url") or None, timeout=task.timeout_s)
+    system = task.system + (f"\n\n{task.meta['earlier']}" if task.meta.get("earlier") and len(messages) > 1 else "")   # older turns, folded (pga.fold)
     parts: list[str] = []
     try:
         with client.messages.stream(model=model, max_tokens=int(api.get("max_tokens", 4000)), messages=messages,
-                                    **({"system": task.system} if task.system.strip() else {})) as s:
+                                    **({"system": system} if system.strip() else {})) as s:
             for piece in s.text_stream:
                 parts.append(piece)
                 live.append(lid, piece)
