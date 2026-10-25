@@ -422,6 +422,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except WorldTreeDeferred as exc:
             raise HTTPException(429, str(exc)) from exc
 
+    @app.post("/v1/users/{user_id}/polish")
+    def polish_prompt(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """提示词润色: a few polished versions of what you are about to send, written with your personal model (pga.polish)."""
+        from pga.polish import polish
+        u = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(u)):
+                return {"versions": polish(rt, u, str(body.get("text") or ""), int(body.get("n") or 3), str(body.get("conversation") or "") or None)}
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
     # ------------------------------------------------ 做梦: looking back while you are away, tidying with your say-so (pga.dream)
     @app.get("/v1/users/{user_id}/dreams")
     def dreams_list(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):

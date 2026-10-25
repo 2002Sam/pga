@@ -70,16 +70,18 @@ function stLayout() {
   const far = units.filter((u) => u.kind === "win" && u.win.id !== ST.focus).sort((a, b) => Math.abs(wins.indexOf(b.win) - fi) - Math.abs(wins.indexOf(a.win) - fi));
   for (const u of far) { if (width() <= room) break; u.open = false; const c = units.find((x) => x.kind === "col" && x.win === u.win); if (c) c.hide = true; }
   if (width() > room) fold((u) => u.kind === "col");
+  if (ST.rz?.open) for (const u of units) { const k = u.kind + (u.win?.id || ""); if (ST.rz.open.has(k)) u.open = ST.rz.open.get(k); }   // nothing folds or unfolds mid-pull
   const fw = units.find((u) => u.kind === "win" && u.open && u.win.id === ST.focus && !u.win.bw)
     || (!ST.focus && units.find((u) => u.kind === "win" && u.open && !u.win.bw));
   if (fw && width() < room) fw.w += room - width();           // the window you are on takes the rest of the space, unless you sized it
   const on = units.find((u) => u.kind === "win" && u.open && u.win.id === ST.focus) || units.find((u) => u.kind === "win" && u.open);
   if (on && width() > room) on.w = Math.max(360, on.w - (width() - room));   // still too wide: it gives way, so nothing ends off screen
-  let x = ST_PADX + Math.max(0, (room - width()) / 2);
+  const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
+  let x = ST_PADX + off;
   let run = null;
   for (const u of units) { if (u.hide) continue; if (u.open) { u.x = x; x += u.w + ST_GAP; run = null; continue; }
     if (!run) { run = { x, tabs: [] }; x += ST_TAB + ST_GAP; } u.x = run.x; u.run = run; }
-  return { units, A };
+  return { units, A, off };
 }
 
 /* ------------------------------------------------ drawing */
@@ -128,7 +130,9 @@ function stRender() {
     zones.forEach((zn, zi) => {
       const ch = Math.max(46, Math.min(ST_CH, (zh - 10) / Math.max(1, zn.length) - 8)), tot = zn.length * (ch + 8) - 8;
       let y = 8 + zi * zh + Math.max(4, (zh - tot) / 2);
-      for (const n of zn) { const e = el(n); e.classList.remove("tab"); e.classList.toggle("short", ch < 66); e.classList.toggle("shelved", u.kind === "shelf"); place(e, u.x, y, ST_CW, ch); pos.set(n.id, { x: u.x, y, w: ST_CW, h: ch, zone: zi, win: u.win?.id }); y += ch + 8; }
+      for (const n of zn) { const e = el(n); e.classList.remove("tab"); e.classList.toggle("short", ch < 66); e.classList.toggle("shelved", u.kind === "shelf");
+        const yy = n.fy == null ? y : Math.max(4, Math.min(A.h - ch - 4, n.fy * A.h));    // where you put it, if you moved it up or down
+        place(e, u.x, yy, ST_CW, ch); pos.set(n.id, { x: u.x, y: yy, w: ST_CW, h: ch, zone: zi, win: u.win?.id }); y += ch + 8; }
     });
     if (u.kind === "shelf") barHtml += `<div class="stshelf" style="left:${u.x - 4}px;width:${ST_CW + 8}px;height:${A.h - 8}px"><em>${L("未连接", "Unwired")}</em></div>`;
   }
@@ -269,6 +273,7 @@ function stDrop(sx) {
       const w = u.open ? u.w : ST_TAB, c = u.x + w / 2, dd = cx >= u.x && cx <= u.x + w && u.kind === "win" ? -1 : Math.abs(cx - c);   // over a window: that one
       if (dd < bd) { bd = dd; best = u; } }
     d.n.win = !best || ["shelf", "list"].includes(best.kind) ? null : best.win.id;
+    d.n.fy = parseFloat(d.el.style.top) / stArena().h;                                   // it stays at the height you dropped it
     if (d.fromList && !d.n.win) ST.nodes = ST.nodes.filter((x) => x !== d.n);         // put back into the list: nothing made
   }
   if (d.n.type === "win") stSettle(d);
@@ -417,7 +422,9 @@ function stBind() {
     const pin = e.target.closest(".stin, .stout, .stpin"); if (pin && stWireStart(e, pin)) { stCap(e); return; }
     const rz = e.target.closest("[data-rz]");
     if (rz) { e.preventDefault(); window.getSelection()?.removeAllRanges();     // no selecting the page while you pull an edge
-      const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); ST.rz = { n, d: rz.dataset.rz, x: e.clientX, w0: n.bw || rz.closest(".stnode").offsetWidth };
+      const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid), el = rz.closest(".stnode"), l = parseFloat(el.style.left);
+      ST.rz = { n, d: rz.dataset.rz, x: e.clientX, w0: n.bw || el.offsetWidth, edge: rz.dataset.rz === "e" ? l : l + el.offsetWidth,
+        open: new Map((ST.units || []).map((u) => [u.kind + (u.win?.id || ""), u.open])) };   // the edge that stays
       v.classList.add("dragging", "resizing"); stCap(e); return; }
     if (e.target.closest("button, textarea, input, iframe, [data-doc], [data-stunfold]")) return;
     const el = e.target.closest(".stnode"); if (!el) return;
@@ -425,7 +432,10 @@ function stBind() {
     if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); stCap(e);
   });
   arena.addEventListener("pointermove", (e) => {
-    if (ST.rz) { const r = ST.rz, dx = e.clientX - r.x; r.n.bw = Math.round(Math.max(320, Math.min(stArena().w - 80, r.w0 + (r.d === "e" ? dx : -dx)))); stRender(); return; }
+    if (ST.rz) { const r = ST.rz, dx = e.clientX - r.x; r.n.bw = Math.round(Math.max(320, Math.min(stArena().w - 80, r.w0 + (r.d === "e" ? dx : -dx))));
+      const lay = stLayout(), u = lay.units.find((x) => x.kind === "win" && x.win === r.n);           // only the edge you pull moves
+      if (u && u.open) ST.shift = lay.off + r.edge - (r.d === "e" ? u.x : u.x + u.w);
+      stRender(); return; }
     if (ST.wire) { const r = arena.getBoundingClientRect(); ST.wire.x = e.clientX - r.left; ST.wire.y = e.clientY - r.top; stWires(); return; }
     if (ST.drag) stDragTo(e.screenX, e.screenY);
   });
@@ -435,7 +445,7 @@ function stBind() {
     const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
     else if (d && !d.moved && d.el.classList.contains("tab") && d.n.win) stFocus(d.n.win, true);
   });
-  arena.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); delete n.bw; stRender(); stSave(); } });
+  arena.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); delete n.bw; ST.shift = null; stRender(); stSave(); } });
   arena.addEventListener("input", (e) => { const t = e.target.closest("[data-stnote]"); if (!t) return; const n = ST.nodes.find((x) => x.id === t.dataset.stnote); if (n) { n.text = t.value; stContexts(); } });
 }
 document.addEventListener("click", (e) => {
