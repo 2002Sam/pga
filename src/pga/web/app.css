@@ -950,3 +950,28 @@ body:has(#vStage.dragging) * { user-select: none !important; -webkit-user-select
 .plist { display: grid; gap: 10px; } .pv { padding: 10px 12px; display: grid; gap: 6px; } .pv.orig { border: 1px dashed var(--line-2); border-radius: 12px; opacity: .8; }
 .pvh { display: flex; align-items: center; gap: 8px; font-size: 13px; } .pvh .cvdim { font-size: 12px; }
 .pvt { white-space: pre-wrap; margin: 0; font: inherit; font-size: 13px; line-height: 1.6; max-height: 260px; overflow: auto; }
+/* the stage: the sidebar is a tight column of past conversations, each with a dot to wire it into the window you are on */
+.app.onstage .rlist { padding: 0 4px 10px; }
+.app.onstage .rgrp { padding: 8px 8px 2px; font-size: 10.5px; }
+.app.onstage .ritem { position: relative; display: flex; align-items: center; gap: 6px; padding: 3px 26px 3px 8px; border-radius: 6px; min-height: 24px; cursor: grab; user-select: none; }
+.app.onstage .ritem b { font-size: 12.5px; flex: 1; min-width: 0; } .app.onstage .ritem span { display: none; }
+.app.onstage .ritem::after { content: ""; position: absolute; right: 5px; top: 50%; width: 9px; height: 9px; margin-top: -5.5px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, #8fb4ff 55%, transparent); background: var(--rail); cursor: crosshair; transition: transform .12s; }
+.app.onstage .ritem:hover::after { transform: scale(1.3); border-color: #8fb4ff; }
+.app.onstage .ritem.stwired::after { background: #8fb4ff; border-color: #8fb4ff; }
+.app.onstage .ritem.stopen b { color: var(--accent); }
+.stover { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 40; overflow: visible; }
+.stover .stwire.faint { opacity: .45; stroke-dasharray: 3 6; }
+.stnode.moved > .stcard { box-shadow: 0 10px 26px rgba(0,0,0,.32); }
+.stnode:not(.t-win):not(.tab) > .stcard { cursor: grab; } .stnode.held > .stcard { cursor: grabbing; }
+/* inside a window: the page fits the window's width — the side panel narrows, then steps aside; the head stays on one line;
+   the composer keeps ✨ and send together */
+html.embed.eside #vChats { grid-template-columns: minmax(0, 1fr) clamp(176px, 30vw, 236px) !important; }
+@media (max-width: 600px) { html.embed.eside #vChats { grid-template-columns: minmax(0, 1fr) !important; } html.embed.eside .cact { display: none !important; } }
+html.embed .dh2 { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; } html.embed .dh2::-webkit-scrollbar { display: none; }
+html.embed .dh2 h1 { flex: 1 1 60px; min-width: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.embed .dh2 > button, html.embed .dh2 > .expm, html.embed .dh2 > .kind { flex: none; white-space: nowrap; }
+html.embed .envbar { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; min-width: 0; } html.embed .envbar > * { flex: none; }
+html.embed .ccomp .cbar .ctool { width: 28px; height: 28px; } html.embed .ccomp .cbar select { max-width: 96px; min-width: 0; }
+.sendg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+@media (max-width: 520px) { html.embed .ccomp .cbar .kpick { display: none; } html.embed .ccomp .cbar #chatAgent { max-width: 76px; } }

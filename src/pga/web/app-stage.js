@@ -54,12 +54,13 @@ function stDefault() {                            // one window, the latest conv
 /* ------------------------------------------------ the layout: a row that always fits the screen */
 function stLayout() {
   const A = stArena(), wins = stWins(), ids = new Set(wins.map((w) => w.id));
+  ST.nodes = ST.nodes.filter((n) => !n.rail || ids.has(n.win));                                   // a wire from the history column goes with its window
   for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: back on the shelf
   for (const w of wins) if (w.links) w.links = w.links.filter((l) => ids.has(l.from) && l.from !== w.id);
-  const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win);
+  const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win && !n.rail);
   const units = [];                                 // 所有对话 live in the sidebar (the rail), not on the stage
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
-  for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_WW, open: true }); }
+  for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_WW, open: true }); }
   // what is folded becomes horizontal tabs; folded neighbours share one stack of tabs
   const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
   const room = A.w - 2 * ST_PADX, fi = Math.max(0, wins.findIndex((w) => w.id === ST.focus));
@@ -127,12 +128,15 @@ function stRender() {
       if (!u.hide) runs.add(u.run); continue;
     }
     const zh = (A.h - 16) / 3;                    // three bands, each beside its input
+    const ax = u.kind === "col" ? units.find((x) => x.kind === "win" && x.win === u.win)?.x ?? u.x : u.x;   // what a moved card keeps its place against
     zones.forEach((zn, zi) => {
       const ch = Math.max(46, Math.min(ST_CH, (zh - 10) / Math.max(1, zn.length) - 8)), tot = zn.length * (ch + 8) - 8;
       let y = 8 + zi * zh + Math.max(4, (zh - tot) / 2);
       for (const n of zn) { const e = el(n); e.classList.remove("tab"); e.classList.toggle("short", ch < 66); e.classList.toggle("shelved", u.kind === "shelf");
-        const yy = n.fy == null ? y : Math.max(4, Math.min(A.h - ch - 4, n.fy * A.h));    // where you put it, if you moved it up or down
-        place(e, u.x, yy, ST_CW, ch); pos.set(n.id, { x: u.x, y: yy, w: ST_CW, h: ch, zone: zi, win: u.win?.id }); y += ch + 8; }
+        const yy = n.fy == null ? y : Math.max(4, Math.min(A.h - ch - 4, n.fy * A.h));    // where you put it, if you moved it
+        const xx = n.fx == null ? u.x : Math.max(0, Math.min(A.w - ST_CW, ax + n.fx));
+        e.classList.toggle("moved", n.fx != null);
+        place(e, xx, yy, ST_CW, ch); pos.set(n.id, { x: xx, y: yy, w: ST_CW, h: ch, zone: zi, win: u.win?.id }); y += ch + 8; }
     });
     if (u.kind === "shelf") barHtml += `<div class="stshelf" style="left:${u.x - 4}px;width:${ST_CW + 8}px;height:${A.h - 8}px"><em>${L("未连接", "Unwired")}</em></div>`;
   }
@@ -154,8 +158,8 @@ function stWires() {                              // each card into the input of
   const svg = $("#stwires"); if (!svg || !ST.pos) return; let h = "";
   for (const n of ST.nodes) {
     if (n.type === "win" || !n.win) continue; const p = ST.pos.get(n.id), w = ST.pos.get(n.win); if (!p || !w || ST.drag?.n === n) continue;
-    const x0 = p.x + p.w, y0 = p.y + p.h / 2;
-    h += `<path class="stwire z${p.zone}" d="${stCurve(x0, y0, w.x, stPinY(w, p.zone))}"/><circle class="stball z${p.zone}" cx="${x0}" cy="${y0}" r="5"/>`;
+    const right = p.x + p.w / 2 > w.x + 24, x0 = right ? p.x : p.x + p.w, y0 = p.y + p.h / 2;
+    h += `<path class="stwire z${p.zone}" d="${right ? `M ${x0} ${y0} C ${x0 - 60} ${y0}, ${w.x - 60} ${stPinY(w, p.zone)}, ${w.x} ${stPinY(w, p.zone)}` : stCurve(x0, y0, w.x, stPinY(w, p.zone))}"/><circle class="stball z${p.zone}" cx="${x0}" cy="${y0}" r="5"/>`;
   }
   for (const b of stWins()) for (const l of b.links || []) {
     const a = ST.pos.get(l.from), t = ST.pos.get(b.id); if (!a || !t) continue;
@@ -164,6 +168,7 @@ function stWires() {                              // each card into the input of
   }
   const g = ST.wire; if (g) h += `<path class="stwire tmp z${g.pin}" d="${g.back ? stCurve(g.x, g.y, g.x0, g.y0) : stCurve(g.x0, g.y0, g.x, g.y)}"/><circle class="stball z${g.pin}" cx="${g.x}" cy="${g.y}" r="5"/>`;
   svg.innerHTML = h;
+  stOver();
 }
 function stFrame(n, el) {
   const q = new URLSearchParams({ view: "chats", embed: "1" });
@@ -191,34 +196,74 @@ function stHold(f, n) {                          // inside a conversation: press
 }
 
 
-/* ------------------------------------------------ 所有对话 are the sidebar: on the stage a click opens one as a window,
-   a drag (past a few pixels, so a click is never taken for one) puts it beside a window as a wired-in reference */
-function stRailGrab(e, key) {
-  const x = recentItems().find((y) => y.item === key); if (!x) return;
-  const n = { id: stId(), type: "conv", key, title: x.title, win: null, fresh: true }; ST.nodes.push(n); stRender();
-  const el = document.querySelector(`.stnode[data-nid="${n.id}"]`), r = $("#starena").getBoundingClientRect();
-  el.hidden = false; el.classList.remove("tab"); el.style.left = e.clientX - r.left - ST_CW / 2 + "px"; el.style.top = e.clientY - r.top - ST_CH / 2 + "px"; el.style.width = ST_CW + "px"; el.style.height = ST_CH + "px";
-  stGrab(n, e.screenX, e.screenY); ST.drag.fromList = true; ST.drag.moved = true;
+/* ------------------------------------------------ 所有对话 are the sidebar: on the stage it is a tight column of every past
+   conversation, newest first. A click opens one as a window; pulling from it draws a wire into the window you drop it on
+   (anywhere else on the stage: the one you are on) — it becomes that window's conversation reference. Wired ones show
+   their wire from the column to the window; the dot at a row's end toggles its wire into the window you are on. */
+function stRailNode(key, win) {
+  const have = ST.nodes.find((n) => n.rail && n.key === key && n.win === win);
+  if (have) return null;
+  const x = recentItems().find((y) => y.item === key);
+  const n = { id: stId(), type: "conv", key, title: x?.title || key, win, rail: true }; ST.nodes.push(n); return n;
+}
+function stRailToggle(key) {
+  const win = ST.focus || stWins()[0]?.id; if (!win) return;
+  const have = ST.nodes.find((n) => n.rail && n.key === key && n.win === win);
+  if (have) ST.nodes = ST.nodes.filter((n) => n !== have); else stRailNode(key, win);
+  stRender(); stSave(); stContexts();
+}
+function stRailRow(key) { return [...document.querySelectorAll("#clist [data-ritem]")].find((r) => r.dataset.ritem === key); }
+function stRailMarks() {                        // which rows are open as windows, and which are wired into one
+  if (S.view !== "stage") return;
+  const open = new Set(stWins().map((w) => w.key)), wired = new Set(ST.nodes.filter((n) => n.rail).map((n) => n.key));
+  document.querySelectorAll("#clist [data-ritem]").forEach((r) => { r.classList.toggle("stopen", open.has(r.dataset.ritem)); r.classList.toggle("stwired", wired.has(r.dataset.ritem)); });
+}
+function stOver() {                              // the wires from the history column to the windows, drawn over the whole app
+  let svg = $("#stover");
+  if (!svg) { document.body.insertAdjacentHTML("beforeend", `<svg id="stover" class="stover"></svg>`); svg = $("#stover"); }
+  if (S.view !== "stage") { svg.innerHTML = ""; return; }
+  stRailMarks();
+  const list = $("#clist .rlist")?.getBoundingClientRect(), ar = $("#starena")?.getBoundingClientRect(); if (!list || !ar) { svg.innerHTML = ""; return; }
+  let h = "";
+  const from = (key) => { const r = stRailRow(key)?.getBoundingClientRect(); if (!r) return null;
+    const y = Math.max(list.top + 4, Math.min(list.bottom - 4, r.top + r.height / 2)); return { x: r.right - 9, y, out: y !== r.top + r.height / 2 }; };
+  for (const n of ST.nodes) {
+    if (!n.rail) continue; const a = from(n.key), w = ST.pos?.get(n.win); if (!a || !w) continue;
+    const x1 = ar.left + w.x, y1 = ar.top + stPinY(w, 0), d = stCurve(a.x, a.y, x1, y1);
+    h += `<path class="stwire z0 ${a.out ? "faint" : ""}" d="${d}"/><path class="sthit" d="${d}" data-unrail="${n.id}"><title>${esc(stTitle(n.key))} · ${L("点一下断开", "click to cut")}</title></path>`;
+  }
+  const g = ST.rw; if (g) h += `<path class="stwire tmp z0" d="${stCurve(g.x0, g.y0, g.x, g.y)}"/><circle class="stball z0" cx="${g.x}" cy="${g.y}" r="5"/>`;
+  svg.innerHTML = h;
 }
 document.addEventListener("pointerdown", (e) => {
   if (S.view !== "stage" || e.button !== 0) return;
   const it = e.target.closest("#clist [data-ritem]"); if (!it) return;
-  ST.rp = { key: it.dataset.ritem, x: e.clientX, y: e.clientY, card: false };
+  const r = it.getBoundingClientRect();
+  ST.rp = { key: it.dataset.ritem, x: e.clientX, y: e.clientY, pin: e.clientX > r.right - 26, wire: false };
 }, true);
 document.addEventListener("pointermove", (e) => {
   const p = ST.rp; if (!p) return;
-  if (!p.card) { if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return; p.card = true; window.getSelection()?.removeAllRanges(); stRailGrab(e, p.key); return; }
-  e.preventDefault(); if (ST.drag) { const r = $("#starena").getBoundingClientRect(), d = ST.drag;
-    d.el.style.left = e.clientX - r.left - ST_CW / 2 + "px"; d.el.style.top = e.clientY - r.top - ST_CH / 2 + "px"; stWires(); }
+  if (!p.wire) { if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
+    p.wire = true; window.getSelection()?.removeAllRanges(); const r = stRailRow(p.key)?.getBoundingClientRect();
+    ST.rw = { x0: r ? r.right - 9 : p.x, y0: r ? r.top + r.height / 2 : p.y, x: e.clientX, y: e.clientY }; $("#vStage").classList.add("dragging", "wiring"); }
+  e.preventDefault(); ST.rw.x = e.clientX; ST.rw.y = e.clientY; stOver();
 }, true);
 document.addEventListener("pointerup", (e) => {
   const p = ST.rp; if (!p) return; ST.rp = null; ST.rpClick = true;
-  if (p.card) stDrop(); else stOpen(p.key);
+  if (!p.wire) { if (p.pin) stRailToggle(p.key); else stOpen(p.key); return; }
+  ST.rw = null; $("#vStage").classList.remove("dragging", "wiring");
+  const hit = document.elementsFromPoint(e.clientX, e.clientY), ar = $("#starena").getBoundingClientRect();
+  const w = hit.map((x) => x.closest?.(".stnode.t-win")?.dataset.nid || x.closest?.(".sttab.win")?.dataset.stunfold).find(Boolean)
+    || (e.clientX > ar.left && e.clientX < ar.right && e.clientY > ar.top && e.clientY < ar.bottom ? ST.focus || stWins()[0]?.id : null);
+  if (w && stWins().some((x) => x.id === w && x.key !== p.key)) { stRailNode(p.key, w); stRender(); stSave(); stContexts(); } else stOver();
 }, true);
 document.addEventListener("click", (e) => {                     // the sidebar's own click (open in the chats page) is not wanted here
   if (ST.rpClick && e.target.closest("#clist [data-ritem]")) { e.stopPropagation(); e.preventDefault(); }
   ST.rpClick = false;
+  const cut = e.target.closest?.("[data-unrail]"); if (cut) { ST.nodes = ST.nodes.filter((n) => n.id !== cut.dataset.unrail); stRender(); stSave(); stContexts(); }
 }, true);
+document.addEventListener("scroll", () => { if (S.view === "stage") requestAnimationFrame(stOver); }, true);
+window.addEventListener("resize", () => { if (S.view === "stage") requestAnimationFrame(stOver); });
 
 /* the side panel inside a window: the conversation page's own right panel (environment, context, world tree) */
 function stSide(n) {
@@ -266,15 +311,15 @@ function stSettle(d) {                             // a window let go: it takes 
 }
 function stDrop(sx) {
   const d = ST.drag; ST.drag = null; $("#vStage").classList.remove("dragging"); if (!d) return null; d.el.classList.remove("held");
-  if (d.moved && d.n.type !== "win") {          // whose column is it over: that window's (or the window itself); the shelf unwires it
-    const r = $("#starena").getBoundingClientRect(), cx = parseFloat(d.el.style.left) + ST_CW / 2;
-    let best = null, bd = Infinity;
-    for (const u of ST.units || []) { if (u.hide || u.x == null || (d.fromList && u.kind === "shelf")) continue;
-      const w = u.open ? u.w : ST_TAB, c = u.x + w / 2, dd = cx >= u.x && cx <= u.x + w && u.kind === "win" ? -1 : Math.abs(cx - c);   // over a window: that one
-      if (dd < bd) { bd = dd; best = u; } }
-    d.n.win = !best || ["shelf", "list"].includes(best.kind) ? null : best.win.id;
-    d.n.fy = parseFloat(d.el.style.top) / stArena().h;                                   // it stays at the height you dropped it
-    if (d.fromList && !d.n.win) ST.nodes = ST.nodes.filter((x) => x !== d.n);         // put back into the list: nothing made
+  if (d.moved && d.n.type !== "win") {          // it stays where you put it; dropped onto another window it is wired into that one
+    const A = stArena(), left = parseFloat(d.el.style.left), top = parseFloat(d.el.style.top), cx = left + ST_CW / 2;
+    const over = (ST.units || []).find((u) => u.kind === "win" && !u.hide && u.x != null && cx >= u.x && cx <= u.x + (u.open ? u.w : ST_TAB));
+    if (over && over.win.id !== d.n.win) { d.n.win = over.win.id; delete d.n.fx; delete d.n.fy; }
+    else if (over) { delete d.n.fx; delete d.n.fy; }                         // onto its own window: back beside it
+    else {
+      const u = (ST.units || []).find((x) => (d.n.win ? x.kind === "win" && x.win.id === d.n.win : x.kind === "shelf"));
+      d.n.fx = left - (u?.x ?? 0); d.n.fy = top / A.h;
+    }
   }
   if (d.n.type === "win") stSettle(d);
   if (d.fromList && !d.moved) { ST.nodes = ST.nodes.filter((x) => x !== d.n); stRender(); stOpen(d.n.key); return null; }
@@ -312,16 +357,23 @@ function stNodeText(n) {
   if (n.type === "skill") return `Skill «${n.title}» — follow it where it applies:\n${(n.body || n.sub || "").slice(0, 8000)}`;
   if (n.type === "doc") return `Document «${n.title}»: ${n.sub || ""}`;
   if (n.type === "file") return `File: ${n.path || n.title}`;
-  if (n.type === "conv") return `Another conversation of the user, «${n.title || stTitle(n.key)}»: ${n.sub || ""}`;
+  if (n.type === "conv") return stConvText(n.key, n.title || stTitle(n.key)) || `Another conversation of the user, «${n.title || stTitle(n.key)}»: ${n.sub || ""}`;
   if (n.type === "topic") return `World-tree topic «${n.title}»: ${n.sub || ""}`;
   return "";
 }
 ST.lt = {};                                       // what another window hands over through a wire, fetched once per conversation
+function stConvData(key) {                       // what a conversation asked and used, fetched once
+  const c = ST.lt[key]; if (c === undefined) { ST.lt[key] = null; api(`/v1/users/${S.uid}/chats/${encodeURIComponent(key)}/context`).then((r) => { ST.lt[key] = r; stContexts(); }).catch(() => { delete ST.lt[key]; }); }
+  return c || null;
+}
+function stConvText(key, t) {
+  const c = stConvData(key); if (!c) return "";
+  return `Another conversation of the user, «${t}». What was asked there:\n` + (c.questions || []).slice(-15).map((q) => `- ${String(q.text || "").slice(0, 300)}`).join("\n");
+}
 function stLinkText(l) {
   const a = ST.nodes.find((x) => x.id === l.from); if (!a?.key) return "";
-  const c = ST.lt[a.key]; if (c === undefined) { ST.lt[a.key] = null; api(`/v1/users/${S.uid}/chats/${encodeURIComponent(a.key)}/context`).then((r) => { ST.lt[a.key] = r; stContexts(); }).catch(() => { delete ST.lt[a.key]; }); return ""; }
-  if (!c) return ""; const t = stTitle(a.key), x = c.context || {};
-  if (l.pin === 0) return `Another conversation of the user, «${t}». What was asked there:\n` + (c.questions || []).slice(-15).map((q) => `- ${String(q.text || "").slice(0, 300)}`).join("\n");
+  const c = stConvData(a.key); if (!c) return ""; const t = stTitle(a.key), x = c.context || {};
+  if (l.pin === 0) return stConvText(a.key, t);
   if (l.pin === 1) return `What the conversation «${t}» worked with:\n` + [x.topic && `topic: ${x.topic.title}`, x.attachments?.length && `attachments: ${x.attachments.join(", ")}`, x.read?.length && `read: ${x.read.join(", ")}`, x.changed?.length && `changed: ${x.changed.join(", ")}`, x.web?.length && `web: ${x.web.join(", ")}`, x.datasets?.length && `datasets: ${x.datasets.map((d) => d.title).join(", ")}`].filter(Boolean).join("\n");
   return `Skills and tools the conversation «${t}» used: ${[...(x.skills || []), ...(x.tools || [])].join(", ") || "none"}`;
 }
@@ -501,7 +553,8 @@ show = function (view, opts) {
 const _showBK = show;
 show = function (view, opts) {
   if (view !== "stage" && S.view === "stage" && !Q.get("embed")) ST.back = { focus: ST.focus };
-  const r = _showBK(view, opts); stBackBtn(view); return r;
+  const r = _showBK(view, opts); stBackBtn(view);
+  document.querySelector(".app")?.classList.toggle("onstage", view === "stage"); stOver?.(); return r;
 };
 function stBackBtn(view) {
   document.querySelector("#stBack")?.remove();
@@ -523,5 +576,7 @@ if (Q.get("embed") && window.parent !== window) {   // inside a window: 全图 a
     } catch {}
   }, true);
 }
+const _renderTimelineST = renderTimeline;
+renderTimeline = function (...a) { const r = _renderTimelineST(...a); if (S.view === "stage") requestAnimationFrame(stOver); return r; };
 const _renderRailST = renderRail;
 renderRail = function () { _renderRailST(); $("#toStage")?.classList.toggle("on", S.view === "stage"); $("#toChatsPage")?.classList.toggle("on", S.view === "chats"); };

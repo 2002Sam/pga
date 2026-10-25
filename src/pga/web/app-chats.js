@@ -431,7 +431,7 @@ function renderChat() {
     ${attsHtml()}<div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
       ${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
       ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
-      <button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
+      <span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></span></div></div>`;
   autoGrow($("#chatText"));
   const box2 = $("#cdlg"); if (S.sending || S.scrollChat) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); }
 }
