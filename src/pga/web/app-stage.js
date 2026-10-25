@@ -53,38 +53,38 @@ function stDefault() {                            // one window, the latest conv
 }
 
 /* ------------------------------------------------ the layout: a row that always fits the screen */
+const ST_MINW = 420;                                // the least a page gets while several share the stage
+const stDock = (n) => ["world", "self"].includes(n.type) && n.fx == null;    // world and self knowledge live in the 所有对话 panel
+function stPanel() {                                // 所有对话: a panel of its own — docked at the left of the row, or wherever you dragged it
+  if (!ST.lp) { try { ST.lp = JSON.parse(localStorage.getItem("pga_st_lp") || "null"); } catch {} ST.lp = ST.lp || {}; }
+  return ST.lp;
+}
 function stLayout() {
   const A = stArena(), all = stWins(), ids = new Set(all.map((w) => w.id)), wins = all.filter((w) => !w.mini);   // small pages float, outside the row
   ST.nodes = ST.nodes.filter((n) => !n.rail || ids.has(n.win));                                   // a wire from the history column goes with its window
-  for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: back on the shelf
+  for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: unwired
   for (const w of wins) if (w.links) w.links = w.links.filter((l) => ids.has(l.from) && l.from !== w.id);
-  const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win && !n.rail);
-  const units = [{ kind: "list", w: ST_LW, open: true }];      // 所有对话: an element of the stage, shown unless there is no room
+  const lp = stPanel(), lw = Math.max(200, Math.min(A.w - 60, lp.w || 240));
+  const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win && !n.rail && !stDock(n));
+  const units = lp.free ? [] : [{ kind: "list", w: lw, open: true }];
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
-  for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_WW, open: true }); }
-  // what is folded becomes horizontal tabs; folded neighbours share one stack of tabs
+  for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail && !stDock(n)); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_MINW, open: true, flex: !w.bw }); }
+  // what is folded becomes horizontal tabs; folded neighbours share one stack of tabs. Pages you did not size share what is left.
   const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
   const room = A.w - 2 * ST_PADX, fi = Math.max(0, wins.findIndex((w) => w.id === ST.focus));
-  // too wide: fold the shelf, then the other windows' columns, then the other windows, farthest from the one you are on first
   const fold = (pred) => { for (const u of units.filter(pred)) { if (width() <= room) return; u.open = false; } };
-  if (width() > room) fold((u) => u.kind === "shelf");
-  if (width() > room) fold((u) => u.kind === "col" && u.win.id !== ST.focus);
   const dist = (u) => Math.abs(wins.indexOf(u.win) - fi);
   const foldWin = (u) => { u.open = false; const c = units.find((x) => x.kind === "col" && x.win === u.win); if (c) c.hide = true; };
-  const big = (u) => u.kind === "win" && u.open && !u.win.mini;
-  const on = units.find((u) => big(u) && u.win.id === ST.focus) || units.find(big);
-  const shrink = (min) => { if (on && !on.win.bw && width() > room) on.w = Math.max(min, on.w - (width() - room)); };
-  // too wide: the other big windows fold first (farthest first), then the column you are on, then the window you are on narrows,
-  // then the list folds, and last the window narrows to its least
-  for (const u of units.filter((x) => x.kind === "win" && x.win.id !== ST.focus && !x.win.mini).sort((a, b) => dist(b) - dist(a))) { if (width() <= room) break; foldWin(u); }
-  if (ST.listFold) units[0].open = false;                                  // you folded it
+  // too wide even at their least: the shelf folds, then the other pages' columns, then the other pages (farthest first), then yours
+  if (width() > room) fold((u) => u.kind === "shelf");
+  if (width() > room) fold((u) => u.kind === "col" && u.win.id !== ST.focus);
+  for (const u of units.filter((x) => x.kind === "win" && x.win.id !== ST.focus).sort((a, b) => dist(b) - dist(a))) { if (width() <= room) break; foldWin(u); }
   if (width() > room) fold((u) => u.kind === "col");
-  shrink(420);                                                             // the list stays as long as it can
-  if (width() > room && !ST.listPin) fold((u) => u.kind === "list");
   if (ST.rz?.open) for (const u of units) { const k = u.kind + (u.win?.id || ""); if (ST.rz.open.has(k)) u.open = ST.rz.open.get(k); }   // nothing folds or unfolds mid-pull
-  const fw = units.find((u) => big(u) && u.win.id === ST.focus && !u.win.bw) || units.find((u) => big(u) && !u.win.bw && !units.some((x) => big(x) && x.win.id === ST.focus));
-  if (fw && width() < room) fw.w += room - width();           // the window you are on takes the rest of the space, unless you sized it
-  if (on && width() > room) on.w = Math.max(360, on.w - (width() - room));   // still too wide: it gives way, so nothing ends off screen
+  const flex = units.filter((u) => u.kind === "win" && u.open && u.flex);
+  if (flex.length && width() < room) { const add = (room - width()) / flex.length; for (const u of flex) u.w += add; }   // the pages share the rest
+  const on = units.find((u) => u.kind === "win" && u.open && u.win.id === ST.focus) || units.find((u) => u.kind === "win" && u.open);
+  if (on && width() > room) on.w = Math.max(360, on.w - (width() - room));   // still too wide: yours gives way, so nothing ends off screen
   const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
   let x = ST_PADX + off;
   let run = null;
@@ -123,7 +123,7 @@ function stRender() {
   const place = (e, x, y, w, h, show = true) => { e.dataset.r = rid; if (e === held?.el) return; e.style.left = x + "px"; e.style.top = y + "px"; e.style.width = w + "px"; e.style.height = h + "px"; e.hidden = !show; };
   let barHtml = ""; const pos = new Map(), runs = new Set();
   for (const u of units) {
-    if (u.kind === "list") { stList(u, A); if (!u.hide && !u.open) { u.run.tabs.push({ html: (y) => `<div class="sttab list" style="left:${u.x}px;top:${y}px;width:${ST_TAB}px;height:${ST_TH}px" data-stunfold="list"><span>☰ ${L("所有对话", "All conversations")}</span></div>` }); runs.add(u.run); } continue; }
+    if (u.kind === "list") continue;              // the panel is drawn after the row, docked here
     if (u.kind === "win") {
       const e = el(u.win); u.win.el = e;
       if (u.hide || !u.open) { place(e, -9999, 0, u.w, A.h, false); if (!u.hide) { const t = stTitle(u.win.key);
@@ -143,13 +143,22 @@ function stRender() {
     zones.forEach((zn, zi) => {
       const ch = Math.max(46, Math.min(ST_CH, (zh - 10) / Math.max(1, zn.length) - 8)), tot = zn.length * (ch + 8) - 8;
       let y = 8 + zi * zh + Math.max(4, (zh - tot) / 2);
-      for (const n of zn) { const e = el(n); e.classList.remove("tab"); e.classList.toggle("short", ch < 66); e.classList.toggle("shelved", u.kind === "shelf");
+      for (const n of zn) { const e = el(n); e.classList.remove("tab", "docked"); e.classList.toggle("short", ch < 66); e.classList.toggle("shelved", u.kind === "shelf");
         const yy = n.fy == null ? y : Math.max(4, Math.min(A.h - ch - 4, n.fy * A.h));    // where you put it, if you moved it
         const xx = n.fx == null ? u.x : Math.max(0, Math.min(A.w - ST_CW, ax + n.fx));
         e.classList.toggle("moved", n.fx != null);
         place(e, xx, yy, ST_CW, ch); pos.set(n.id, { x: xx, y: yy, w: ST_CW, h: ch, zone: zi, win: u.win?.id }); y += ch + 8; }
     });
     if (u.kind === "shelf") barHtml += `<div class="stshelf" style="left:${u.x - 4}px;width:${ST_CW + 8}px;height:${A.h - 8}px"><em>${L("未连接", "Unwired")}</em></div>`;
+  }
+  {                                                // 所有对话, with world and self knowledge in its lower part
+    const lp = stPanel(), lu = units.find((u) => u.kind === "list"), w = lu ? lu.w : Math.max(200, Math.min(A.w - 60, lp.w || 240));
+    const dock = ST.nodes.filter(stDock), ch = 58, kh = dock.length ? 22 + dock.length * (ch + 8) : 0;
+    let h = Math.max(lp.min ? 44 + kh : 200 + kh, Math.min(A.h - 16, lp.h || A.h - 16)); if (lp.min) h = 44 + kh;
+    const x = lu ? lu.x : Math.max(0, Math.min(A.w - w, (lp.fx ?? 0) * A.w)), y = Math.max(0, Math.min(A.h - h, lp.fy == null ? 8 : lp.fy * A.h));
+    stList({ x, y, w, h, kh, min: !!lp.min, free: !!lp.free }, A);
+    dock.forEach((n, i) => { const e = el(n); e.classList.remove("tab", "short", "moved"); e.classList.add("docked"); e.classList.toggle("shelved", !n.win);
+      const cy = y + h - kh + 18 + i * (ch + 8); place(e, x + 8, cy, w - 16, ch); pos.set(n.id, { x: x + 8, y: cy, w: w - 16, h: ch, zone: ST_PIN(n), win: n.win }); });
   }
   let k = 0;                                       // small pages: where you left them, else stacked in the lower right corner
   for (const w of stWins().filter((x) => x.mini)) {
@@ -221,19 +230,24 @@ function stHold(f, n) {                          // inside a conversation: press
    conversation, newest first. A click opens one as a window; pulling from it draws a wire into the window you drop it on
    (anywhere else on the stage: the one you are on) — it becomes that window's conversation reference. Wired ones show
    their wire from the column to the window; the dot at a row's end toggles its wire into the window you are on. */
-function stList(u, A) {
+function stList(g, A) {
   let box = $("#stlist");
   if (!box) {
-    $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist"><div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb" data-stlistfold title="${L("收起成标签", "Fold into a tab")}">«</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div></aside>`);
+    $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="lrz lrz-${d}" data-lrz="${d}"></i>`).join("")}
+      <div class="stlh" title="${L("按住拖动；拖到最左边会停靠回去", "Hold to move; drop it at the far left to dock it again")}"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
+      <button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <div class="stlk" id="stlk"><em>${L("知识", "Knowledge")}</em></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
   }
-  box.hidden = !u.open || !!u.hide; if (box.hidden) return;
-  box.style.left = u.x + "px"; box.style.top = "8px"; box.style.width = u.w + "px"; box.style.height = A.h - 16 + "px";
+  box.hidden = false; box.classList.toggle("min", g.min); box.classList.toggle("free", g.free);
+  Object.assign(box.style, { left: g.x + "px", top: g.y + "px", width: g.w + "px", height: g.h + "px" }); box.style.setProperty("--kh", g.kh + "px");
+  $("#stlk").hidden = !g.kh;
+  const mb = box.querySelector("[data-stlistmin]"); if (mb) mb.textContent = g.min ? "▭" : "–";
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
   if (box.dataset.sig !== sig) { box.dataset.sig = sig; stListItems(); }
 }
+function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
 function stListItems() {                           // every past conversation, newest first, one tight row each
   const box = $("#stli"); if (!box) return;
   const keep = box.scrollTop, q = ST.q || "", xs = recentItems().filter((x) => !q || (x.title || "").toLowerCase().includes(q));
@@ -292,13 +306,23 @@ document.addEventListener("pointerdown", (e) => {
 }, true);
 document.addEventListener("pointermove", (e) => {
   const p = ST.rp; if (!p) return;
-  if (!p.wire) { if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
-    p.wire = true; window.getSelection()?.removeAllRanges(); const r = stRailRow(p.key)?.getBoundingClientRect();
-    ST.rw = { x0: r ? r.right - 9 : p.x, y0: r ? r.top + r.height / 2 : p.y, x: e.clientX, y: e.clientY }; $("#vStage").classList.add("dragging", "wiring"); }
-  e.preventDefault(); ST.rw.x = e.clientX; ST.rw.y = e.clientY; stOver();
+  if (!p.wire && !p.page) { if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 8) return;
+    window.getSelection()?.removeAllRanges(); const r = stRailRow(p.key)?.getBoundingClientRect();
+    if (p.pin) { p.wire = true; ST.rw = { x0: r ? r.right - 9 : p.x, y0: r ? r.top + r.height / 2 : p.y, x: e.clientX, y: e.clientY }; $("#vStage").classList.add("dragging", "wiring"); }
+    else {                                         // the row itself: the conversation comes out as a page, where you let go
+      p.page = true; $("#vStage").classList.add("dragging");
+      document.body.insertAdjacentHTML("beforeend", `<div class="stghost" id="stghost"><b>${esc(stTitle(p.key).slice(0, 40))}</b><span>${L("松手打开成页面", "Let go to open it as a page")}</span></div>`);
+    } }
+  e.preventDefault();
+  if (p.page) { const g = $("#stghost"); if (g) { g.style.left = e.clientX - 20 + "px"; g.style.top = e.clientY - 18 + "px"; } return; }
+  ST.rw.x = e.clientX; ST.rw.y = e.clientY; stOver();
 }, true);
 document.addEventListener("pointerup", (e) => {
   const p = ST.rp; if (!p) return; ST.rp = null; ST.rpClick = true;
+  if (p.page) { $("#stghost")?.remove(); $("#vStage").classList.remove("dragging");
+    const ar = $("#starena").getBoundingClientRect(), inPanel = e.target.closest?.("#stlist") || document.elementsFromPoint(e.clientX, e.clientY).some((x) => x.id === "stlist");
+    if (!inPanel && e.clientX > ar.left && e.clientX < ar.right && e.clientY > ar.top && e.clientY < ar.bottom) stOpenAt(p.key, e.clientX - ar.left);
+    return; }
   if (!p.wire) { if (p.pin) stRailToggle(p.key); else stOpen(p.key); return; }
   ST.rw = null; $("#vStage").classList.remove("dragging", "wiring");
   const hit = document.elementsFromPoint(e.clientX, e.clientY), ar = $("#starena").getBoundingClientRect();
@@ -452,6 +476,13 @@ function stOpen(key, at) {
   document.querySelector(`.stnode[data-nid="${n.id}"]`)?.animate?.([{ opacity: 0, transform: "scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 260 });
   return n;
 }
+function stOpenAt(key, x) {                         // a page opened where you dropped it: among the others by where it landed
+  const centres = (ST.units || []).filter((u) => u.kind === "win" && !u.hide && u.x != null).map((u) => ({ w: u.win, c: u.x + (u.open ? u.w : ST_TAB) / 2 }));
+  const n = stOpen(key); n.mini = false;
+  const rest = stWins().filter((w) => w !== n && !w.mini), at = rest.filter((w) => (centres.find((c) => c.w === w)?.c ?? -1) < x).length;
+  rest.splice(at, 0, n); rest.forEach((o, i) => { o.ord = i; });
+  ST.focus = n.id; stRender(); stSave();
+}
 function stFocus(id, render) { if (ST.focus === id && !render) return; ST.focus = id; if (render) stRender(); else document.querySelectorAll(".stnode.t-win").forEach((el) => el.classList.toggle("focus", el.dataset.nid === id)); }
 function stMiniLook(e, mini) {
   e.classList.toggle("mini", mini);
@@ -526,6 +557,12 @@ function stBind() {
   arena.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return; document.querySelector(".stmenu")?.remove();
     const pin = e.target.closest(".stin, .stout, .stpin"); if (pin && stWireStart(e, pin)) { stCap(e); return; }
+    const lz = e.target.closest("[data-lrz]"), lh = !lz && e.target.closest("#stlist .stlh") && !e.target.closest("button");
+    if (lz || lh) {                                 // the 所有对话 panel: pulled by an edge or corner, or moved by its head
+      e.preventDefault(); window.getSelection()?.removeAllRanges();
+      const b = $("#stlist"), r = arena.getBoundingClientRect(), g = b.getBoundingClientRect();
+      ST.lmove = { d: lz?.dataset.lrz || null, x: e.clientX, y: e.clientY, l0: g.left - r.left, t0: g.top - r.top, w0: g.width, h0: g.height };
+      v.classList.add("dragging", lz ? "resizing" : "moving"); stCap(e); return; }
     const rz = e.target.closest("[data-rz]");
     if (rz) { e.preventDefault(); window.getSelection()?.removeAllRanges();     // no selecting the page while you pull an edge
       const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid), el = rz.closest(".stnode"), l = parseFloat(el.style.left);
@@ -540,6 +577,15 @@ function stBind() {
     if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); stCap(e);
   });
   arena.addEventListener("pointermove", (e) => {
+    if (ST.lmove) { const m = ST.lmove, lp = stPanel(), A = stArena(), dx = e.clientX - m.x, dy = e.clientY - m.y;
+      if (!m.d) { lp.free = true; lp.fx = Math.max(0, Math.min(A.w - m.w0, m.l0 + dx)) / A.w; lp.fy = Math.max(0, Math.min(A.h - m.h0, m.t0 + dy)) / A.h; }
+      else {
+        if (m.d.includes("e") || m.d.includes("w")) { const w = Math.max(200, Math.min(A.w - 60, m.w0 + (m.d.includes("e") ? dx : -dx))); lp.w = w;
+          if (lp.free && m.d.includes("w")) lp.fx = (m.l0 + m.w0 - w) / A.w; }
+        if (m.d.includes("n") || m.d.includes("s")) { const h = Math.max(160, Math.min(A.h, m.h0 + (m.d.includes("s") ? dy : -dy))); lp.h = h;
+          lp.fy = (m.d.includes("n") ? m.t0 + m.h0 - h : m.t0) / A.h; }
+      }
+      stRender(); return; }
     if (ST.rz) { const r = ST.rz, dx = e.clientX - r.x, dy = e.clientY - r.y, A = stArena();
       if (r.n.mini) {                                // a small page: any edge or corner, the opposite one staying put
         if (r.d.includes("e") || r.d.includes("w")) { const w = Math.round(Math.max(200, Math.min(A.w - 16, r.w0 + (r.d.includes("e") ? dx : -dx))));
@@ -558,6 +604,9 @@ function stBind() {
     if (ST.drag) stDragTo(e.screenX, e.screenY);
   });
   arena.addEventListener("pointerup", (e) => {
+    if (ST.lmove) { const m = ST.lmove, lp = stPanel(); ST.lmove = null; v.classList.remove("dragging", "resizing", "moving");
+      if (!m.d && (lp.fx ?? 1) * stArena().w < 24) { lp.free = false; delete lp.fx; }     // dropped at the far left: docked again
+      stPanelSave(); stRender(); return; }
     if (ST.wire) { stWireEnd(e.clientX, e.clientY); return; }
     if (ST.rz) { ST.rz = null; v.classList.remove("dragging", "resizing"); stSave(); return; }
     const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
@@ -570,8 +619,8 @@ document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;
   if (!e.target.closest(".stmenu")) document.querySelector(".stmenu")?.remove();
   const add = e.target.closest("[data-stadd]"); if (add) { const m = add.closest(".stmenu"), at = JSON.parse(m.dataset.at); m.remove(); stAdd(add.dataset.stadd, at); return; }
-  if (e.target.closest("[data-stlistfold]")) { ST.listFold = true; ST.listPin = false; stRender(); return; }
-  const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "list") { ST.listFold = false; ST.listPin = true; stRender(); return; } if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
+  if (e.target.closest("[data-stlistmin]")) { const lp = stPanel(); lp.min = !lp.min; stPanelSave(); stRender(); return; }
+  const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
   const cut = e.target.closest("[data-unlink]"); if (cut) { const [to, from, pin] = cut.dataset.unlink.split("|"), w = ST.nodes.find((x) => x.id === to); if (w) w.links = (w.links || []).filter((l) => !(l.from === from && l.pin === Number(pin))); stRender(); stSave(); stContexts(); return; }
   const del = e.target.closest("[data-stdel]"); if (del) { ST.nodes = ST.nodes.filter((x) => x.id !== del.dataset.stdel); stRender(); stSave(); stContexts(); return; }
   const w = e.target.closest("[data-stw]"); if (w) { const n = ST.nodes.find((x) => x.id === w.closest(".stnode").dataset.nid); if (!n) return;

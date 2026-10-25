@@ -995,3 +995,21 @@ html.embed .ccomp .cbar .ctool { width: 28px; height: 28px; } html.embed .ccomp 
 #vStage.resizing, #vStage.resizing * { cursor: grabbing !important; }
 .stnode.mini { z-index: 6; } .stnode.mini.held { z-index: 20; }
 .stnode.mini > .stwin { box-shadow: 0 16px 44px rgba(0,0,0,.45); }
+/* the 所有对话 panel: moves by its head, pulls from any edge or corner; world and self knowledge sit in its lower part */
+#stlist { grid-template-rows: auto auto minmax(0, 1fr) var(--kh, 0px); transition: none; }
+#stlist .stlh { cursor: grab; user-select: none; } #vStage.moving, #vStage.moving * { cursor: grabbing !important; }
+#stlist.min { grid-template-rows: auto var(--kh, 0px); } #stlist.min #stlq, #stlist.min .stli { display: none; }
+#stlist.free { box-shadow: 0 18px 50px rgba(0,0,0,.35); z-index: 4; }
+#stlist .stlk { border-top: 1px solid var(--line); padding: 6px 2px 0; } #stlist .stlk em { font-style: normal; font-size: 10.5px; color: var(--dim); }
+#stlist .stlk[hidden] { display: none; }
+.lrz { position: absolute; z-index: 6; } .lrz:hover { background: color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 4px; }
+.lrz-e { right: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; } .lrz-w { left: 0; top: 14px; bottom: 14px; width: 7px; cursor: ew-resize; }
+.lrz-n { top: 0; left: 14px; right: 14px; height: 5px; cursor: ns-resize; } .lrz-s { bottom: 0; left: 14px; right: 14px; height: 7px; cursor: ns-resize; }
+.lrz-ne, .lrz-nw, .lrz-se, .lrz-sw { width: 14px; height: 14px; } .lrz-ne { top: 0; right: 0; cursor: nesw-resize; } .lrz-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.lrz-nw { top: 0; left: 0; cursor: nwse-resize; } .lrz-se { bottom: 0; right: 0; cursor: nwse-resize; }
+.stnode.docked { z-index: 5; } .stnode.docked > .stcard { padding: 6px 10px; } .stnode.docked > .stcard > span { -webkit-line-clamp: 1; }
+.stnode.docked .stx { display: none; }
+#stlist .ritem { cursor: grab; }
+.stghost { position: fixed; z-index: 90; pointer-events: none; display: grid; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--panel); border: 1px solid var(--accent);
+  box-shadow: 0 16px 40px rgba(0,0,0,.35); max-width: 280px; } .stghost b { font-size: 13px; font-weight: 500; } .stghost span { font-size: 11px; color: var(--dim); }
+.stnode.docked .stk { display: none; } .stnode.docked > .stcard { gap: 1px; align-content: center; }
