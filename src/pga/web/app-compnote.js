@@ -1,51 +1,75 @@
 /* 输入框 (the composer) moves:
-   - its grip drags it up and down inside the conversation; the conversation's text ends right above it and moves with it;
+   - its grip drags it up and down through the conversation: it settles between two messages, the text before it stays
+     above and the rest flows on tightly below it — the words themselves do not move while you drag;
    - dragged out of the page, it becomes a 随记 (note) of its own, floating over the whole app: move it by its head, size
      it from its corner. A note shows either all you have asked in this conversation as one document (the others faint,
      the one you pick in full, your draft last) or just the text you are writing. What you send from it goes to its
      conversation; 放回 puts the composer back where it was. */
 
-const CM = { off: (() => { try { return JSON.parse(localStorage.getItem("pga_comp_off") || "{}"); } catch { return {}; } })() };
+const CM = { at: (() => { try { return JSON.parse(localStorage.getItem("pga_comp_at") || "{}"); } catch { return {}; } })() };
 const cmKey = () => S.chat || (S.imp ? `c:${S.imp.cid}` : null);
 const cmHost = () => { try { if (window.parent !== window && window.parent.cnOpen) return window.parent; } catch {} return window; };
 function cmNotes() { try { return JSON.parse(localStorage.getItem("pga_cn") || "{}"); } catch { return {}; } }
 function cmSaveNotes(x) { try { localStorage.setItem("pga_cn", JSON.stringify(x)); } catch {} }
+const cmBlocks = () => [...($("#cdlgIn")?.children || [])].filter((x) => !x.classList.contains("cslot") && x.offsetHeight > 0);
 
-/* ------------------------------------------------ inside a conversation: the grip, the offset, out of the page */
+/* ------------------------------------------------ inside a conversation: the grip, its place between messages, out of the page */
 function cmApply() {
-  const k = cmKey(), off = (k && CM.off[k]) || 0, v = $("#vChats"); if (!v) return;
-  v.style.setProperty("--compy", off + "px");
+  const k = cmKey(); if (!$("#vChats")) return;
   const out = !!(k && cmNotes()[k]?.open); document.documentElement.classList.toggle("compout", out);
   const inner = $("#ccomp > .inner");
-  if (inner && !inner.querySelector(".cgrip")) inner.insertAdjacentHTML("afterbegin", `<div class="cgrip" title="${L("上下拖动输入框；拖出页面，它就成了一张悬浮的随记", "Drag the composer up or down; drag it out of the page and it becomes a floating note")}"><i></i></div>`);
+  if (inner && !inner.querySelector(".cgrip")) inner.insertAdjacentHTML("afterbegin", `<div class="cgrip" title="${L("上下拖动输入框，放到两段对话之间；拖出页面，它就成了一张悬浮的随记", "Drag the composer between two messages; drag it out of the page and it becomes a floating note")}"><i></i></div>`);
   if (out) { const h = cmHost(); try { if (!h.document.querySelector(`.cnote[data-cn="${CSS.escape(k)}"]`)) h.cnOpen({ key: k, title: cmTitle(), src: window }); else h.cnSrc?.(k, window); } catch {} }
-  if (!$("#cback")) $("#cdlg")?.insertAdjacentHTML("afterend", `<button class="sm cback" id="cback">${L("↩ 放回输入框", "↩ Put the composer back")}</button>`);
+  if (!$("#cback")) $(".cpane")?.insertAdjacentHTML("beforeend", `<div class="cback" id="cback"><span>${L("输入框在随记里", "The composer is in a note")}</span><button class="sm" data-cmback>${L("↩ 放回这里", "↩ Put it back here")}</button></div>`);
+  cmPlace(k && !out ? CM.at[k] : null);
+}
+function cmPlace(at) {                             // between messages: an empty slot in the text the composer sits on
+  const box = $("#cdlgIn"), comp = $("#ccomp"); if (!box || !comp) return;
+  let slot = box.querySelector(".cslot");
+  if (at == null) { slot?.remove(); document.documentElement.classList.remove("cinline"); comp.style.top = ""; return; }
+  const bs = cmBlocks(); at = Math.max(0, Math.min(bs.length, at));
+  if (!slot) { slot = document.createElement("div"); slot.className = "cslot"; }
+  if (at >= bs.length) box.appendChild(slot); else if (bs[at] !== slot.nextElementSibling) box.insertBefore(slot, bs[at]);
+  document.documentElement.classList.add("cinline");
+  slot.style.height = comp.offsetHeight + 16 + "px";
+  cmFollow();
+}
+function cmFollow() {                              // the composer rides on its slot as the conversation scrolls (kept within view)
+  const slot = $("#cdlgIn .cslot"), comp = $("#ccomp"), dlg = $("#cdlg"), pane = $(".cpane"); if (!slot || !comp || !dlg || !pane) return;
+  const p = pane.getBoundingClientRect(), d = dlg.getBoundingClientRect(), s = slot.getBoundingClientRect();
+  const top = Math.max(d.top, Math.min(d.bottom - comp.offsetHeight, s.top + 8));
+  comp.style.top = top - p.top + "px";
 }
 const cmTitle = () => (S.chat ? (S.chats || []).find((c) => c.key === S.chat)?.title : S.impData?.title) || $("#chead h1")?.textContent || "";
 const _renderChatCM = renderChat;
 renderChat = function (...a) { const r = _renderChatCM(...a); try { cmApply(); } catch {} return r; };
+document.addEventListener("scroll", (e) => { if (e.target?.id === "cdlg") cmFollow(); }, true);
+window.addEventListener("resize", () => { const k = cmKey(); if (k && CM.at[k] != null) cmPlace(CM.at[k]); });
 
 document.addEventListener("pointerdown", (e) => {
   const g = e.target.closest(".cgrip"); if (!g || e.button !== 0) return;
-  e.preventDefault(); const k = cmKey(), dlg = $("#cdlg");
-  CM.drag = { y: e.clientY, off0: (k && CM.off[k]) || 0, k, bottom: dlg ? dlg.scrollHeight - dlg.scrollTop - dlg.clientHeight < 40 : true };
+  e.preventDefault(); CM.drag = { k: cmKey() };
   try { g.setPointerCapture(e.pointerId); } catch {}
   document.documentElement.classList.add("cmoving");
 });
 document.addEventListener("pointermove", (e) => {
   const d = CM.drag; if (!d) return;
-  const pane = $(".cpane")?.getBoundingClientRect(), comp = $("#ccomp")?.getBoundingClientRect(); if (!pane || !comp) return;
+  const pane = $(".cpane")?.getBoundingClientRect(), dlg = $("#cdlg"); if (!pane || !dlg) return;
   if (e.clientX < pane.left - 30 || e.clientX > pane.right + 30 || e.clientY < pane.top - 30 || e.clientY > pane.bottom + 30) {   // out of the page
     CM.drag = null; document.documentElement.classList.remove("cmoving"); cmDetach(e); return; }
-  const max = Math.max(0, pane.height - comp.height - 90), off = Math.max(0, Math.min(max, d.off0 + d.y - e.clientY));
-  const dlg = $("#cdlg"), prev = d.k ? CM.off[d.k] || 0 : d.prev || 0; d.prev = off;
-  if (d.k) CM.off[d.k] = off; $("#vChats").style.setProperty("--compy", off + "px");
-  if (d.bottom) dlg.scrollTop = dlg.scrollHeight;                                      // the latest words stay right above it
-  else dlg.scrollTop += off - prev;                                                     // the words move with it
+  const r = dlg.getBoundingClientRect();
+  if (e.clientY < r.top + 30) dlg.scrollTop -= 14; else if (e.clientY > r.bottom - 30 && e.clientY < r.bottom + 10) dlg.scrollTop += 14;   // near an edge: it scrolls
+  let at = null;
+  if (e.clientY < r.bottom - 24) {                 // the gap between messages nearest to the pointer
+    const bs = cmBlocks(); at = bs.length;
+    for (let i = 0; i < bs.length; i++) { const b = bs[i].getBoundingClientRect(); if (e.clientY < b.top + b.height / 2) { at = i; break; } }
+  }
+  if (d.k) { if (at == null) delete CM.at[d.k]; else CM.at[d.k] = at; }
+  cmPlace(at);
 });
 document.addEventListener("pointerup", () => {
   if (!CM.drag) return; CM.drag = null; document.documentElement.classList.remove("cmoving");
-  try { localStorage.setItem("pga_comp_off", JSON.stringify(CM.off)); } catch {}
+  try { localStorage.setItem("pga_comp_at", JSON.stringify(CM.at)); } catch {}
 });
 function cmDetach(e) {
   const k = cmKey(); if (!k) { toast(L("先发一句，这段对话有了名字再拿出来", "Send something first, so the conversation has a name")); return; }
@@ -56,7 +80,7 @@ function cmDetach(e) {
   try { h.cnOpen({ key: k, title: cmTitle(), src: window }); } catch {}
 }
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#cback")) { const k = cmKey(); if (k) { try { cmHost().cnClose(k); } catch { const ns = cmNotes(); delete ns[k]; cmSaveNotes(ns); } } document.documentElement.classList.remove("compout"); }
+  if (e.target.closest("[data-cmback]")) { const k = cmKey(); if (k) { try { cmHost().cnClose(k); } catch { const ns = cmNotes(); delete ns[k]; cmSaveNotes(ns); } } document.documentElement.classList.remove("compout"); cmApply(); }
 });
 document.addEventListener("change", (e) => { const c = e.target.closest("#impResume"); if (c) c.closest(".impchip")?.classList.toggle("on", c.checked); });
 

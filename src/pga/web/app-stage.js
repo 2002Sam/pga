@@ -53,7 +53,7 @@ function stDefault() {                            // one window, the latest conv
 }
 
 /* ------------------------------------------------ the layout: a row that always fits the screen */
-const ST_MINW = 420;                                // the least a page gets while several share the stage
+const ST_MINW = 380;                                // the least a page gets while several share the stage
 const stDock = (n) => ["world", "self"].includes(n.type) && n.fx == null;    // world and self knowledge live in the 所有对话 panel
 function stPanel() {                                // 所有对话: a panel of its own — docked at the left of the row, or wherever you dragged it
   if (!ST.lp) { try { ST.lp = JSON.parse(localStorage.getItem("pga_st_lp") || "null"); } catch {} ST.lp = ST.lp || {}; }
@@ -180,7 +180,8 @@ function stRender() {
   bars.innerHTML = barHtml;
   box.querySelectorAll(".stnode").forEach((e) => { if (e.dataset.r !== String(rid) && e !== held?.el) e.hidden = true; });   // cards of a small page wait unseen
   ST.pos = pos; ST.units = units;
-  stWires();
+  if (ST.drag?.others && ST.drag.moved && ST.drag.lx != null) stDragTo(ST.drag.lx, ST.drag.ly);   // redrawn mid-drag: the squeeze stays
+  else stWires();
 }
 const stPinY = (w, i) => (w.tab ? w.y + w.h / 2 : w.y + w.h * (i * 2 + 1) / 6);
 const stCurve = (x0, y0, x1, y1) => { const k = Math.max(40, Math.abs(x1 - x0) / 2); return `M ${x0} ${y0} C ${x0 + k} ${y0}, ${x1 - k} ${y1}, ${x1} ${y1}`; };
@@ -351,33 +352,46 @@ function stGrab(n, sx, sy) {
   if (n.type === "win" && !n.mini) {                // where everything else stands now: they make way from here
     const mine = new Set([n.id, ...ST.nodes.filter((x) => x.win === n.id).map((x) => x.id)]);
     ST.drag.others = [...document.querySelectorAll("#stnodes > .stnode, #stbars > .sttab")].filter((x) => !x.hidden && !mine.has(x.dataset.nid))
-      .map((x) => ({ el: x, x: parseFloat(x.style.left), w: x.offsetWidth, win: x.classList.contains("t-win") ? x.dataset.nid : x.dataset.stunfold }));
+      .map((x) => ({ el: x, x: parseFloat(x.style.left), w: x.offsetWidth, win: x.classList.contains("t-win") ? x.dataset.nid : x.dataset.stunfold,
+        page: x.classList.contains("t-win") && !x.classList.contains("mini") }));
   }
 }
 function stDragTo(sx, sy) {
   const d = ST.drag; if (!d) return;
-  if (Math.hypot(sx - d.sx, sy - d.sy) > 4) d.moved = true;
+  if (Math.hypot(sx - d.sx, sy - d.sy) > 4) d.moved = true; d.lx = sx; d.ly = sy;
   const A = stArena(), w = d.el.offsetWidth;
   const big = d.n.type === "win" && !d.n.mini, lo = big ? -w * 0.6 : 0, hi = big ? A.w - w * 0.4 : A.w - w;   // a big window may hang over the edge while it moves
   const l = Math.max(lo, Math.min(hi, d.l0 + sx - d.sx)); d.el.style.left = l + "px";
   if (d.n.type !== "win" || d.n.mini) d.el.style.top = Math.max(0, Math.min(A.h - d.el.offsetHeight, d.t0 + sy - d.sy)) + "px";
   if (big) {
-    const room = w + ST_GAP;                       // once it passes the middle of something, that slides over to the place it left
+    const room = w + ST_GAP, G = ST_GAP, MIN = 56;
     for (const o of d.others || []) {
-      const dx = o.x > d.l0 ? (l + w > o.x + o.w / 2 ? -room : 0) : (l < o.x + o.w / 2 ? room : 0);
+      if (o.page) {                                // another page is squeezed narrower as you move into it; once you are all the way
+        const right = o.x > d.l0;                  // past it, the two trade places and it takes the room you left, at full width
+        o.swap = right ? l + w >= o.x + o.w : l <= o.x;
+        let a, b;
+        if (right) [a, b] = o.swap ? [d.l0, l - G] : [l + w + G, o.x + o.w];
+        else [a, b] = o.swap ? [l + w + G, d.l0 + w] : [o.x, l - G];
+        if (b - a < MIN) { if (right !== o.swap) a = b - MIN; else b = a + MIN; }
+        o.cx = a; o.el.style.left = a + "px"; o.el.style.width = b - a + "px";
+        const p = ST.pos?.get(o.win); if (p) { p.x = a; p.w = b - a; }
+        continue;
+      }
+      const dx = o.x > d.l0 ? (l + w > o.x + o.w / 2 ? -room : 0) : (l < o.x + o.w / 2 ? room : 0);   // tabs and cards slide over at once
       if (dx !== o.dx) { o.dx = dx; o.el.style.transform = dx ? `translateX(${dx}px)` : ""; }
     }
     const me = ST.pos?.get(d.n.id);                // its wired cards come along, keeping their place beside it
     if (me) { const dx = l - me.x; me.x = l;
-      for (const n of ST.nodes) { if (n.win !== d.n.id) continue; const p = ST.pos.get(n.id), e = document.querySelector(`.stnode[data-nid="${n.id}"]`); if (!p || !e || e.hidden) continue; p.x += dx; e.style.left = p.x + "px"; } }
-    for (const o of d.others || []) { const p = ST.pos?.get(o.el.dataset.nid || o.win); if (p) p.x = o.x + (o.dx || 0); }   // wires follow them
+      for (const n of ST.nodes) { if (n.win !== d.n.id || stDock(n) || n.rail) continue; const p = ST.pos.get(n.id), e = document.querySelector(`.stnode[data-nid="${n.id}"]`); if (!p || !e || e.hidden) continue; p.x += dx; e.style.left = p.x + "px"; } }
+    for (const o of d.others || []) { if (o.page) continue; const p = ST.pos?.get(o.el.dataset.nid || o.win); if (p) p.x = o.x + (o.dx || 0); }   // wires follow them
   }
   stWires();
 }
-function stSettle(d) {                             // a window let go: it takes the place among the windows where it was dropped
+function stSettle(d) {                             // a page let go: the order changes only with the pages it went all the way past
   const cx = parseFloat(d.el.style.left) + d.el.offsetWidth / 2, wins = stWins();
   const centre = new Map();
-  for (const o of d.others || []) if (o.win && wins.some((x) => x.id === o.win) && !centre.has(o.win)) centre.set(o.win, o.x + o.w / 2);
+  for (const o of d.others || []) if (o.win && wins.some((x) => x.id === o.win) && !centre.has(o.win))
+    centre.set(o.win, o.page ? (o.swap ? (o.x > d.l0 ? -Infinity : Infinity) : (o.x > d.l0 ? Infinity : -Infinity)) : o.x + o.w / 2);
   const rest = wins.filter((x) => x !== d.n), at = rest.filter((x) => centre.has(x.id) ? centre.get(x.id) < cx : wins.indexOf(x) < wins.indexOf(d.n)).length;
   rest.splice(at, 0, d.n); rest.forEach((o, k) => { o.ord = k; });
   for (const o of d.others || []) o.el.style.transform = "";
