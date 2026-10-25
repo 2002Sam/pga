@@ -939,7 +939,6 @@ html.embed.eside .cact .ecard { padding: 8px 10px; } html.embed.eside .cact .ero
 /* the stage: no selecting text while something is pulled or moved; wider edges to pull; neighbours slide aside */
 body:has(#vStage.dragging) * { user-select: none !important; -webkit-user-select: none !important; }
 .stnode > .stwin .rz-e, .stnode > .stwin .rz-w { width: 12px; } .stnode > .stwin .rz-e { right: -6px; } .stnode > .stwin .rz-w { left: -6px; }
-#vStage.resizing, #vStage.resizing * { cursor: ew-resize !important; }
 .stnode, .sttab { transition: left .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1), width .28s, height .28s, transform .22s cubic-bezier(.2,.8,.2,1); }
 .stnode.held { transition: none; }
 #vStage.resizing .stnode { transition: none; }
@@ -951,15 +950,13 @@ body:has(#vStage.dragging) * { user-select: none !important; -webkit-user-select
 .pvh { display: flex; align-items: center; gap: 8px; font-size: 13px; } .pvh .cvdim { font-size: 12px; }
 .pvt { white-space: pre-wrap; margin: 0; font: inherit; font-size: 13px; line-height: 1.6; max-height: 260px; overflow: auto; }
 /* the stage: the sidebar is a tight column of past conversations, each with a dot to wire it into the window you are on */
-.app.onstage .rlist { padding: 0 4px 10px; }
-.app.onstage .rgrp { padding: 8px 8px 2px; font-size: 10.5px; }
-.app.onstage .ritem { position: relative; display: flex; align-items: center; gap: 6px; padding: 3px 26px 3px 8px; border-radius: 6px; min-height: 24px; cursor: grab; user-select: none; }
-.app.onstage .ritem b { font-size: 12.5px; flex: 1; min-width: 0; } .app.onstage .ritem span { display: none; }
-.app.onstage .ritem::after { content: ""; position: absolute; right: 5px; top: 50%; width: 9px; height: 9px; margin-top: -5.5px; border-radius: 50%;
+#stlist .ritem { position: relative; display: flex; align-items: center; gap: 6px; padding: 3px 26px 3px 8px; border-radius: 6px; min-height: 24px; cursor: grab; user-select: none; }
+#stlist .ritem b { font-size: 12.5px; flex: 1; min-width: 0; } #stlist .ritem span { display: none; }
+#stlist .ritem::after { content: ""; position: absolute; right: 5px; top: 50%; width: 9px; height: 9px; margin-top: -5.5px; border-radius: 50%;
   border: 2px solid color-mix(in srgb, #8fb4ff 55%, transparent); background: var(--rail); cursor: crosshair; transition: transform .12s; }
-.app.onstage .ritem:hover::after { transform: scale(1.3); border-color: #8fb4ff; }
-.app.onstage .ritem.stwired::after { background: #8fb4ff; border-color: #8fb4ff; }
-.app.onstage .ritem.stopen b { color: var(--accent); }
+#stlist .ritem:hover::after { transform: scale(1.3); border-color: #8fb4ff; }
+#stlist .ritem.stwired::after { background: #8fb4ff; border-color: #8fb4ff; }
+#stlist .ritem.stopen b { color: var(--accent); }
 .stover { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 40; overflow: visible; }
 .stover .stwire.faint { opacity: .45; stroke-dasharray: 3 6; }
 .stnode.moved > .stcard { box-shadow: 0 10px 26px rgba(0,0,0,.32); }
@@ -975,3 +972,26 @@ html.embed .envbar { flex-wrap: nowrap; overflow: hidden; white-space: nowrap; m
 html.embed .ccomp .cbar .ctool { width: 28px; height: 28px; } html.embed .ccomp .cbar select { max-width: 96px; min-width: 0; }
 .sendg { display: inline-flex; align-items: center; gap: 6px; flex: none; }
 @media (max-width: 520px) { html.embed .ccomp .cbar .kpick { display: none; } html.embed .ccomp .cbar #chatAgent { max-width: 76px; } }
+
+/* 所有对话 as an element of the stage (the sidebar keeps only the way around) */
+.app.onstage .rail .clist { display: none; }
+#stlist { position: absolute; z-index: 2; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 6px; padding: 8px 6px 8px 8px; transition: left .28s cubic-bezier(.2,.8,.2,1); }
+#stlist[hidden] { display: none; } #stlist .stlh { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 0 2px; } #stlist .stlh em { font-style: normal; font-size: 11px; }
+#stlq { font-size: 12px; padding: 5px 8px; } #stlist .stli { overflow: auto; min-height: 0; padding-right: 2px; }
+#stlist .rgrp { padding: 8px 6px 2px; font-size: 10.5px; color: var(--dim); }
+.sttab.list { background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
+/* a small page: the window shrunk (–), its whole page scaled to fit; every edge and corner pulls */
+.stnode.mini > .stwin { overflow: hidden; border-radius: 10px; }
+.stnode.mini > .stwin > iframe { width: calc(100% / var(--sc, 1)); height: calc(100% / var(--sc, 1)); transform: scale(var(--sc, 1)); transform-origin: 0 0; border-radius: 0; }
+.stnode.mini .stwh { padding: 3px 4px 3px 9px; gap: 3px; } .stnode.mini .stwt { font-size: 11.5px; } .stnode.mini .stctxn { display: none; }
+.stnode.mini .stb { width: 22px; height: 22px; font-size: 11px; padding: 0; }
+.stnode > .stwin .rz-n, .stnode > .stwin .rz-s, .stnode > .stwin .rz-ne, .stnode > .stwin .rz-nw, .stnode > .stwin .rz-se, .stnode > .stwin .rz-sw { display: none; }
+.stnode.mini > .stwin .rz { display: block; position: absolute; z-index: 6; }
+.stnode.mini > .stwin .rz-e { right: 0; top: 14px; bottom: 14px; width: 8px; } .stnode.mini > .stwin .rz-w { left: 0; top: 14px; bottom: 14px; width: 8px; }
+.stnode.mini > .stwin .rz-n { top: 0; left: 14px; right: 14px; height: 5px; cursor: ns-resize; } .stnode.mini > .stwin .rz-s { bottom: 0; left: 14px; right: 14px; height: 8px; cursor: ns-resize; }
+.stnode.mini > .stwin .rz-ne, .stnode.mini > .stwin .rz-nw, .stnode.mini > .stwin .rz-se, .stnode.mini > .stwin .rz-sw { width: 14px; height: 14px; }
+.stnode.mini > .stwin .rz-ne { top: 0; right: 0; cursor: nesw-resize; } .stnode.mini > .stwin .rz-sw { bottom: 0; left: 0; cursor: nesw-resize; }
+.stnode.mini > .stwin .rz-nw { top: 0; left: 0; cursor: nwse-resize; } .stnode.mini > .stwin .rz-se { bottom: 0; right: 0; cursor: nwse-resize; }
+#vStage.resizing, #vStage.resizing * { cursor: grabbing !important; }
+.stnode.mini { z-index: 6; } .stnode.mini.held { z-index: 20; }
+.stnode.mini > .stwin { box-shadow: 0 16px 44px rgba(0,0,0,.45); }
