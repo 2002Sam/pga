@@ -223,7 +223,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.get("/", include_in_schema=False)
     def web_app() -> FileResponse:
         """PGA: the trees as bars on the left; a tree beside its dialogue; everyday chats; the two models and the library."""
-        return FileResponse(WEB / "app.html")
+        return FileResponse(WEB / "app.html", headers={"Cache-Control": "no-cache"})   # windows on the stage load it too: never a stale copy
 
     # the pages before the forest, kept as they were (the old workbench embeds the old sky as its map)
     @app.get("/archive/console", include_in_schema=False)
