@@ -1022,29 +1022,23 @@ html.compout .cpane > .cback { display: flex; grid-row: 3; align-items: center; 
 .cgrip { width: 70px; height: 14px; margin: -8px auto 2px; display: grid; place-items: center; cursor: ns-resize; touch-action: none; }
 .cgrip i { width: 38px; height: 4px; border-radius: 2px; background: var(--line-2); transition: background .15s; } .cgrip:hover i { background: var(--accent); }
 html.cmoving, html.cmoving * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
-/* 随记: the composer out of its page, floating over the app */
-.cnote { position: fixed; z-index: 70; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; resize: both; overflow: hidden; min-width: 260px; min-height: 200px; padding: 0;
-  box-shadow: 0 22px 60px rgba(0,0,0,.4); border: 1px solid var(--line-2); }
-.cnh { display: flex; align-items: center; gap: 6px; padding: 7px 8px 7px 12px; cursor: grab; border-bottom: 1px solid var(--line); font-size: 13px; user-select: none; }
-.cnh .cnt { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.cnh .seg button { height: 24px; font-size: 11.5px; padding: 0 8px; } .cnh .seg button.on { color: var(--accent); }
-.cnb { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
-.cnote:not(.doc) .cndoc { display: none; } .cnote:not(.doc) .cnb { grid-template-rows: minmax(0, 1fr); } .cnote:not(.doc) .cntx { height: 100%; border-top: 0; }
-.cndoc { overflow: auto; padding: 10px 14px; min-height: 0; }
+/* 随记: the composer out of its page, floating over the app — the same box as the composer in a page */
+.cnote { position: fixed; z-index: 70; display: flex; resize: both; overflow: hidden; min-width: 300px; min-height: 130px; padding: 0 !important; border: 0 !important; background: transparent !important; }
+.cnote > .inner { flex: 1; max-width: none; margin: 0; min-height: 0; display: grid; grid-template-rows: auto 0 minmax(44px, 1fr) auto; box-shadow: 0 22px 60px rgba(0,0,0,.4); }
+.cnote.doc > .inner { grid-template-rows: auto minmax(0, 1fr) minmax(44px, 30%) auto; }
+.cnh { width: 70px; height: 14px; margin: -6px auto 2px; display: grid; place-items: center; cursor: grab; touch-action: none; user-select: none; }
+.cnh i { width: 38px; height: 4px; border-radius: 2px; background: var(--line-2); transition: background .15s; } .cnh:hover i { background: var(--accent); }
+.cnote .cntx { order: 0; width: 100%; height: 100%; max-height: none; min-height: 44px; resize: none; padding: 8px 6px !important; box-sizing: border-box; color: var(--text); }
+.cnote .cbar { flex-wrap: nowrap; align-items: center; gap: 6px; margin-top: 4px; min-width: 0; }
+.cnote .cbar .ctool { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border-radius: 10px; flex: none; } .cnote .cbar .ctool.on { color: var(--accent); }
+.cnote .cnt { font-size: 11.5px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; } .cnote .cnhint { font-size: 11px; flex: none; }
+.cndoc { overflow: auto; min-height: 0; } .cnote:not(.doc) .cndoc { display: none; } .cnote.doc .cndoc { padding: 4px 6px 8px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .cnp { opacity: .3; margin: 0 0 10px; line-height: 1.65; font-size: 13px; cursor: pointer; white-space: pre-wrap; transition: opacity .15s; } .cnp:hover { opacity: .6; }
 .cnp.sel { opacity: 1; margin: 14px 0; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--soft); border-radius: 8px; }
-.cntx { display: block; width: 100%; box-sizing: border-box; height: 120px; border: 0; border-top: 1px solid var(--line); resize: none; padding: 10px 14px; font: inherit; font-size: 13.5px; line-height: 1.6; background: transparent; color: var(--text); outline: none; }
-.cnf { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line); font-size: 11.5px; }
 /* carrying on an imported conversation: one row — tools, resume chip, agent, ✨, carry on */
 .impchip { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line-2); font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; user-select: none; }
 .impchip input { display: none; } .impchip.on { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .impchip em { font-style: normal; font-size: 11px; color: var(--dim); }
-.cnote { background: var(--panel); color: var(--text); border-radius: 14px; }
-.cnh b { flex: none; white-space: nowrap; } .cnh .cnt { flex: 1 1 auto; }
-.cnh .seg { display: inline-flex; flex: none; border: 1px solid var(--line-2); border-radius: 8px; overflow: hidden; }
-.cnh .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); cursor: pointer; }
-.cnh .seg button.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
-.cnh [data-cnback] { flex: none; }
 /* carrying on an imported conversation: the resume choice keeps its own row under the tools, in one quiet line */
 .ccomp .impmode { display: flex; align-items: baseline; gap: 8px; margin: 6px 2px 0; font-size: 12px; color: var(--muted); cursor: pointer; min-width: 0; }
 .ccomp .impmode input { margin: 0; transform: translateY(1px); flex: none; } .ccomp .impmode b { font-weight: 500; white-space: nowrap; flex: none; }

@@ -2,9 +2,9 @@
    - its grip drags it up and down through the conversation: it settles between two messages, the text before it stays
      above and the rest flows on tightly below it — the words themselves do not move while you drag;
    - dragged out of the page, it becomes a 随记 (note) of its own, floating over the whole app: move it by its head, size
-     it from its corner. A note shows either all you have asked in this conversation as one document (the others faint,
-     the one you pick in full, your draft last) or just the text you are writing. What you send from it goes to its
-     conversation; 放回 puts the composer back where it was. */
+     it from its corner. It keeps the composer's look (the same box, text and send button); ☰ unfolds all you have asked
+     in this conversation as one document (the others faint, the one you pick in full). What you send from it goes to its
+     conversation; ↩ puts the composer back where it was. */
 
 const CM = { at: (() => { try { return JSON.parse(localStorage.getItem("pga_comp_at") || "{}"); } catch { return {}; } })() };
 const cmKey = () => S.chat || (S.imp ? `c:${S.imp.cid}` : null);
@@ -93,34 +93,35 @@ function cnClose(key) {
   try { CN.src[key]?.document.documentElement.classList.remove("compout"); } catch {}
   delete CN.src[key];
 }
-function cnOpen({ key, title, src }) {
+function cnOpen({ key, title, src }) {             // it keeps the composer's own look: the same box, the text, the send button
   CN.src[key] = src;
   let el = document.querySelector(`.cnote[data-cn="${CSS.escape(key)}"]`);
-  const st = cmNotes()[key] || {}, mode = st.mode || "doc";
+  const st = cmNotes()[key] || {};
   if (!el) {
-    document.body.insertAdjacentHTML("beforeend", `<div class="cnote card" data-cn="${esc(key)}"><div class="cnh"><b>${L("随记", "Note")}</b><span class="cnt"></span><span class="grow"></span>
-      <span class="seg"><button data-cnmode="doc">${L("全部输入", "All I asked")}</button><button data-cnmode="text">${L("文字", "Text")}</button></span>
-      <button class="sm ghost" data-cnback title="${L("放回对话里的输入框", "Back into the conversation")}">↩</button></div>
-      <div class="cnb"><div class="cndoc"></div><textarea class="cntx" placeholder="${L("写下要说的，或者随手记…（⌘↵ 发送到这段对话）", "Write what to say, or a note… (⌘↵ sends it to this conversation)")}"></textarea></div>
-      <div class="cnf"><span class="dimt cnhint"></span><span class="grow"></span><button class="sm primary" data-cnsend>${L("发送", "Send")}</button></div></div>`);
+    document.body.insertAdjacentHTML("beforeend", `<div class="cnote cont" data-cn="${esc(key)}"><div class="inner">
+      <div class="cnh" title="${L("按住拖动", "Hold to move")}"><i></i></div>
+      <div class="cndoc"></div>
+      <textarea class="cntx" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}"></textarea>
+      <div class="cbar"><button class="ghost ctool" data-cndoc title="${L("展开 / 收起你在这段对话里问过的全部内容", "Show / hide everything you asked in this conversation")}">☰</button><span class="cnt"></span><span class="dimt cnhint"></span>
+        <span class="grow"></span><button class="ghost ctool" data-cnback title="${L("放回对话里", "Back into the conversation")}">↩</button><span class="sendg"><button class="primary" data-cnsend>${L("发送", "Send")}</button></span></div></div></div>`);
     el = document.querySelector(`.cnote[data-cn="${CSS.escape(key)}"]`);
-    Object.assign(el.style, { left: (st.x ?? 120) + "px", top: (st.y ?? 120) + "px", width: (st.w || 380) + "px", height: (st.h || 420) + "px" });
+    Object.assign(el.style, { left: (st.x ?? 120) + "px", top: (st.y ?? 120) + "px", width: (st.w || 520) + "px", height: (st.h || 168) + "px" });
     const tx = el.querySelector(".cntx");
     try { tx.value = src.document.querySelector("#chatText")?.value || st.text || ""; } catch { tx.value = st.text || ""; }
     tx.addEventListener("input", () => { try { const t = CN.src[key]?.document.querySelector("#chatText"); if (t) t.value = tx.value; } catch {} const ns = cmNotes(); if (ns[key]) { ns[key].text = tx.value; cmSaveNotes(ns); } });
-    tx.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); cnSend(key); } });
+    tx.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); cnSend(key); } });
     new ResizeObserver(() => { const ns = cmNotes(); if (ns[key]) { ns[key].w = el.offsetWidth; ns[key].h = el.offsetHeight; cmSaveNotes(ns); } }).observe(el);
   }
   const t = typeof stTitle === "function" ? stTitle(key) : title;          // on the stage it knows every conversation's name
-  el.querySelector(".cnt").textContent = t ? `· ${String(t).slice(0, 30)}` : "";
-  cnMode(key, mode);
+  el.querySelector(".cnt").textContent = t ? String(t).slice(0, 30) : ""; el.querySelector(".cnh").title = (t ? t + " · " : "") + L("按住拖动", "Hold to move");
+  cnShowDoc(key, !!st.doc);
   return el;
 }
-function cnMode(key, mode) {
+function cnShowDoc(key, on) {                       // what you asked here, as one document: folded away unless you open it
   const el = document.querySelector(`.cnote[data-cn="${CSS.escape(key)}"]`); if (!el) return;
-  el.classList.toggle("doc", mode === "doc"); el.querySelectorAll("[data-cnmode]").forEach((b) => b.classList.toggle("on", b.dataset.cnmode === mode));
-  const ns = cmNotes(); ns[key] = { ...(ns[key] || {}), open: true, mode }; cmSaveNotes(ns);
-  if (mode === "doc") cnDoc(key);
+  el.classList.toggle("doc", on); el.querySelector("[data-cndoc]")?.classList.toggle("on", on);
+  const ns = cmNotes(); ns[key] = { ...(ns[key] || {}), open: true, doc: on }; delete ns[key].mode; cmSaveNotes(ns);
+  if (on) { if (el.offsetHeight < 320) el.style.height = "360px"; cnDoc(key); } else el.querySelector(".cnhint").textContent = "";
 }
 async function cnDoc(key, fresh) {                 // everything you asked here, as one document
   const el = document.querySelector(`.cnote[data-cn="${CSS.escape(key)}"]`); if (!el) return;
@@ -141,12 +142,12 @@ function cnSend(key) {
     const d = w.document, t = d.querySelector("#chatText"); t.value = text;
     (d.querySelector("#chatSend") || d.querySelector("#impSend")).click();
     tx.value = ""; const ns = cmNotes(); if (ns[key]) { ns[key].text = ""; cmSaveNotes(ns); }
-    setTimeout(() => cnDoc(key, true), 1500);
+    setTimeout(() => { if (el.classList.contains("doc")) cnDoc(key, true); else delete CN.q[key]; }, 1500);
   } catch { toast(L("这段对话的页面没开着：先把它打开", "The conversation is not open: open it first")); }
 }
 document.addEventListener("click", (e) => {
   const n = e.target.closest(".cnote"); if (!n) return; const key = n.dataset.cn;
-  const m = e.target.closest("[data-cnmode]"); if (m) { cnMode(key, m.dataset.cnmode); return; }
+  if (e.target.closest("[data-cndoc]")) { cnShowDoc(key, !n.classList.contains("doc")); return; }
   if (e.target.closest("[data-cnback]")) { cnClose(key); return; }
   if (e.target.closest("[data-cnsend]")) { cnSend(key); return; }
   const p = e.target.closest("[data-cnp]"); if (p) { CN.sel = { ...(CN.sel || {}), [key]: Number(p.dataset.cnp) }; cnDoc(key); }
@@ -156,7 +157,7 @@ document.addEventListener("dblclick", (e) => {
   tx.value = (CN.q[n.dataset.cn] || [])[Number(p.dataset.cnp)]?.text || ""; tx.dispatchEvent(new Event("input")); tx.focus();
 });
 document.addEventListener("pointerdown", (e) => {                 // a note moves by its head
-  const h = e.target.closest(".cnote .cnh"); if (!h || e.target.closest("button") || e.button !== 0) return;
+  const h = e.target.closest(".cnote .cnh") || (e.target.matches?.(".cnote > .inner, .cnote .cbar") ? e.target : null); if (!h || e.target.closest("button") || e.button !== 0) return;
   const n = h.closest(".cnote"); e.preventDefault();
   CN.move = { n, x: e.clientX, y: e.clientY, l0: n.offsetLeft, t0: n.offsetTop }; try { h.setPointerCapture(e.pointerId); } catch {}
 });

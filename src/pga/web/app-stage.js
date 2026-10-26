@@ -70,7 +70,9 @@ function stLayout() {
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
   for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail && !stDock(n)); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_MINW, open: true, flex: !w.bw }); }
   // what is folded becomes horizontal tabs; folded neighbours share one stack of tabs. Pages you did not size share what is left.
-  const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += (u.win?.pre || 0) + u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
+  const colOpen = (w) => units.some((c) => c.kind === "col" && c.win === w && !c.hide && c.open);
+  const preOf = (u) => (u.kind === "col" || (u.kind === "win" && !colOpen(u.win)) ? u.win.pre || 0 : 0);   // a gap before a page goes before its column
+  const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += preOf(u) + u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
   const room = A.w - 2 * ST_PADX, fi = Math.max(0, wins.findIndex((w) => w.id === ST.focus));
   const fold = (pred) => { for (const u of units.filter(pred)) { if (width() <= room) return; u.open = false; } };
   const dist = (u) => Math.abs(wins.indexOf(u.win) - fi);
@@ -90,7 +92,7 @@ function stLayout() {
   const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
   let x = ST_PADX + off;
   let run = null;
-  for (const u of units) { if (u.hide) continue; if (u.open) { x += u.win?.pre || 0; u.x = x; x += u.w + ST_GAP; run = null; continue; }
+  for (const u of units) { if (u.hide) continue; if (u.open) { x += preOf(u); u.x = x; x += u.w + ST_GAP; run = null; continue; }
     if (!run) { run = { x, tabs: [] }; x += ST_TAB + ST_GAP; } u.x = run.x; u.run = run; }
   return { units, A, off };
 }
@@ -351,7 +353,12 @@ function stGrab(n, sx, sy) {
   const e = document.querySelector(`.stnode[data-nid="${n.id}"]`); if (!e) return;
   ST.drag = { n, el: e, sx, sy, l0: parseFloat(e.style.left), t0: parseFloat(e.style.top), moved: false };
   e.classList.add("held"); $("#vStage").classList.add("dragging");
-  if (n.type === "win" && !n.mini) ST.drag.groups = stGroups(n);    // what is in the row besides it: pushed aside as it comes
+  if (n.type === "win" && !n.mini) {               // what is in the row besides it: still, until the page you drag touches it
+    const g = ST.drag.groups = stGroups(n), mid = ST.drag.l0 + e.offsetWidth / 2;
+    for (const x of g) x.side = x.x + x.w / 2 > mid ? 1 : -1;
+    const c = (ST.units || []).find((u) => u.kind === "col" && u.win === n && !u.hide && u.open);
+    ST.drag.slot = { x: ST.drag.l0 - (c ? ST_CW + ST_GAP : 0), e: ST.drag.l0 + e.offsetWidth };
+  }
 }
 function stEdgeHold(id, side) {                    // an edge you pull: only the page across it gives or takes the room, the rest stay put
   const us = (ST.units || []).filter((u) => !u.hide && u.x != null && u.open);
@@ -362,42 +369,47 @@ function stEdgeHold(id, side) {                    // an edge you pull: only the
   if (!nb) return false;                                                                                 // nobody across: it opens a gap
   delete nb.win.bw; ST.shift = null; return true;
 }
-function stGroups(n) {                             // the row by its parts: the list with its knowledge, each column, each page, each stack of tabs
+function stGroups(n) {                             // the row by its parts: the list with its knowledge, each page with its column, each stack of tabs
   const els = (ids) => ids.map((id) => document.querySelector(`.stnode[data-nid="${id}"]`)).filter((x) => x && !x.hidden);
-  const gs = [], runs = new Map();
+  const gs = [], runs = new Map(); let col = null;
   for (const u of ST.units || []) {
     if (u.hide || u.x == null || (u.win && u.win.id === n.id)) continue;
-    if (!u.open) { if (!runs.has(u.run)) runs.set(u.run, { x: u.run.x, w: ST_TAB, els: [], wins: [] }); const g = runs.get(u.run);
+    if (!u.open) { if (!runs.has(u.run)) runs.set(u.run, { key: "run", x: u.run.x, w: ST_TAB, els: [], wins: [] }); const g = runs.get(u.run);
       if (u.kind === "win") g.wins.push(u.win.id); continue; }
-    if (u.kind === "list") gs.push({ x: u.x, w: u.w, els: [$("#stlist"), ...els(ST.nodes.filter(stDock).map((x) => x.id))] });
-    else if (u.kind === "win") gs.push({ x: u.x, w: u.w, els: [u.win.el], page: true, wins: [u.win.id] });
-    else gs.push({ x: u.x, w: u.w, els: els(u.nodes.map((x) => x.id)) });
+    if (u.kind === "list") gs.push({ key: "list", x: u.x, w: u.w, els: [$("#stlist"), ...els(ST.nodes.filter(stDock).map((x) => x.id))] });
+    else if (u.kind === "col") col = { u, els: els(u.nodes.map((x) => x.id)) };
+    else if (u.kind === "win") { const c = col?.u.win === u.win ? col : null; col = null;     // a page and its column move as one
+      gs.push({ key: "win", win: u.win, x: c ? c.u.x : u.x, w: u.w + (c ? u.x - c.u.x : 0), off: c ? u.x - c.u.x : 0, els: c ? c.els : [], pel: u.win.el, page: true, wins: [u.win.id] }); }
+    else gs.push({ key: u.kind, x: u.x, w: u.w, els: els(u.nodes.map((x) => x.id)) });
   }
   for (const g of runs.values()) { g.els = [...document.querySelectorAll("#stbars > .sttab")].filter((t) => Math.abs(parseFloat(t.style.left) - g.x) < 1);
     g.els.push(...[...document.querySelectorAll("#stnodes > .stnode.tab")].filter((t) => !t.hidden && Math.abs(parseFloat(t.style.left) - g.x) < 1)); gs.push(g); }
-  for (const g of gs) g.o = g.els.map((el) => ({ el, l: parseFloat(el.style.left), w: parseFloat(el.style.width) || el.offsetWidth }));
+  for (const g of gs) { g.off = g.off || 0; g.cx = g.x; g.cw = g.w; g.o = g.els.map((el) => ({ el, l: parseFloat(el.style.left) })); }
   return gs;
 }
-function stPush(d, l, w) {                         // everything beside the page you drag is pushed along; at the edge of the stage the
-  const A = stArena(), G = ST_GAP, lo = ST_PADX - 160, hi = A.w - ST_PADX + 160, MIN = 56;   // they slide partly off the stage first, then
-                                                                               // the pages give way by narrowing; you pass a page
-  const gs = d.groups || [];                                                     // once your middle is beyond its far side
-  for (const g of gs) { const right = g.x > d.l0; g.swap = !!g.page && (right ? l + w / 2 > g.x + g.w : l + w / 2 < g.x);
-    g.right = right !== g.swap; g.home = !g.swap ? g.x : right ? d.l0 : d.l0 + w - g.w; g.nw = g.w; }
-  const R = gs.filter((g) => g.right).sort((a, b) => a.home - b.home), Lf = gs.filter((g) => !g.right).sort((a, b) => b.home + b.w - (a.home + a.w));
-  const layR = () => { let cur = l + w + G; for (const g of R) { g.nl = Math.max(g.home, cur); cur = g.nl + g.nw + G; } return cur - G - hi; };
-  const layL = () => { let cur = l - G; for (const g of Lf) { const r = Math.min(g.home + g.w, cur); g.nl = r - g.nw; cur = g.nl - G; } return lo - (cur + G); };
-  for (const [lay, list] of [[layR, R], [layL, Lf]]) {
-    let over = lay();
-    for (const g of [...list].reverse()) { if (over <= 0) break; if (!g.page) continue; const take = Math.min(over, g.nw - MIN); if (take > 0) { g.nw -= take; over = lay(); } }
+/* dragging a page: the pages beside it stay where they are until it touches one; then only the edge it touches gives way
+   (the far edge stays), down to ST_SQ, after which the page you drag slides over it. Once your page's middle is past a
+   page's middle, that page jumps into the slot you left. Nothing follows you back when you reverse. */
+const ST_SQ = ST_MINW;                                 // the least a page is squeezed to by one you drag into it
+function stPush(d, l, w) {
+  const G = ST_GAP, mid = l + w / 2, gs = d.groups || [];
+  for (const g of gs) {
+    if (!g.page) continue;
+    const flip = g.side > 0 ? mid > g.cx + g.cw / 2 : mid < g.cx + g.cw / 2; if (!flip) continue;
+    g.side = -g.side; const least = g.off + ST_SQ, others = gs.filter((o) => o !== g && o.side === g.side), sl = d.slot;   // it takes the slot you left
+    if (g.side < 0) { const x = Math.max(ST_PADX, sl.x, ...others.map((o) => o.cx + o.cw + G)), e = Math.min(l - G, x + g.w); g.cx = Math.min(x, e - least); g.cw = e - g.cx; }
+    else { const e = Math.min(stArena().w - ST_PADX, sl.e, ...others.map((o) => o.cx - G)), x = Math.max(l + w + G, e - g.w); g.cx = x; g.cw = Math.max(least, e - x); }
+    d.slot = { x: g.x, e: g.x + g.w };                                           // and its own old place is the slot now
+  }
+  for (const g of gs) {                            // a touch
+    if (!g.page) continue; const least = g.off + ST_SQ, end = g.cx + g.cw;
+    if (g.side > 0 && g.cx < l + w + G && end > l + w + G) { g.cx = Math.min(l + w + G, end - least); g.cw = end - g.cx; }
+    if (g.side < 0 && end > l - G && g.cx < l - G) g.cw = Math.max(least, l - G - g.cx);
   }
   for (const g of gs) {
-    const dx = g.nl - g.x;
-    for (const o of g.o) {
-      if (g.page) { o.el.style.left = g.nl + "px"; o.el.style.width = g.nw + "px"; }
-      else o.el.style.transform = dx ? `translateX(${dx}px)` : "";
-      const id = o.el.dataset.nid || o.el.dataset.stunfold, p = id && ST.pos?.get(id); if (p) { p.x = o.l + dx; if (g.page) p.w = g.nw; }
-    }
+    const dx = g.cx - g.x;
+    if (g.page) { g.pel.style.left = g.cx + g.off + "px"; g.pel.style.width = g.cw - g.off + "px"; const p = ST.pos?.get(g.win.id); if (p) { p.x = g.cx + g.off; p.w = g.cw - g.off; } }
+    for (const o of g.o) { o.el.style.transform = dx ? `translateX(${dx}px)` : ""; const id = o.el.dataset.nid || o.el.dataset.stunfold, p = id && ST.pos?.get(id); if (p) p.x = o.l + dx; }
   }
 }
 function stDragTo(sx, sy) {
@@ -415,12 +427,42 @@ function stDragTo(sx, sy) {
   }
   stWires();
 }
-function stSettle(d) {                             // a page let go: the order changes only with the pages it went past
-  const l = parseFloat(d.el.style.left), at = new Map([[d.n.id, l]]);
-  for (const g of d.groups || []) for (const id of g.wins || []) at.set(id, (g.nl ?? g.x) + (g.swap ? 0 : 0));
-  const wins = stWins().filter((x) => !x.mini);
-  wins.sort((a, b) => (at.get(a.id) ?? wins.indexOf(a) * 1e4) - (at.get(b.id) ?? wins.indexOf(b) * 1e4)).forEach((o, k) => { o.ord = k; });
+function stSettle(d) {                             // a page let go: everything stays as it is now — the order, each width, the gaps
   for (const g of d.groups || []) for (const o of g.o) o.el.style.transform = "";
+  if (!d.moved) return;
+  const A = stArena(), G = ST_GAP, l = parseFloat(d.el.style.left), w = d.el.offsetWidth;
+  const mc = (ST.units || []).find((u) => u.kind === "col" && u.win === d.n && !u.hide && u.open), doff = mc ? ST_CW + G : 0;
+  const bs = (d.groups || []).map((g) => ({ key: g.key, win: g.win, x: g.cx, w: g.cw, off: g.off, page: g.page, side: g.side, wins: g.wins || [] }));
+  // hanging over the edge of the stage, the page you dropped slides back in; a neighbour it covers gives at the edge it
+  // touches (as while dragging); whatever is still covered comes off the dropped page's own edges
+  let x = l - doff, e = l + w;
+  if (x < ST_PADX) { e += ST_PADX - x; x = ST_PADX; }
+  if (e > A.w - ST_PADX) { x = Math.max(ST_PADX, x - (e - (A.w - ST_PADX))); e = A.w - ST_PADX; }
+  for (const b of bs) { if (!b.page) continue; const least = b.off + ST_SQ, end = b.x + b.w;
+    if (b.side < 0 && end > x - G) b.w = Math.max(least, x - G - b.x);
+    if (b.side > 0 && b.x < e + G) { b.x = Math.min(e + G, end - least); b.w = end - b.x; } }
+  const lb = Math.max(ST_PADX, ...bs.filter((b) => b.side < 0).map((b) => b.x + b.w + G)), rb = Math.min(A.w - ST_PADX, ...bs.filter((b) => b.side > 0).map((b) => b.x - G));
+  x = Math.max(x, lb); e = Math.min(e, rb); if (e - x < doff + ST_SQ) e = x + doff + ST_SQ;
+  bs.push({ key: "win", win: d.n, x, w: e - x, off: doff, page: true, side: 0, wins: [d.n.id] });
+  bs.sort((a, b) => a.side - b.side || a.x - b.x);
+  // only if something would end off the stage: it comes back in, narrowing pages if the row is too wide
+  const fwd = () => { let c = ST_PADX; for (const b of bs) { b.x = Math.max(b.x, c); c = b.x + b.w + G; } return c - G; };
+  const back = () => { let m = A.w - ST_PADX; for (const b of [...bs].reverse()) { if (b.x + b.w > m) b.x = m - b.w; m = b.x - G; } };
+  let over = fwd() - (A.w - ST_PADX);
+  for (const b of [...bs].filter((b) => b.page).sort((p, q) => q.w - p.w)) { if (over <= 0) break; const t = Math.min(over, b.w - b.off - ST_SQ); if (t > 0) { b.w -= t; over -= t; fwd(); } }
+  back(); fwd();
+  // the order of the pages, then their widths and gaps, written so the next layout puts them exactly here
+  const seq = bs.flatMap((b) => b.wins), wins = stWins().filter((o) => !o.mini);
+  wins.sort((p, q) => (seq.includes(p.id) ? seq.indexOf(p.id) : 1e4 + wins.indexOf(p)) - (seq.includes(q.id) ? seq.indexOf(q.id) : 1e4 + wins.indexOf(q))).forEach((o, k) => { o.ord = k; });
+  for (const b of bs) if (b.page) { b.win.bw = Math.floor(b.w - b.off); delete b.win.pre; }
+  ST.shift = 0;
+  for (const b of bs) {
+    const us = stLayout().units;
+    if (b.key === "list") { const u = us.find((x) => x.kind === "list"); if (u) ST.shift = Math.max(0, Math.floor(b.x - u.x)); continue; }
+    if (!b.page) continue;
+    const u = us.find((x) => x.kind === "col" && x.win === b.win && !x.hide && x.open) || us.find((x) => x.kind === "win" && x.win === b.win);
+    if (u?.open && u.x != null && b.x - u.x >= 1) b.win.pre = Math.floor(b.x - u.x);
+  }
 }
 function stDrop(sx) {
   const d = ST.drag; ST.drag = null; $("#vStage").classList.remove("dragging"); if (!d) return null; d.el.classList.remove("held");
