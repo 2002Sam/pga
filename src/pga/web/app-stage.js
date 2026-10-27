@@ -212,23 +212,28 @@ function stFrame(n, el) {
   const f = el.querySelector("iframe"); f.src = "/?" + q;
   f.addEventListener("load", () => { try { stHold(f, n); stSide(n); } catch {} });
 }
-function stHold(f, n) {                          // inside a conversation: press and hold (~0.3 s, still), then move the window
+function stHold(f, n) {                          // inside a conversation: press and hold (~0.25 s, still), then move the window
   const cw = f.contentWindow, doc = cw.document; let h = null;
   doc.addEventListener("pointerdown", (e) => {
     stFocus(n.id);
-    if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], .cbar")) return;
-    h = { sx: e.screenX, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab"); stGrab(n, e.screenX, e.screenY); cw.getSelection()?.removeAllRanges(); }, 300) };
+    if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], #ccomp")) return;   // the composer moves on its own
+    h = { sx: e.screenX, sy: e.screenY, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab");
+      try { doc.documentElement.setPointerCapture(e.pointerId); } catch {} stGrab(n, h.sx, h.sy); cw.getSelection()?.removeAllRanges(); }, 250) };
   }, true);
   doc.addEventListener("pointermove", (e) => {
     if (!h) return;
-    if (!h.on) { if (Math.abs(e.screenX - h.sx) > 5) { clearTimeout(h.t); h = null; } return; }
-    e.preventDefault(); cw.getSelection()?.removeAllRanges(); stDragTo(e.screenX, e.screenY);
+    if (!h.on) { if (Math.hypot(e.screenX - h.sx, e.screenY - h.sy) > 5) { clearTimeout(h.t); h = null; } return; }
+    e.preventDefault(); cw.getSelection()?.removeAllRanges(); stDragSoon(e.screenX, e.screenY);
   }, true);
-  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); if (was) stDrop(); };
+  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); if (was) { stDragFlush(); stDrop(); } };
   doc.addEventListener("pointerup", end, true); doc.addEventListener("pointercancel", end, true);
   doc.addEventListener("selectstart", (e) => { if (h?.on) e.preventDefault(); }, true);
   const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
 }
+function stDragSoon(sx, sy) {                      // one move per frame, however fast the pointer reports
+  ST.nx = [sx, sy]; if (!ST.raf) ST.raf = requestAnimationFrame(() => { ST.raf = 0; if (ST.nx) stDragTo(...ST.nx); });
+}
+function stDragFlush() { if (ST.raf) { cancelAnimationFrame(ST.raf); ST.raf = 0; if (ST.nx) stDragTo(...ST.nx); } ST.nx = null; }
 
 
 /* ------------------------------------------------ 所有对话 are the sidebar: on the stage it is a tight column of every past
@@ -400,6 +405,7 @@ function stPush(d, l, w) {
     if (g.side < 0) { const x = Math.max(ST_PADX, sl.x, ...others.map((o) => o.cx + o.cw + G)), e = Math.min(l - G, x + g.w); g.cx = Math.min(x, e - least); g.cw = e - g.cx; }
     else { const e = Math.min(stArena().w - ST_PADX, sl.e, ...others.map((o) => o.cx - G)), x = Math.max(l + w + G, e - g.w); g.cx = x; g.cw = Math.max(least, e - x); }
     d.slot = { x: g.x, e: g.x + g.w };                                           // and its own old place is the slot now
+    for (const el of [g.pel, ...g.els]) { if (!el) continue; el.classList.add("jump"); clearTimeout(el._jt); el._jt = setTimeout(() => el.classList.remove("jump"), 260); }
   }
   for (const g of gs) {                            // a touch
     if (!g.page) continue; const least = g.off + ST_SQ, end = g.cx + g.cw;
@@ -690,7 +696,7 @@ function stBind() {
       }
       stRender(); return; }
     if (ST.wire) { const r = arena.getBoundingClientRect(); ST.wire.x = e.clientX - r.left; ST.wire.y = e.clientY - r.top; stWires(); return; }
-    if (ST.drag) stDragTo(e.screenX, e.screenY);
+    if (ST.drag) stDragSoon(e.screenX, e.screenY);
   });
   arena.addEventListener("pointerup", (e) => {
     if (ST.lmove) { const m = ST.lmove, lp = stPanel(); ST.lmove = null; v.classList.remove("dragging", "resizing", "moving");
@@ -698,7 +704,7 @@ function stBind() {
       stPanelSave(); stRender(); return; }
     if (ST.wire) { stWireEnd(e.clientX, e.clientY); return; }
     if (ST.rz) { ST.rz = null; v.classList.remove("dragging", "resizing"); stSave(); return; }
-    const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
+    stDragFlush(); const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
     else if (d && !d.moved && d.el.classList.contains("tab") && d.n.win) stFocus(d.n.win, true);
   });
   arena.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); if (n.mini) { delete n.mw; delete n.mh; } else { delete n.bw; delete n.pre; } ST.shift = null; stRender(); stSave(); } });

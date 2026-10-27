@@ -880,6 +880,11 @@ html.embed .cpane { min-height: 0 !important; height: 100%; }
 #vStage .starena { cursor: default; }
 .stnode { transition: left .28s cubic-bezier(.2,.8,.2,1), top .28s cubic-bezier(.2,.8,.2,1), width .28s, height .28s; }
 .stnode.held { transition: none; z-index: 20; } .stnode[hidden] { display: none; }
+/* while a page is dragged the others follow it at once (no easing lag), except a page jumping into the slot you left;
+   their contents do not catch the pointer */
+#vStage.dragging .stnode:not(.jump), #vStage.dragging .sttab, #vStage.dragging .stlist { transition: none; }
+.stnode.jump { transition: left .22s cubic-bezier(.2,.8,.2,1), width .22s cubic-bezier(.2,.8,.2,1), transform .22s cubic-bezier(.2,.8,.2,1) !important; }
+#vStage.dragging .stnode:not(.held) iframe { pointer-events: none; }
 #stnodes { position: absolute; inset: 0; } #stbars { position: absolute; inset: 0; pointer-events: none; } #stbars > * { pointer-events: auto; }
 .stwires { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
 .stwire { fill: none; stroke-width: 2.2; stroke-dasharray: 6 6; animation: stflow 1.8s linear infinite; } .stwire.z0 { stroke: #8fb4ff; } .stwire.z1 { stroke: #7fcf9f; } .stwire.z2 { stroke: #e9b35f; }
@@ -1024,10 +1029,17 @@ html.compout .cpane > .cback { display: flex; grid-row: 3; align-items: center; 
 html.cmoving, html.cmoving * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
 /* 随记: the composer out of its page, floating over the app — the same box as the composer in a page */
 .cnote { position: fixed; z-index: 70; display: flex; resize: both; overflow: hidden; min-width: 300px; min-height: 130px; padding: 0 !important; border: 0 !important; background: transparent !important; }
-.cnote > .inner { flex: 1; max-width: none; margin: 0; min-height: 0; display: grid; grid-template-rows: auto 0 minmax(44px, 1fr) auto; box-shadow: 0 22px 60px rgba(0,0,0,.4); }
-.cnote.doc > .inner { grid-template-rows: auto minmax(0, 1fr) minmax(44px, 30%) auto; }
-.cnh { width: 70px; height: 14px; margin: -6px auto 2px; display: grid; place-items: center; cursor: grab; touch-action: none; user-select: none; }
-.cnh i { width: 38px; height: 4px; border-radius: 2px; background: var(--line-2); transition: background .15s; } .cnh:hover i { background: var(--accent); }
+.cnote > .inner { flex: 1; max-width: none; margin: 0; min-height: 0; display: grid; grid-template-rows: 0 minmax(44px, 1fr) auto; box-shadow: 0 22px 60px rgba(0,0,0,.4); cursor: grab; transition: box-shadow .15s, transform .15s, opacity .15s; }
+.cnote.doc > .inner { grid-template-rows: minmax(0, 1fr) minmax(44px, 30%) auto; }
+/* held: lifted; over its conversation: it leans in, ready to drop back */
+.cnote.lift > .inner { transform: scale(1.015); box-shadow: 0 34px 90px rgba(0,0,0,.5); }
+.cnote.snap > .inner { transform: scale(.97); opacity: .85; box-shadow: 0 18px 50px rgba(0,0,0,.4), 0 0 0 2px var(--accent); }
+/* the composer in its page moves the same way: press and hold anywhere on it */
+.ccomp > .inner { cursor: grab; } .ccomp textarea, .cnote textarea { cursor: text; }
+html.cmlift .cpane > .ccomp { position: absolute; grid-area: auto !important; left: 14px; right: 14px; z-index: 6; border: 1px solid var(--line-2); border-radius: 14px; transform: scale(1.015); box-shadow: 0 30px 80px rgba(0,0,0,.45); }
+html.cmlift .cpane > .ccomp.snap { box-shadow: 0 24px 60px rgba(0,0,0,.4), 0 0 0 2px var(--accent); }
+.cmline { position: absolute; left: 22px; right: 22px; height: 3px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 14px var(--accent); z-index: 5; pointer-events: none; transition: top .12s cubic-bezier(.2,.8,.2,1); }
+.cmline::before, .cmline::after { content: ""; position: absolute; top: -3px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); } .cmline::before { left: -4px; } .cmline::after { right: -4px; }
 .cnote .cntx { order: 0; width: 100%; height: 100%; max-height: none; min-height: 44px; resize: none; padding: 8px 6px !important; box-sizing: border-box; color: var(--text); }
 .cnote .cbar { flex-wrap: nowrap; align-items: center; gap: 6px; margin-top: 4px; min-width: 0; }
 .cnote .cbar .ctool { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; border-radius: 10px; flex: none; } .cnote .cbar .ctool.on { color: var(--accent); }
