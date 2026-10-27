@@ -27,9 +27,10 @@ const ST_PINS = [["对话引用", "Conversations"], ["数据引用", "Data"], ["
 const ST_OUTS = [["拉线：把这段对话问过的交给另一个窗口", "Pull a wire: what was asked here, into another window"], ["拉线：把这段对话读过、改过的交给另一个窗口", "Pull a wire: what this conversation read and changed"], ["拉线：把这段对话用过的技能交给另一个窗口", "Pull a wire: the skills this conversation used"]];
 const stTitle = (key) => (key ? recentItems().find((x) => x.item === key)?.title || S.chats?.find((c) => c.key === key)?.title || key : L("新对话", "New chat"));
 const stId = () => Math.random().toString(36).slice(2, 9);
+const stSL = () => $("#starena")?.scrollLeft || 0;             // the stage scrolls sideways: arena coordinates include it
 const stArena = () => { const a = $("#starena"); return a ? { w: a.clientWidth, h: a.clientHeight } : { w: 1000, h: 700 }; };
 const stWins = () => ST.nodes.filter((n) => n.type === "win").sort((a, b) => (a.ord ?? 0) - (b.ord ?? 0));
-function stSave() { try { localStorage.setItem("pga_st4", JSON.stringify({ nodes: ST.nodes.map(({ max, sent, ...n }) => n) })); } catch {} }
+function stSave() { try { localStorage.setItem("pga_st4", JSON.stringify({ v: 5, nodes: ST.nodes.map(({ max, sent, ...n }) => n) })); } catch {} }
 
 /* ------------------------------------------------ the page */
 function showStage() {
@@ -41,6 +42,7 @@ function showStage() {
       <div class="starena" id="starena"><svg class="stwires" id="stwires"></svg><div id="stnodes"></div><div id="stbars"></div></div>`;
     let saved = null; try { saved = JSON.parse(localStorage.getItem("pga_st4") || "null"); } catch {}
     if (saved?.nodes?.length) ST.nodes = saved.nodes; else stDefault();
+    if (saved && saved.v !== 5) for (const w of ST.nodes) if (w.type === "win") { delete w.bw; delete w.pre; }   // narrowed by the old fit-the-screen rule: natural again
     ST.focus = stWins()[0]?.id || null;
     stBind(); new ResizeObserver(() => stRender()).observe($("#starena"));
   }
@@ -53,7 +55,7 @@ function stDefault() {                            // one window, the latest conv
 }
 
 /* ------------------------------------------------ the layout: a row that always fits the screen */
-const ST_MINW = 300;                                // the least a page gets while several share the stage
+const ST_MINW = 300, ST_FIT = 560;                  // the least a page gets from an edge or a squeeze; the least it gives to fit the screen
 const stDock = (n) => ["world", "self"].includes(n.type) && n.fx == null;    // world and self knowledge live in the 所有对话 panel
 function stPanel() {                                // 所有对话: a panel of its own — docked at the left of the row, or wherever you dragged it
   if (!ST.lp) { try { ST.lp = JSON.parse(localStorage.getItem("pga_st_lp") || "null"); } catch {} ST.lp = ST.lp || {}; }
@@ -69,31 +71,23 @@ function stLayout() {
   const units = lp.free ? [] : [{ kind: "list", w: lw, open: true }];
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
   for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail && !stDock(n)); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_MINW, open: true, flex: !w.bw }); }
-  // what is folded becomes horizontal tabs; folded neighbours share one stack of tabs. Pages you did not size share what is left.
+  // Nothing is squeezed or folded to fit the screen: a page keeps its width, and what does not fit runs on to the right —
+  // the stage scrolls sideways. A page you did not size starts at ST_WW (never wider than the screen); while the row is
+  // a little too wide those pages give, down to ST_FIT, and while there is room to spare they share it.
   const colOpen = (w) => units.some((c) => c.kind === "col" && c.win === w && !c.hide && c.open);
   const preOf = (u) => (u.kind === "col" || (u.kind === "win" && !colOpen(u.win)) ? u.win.pre || 0 : 0);   // a gap before a page goes before its column
   const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += preOf(u) + u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
-  const room = A.w - 2 * ST_PADX, fi = Math.max(0, wins.findIndex((w) => w.id === ST.focus));
-  const fold = (pred) => { for (const u of units.filter(pred)) { if (width() <= room) return; u.open = false; } };
-  const dist = (u) => Math.abs(wins.indexOf(u.win) - fi);
-  const foldWin = (u) => { u.open = false; const c = units.find((x) => x.kind === "col" && x.win === u.win); if (c) c.hide = true; };
-  // too wide even at their least: the shelf folds, then the other pages' columns, then the other pages (farthest first), then yours
-  if (width() > room) fold((u) => u.kind === "shelf");
-  if (width() > room) fold((u) => u.kind === "col" && u.win.id !== ST.focus);
-  for (const u of units.filter((x) => x.kind === "win" && x.win.id !== ST.focus).sort((a, b) => dist(b) - dist(a))) { if (width() <= room) break; foldWin(u); }
-  if (width() > room) fold((u) => u.kind === "col");
-  const frozen = (ST.rz || ST.lmove)?.open;
-  if (frozen) for (const u of units) { const k = u.kind + (u.win?.id || ""); if (frozen.has(k)) u.open = frozen.get(k); }   // nothing folds or unfolds mid-pull
+  const room = A.w - 2 * ST_PADX, lead = units[0]?.kind === "list" ? lw + ST_GAP : 0;
   const flex = units.filter((u) => u.kind === "win" && u.open && u.flex);
-  if (flex.length && width() > room) { const cut = (width() - room) / flex.length; for (const u of flex) u.w = Math.max(200, u.w - cut); }   // the free pages give first
-  if (flex.length && width() < room) { const add = (room - width()) / flex.length; for (const u of flex) u.w += add; }   // the pages share the rest
-  const on = units.find((u) => u.kind === "win" && u.open && u.win.id === ST.focus) || units.find((u) => u.kind === "win" && u.open);
-  if (on && width() > room) on.w = Math.max(360, on.w - (width() - room));   // still too wide: yours gives way, so nothing ends off screen
+  for (const u of flex) u.w = Math.max(ST_MINW, Math.min(ST_WW, room - lead));
+  if (flex.length && width() > room) { const cut = (width() - room) / flex.length; for (const u of flex) u.w = Math.max(Math.min(u.w, ST_FIT), u.w - cut); }
+  if (flex.length && width() < room) { const add = (room - width()) / flex.length; for (const u of flex) u.w += add; }
   const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
   let x = ST_PADX + off;
   let run = null;
   for (const u of units) { if (u.hide) continue; if (u.open) { x += preOf(u); u.x = x; x += u.w + ST_GAP; run = null; continue; }
     if (!run) { run = { x, tabs: [] }; x += ST_TAB + ST_GAP; } u.x = run.x; u.run = run; }
+  ST.span = ST_PADX * 2 + off + width();             // how far the row reaches: the stage scrolls to it
   return { units, A, off };
 }
 
@@ -114,6 +108,10 @@ function stCardHtml(n) {
     : `<b ${extra}>${esc(title.slice(0, 60))}</b><span>${esc(String(sub).slice(0, 90))}</span>`;
   return `<div class="stcard st-${n.type}" style="--tc:${t[2]}"><i class="stk">${L(...t.slice(0, 2))}</i>${["world", "self"].includes(n.type) ? "" : `<button class="stx" data-stdel="${n.id}" title="${L("拿掉", "Remove")}">×</button>`}${body}</div>
     <i class="stpin r" title="${L("拉线连到一个窗口", "Pull a wire into a window")}"></i>`;
+}
+function stGrow(w) {                               // the stage reaches at least this far (the row, plus room to drop a page past it)
+  const x = Math.max(w || 0, (ST.span || 0) + 200);
+  for (const id of ["stnodes", "stbars", "stwires"]) { const e = document.getElementById(id); if (e) e.style.width = Math.ceil(x) + "px"; }
 }
 function stRender() {
   const box = $("#stnodes"), bars = $("#stbars"); if (!box) return;
@@ -183,7 +181,7 @@ function stRender() {
   }
   bars.innerHTML = barHtml;
   box.querySelectorAll(".stnode").forEach((e) => { if (e.dataset.r !== String(rid) && e !== held?.el) e.hidden = true; });   // cards of a small page wait unseen
-  ST.pos = pos; ST.units = units;
+  ST.pos = pos; ST.units = units; if (!ST.drag) stGrow();
   if (ST.drag?.groups && ST.drag.moved && ST.drag.lx != null) stDragTo(ST.drag.lx, ST.drag.ly);   // redrawn mid-drag: the squeeze stays
   else stWires();
 }
@@ -218,7 +216,7 @@ function stHold(f, n) {                          // inside a conversation: press
     stFocus(n.id);
     if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], #ccomp")) return;   // the composer moves on its own
     h = { sx: e.screenX, sy: e.screenY, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab");
-      try { doc.documentElement.setPointerCapture(e.pointerId); } catch {} stGrab(n, h.sx, h.sy); cw.getSelection()?.removeAllRanges(); }, 250) };
+      try { doc.documentElement.setPointerCapture(e.pointerId); } catch {} stGrab(n, h.sx, h.sy, e.clientX); cw.getSelection()?.removeAllRanges(); }, 250) };
   }, true);
   doc.addEventListener("pointermove", (e) => {
     if (!h) return;
@@ -302,7 +300,7 @@ function stOver() {                              // the wires from the history c
     const y = Math.max(list.top + 4, Math.min(list.bottom - 4, r.top + r.height / 2)); return { x: r.right - 9, y, out: y !== r.top + r.height / 2 }; };
   for (const n of ST.nodes) {
     if (!n.rail) continue; const a = from(n.key), w = ST.pos?.get(n.win); if (!a || !w) continue;
-    const x1 = ar.left + w.x, y1 = ar.top + stPinY(w, 0), d = stCurve(a.x, a.y, x1, y1);
+    const x1 = ar.left + w.x - stSL(), y1 = ar.top + stPinY(w, 0), d = stCurve(a.x, a.y, x1, y1);
     h += `<path class="stwire z0 ${a.out ? "faint" : ""}" d="${d}"/><path class="sthit" d="${d}" data-unrail="${n.id}"><title>${esc(stTitle(n.key))} · ${L("点一下断开", "click to cut")}</title></path>`;
   }
   const g = ST.rw; if (g) h += `<path class="stwire tmp z0" d="${stCurve(g.x0, g.y0, g.x, g.y)}"/><circle class="stball z0" cx="${g.x}" cy="${g.y}" r="5"/>`;
@@ -331,7 +329,7 @@ document.addEventListener("pointerup", (e) => {
   const p = ST.rp; if (!p) return; ST.rp = null; ST.rpClick = true;
   if (p.page) { $("#stghost")?.remove(); $("#vStage").classList.remove("dragging");
     const ar = $("#starena").getBoundingClientRect(), inPanel = e.target.closest?.("#stlist") || document.elementsFromPoint(e.clientX, e.clientY).some((x) => x.id === "stlist");
-    if (!inPanel && e.clientX > ar.left && e.clientX < ar.right && e.clientY > ar.top && e.clientY < ar.bottom) stOpenAt(p.key, e.clientX - ar.left);
+    if (!inPanel && e.clientX > ar.left && e.clientX < ar.right && e.clientY > ar.top && e.clientY < ar.bottom) stOpenAt(p.key, e.clientX - ar.left + stSL());
     return; }
   if (!p.wire) { if (p.pin) stRailToggle(p.key); else stOpen(p.key); return; }
   ST.rw = null; $("#vStage").classList.remove("dragging", "wiring");
@@ -354,9 +352,9 @@ function stSide(n) {
 }
 
 /* ------------------------------------------------ moving: a card to another window or the shelf; a window along the row */
-function stGrab(n, sx, sy) {
+function stGrab(n, sx, sy, gx = 40) {               // gx: where on the page you hold it
   const e = document.querySelector(`.stnode[data-nid="${n.id}"]`); if (!e) return;
-  ST.drag = { n, el: e, sx, sy, l0: parseFloat(e.style.left), t0: parseFloat(e.style.top), moved: false };
+  ST.drag = { n, el: e, sx, sy, gx, s0: stSL(), l0: parseFloat(e.style.left), t0: parseFloat(e.style.top), moved: false };
   e.classList.add("held"); $("#vStage").classList.add("dragging");
   if (n.type === "win" && !n.mini) {               // what is in the row besides it: still, until the page you drag touches it
     const g = ST.drag.groups = stGroups(n), mid = ST.drag.l0 + e.offsetWidth / 2;
@@ -403,14 +401,14 @@ function stPush(d, l, w) {
     const flip = g.side > 0 ? mid > g.cx + g.cw / 2 : mid < g.cx + g.cw / 2; if (!flip) continue;
     g.side = -g.side; const least = g.off + ST_SQ, others = gs.filter((o) => o !== g && o.side === g.side), sl = d.slot;   // it takes the slot you left
     if (g.side < 0) { const x = Math.max(ST_PADX, sl.x, ...others.map((o) => o.cx + o.cw + G)), e = Math.min(l - G, x + g.w); g.cx = Math.min(x, e - least); g.cw = e - g.cx; }
-    else { const e = Math.min(stArena().w - ST_PADX, sl.e, ...others.map((o) => o.cx - G)), x = Math.max(l + w + G, e - g.w); g.cx = x; g.cw = Math.max(least, e - x); }
+    else { const e = Math.min(sl.e, ...others.map((o) => o.cx - G)), x = Math.max(l + w + G, e - g.w); g.cx = x; g.cw = Math.max(least, e - x); }
     d.slot = { x: g.x, e: g.x + g.w };                                           // and its own old place is the slot now
     for (const el of [g.pel, ...g.els]) { if (!el) continue; el.classList.add("jump"); clearTimeout(el._jt); el._jt = setTimeout(() => el.classList.remove("jump"), 260); }
   }
   for (const g of gs) {                            // a touch
     if (!g.page) continue; const least = g.off + ST_SQ, end = g.cx + g.cw;
-    if (g.side > 0 && g.cx < l + w + G && end > l + w + G) { g.cx = Math.min(l + w + G, end - least); g.cw = end - g.cx; }
-    if (g.side < 0 && end > l - G && g.cx < l - G) g.cw = Math.max(least, l - G - g.cx);
+    if (g.side > 0 && g.cx < l + w && end > l + w) { g.cx = Math.min(l + w, end - least); g.cw = end - g.cx; }   // only once the edges meet
+    if (g.side < 0 && end > l && g.cx < l) g.cw = Math.max(least, l - g.cx);
   }
   for (const g of gs) {
     const dx = g.cx - g.x;
@@ -421,9 +419,17 @@ function stPush(d, l, w) {
 function stDragTo(sx, sy) {
   const d = ST.drag; if (!d) return;
   if (Math.hypot(sx - d.sx, sy - d.sy) > 4) d.moved = true; d.lx = sx; d.ly = sy;
-  const A = stArena(), w = d.el.offsetWidth;
-  const big = d.n.type === "win" && !d.n.mini, lo = big ? -w * 0.6 : 0, hi = big ? A.w - w * 0.4 : A.w - w;   // a big window may hang over the edge while it moves
-  const l = Math.max(lo, Math.min(hi, d.l0 + sx - d.sx)); d.el.style.left = l + "px";
+  const A = stArena(), w = d.el.offsetWidth, sl = stSL();
+  const big = d.n.type === "win" && !d.n.mini, lo = big ? -w * 0.6 : sl, hi = big ? Infinity : sl + A.w - w;   // a page may go on past the right edge (the stage scrolls)
+  const l = Math.max(lo, Math.min(hi, d.l0 + sx - d.sx + sl - d.s0)); d.el.style.left = l + "px";
+  const px = l + d.gx - sl;                       // held near an edge of the stage: it scrolls that way
+  d.v = big ? (px > A.w - 48 ? Math.min(24, (px - A.w + 48) / 2) : px < 48 && sl > 0 ? -Math.min(24, (48 - px) / 2) : 0) : 0;
+  if (d.v && !d.auto) d.auto = requestAnimationFrame(function step() {
+    const D = ST.drag; if (!D || !D.v) { if (D) D.auto = 0; return; }
+    const a = $("#starena"), b = a.scrollLeft; a.scrollLeft = Math.max(0, b + D.v);
+    if (a.scrollLeft === b && D.v > 0) stGrow(a.scrollLeft + a.clientWidth + 40);   // at the end of the row: there is more stage
+    D.auto = requestAnimationFrame(step); stDragTo(D.lx, D.ly);
+  });
   if (d.n.type !== "win" || d.n.mini) d.el.style.top = Math.max(0, Math.min(A.h - d.el.offsetHeight, d.t0 + sy - d.sy)) + "px";
   if (big) {
     stPush(d, l, w);
@@ -439,24 +445,18 @@ function stSettle(d) {                             // a page let go: everything 
   const A = stArena(), G = ST_GAP, l = parseFloat(d.el.style.left), w = d.el.offsetWidth;
   const mc = (ST.units || []).find((u) => u.kind === "col" && u.win === d.n && !u.hide && u.open), doff = mc ? ST_CW + G : 0;
   const bs = (d.groups || []).map((g) => ({ key: g.key, win: g.win, x: g.cx, w: g.cw, off: g.off, page: g.page, side: g.side, wins: g.wins || [] }));
-  // hanging over the edge of the stage, the page you dropped slides back in; a neighbour it covers gives at the edge it
-  // touches (as while dragging); whatever is still covered comes off the dropped page's own edges
+  // hanging over the left edge of the stage, the page you dropped slides back in (to the right the stage goes on); a
+  // neighbour it covers gives at the edge it touches (as while dragging); whatever is still covered comes off its own edges
   let x = l - doff, e = l + w;
   if (x < ST_PADX) { e += ST_PADX - x; x = ST_PADX; }
-  if (e > A.w - ST_PADX) { x = Math.max(ST_PADX, x - (e - (A.w - ST_PADX))); e = A.w - ST_PADX; }
   for (const b of bs) { if (!b.page) continue; const least = b.off + ST_SQ, end = b.x + b.w;
     if (b.side < 0 && end > x - G) b.w = Math.max(least, x - G - b.x);
     if (b.side > 0 && b.x < e + G) { b.x = Math.min(e + G, end - least); b.w = end - b.x; } }
-  const lb = Math.max(ST_PADX, ...bs.filter((b) => b.side < 0).map((b) => b.x + b.w + G)), rb = Math.min(A.w - ST_PADX, ...bs.filter((b) => b.side > 0).map((b) => b.x - G));
+  const lb = Math.max(ST_PADX, ...bs.filter((b) => b.side < 0).map((b) => b.x + b.w + G)), rb = Math.min(Infinity, ...bs.filter((b) => b.side > 0).map((b) => b.x - G));
   x = Math.max(x, lb); e = Math.min(e, rb); if (e - x < doff + ST_SQ) e = x + doff + ST_SQ;
   bs.push({ key: "win", win: d.n, x, w: e - x, off: doff, page: true, side: 0, wins: [d.n.id] });
   bs.sort((a, b) => a.side - b.side || a.x - b.x);
-  // only if something would end off the stage: it comes back in, narrowing pages if the row is too wide
-  const fwd = () => { let c = ST_PADX; for (const b of bs) { b.x = Math.max(b.x, c); c = b.x + b.w + G; } return c - G; };
-  const back = () => { let m = A.w - ST_PADX; for (const b of [...bs].reverse()) { if (b.x + b.w > m) b.x = m - b.w; m = b.x - G; } };
-  let over = fwd() - (A.w - ST_PADX);
-  for (const b of [...bs].filter((b) => b.page).sort((p, q) => q.w - p.w)) { if (over <= 0) break; const t = Math.min(over, b.w - b.off - ST_SQ); if (t > 0) { b.w -= t; over -= t; fwd(); } }
-  back(); fwd();
+  let c = ST_PADX; for (const b of bs) { b.x = Math.max(b.x, c); c = b.x + b.w + G; }   // only what still overlaps moves on to the right
   // the order of the pages, then their widths and gaps, written so the next layout puts them exactly here
   const seq = bs.flatMap((b) => b.wins), wins = stWins().filter((o) => !o.mini);
   wins.sort((p, q) => (seq.includes(p.id) ? seq.indexOf(p.id) : 1e4 + wins.indexOf(p)) - (seq.includes(q.id) ? seq.indexOf(q.id) : 1e4 + wins.indexOf(q))).forEach((o, k) => { o.ord = k; });
@@ -491,7 +491,7 @@ function stDrop(sx) {
 /* ------------------------------------------------ pulling a wire from a pin: a card into a window, or one window into another */
 function stWireStart(e, pin) {
   const node = ST.nodes.find((x) => x.id === pin.closest(".stnode")?.dataset.nid); if (!node) return false;
-  const r = $("#starena").getBoundingClientRect(), b = pin.getBoundingClientRect(), x0 = b.left + b.width / 2 - r.left, y0 = b.top + b.height / 2 - r.top;
+  const r = $("#starena").getBoundingClientRect(), b = pin.getBoundingClientRect(), x0 = b.left + b.width / 2 - r.left + stSL(), y0 = b.top + b.height / 2 - r.top;
   const kind = pin.classList.contains("stin") ? "in" : pin.classList.contains("stout") ? "out" : "card";
   ST.wire = { kind, n: node, pin: kind === "card" ? ST_PIN(node) : Number(pin.dataset.pin), x0, y0, x: x0, y: y0, back: kind === "in" };
   $("#vStage").classList.add("dragging", "wiring"); stWires(); return true;
@@ -560,7 +560,7 @@ function stOpen(key, at) {
     if (card) ST.nodes = ST.nodes.filter((c) => c !== card);
     n = { id: stId(), type: "win", key: key || null }; wins.splice(after + 1, 0, n); wins.forEach((o, k) => { o.ord = k; }); ST.nodes.push(n);
   }
-  ST.focus = n.id; stRender(); stSave(); stContexts();
+  ST.focus = n.id; stRender(); stSave(); stContexts(); stShow(n.id);
   document.querySelector(`.stnode[data-nid="${n.id}"]`)?.animate?.([{ opacity: 0, transform: "scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 260 });
   return n;
 }
@@ -569,7 +569,13 @@ function stOpenAt(key, x) {                         // a page opened where you d
   const n = stOpen(key); n.mini = false;
   const rest = stWins().filter((w) => w !== n && !w.mini), at = rest.filter((w) => (centres.find((c) => c.w === w)?.c ?? -1) < x).length;
   rest.splice(at, 0, n); rest.forEach((o, i) => { o.ord = i; });
-  ST.focus = n.id; stRender(); stSave();
+  ST.focus = n.id; stRender(); stSave(); stShow(n.id);
+}
+function stShow(id) {                              // a page off to the side: the stage scrolls to it
+  const p = ST.pos?.get(id), a = $("#starena"); if (!p || !a || p.tab) return;
+  const sl = a.scrollLeft, w = a.clientWidth;
+  if (p.x < sl + ST_PADX) a.scrollTo({ left: Math.max(0, p.x - ST_PADX), behavior: "smooth" });
+  else if (p.x + p.w > sl + w - ST_PADX) a.scrollTo({ left: Math.max(0, Math.min(p.x - ST_PADX, p.x + p.w - w + ST_PADX)), behavior: "smooth" });
 }
 function stFocus(id, render) { if (ST.focus === id && !render) return; ST.focus = id; if (render) stRender(); else document.querySelectorAll(".stnode.t-win").forEach((el) => el.classList.toggle("focus", el.dataset.nid === id)); }
 function stMiniLook(e, mini) {
@@ -597,7 +603,7 @@ setInterval(() => {                               // a new conversation in a win
 
 /* ------------------------------------------------ right-click: add any node, wired into the window you clicked beside */
 function stMenu(sx, sy) {
-  const r = $("#starena").getBoundingClientRect(), x = sx - r.left;
+  const r = $("#starena").getBoundingClientRect(), x = sx - r.left + stSL();
   let best = null, bd = Infinity; for (const u of ST.units || []) { if (u.hide || u.x == null) continue; const c = u.x + (u.open ? u.w : ST_TAB) / 2, d = Math.abs(x - c); if (d < bd) { bd = d; best = u; } }
   const win = best && best.kind !== "shelf" ? best.win : null, at = { win: win?.id || null };
   document.querySelector(".stmenu")?.remove();
@@ -649,7 +655,7 @@ function stBind() {
     if (lz || lh) {                                 // the 所有对话 panel: pulled by an edge or corner, or moved by its head
       e.preventDefault(); window.getSelection()?.removeAllRanges();
       const b = $("#stlist"), r = arena.getBoundingClientRect(), g = b.getBoundingClientRect();
-      ST.lmove = { d: lz?.dataset.lrz || null, x: e.clientX, y: e.clientY, l0: g.left - r.left, t0: g.top - r.top, w0: g.width, h0: g.height };
+      ST.lmove = { d: lz?.dataset.lrz || null, x: e.clientX, y: e.clientY, l0: g.left - r.left + stSL(), t0: g.top - r.top, w0: g.width, h0: g.height };
       if (lz && !stPanel().free && /[ew]/.test(lz.dataset.lrz)) stEdgeHold("list", lz.dataset.lrz);
       ST.lmove.open = new Map((ST.units || []).map((u) => [u.kind + (u.win?.id || ""), u.open]));
       v.classList.add("dragging", lz ? "resizing" : "moving"); stCap(e); return; }
@@ -665,7 +671,7 @@ function stBind() {
     if (e.target.closest("button, textarea, input, iframe, [data-doc], [data-stunfold]")) return;
     const el = e.target.closest(".stnode"); if (!el) return;
     const n = ST.nodes.find((x) => x.id === el.dataset.nid); if (!n || n.max || (n.type === "win" && !e.target.closest(".stwh"))) return;
-    if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY); stCap(e);
+    if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY, e.clientX - el.getBoundingClientRect().left); stCap(e);
   });
   arena.addEventListener("pointermove", (e) => {
     if (ST.lmove) { const m = ST.lmove, lp = stPanel(), A = stArena(), dx = e.clientX - m.x, dy = e.clientY - m.y;
@@ -695,7 +701,7 @@ function stBind() {
         if (u && u.open && !r.across) ST.shift = lay.off + r.edge - (r.d.includes("e") ? u.x : u.x + u.w);
       }
       stRender(); return; }
-    if (ST.wire) { const r = arena.getBoundingClientRect(); ST.wire.x = e.clientX - r.left; ST.wire.y = e.clientY - r.top; stWires(); return; }
+    if (ST.wire) { const r = arena.getBoundingClientRect(); ST.wire.x = e.clientX - r.left + stSL(); ST.wire.y = e.clientY - r.top; stWires(); return; }
     if (ST.drag) stDragSoon(e.screenX, e.screenY);
   });
   arena.addEventListener("pointerup", (e) => {
