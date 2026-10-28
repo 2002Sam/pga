@@ -21,7 +21,9 @@ opens beside it, wired in; the same menu cuts wires.
 
 ## What it is
 
-- **Native shell** (`Sources/`, Swift, AppKit + WebKit, no Xcode project): a menu-bar app.
+- **Native shell** (`Sources/`, Swift, AppKit + WebKit, no Xcode project): an app in the Dock and the menu bar. A click
+  on its Dock icon opens the workbench (gathering the windows back into it); right-click it to switch or start a
+  conversation; each floating window's head also has a button back to the workbench.
   - Each floating window is a non-activating panel: above all windows, on every desktop space and over full-screen
     apps, and it does not take the focus from the app you are in. Only its own rectangle is taken, so the desktop
     around it is clicked as usual.

@@ -28,7 +28,7 @@ final class FloatPanel: NSPanel {
 /// The strip at the top: the window (or, in the workbench, the card) moves by it; close, what it is, its title, 置顶.
 final class Header: NSView {
     let title = NSTextField(labelWithString: "PGA")
-    let pin = NSButton(), close = NSButton()
+    let pin = NSButton(), close = NSButton(), bench = NSButton()
     weak var owner: FloatWindow?
     override var mouseDownCanMoveWindow: Bool { true }
     override func mouseDown(with e: NSEvent) {
@@ -51,17 +51,20 @@ final class Header: NSView {
         super.init(frame: .zero)
         title.font = .systemFont(ofSize: 12, weight: .medium); title.textColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail; title.cell?.truncatesLastVisibleLine = true
-        for (b, sym, tip) in [(pin, "pin.fill", "置顶：在所有窗口之上（点一下取消）"), (close, "xmark", "关掉这个窗口")] {
+        for (b, sym, tip) in [(pin, "pin.fill", "置顶：在所有窗口之上（点一下取消）"), (close, "xmark", "关掉这个窗口"), (bench, "rectangle.3.group", "收回工作台：所有浮窗回到一个窗口里（⌥⇧Space）")] {
             b.bezelStyle = .inline; b.isBordered = false; b.toolTip = tip
             b.image = NSImage(systemSymbolName: sym, accessibilityDescription: tip); b.contentTintColor = .tertiaryLabelColor
         }
-        for v in [close, title, pin] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
+        bench.target = AppDelegate.shared; bench.action = #selector(AppDelegate.toggleMode)
+        for v in [close, title, bench, pin] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
         NSLayoutConstraint.activate([
             close.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             close.centerYAnchor.constraint(equalTo: centerYAnchor),
             title.leadingAnchor.constraint(equalTo: close.trailingAnchor, constant: 8),
             title.centerYAnchor.constraint(equalTo: centerYAnchor),
-            title.trailingAnchor.constraint(lessThanOrEqualTo: pin.leadingAnchor, constant: -8),
+            title.trailingAnchor.constraint(lessThanOrEqualTo: bench.leadingAnchor, constant: -8),
+            bench.trailingAnchor.constraint(equalTo: pin.leadingAnchor, constant: -8),
+            bench.centerYAnchor.constraint(equalTo: centerYAnchor),
             pin.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             pin.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
@@ -229,7 +232,7 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
         content.layer?.borderWidth = 1; content.layer?.borderColor = NSColor.separatorColor.cgColor
         content.layer?.backgroundColor = panel.backgroundColor.cgColor
         area.addSubview(content)
-        docked = true; grip.isHidden = false; header.pin.isHidden = true
+        docked = true; grip.isHidden = false; header.pin.isHidden = true; header.bench.isHidden = true
     }
     func undock() {
         guard docked else { return }
@@ -238,7 +241,7 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
         content.layer?.cornerRadius = 0; content.layer?.borderWidth = 0
         panel.setFrame(desk ?? FloatWindow.nextFrame(), display: false)
         panel.contentView = content
-        docked = false; grip.isHidden = true; header.pin.isHidden = false
+        docked = false; grip.isHidden = true; header.pin.isHidden = false; header.bench.isHidden = false
     }
     /// Where it is now, in the coordinates of where it lives (the screen, or the workbench).
     var frame: NSRect { docked ? content.frame : panel.frame }

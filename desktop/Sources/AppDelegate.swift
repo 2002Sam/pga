@@ -149,7 +149,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     func enterBench() {
         if bench == nil { bench = Bench() }
-        NSApp.setActivationPolicy(.regular)
         let b = bench!; b.show()
         var n = 0
         for f in floats { f.dock(in: b.area, frame: f.card ?? b.cascade(f.kind, n)); if f.card == nil { n += 1 } }
@@ -158,7 +157,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func leaveBench() {
         for f in floats { f.undock(); f.show(focus: false); f.applyPin() }
         bench?.window.orderOut(nil)
-        NSApp.setActivationPolicy(.accessory)
         saveFloats(); redrawWires()
     }
 
@@ -265,8 +263,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         edit.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "全选", action: #selector(NSResponder.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = edit
+        let viewItem = NSMenuItem(); main.addItem(viewItem)
+        let view = NSMenu(title: "视图")
+        let t = view.addItem(withTitle: "工作台 ⇄ 桌面浮窗", action: #selector(toggleMode), keyEquivalent: " "); t.keyEquivalentModifierMask = [.option, .shift]; t.target = self
+        view.addItem(withTitle: "新对话", action: #selector(newFloat), keyEquivalent: "n").target = self
+        view.addItem(withTitle: "所有对话…", action: #selector(showHome), keyEquivalent: "").target = self
+        viewItem.submenu = view
         NSApp.mainMenu = main
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
+
+    /// A click on the Dock icon: the workbench (in either mode — from the desktop it gathers the windows back into it).
+    func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if inBench { showBench() } else { toggleMode() }
+        return true
+    }
+    /// Right-click on the Dock icon.
+    func applicationDockMenu(_ s: NSApplication) -> NSMenu? {
+        let m = NSMenu()
+        m.addItem(ActionItem(inBench ? "分开到桌面（每个对话一个浮窗）" : "收回工作台（一个窗口）") { self.toggleMode() })
+        m.addItem(ActionItem("新对话") { self.newFloat() })
+        m.addItem(ActionItem("所有对话…") { self.showHome() })
+        return m
+    }
 }

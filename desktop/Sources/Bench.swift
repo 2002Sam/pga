@@ -71,5 +71,5 @@ final class Bench: WebChrome, NSWindowDelegate, WebOwner {
     func message(_ body: [String: Any]) {
         if body["kind"] as? String == "menu" { AppDelegate.shared.showMenu(at: NSEvent.mouseLocation) } else { AppDelegate.shared.message(body) }
     }
-    func windowShouldClose(_ s: NSWindow) -> Bool { window.orderOut(nil); NSApp.setActivationPolicy(.accessory); return false }   // hidden, cards and all
+    func windowShouldClose(_ s: NSWindow) -> Bool { window.orderOut(nil); return false }   // hidden, cards and all (the Dock icon brings it back)
 }
