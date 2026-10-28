@@ -24,7 +24,7 @@ def test_claude_flags_follow_the_level_and_mcp(monkeypatch):
     full = _cmd(FULL)                                                            # a full-access project: your MCP tools too
     assert "--strict-mcp-config" not in full and any(x.startswith("Bash,") and "mcp__notes" in x for x in full)
     assert "--strict-mcp-config" in _cmd(FULL, mcp=False)                        # …unless you turned them off
-    assert "bypassPermissions" not in " ".join(ro + rw + full)                 # never skips every check
+    assert "bypassPermissions" not in " ".join(ro + rw) and "bypassPermissions" in " ".join(full)   # only 完全 skips the checks, as you asked
 
 
 def test_settings_per_conversation_and_default(session_factory, policy, provider, backend, user, session, monkeypatch, tmp_path):

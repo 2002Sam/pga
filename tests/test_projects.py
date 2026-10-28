@@ -34,14 +34,14 @@ def test_only_real_folders_under_home_can_be_projects(tmp_path):
 def test_full_mode_is_each_clis_own_way_of_working_like_in_your_terminal():
     full, ro = AgentTask(prompt="x", permissions=FULL), AgentTask(prompt="x", permissions=READ_ONLY)
     c = ClaudeLocal("claude", {}).command(full, "claude")
-    assert "Bash" in c[c.index("--allowedTools") + 1] and "--strict-mcp-config" not in c and "acceptEdits" in c   # your MCP tools too
+    assert "Bash" in c[c.index("--allowedTools") + 1] and "--strict-mcp-config" not in c and "bypassPermissions" in c   # your MCP tools too, nothing asked
     r = ClaudeLocal("claude", {}).command(ro, "claude")
     assert "--strict-mcp-config" in r and "Bash" in r[r.index("--disallowedTools") + 1]
     assert "Bash" in CodebuddyLocal("wb", {}).command(full, "codebuddy")[-1] or "Bash" in " ".join(CodebuddyLocal("wb", {}).command(full, "codebuddy"))
     cx = CodexLocal("chatgpt", {"disable": ["memories", "shell_tool"]})
     assert "shell_tool" not in cx.server_command(full=True) and "shell_tool" in cx.server_command()
     cmd = cx.command(AgentTask(prompt="x", permissions=FULL, workspace="/p"), "codex")
-    assert cmd[cmd.index("-s") + 1] == "workspace-write" and "shell_tool" not in cmd
+    assert cmd[cmd.index("-s") + 1] == "danger-full-access" and "shell_tool" not in cmd
 
 
 def test_any_agent_works_in_the_project_and_who_did_what_is_kept(rt, user, provider, tmp_path, monkeypatch):

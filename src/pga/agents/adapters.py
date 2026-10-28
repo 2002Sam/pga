@@ -1,10 +1,11 @@
 """Adapters: how each kind of agent is reached.
 
 Local CLIs run non-interactively inside the task's workspace, with permissions mapped onto each tool's own
-safety switches (never their "dangerously bypass" modes):
+safety switches. Only 完全 (full access, which you choose per conversation or project) opens them all the way, as the tool
+does in your own terminal; read-only and write keep their sandboxes:
 
     claude_local   Claude Code   `claude -p --output-format json`      read_only: Read/Glob/Grep/Web*  · write: +Edit/Write, no Bash
-    codex_local    Codex CLI     `codex exec --json -s <sandbox>`      read_only: -s read-only        · write: -s workspace-write
+    codex_local    Codex CLI     `codex exec --json -s <sandbox>`      read_only: -s read-only        · write: -s workspace-write · full: -s danger-full-access
     hermes_local   Hermes Agent  `hermes chat --query-file - -Q`       dangerous commands stay behind Hermes' approval (never --yolo)
     gemini_local   Gemini CLI    `gemini -p`
     opencode_local OpenCode      `opencode run`
@@ -197,7 +198,7 @@ class ClaudeLocal(CLIAdapter):
         if not want:
             cmd.append("--strict-mcp-config")
         if task.permissions == FULL:                  # you opened it up: like Claude Code in your terminal, edits accepted
-            return cmd + ["--permission-mode", "acceptEdits", "--allowedTools",
+            return cmd + ["--permission-mode", "bypassPermissions", "--allowedTools",
                           "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite" + mcp] + self.choice_flags(task)
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep" + mcp,
@@ -288,7 +289,7 @@ class CodebuddyLocal(ClaudeLocal):
         if not _pga_workspace(task):                  # PGA's own folders keep the session, so its steps can be shown later
             cmd.append("--no-session-persistence")
         if task.permissions == FULL:
-            return cmd + ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch"] + self.choice_flags(task)
+            return cmd + ["--permission-mode", "bypassPermissions", "--tools", "Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch"] + self.choice_flags(task)
         cmd.append("--strict-mcp-config")
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
@@ -335,7 +336,7 @@ class CodexLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         task.meta["_codex_out"] = out = os.path.join(task.workspace or tempfile.gettempdir(), f".codex-last-{os.getpid()}-{id(task)}.txt")
-        sandbox = "workspace-write" if task.permissions in (WORKSPACE_WRITE, FULL) else "read-only"
+        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"   # 完全: as in your terminal
         cmd = [exe, "exec", "--json", "--skip-git-repo-check", *([] if _pga_workspace(task) else ["--ephemeral"]), "-s", sandbox, "-o", out]
         if task.workspace:
             cmd += ["-C", task.workspace]

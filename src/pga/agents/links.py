@@ -625,7 +625,7 @@ class CodexServer:
         """One turn on a thread: the conversation's own thread (kept, resumable) or a fresh ephemeral one."""
         from pga.agents import live
         lid, conv = task.meta.get("live_id"), task.meta.get("conversation")
-        sandbox = "workspace-write" if task.permissions in (WORKSPACE_WRITE, FULL) else "read-only"
+        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"   # 完全: as in your terminal
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         model = task.meta.get("model") or ad.config.get("model")
         effort = task.meta.get("effort") or ad.config.get("reasoning")

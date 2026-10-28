@@ -82,6 +82,7 @@ function cmLine(best) {                            // where it will land
 /* ------------------------------------------------ the composer in its page */
 document.addEventListener("pointerdown", (e) => {
   if (e.button !== 0 || CM.drag || CM.press || document.documentElement.classList.contains("compout") || !e.target.closest?.("#ccomp")) return;
+  if (e.target.closest("select, option, input[type=range]")) return;     // a menu opens under a still pointer: never taken for a hold
   CM.press = cmPress(e, cmLift);
 }, true);
 document.addEventListener("pointermove", (e) => {
