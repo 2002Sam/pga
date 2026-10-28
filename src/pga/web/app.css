@@ -1106,3 +1106,8 @@ html.deskapp #vStage .starena { top: 38px !important; }
 .stmthumb { height: auto; max-height: 190px; display: grid; gap: 5px; padding: 7px; align-content: start; }
 .stmthumb .mt { font-size: 10.5px; line-height: 1.45; color: var(--muted); padding: 4px 7px; border-radius: 7px; background: var(--soft); max-width: 88%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .stmthumb .mt.me { justify-self: end; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }
+/* ✦ 整理 sits just left of the map */
+.stmapbtn { position: absolute; top: 4px; right: calc(50% + min(260px, 22%) + 8px); z-index: 8; height: 24px; width: auto !important; padding: 0 10px !important;
+  font-size: 12px; border-radius: 8px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--panel) 92%, transparent); white-space: nowrap; }
+html.deskapp .stmapbtn { height: 22px; }
+.stmapbtn.on { animation: none; color: var(--accent); } .stmapbtn.on::before { content: "…"; }

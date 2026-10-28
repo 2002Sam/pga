@@ -260,7 +260,7 @@ function stList(g, A) {
   if (!box) {
     $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="lrz lrz-${d}" data-lrz="${d}"></i>`).join("")}
       <div class="stlh" title="${L("按住拖动；拖到最左边会停靠回去", "Hold to move; drop it at the far left to dock it again")}"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb sttidy" data-sttidy title="${L("整理：把新对话放进世界树、重写变了的主题总结、按标题把零散对话归成线", "Tidy: new conversations into the world tree, changed topics summarised again, loose ones joined into lines by title")}">✦</button><button class="stb stsync" data-stsync title="${L("刷新：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Refresh: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">⟳</button><button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <button class="stb stsync" data-stsync title="${L("刷新：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Refresh: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">⟳</button><button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
       <div class="stlk" id="stlk"><em>${L("知识", "Knowledge")}</em></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
@@ -696,7 +696,7 @@ window.stPanStart = stPanStart; window.stPanMove = stPanMove; window.stPanEnd = 
 function stMap() {                                 // the minimap: every part of the row in miniature, and the part you see
   const a = $("#starena"), v = $("#vStage"); if (!a || !v || S.view !== "stage") return;
   let m = $("#stmap");
-  if (!m) { v.insertAdjacentHTML("beforeend", `<label class="stmap" id="stmap"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></label><div class="stmtip" id="stmtip" hidden></div>`); m = $("#stmap");
+  if (!m) { v.insertAdjacentHTML("beforeend", `<label class="stmap" id="stmap"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></label><button class="stb sttidy stmapbtn" data-sttidy title="${L("整理：把新对话放进世界树、重写变了的主题总结、按标题把零散对话归成线", "Tidy: new conversations into the world tree, changed topics summarised again, loose ones joined into lines by title")}">✦ ${L("整理", "Tidy")}</button><div class="stmtip" id="stmtip" hidden></div>`); m = $("#stmap");
     m.addEventListener("pointerleave", () => { $("#stmtip").hidden = true; ST.mapHover = null; });
     m.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); try { m.setPointerCapture(e.pointerId); } catch {} ST.mapDrag = true; stMapGo(e.clientX); });
     m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); stMapTip(e.clientX); });
