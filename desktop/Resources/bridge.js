@@ -32,7 +32,7 @@
       .app:not(.onstage) { padding-top: 26px; } .app.onstage .rail .brand { padding-top: 34px; }`;   /* clear of the window's buttons (the strip moves the window) */
     document.head.appendChild(st);
     // the window has no title bar: its empty top edge moves it (a double-click zooms it)
-    const free = (e) => e.clientY < 30 && !e.target.closest("button, a, input, textarea, select, label, [contenteditable], [data-rz], [data-lrz], .stwh, .stlh, .stnode, .padgrip, .split");
+    const free = (e) => e.clientY < 30 && !e.target.closest("button, a, input, textarea, select, label, [contenteditable], [data-rz], [data-lrz], .stwh, .stlh, .stnode, .padgrip, .split, .stmap");
     addEventListener("mousedown", (e) => { if (e.button === 0 && e.detail === 1 && free(e)) { e.preventDefault(); post({ kind: "drag" }); } }, true);
     addEventListener("dblclick", (e) => { if (free(e)) post({ kind: "zoom" }); }, true);
     let bg = "";                                   // the window's strip at the top takes the page's colour (and follows the theme)

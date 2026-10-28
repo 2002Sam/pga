@@ -198,7 +198,7 @@ function stRender() {
   }
   bars.innerHTML = barHtml;
   box.querySelectorAll(".stnode").forEach((e) => { if (e.dataset.r !== String(rid) && e !== held?.el) e.hidden = true; });   // cards of a small page wait unseen
-  ST.pos = pos; ST.units = units; if (!ST.drag) stGrow();
+  ST.pos = pos; ST.units = units; requestAnimationFrame(stMap); if (!ST.drag) stGrow();
   if (ST.drag?.groups && ST.drag.moved && ST.drag.lx != null) stDragTo(ST.drag.lx, ST.drag.ly);   // redrawn mid-drag: the squeeze stays
   else stWires();
 }
@@ -451,7 +451,8 @@ function stDragTo(sx, sy) {
   const d = ST.drag; if (!d) return;
   if (Math.hypot(sx - d.sx, sy - d.sy) > 4) d.moved = true; d.lx = sx; d.ly = sy;
   const A = stArena(), w = d.el.offsetWidth, sl = stSL();
-  const big = d.n.type === "win" && !d.n.mini, lo = sl, hi = Math.max(sl, sl + A.w - w);       // nothing leaves what you see of the stage
+  const big = d.n.type === "win" && !d.n.mini;                     // a page as wide as the stage still moves: up to 60% of it may hang
+  const lo = big ? sl - w * 0.6 : sl, hi = big ? sl + A.w - w * 0.4 : Math.max(sl, sl + A.w - w);   // past an edge, the rest stays in view
   const raw = d.l0 + sx - d.sx + sl - d.s0, l = Math.max(lo, Math.min(hi, raw)); d.el.style.left = l + "px";
   const px = raw + d.gx - sl;                     // held at an edge of the stage: it scrolls that way, the page along with it
   d.v = big ? (px > A.w - 48 ? Math.min(24, (px - A.w + 48) / 2) : px < 48 && sl > 0 ? -Math.min(24, (48 - px) / 2) : 0) : 0;
@@ -669,6 +670,40 @@ async function stAdd(type, at) {
 }
 
 /* ------------------------------------------------ the bar */
+/* ------------------------------------------------ moving along the stage: held (middle button anywhere, or the left one on empty
+   ground) it slides under the pointer; the map at the top shows the whole row and takes you anywhere on it */
+function stPanStart(sx) { const a = $("#starena"); if (!a) return; ST.pan = { x: sx, sl: a.scrollLeft }; $("#vStage").classList.add("panning", "dragging"); }
+function stPanMove(sx) {
+  const p = ST.pan, a = $("#starena"); if (!p || !a) return;
+  const want = Math.max(0, p.sl - (sx - p.x)); if (want + a.clientWidth > a.scrollWidth) stGrow(want + a.clientWidth);   // past the end: more stage
+  a.scrollLeft = want;
+}
+function stPanEnd() { if (!ST.pan) return; ST.pan = null; $("#vStage").classList.remove("panning", "dragging"); stMap(); }
+try { if (window.webkit?.messageHandlers?.pga && !Q.get("embed")) document.documentElement.classList.add("deskapp"); } catch {}   // the desktop app: its top strip moves the window
+window.stPanStart = stPanStart; window.stPanMove = stPanMove; window.stPanEnd = stPanEnd;
+function stMap() {                                 // the minimap: every part of the row in miniature, and the part you see
+  const a = $("#starena"), v = $("#vStage"); if (!a || !v || S.view !== "stage") return;
+  let m = $("#stmap");
+  if (!m) { v.insertAdjacentHTML("beforeend", `<div class="stmap" id="stmap" title="${L("整条台面：点一下或拖动，到那个位置", "The whole stage: click or drag to go there")}"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></div>`); m = $("#stmap");
+    m.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); try { m.setPointerCapture(e.pointerId); } catch {} ST.mapDrag = true; stMapGo(e.clientX); });
+    m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); });
+    const end = () => { ST.mapDrag = false; }; m.addEventListener("pointerup", end); m.addEventListener("pointercancel", end);
+    a.addEventListener("scroll", () => requestAnimationFrame(stMapView)); }
+  const T = Math.max(a.scrollWidth, a.clientWidth, 1), W = m.clientWidth || 1, k = W / T, H = m.clientHeight || 30;
+  const box = (x, w, cls, title = "") => `<i class="${cls}" style="left:${(x * k).toFixed(1)}px;width:${Math.max(2, w * k).toFixed(1)}px" title="${esc(title)}"></i>`;
+  let h = "";
+  const lp = $("#stlist"); if (lp && !lp.hidden) h += box(parseFloat(lp.style.left) || 0, lp.offsetWidth, "mlist", L("所有对话", "All conversations"));
+  for (const w of stWins()) { const p = ST.pos?.get(w.id); if (!p) continue; h += box(p.x, p.w, (p.tab ? "mtab" : w.mini ? "mmini" : "mpage") + (w.id === ST.focus ? " on" : ""), stTitle(w.key)); }
+  for (const n of ST.nodes) { if (n.type === "win" || n.rail) continue; const p = ST.pos?.get(n.id); if (p) h += box(p.x, p.w, "mcard"); }
+  $("#stmi").innerHTML = h; m.dataset.k = k; m.style.setProperty("--mh", H + "px");
+  stMapView();
+}
+function stMapView() { const a = $("#starena"), m = $("#stmap"), b = $("#stmv"); if (!a || !m || !b) return; const k = Number(m.dataset.k) || 0;
+  b.style.left = a.scrollLeft * k + "px"; b.style.width = Math.max(8, a.clientWidth * k) + "px"; }
+function stMapGo(cx) {
+  const a = $("#starena"), m = $("#stmap"); if (!a || !m) return; const k = Number(m.dataset.k) || 1, r = m.getBoundingClientRect();
+  a.scrollLeft = Math.max(0, (cx - r.left) / k - a.clientWidth / 2); stMapView();
+}
 function stBar() {
   const bar = $("#stbar"); if (!bar) return;
   bar.innerHTML = `<span class="cvdim">${L("从接点拉线：卡片连进窗口，窗口右边连到另一个窗口左边 · 点线断开 · 右键加节点 · 放不下的收成横向标签", "Pull wires from the pins: a card into a window, one window's right into another's left · click a wire to cut it · right-click to add · what does not fit becomes tabs")}</span>
@@ -680,7 +715,11 @@ function stCap(e) { try { $("#starena").setPointerCapture(e.pointerId); } catch 
 function stBind() {
   const v = $("#vStage"), arena = $("#starena");
   arena.addEventListener("contextmenu", (e) => { if (e.target.closest(".stwin")) return; e.preventDefault(); stMenu(e.clientX, e.clientY); });
+  arena.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); });          // no autoscroll circle
+  arena.addEventListener("auxclick", (e) => { if (e.button === 1) e.preventDefault(); });
   arena.addEventListener("pointerdown", (e) => {
+    const ground = e.target === arena || ["stnodes", "stbars", "stwires"].includes(e.target.id) || e.target.classList?.contains("stground");
+    if (e.button === 1 || (e.button === 0 && ground)) { e.preventDefault(); stPanStart(e.screenX); stCap(e); return; }   // the whole stage moves sideways
     if (e.button !== 0) return; document.querySelector(".stmenu")?.remove();
     const pin = e.target.closest(".stin, .stout, .stpin"); if (pin && stWireStart(e, pin)) { stCap(e); return; }
     const lz = e.target.closest("[data-lrz]"), lh = !lz && e.target.closest("#stlist .stlh") && !e.target.closest("button");
@@ -706,6 +745,7 @@ function stBind() {
     if (n.type === "win") stFocus(n.id); stGrab(n, e.screenX, e.screenY, e.clientX - el.getBoundingClientRect().left); stCap(e);
   });
   arena.addEventListener("pointermove", (e) => {
+    if (ST.pan) { stPanMove(e.screenX); return; }
     if (ST.lmove) { const m = ST.lmove, lp = stPanel(), A = stArena(), dx = e.clientX - m.x, dy = e.clientY - m.y;
       if (!m.d) { lp.free = true; lp.fx = Math.max(0, Math.min(A.w - m.w0, m.l0 + dx)) / A.w; lp.fy = Math.max(0, Math.min(A.h - m.h0, m.t0 + dy)) / A.h; }
       else {
@@ -737,6 +777,7 @@ function stBind() {
     if (ST.drag) stDragSoon(e.screenX, e.screenY);
   });
   arena.addEventListener("pointerup", (e) => {
+    if (ST.pan) { stPanEnd(); return; }
     if (ST.lmove) { const m = ST.lmove, lp = stPanel(); ST.lmove = null; v.classList.remove("dragging", "resizing", "moving");
       if (!m.d && (lp.fx ?? 1) * stArena().w < 24) { lp.free = false; delete lp.fx; }     // dropped at the far left: docked again
       stPanelSave(); stRender(); return; }
@@ -814,6 +855,15 @@ function stBackBtn(view) {
   b.textContent = L("← 返回对话", "← Back to the conversation") + (t ? `「${t.slice(0, 24)}」` : "");
   b.addEventListener("click", () => { const f = ST.back?.focus; ST.back = null; show("stage"); if (f && ST.nodes.some((n) => n.id === f)) stFocus(f, true); });
   document.body.appendChild(b);
+}
+if (Q.get("embed") && window.parent !== window) {   // inside a page: held with the middle button, it is the stage that moves
+  let panning = false;
+  document.addEventListener("mousedown", (e) => { if (e.button === 1) e.preventDefault(); }, true);
+  document.addEventListener("auxclick", (e) => { if (e.button === 1) e.preventDefault(); }, true);
+  document.addEventListener("pointerdown", (e) => { if (e.button !== 1) return; try { if (!window.parent.stPanStart) return; e.preventDefault(); window.parent.stPanStart(e.screenX); panning = true; e.target.setPointerCapture?.(e.pointerId); } catch {} }, true);
+  document.addEventListener("pointermove", (e) => { if (panning) { e.preventDefault(); try { window.parent.stPanMove(e.screenX); } catch {} } }, true);
+  const stop = () => { if (!panning) return; panning = false; try { window.parent.stPanEnd(); } catch {} };
+  document.addEventListener("pointerup", stop, true); document.addEventListener("pointercancel", stop, true);
 }
 if (Q.get("embed") && window.parent !== window) {   // inside a window: 全图 and the like open in the app around it, with the way back
   document.addEventListener("click", (e) => {
