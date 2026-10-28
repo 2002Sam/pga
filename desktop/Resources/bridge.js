@@ -3,7 +3,8 @@
    - tells the window which conversation it shows and what it is called (a new one has its key after the first message);
    - right-click (outside text fields): the desktop app's menu of every node there is;
    - what is wired into the window's left dot goes to its conversation's agents (PUT /chat-context), as on the stage;
-   - focus: into the composer. */
+   - focus: into the composer;
+   - in 完整版, the stage has no dark bar across its top. */
 (() => {
   const N = window.PGA_NATIVE || {};
   const post = (m) => { try { webkit.messageHandlers.pga.postMessage(m); } catch (e) {} };
@@ -19,6 +20,15 @@
       if (sig !== last) { last = sig; post({ kind: "state", key: k, title: t }); }
     }, 1200);
     addEventListener("load", () => post({ kind: "ready" }));
+  }
+
+  if (!N.float) {                                  // 完整版: no dark bar across the top of the stage — its hint goes, its two buttons stay in the corner
+    const st = document.createElement("style");
+    st.textContent = `#stbar { left: auto !important; right: 12px !important; top: 6px !important; padding: 0 !important; background: transparent !important;
+        border: 0 !important; box-shadow: none !important; backdrop-filter: none !important; }
+      #stbar > .cvdim, #stbar > .grow { display: none !important; }
+      #vStage .starena { top: 38px !important; }`;
+    document.head.appendChild(st);
   }
 
   addEventListener("contextmenu", (e) => {
