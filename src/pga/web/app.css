@@ -1096,3 +1096,13 @@ html.embed .ccomp .cbar { row-gap: 6px; } html.embed .ccomp .cbar > textarea { m
 .stmv { position: absolute; top: 1px; bottom: 1px; border: 1.5px solid var(--accent); border-radius: 6px; background: color-mix(in srgb, var(--accent) 10%, transparent); pointer-events: none; }
 #stbar > .cvdim { max-width: calc(28% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.deskapp .stmap { top: 31px; height: 22px; } html.deskapp #vStage .starena { top: 60px !important; }
+/* the map sits higher; hovering it shows which page is there, with a small picture of it; ✦ tidies every conversation */
+.stmap { top: 4px; height: 24px; display: block; } html.deskapp .stmap { top: 4px; height: 22px; }
+html.deskapp #vStage .starena { top: 38px !important; }
+.stmtip { position: fixed; z-index: 90; width: 252px; padding: 8px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-2); box-shadow: 0 14px 40px rgba(0,0,0,.4); pointer-events: none; display: grid; gap: 6px; }
+.stmtip[hidden] { display: none; } .stmtip b { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stmthumb { position: relative; width: 240px; height: 150px; overflow: hidden; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); }
+.sttidy.on { animation: stspin 1.2s linear infinite; color: var(--accent); pointer-events: none; }
+.stmthumb { height: auto; max-height: 190px; display: grid; gap: 5px; padding: 7px; align-content: start; }
+.stmthumb .mt { font-size: 10.5px; line-height: 1.45; color: var(--muted); padding: 4px 7px; border-radius: 7px; background: var(--soft); max-width: 88%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.stmthumb .mt.me { justify-self: end; background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--text); }

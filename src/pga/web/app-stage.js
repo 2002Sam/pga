@@ -260,7 +260,7 @@ function stList(g, A) {
   if (!box) {
     $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="lrz lrz-${d}" data-lrz="${d}"></i>`).join("")}
       <div class="stlh" title="${L("按住拖动；拖到最左边会停靠回去", "Hold to move; drop it at the far left to dock it again")}"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb stsync" data-stsync title="${L("刷新：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Refresh: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">⟳</button><button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <button class="stb sttidy" data-sttidy title="${L("整理：把新对话放进世界树、重写变了的主题总结、按标题把零散对话归成线", "Tidy: new conversations into the world tree, changed topics summarised again, loose ones joined into lines by title")}">✦</button><button class="stb stsync" data-stsync title="${L("刷新：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Refresh: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">⟳</button><button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
       <div class="stlk" id="stlk"><em>${L("知识", "Knowledge")}</em></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
@@ -285,6 +285,18 @@ async function stSync(b) {                         // ⟳: the import, now — n
     b.title = L(`上次刷新 ${new Date().toLocaleTimeString()} · 再点一次重新导入`, `Last refreshed ${new Date().toLocaleTimeString()} · click to import again`);
   } catch (err) { toast(err.message); b.title = L("刷新失败，点一下重试", "Refresh failed; click to retry"); }
   b.classList.remove("on");
+}
+async function stTidy(b) {                         // ✦: every conversation where it belongs, now
+  if (b.classList.contains("on")) return;
+  b.classList.add("on"); b.title = L("正在整理…", "Tidying…");
+  let placed = 0, sums = 0, lines = 0, why = "";
+  try { const r = await api(`/v1/users/${S.uid}/world/place`, { method: "POST" }); placed = r.placed || 0; sums = r.summarised || 0; if (r.why === "not built") why = L("世界树还没建", "the world tree is not built yet"); }
+  catch (err) { why = err.message; }
+  try { const r = await api(`/v1/users/${S.uid}/timeline/organize`, { body: { use_model: false } }); lines = r.new_lines || 0; } catch {}
+  try { await loadTimeline(); if (typeof loadWorld === "function") loadWorld().catch?.(() => {}); } catch {}
+  stRender();
+  toast(L(`整理好了：${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线`, `Tidied: ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines`) + (why ? ` · ${why}` : ""));
+  b.classList.remove("on"); b.title = L(`上次整理 ${new Date().toLocaleTimeString()} · 再点一次重新整理`, `Last tidied ${new Date().toLocaleTimeString()} · click to tidy again`);
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
 function stListItems() {                           // every past conversation, newest first, one tight row each
@@ -684,9 +696,10 @@ window.stPanStart = stPanStart; window.stPanMove = stPanMove; window.stPanEnd = 
 function stMap() {                                 // the minimap: every part of the row in miniature, and the part you see
   const a = $("#starena"), v = $("#vStage"); if (!a || !v || S.view !== "stage") return;
   let m = $("#stmap");
-  if (!m) { v.insertAdjacentHTML("beforeend", `<div class="stmap" id="stmap" title="${L("整条台面：点一下或拖动，到那个位置", "The whole stage: click or drag to go there")}"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></div>`); m = $("#stmap");
+  if (!m) { v.insertAdjacentHTML("beforeend", `<label class="stmap" id="stmap"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></label><div class="stmtip" id="stmtip" hidden></div>`); m = $("#stmap");
+    m.addEventListener("pointerleave", () => { $("#stmtip").hidden = true; ST.mapHover = null; });
     m.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); try { m.setPointerCapture(e.pointerId); } catch {} ST.mapDrag = true; stMapGo(e.clientX); });
-    m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); });
+    m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); stMapTip(e.clientX); });
     const end = () => { ST.mapDrag = false; }; m.addEventListener("pointerup", end); m.addEventListener("pointercancel", end);
     a.addEventListener("scroll", () => requestAnimationFrame(stMapView)); }
   const T = Math.max(a.scrollWidth, a.clientWidth, 1), W = m.clientWidth || 1, k = W / T, H = m.clientHeight || 30;
@@ -697,6 +710,25 @@ function stMap() {                                 // the minimap: every part of
   for (const n of ST.nodes) { if (n.type === "win" || n.rail) continue; const p = ST.pos?.get(n.id); if (p) h += box(p.x, p.w, "mcard"); }
   $("#stmi").innerHTML = h; m.dataset.k = k; m.style.setProperty("--mh", H + "px");
   stMapView();
+}
+function stMapTip(cx) {                           // over the map: the page there, by name, with a picture of it as it is now
+  const m = $("#stmap"), tip = $("#stmtip"); if (!m || !tip) return;
+  const k = Number(m.dataset.k) || 1, r = m.getBoundingClientRect(), x = (cx - r.left) / k;
+  let hit = null;
+  for (const w of stWins()) { const p = ST.pos?.get(w.id); if (p && x >= p.x - 4 / k && x <= p.x + p.w + 4 / k) { hit = { w, p }; if (!w.mini) break; } }
+  const lp = $("#stlist"); if (!hit && lp && !lp.hidden) { const lx = parseFloat(lp.style.left) || 0; if (x >= lx && x <= lx + lp.offsetWidth) hit = { list: true }; }
+  if (!hit) { tip.hidden = true; ST.mapHover = null; return; }
+  const id = hit.list ? "list" : hit.w.id;
+  tip.style.left = Math.max(8, Math.min(innerWidth - 268, cx - 130)) + "px"; tip.style.top = r.bottom + 6 + "px"; tip.hidden = false;
+  if (ST.mapHover === id) return; ST.mapHover = id;
+  if (hit.list) { tip.innerHTML = `<b>${L("所有对话", "All conversations")}</b><span class="cvdim">${recentItems().length} ${L("段", "")}</span>`; return; }
+  const t = hit.w.pad ? L("笔记", "Notes") : stTitle(hit.w.key);
+  tip.innerHTML = `<b>${esc(t)}</b><div class="stmthumb" id="stmthumb"></div>`;
+  try {                                           // a small picture of the page: its last few turns, as they stand
+    const d = hit.w.el?.querySelector("iframe")?.contentDocument, ms = [...(d?.querySelectorAll("#cdlgIn .cmsg") || [])].slice(-4);
+    if (!ms.length) throw 0;
+    $("#stmthumb").innerHTML = ms.map((x) => `<div class="mt ${x.classList.contains("me") ? "me" : ""}">${esc((x.querySelector(".md, .body, .text")?.innerText || x.innerText || "").trim().slice(0, 140))}</div>`).join("");
+  } catch { const b = $("#stmthumb"); if (b) b.innerHTML = `<div class="cvdim" style="padding:10px">${L("这一页还没打开", "Not opened yet")}</div>`; }
 }
 function stMapView() { const a = $("#starena"), m = $("#stmap"), b = $("#stmv"); if (!a || !m || !b) return; const k = Number(m.dataset.k) || 0;
   b.style.left = a.scrollLeft * k + "px"; b.style.width = Math.max(8, a.clientWidth * k) + "px"; }
@@ -794,6 +826,7 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".stmenu")) document.querySelector(".stmenu")?.remove();
   const add = e.target.closest("[data-stadd]"); if (add) { const m = add.closest(".stmenu"), at = JSON.parse(m.dataset.at); m.remove(); stAdd(add.dataset.stadd, at); return; }
   const sy = e.target.closest("[data-stsync]"); if (sy) { stSync(sy); return; }
+  const td = e.target.closest("[data-sttidy]"); if (td) { stTidy(td); return; }
   if (e.target.closest("[data-stlistmin]")) { const lp = stPanel(); lp.min = !lp.min; stPanelSave(); stRender(); return; }
   const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
   const cut = e.target.closest("[data-unlink]"); if (cut) { const [to, from, pin] = cut.dataset.unlink.split("|"), w = ST.nodes.find((x) => x.id === to); if (w) w.links = (w.links || []).filter((l) => !(l.from === from && l.pin === Number(pin))); stRender(); stSave(); stContexts(); return; }
