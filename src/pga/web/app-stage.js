@@ -260,7 +260,7 @@ function stList(g, A) {
   if (!box) {
     $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="lrz lrz-${d}" data-lrz="${d}"></i>`).join("")}
       <div class="stlh" title="${L("按住拖动；拖到最左边会停靠回去", "Hold to move; drop it at the far left to dock it again")}"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <button class="stb stsync" data-stsync title="${L("刷新：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Refresh: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">⟳</button><button class="stb" data-stlistmin title="${L("收起列表", "Fold the list")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
       <div class="stlk" id="stlk"><em>${L("知识", "Knowledge")}</em></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
@@ -271,6 +271,20 @@ function stList(g, A) {
   const mb = box.querySelector("[data-stlistmin]"); if (mb) mb.textContent = g.min ? "▭" : "–";
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
   if (box.dataset.sig !== sig) { box.dataset.sig = sig; stListItems(); }
+}
+async function stSync(b) {                         // ⟳: the import, now — new and changed conversations from the apps on this machine
+  if (b.classList.contains("on")) return;
+  const n0 = recentItems().length; b.classList.add("on"); b.title = L("正在导入…", "Importing…");
+  try {
+    const r = await api(`/v1/users/${S.uid}/hub/sync`, { method: "POST" });
+    const got = Object.values(r?.synced || {}).reduce((t, x) => ({ n: t.n + (x?.new || 0), u: t.u + (x?.updated || 0) }), { n: 0, u: 0 });
+    await loadTimeline(); stRender();
+    const errs = Object.keys(r?.errors || {}).filter((k) => k !== "digest");     // the apps that could not be read (the digest is a later step)
+    toast(L(`导入好了：新增 ${got.n || Math.max(0, recentItems().length - n0)} 段，更新 ${got.u} 段`, `Imported: ${got.n || Math.max(0, recentItems().length - n0)} new, ${got.u} updated`)
+      + (errs.length ? L(` · ${errs.join("、")} 没读到`, ` · ${errs.join(", ")} could not be read`) : ""));
+    b.title = L(`上次刷新 ${new Date().toLocaleTimeString()} · 再点一次重新导入`, `Last refreshed ${new Date().toLocaleTimeString()} · click to import again`);
+  } catch (err) { toast(err.message); b.title = L("刷新失败，点一下重试", "Refresh failed; click to retry"); }
+  b.classList.remove("on");
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
 function stListItems() {                           // every past conversation, newest first, one tight row each
@@ -738,6 +752,7 @@ document.addEventListener("click", (e) => {
   if (S.view !== "stage") return;
   if (!e.target.closest(".stmenu")) document.querySelector(".stmenu")?.remove();
   const add = e.target.closest("[data-stadd]"); if (add) { const m = add.closest(".stmenu"), at = JSON.parse(m.dataset.at); m.remove(); stAdd(add.dataset.stadd, at); return; }
+  const sy = e.target.closest("[data-stsync]"); if (sy) { stSync(sy); return; }
   if (e.target.closest("[data-stlistmin]")) { const lp = stPanel(); lp.min = !lp.min; stPanelSave(); stRender(); return; }
   const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
   const cut = e.target.closest("[data-unlink]"); if (cut) { const [to, from, pin] = cut.dataset.unlink.split("|"), w = ST.nodes.find((x) => x.id === to); if (w) w.links = (w.links || []).filter((l) => !(l.from === from && l.pin === Number(pin))); stRender(); stSave(); stContexts(); return; }

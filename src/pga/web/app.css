@@ -1082,3 +1082,4 @@ html.embed .ccomp .cbar { row-gap: 6px; } html.embed .ccomp .cbar > textarea { m
 #unfold { top: 50%; left: 0; width: 16px; height: 52px; margin-top: -26px; border-radius: 0 8px 8px 0; border-left: 0; font-size: 11px; opacity: .7; }
 #unfold:hover { opacity: 1; width: 22px; }
 .app.mini .stbar { left: 14px; }
+.stsync.on { animation: stspin 1s linear infinite; color: var(--accent); pointer-events: none; } @keyframes stspin { to { transform: rotate(360deg); } }
