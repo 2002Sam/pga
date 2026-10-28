@@ -4,6 +4,21 @@ A new, separate version of PGA's interface: conversations as floating windows ab
 while the desktop and the apps beneath them stay usable. It talks to the same PGA server; nothing outside `desktop/`
 is changed, and the browser version (`src/pga/web`) goes on as it is.
 
+## Two ways of seeing it (⌥⇧Space switches)
+
+- **工作台 (workbench)**: one ordinary window, like the browser version's stage — every conversation in a list on the
+  left, and the conversations and nodes as cards on a dotted ground, wired to each other. Cards move by their head and
+  size from their corner.
+- **桌面 (desktop)**: each of them a window of its own, floating above every other window, the desktop usable around them.
+
+The same windows move between the two without reloading; each remembers where it was in each.
+
+In both: every window has a dot on either side. Pull a wire from a window's right dot onto a conversation, and what
+it holds goes to that conversation's agents with every question (a conversation hands over what was asked in it).
+Let a wire go on empty space to pick a node for it. Right-click a window (or empty space in the workbench) for every
+node there is — a new conversation, an existing one, a note, a file, a skill, a document, a world-tree topic — which
+opens beside it, wired in; the same menu cuts wires.
+
 ## What it is
 
 - **Native shell** (`Sources/`, Swift, AppKit + WebKit, no Xcode project): a menu-bar app.

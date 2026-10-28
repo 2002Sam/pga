@@ -121,6 +121,7 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// A web view that takes files dropped from Finder as paths (the agents run on this Mac and read them where they are).
 final class DropWebView: WKWebView {
+    override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }        // a click on a window in the background acts at once
     private func paths(_ s: NSDraggingInfo) -> [String] {
         (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []).map(\.path)
     }

@@ -31,7 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var home: HomeWindow?
     var status: NSStatusItem!
     var serviceUp = false, starting = false
-    var hotKey: EventHotKeyRef?
+    var hotKey: EventHotKeyRef?, hotKey2: EventHotKeyRef?
+    var bench: Bench?                                    // the workbench window, while PGA is seen that way
+    var inBench: Bool { config.mode == "bench" }
+    private var pushT: [String: DispatchWorkItem] = [:]
 
     func applicationDidFinishLaunching(_ n: Notification) {
         AppDelegate.shared = self
@@ -41,62 +44,154 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         status.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "PGA")
         let menu = NSMenu(); menu.delegate = self; status.menu = menu
         registerHotKey()
+        Wires.shared.setup()
         check { up in
-            let go = { self.restore(); self.launchArgs() }
+            let go = { self.restore(); self.launchArgs(); Catalog.shared.refresh(force: true) }
             if up { go() } else { self.startService(go) }
         }
     }
 
     // ------------------------------------------------ floating windows
     func restore() {
-        for s in Store.read("floats.json", as: [SavedFloat].self) ?? [] { let f = FloatWindow(saved: s); floats.append(f); f.show(focus: false) }
+        for s in Store.read("floats.json", as: [SavedFloat].self) ?? [] { floats.append(FloatWindow(saved: s)) }
+        if inBench { enterBench() } else { floats.forEach { $0.show(focus: false) } }
     }
 
-    /// open -a "PGA 浮窗" --args --home | --new | --open <conversation key>
+    /// open -a "PGA 浮窗" --args --home | --new | --bench | --desk | --open <conversation key>
     func launchArgs() {
         let a = CommandLine.arguments
         if a.contains("--home") { showHome() }
+        if a.contains("--bench") && !inBench { toggleMode() }
+        if a.contains("--desk") && inBench { toggleMode() }
         if a.contains("--new") { openFloat(key: nil) }
         if let i = a.firstIndex(of: "--open"), i + 1 < a.count { openFloat(key: a[i + 1]) }
     }
 
-    func saveFloats() { Store.write("floats.json", floats.map(\.saved)) }
+    private var quitting = false
+    func applicationWillTerminate(_ n: Notification) { saveFloats(); quitting = true }         // windows closing as the app quits stay open next time
+    func saveFloats() { if !quitting { Store.write("floats.json", floats.map(\.saved)) } }
 
-    /// A conversation as a floating window (the one already open is brought forward); nil: a new conversation.
+    /// A conversation as a window (the one already open is brought forward); nil: a new conversation.
     func openFloat(key: String?, title: String = "", focus: Bool = true) {
-        if let k = key, let f = floats.first(where: { $0.key == k }) { f.show(focus: focus); return }
-        if key == nil, let f = floats.first(where: { $0.key == nil }) { f.show(focus: true); return }   // one blank one is enough
-        let f = FloatWindow(saved: nil, key: key, title: title)
-        f.focusOnLoad = focus
-        floats.append(f); saveFloats(); f.show(focus: focus)
+        if let k = key, let f = floats.first(where: { $0.key == k }) { f.show(focus: focus); if inBench { bench?.show() }; return }
+        if key == nil, let f = floats.first(where: { $0.key == nil && $0.kind == .conv }) { f.show(focus: true); if inBench { bench?.show() }; return }   // one blank one is enough
+        var d = ["title": title]; if let key { d["key"] = key }
+        openNode(.conv, data: d, frame: defaultFrame(.conv))
+    }
+    func defaultFrame(_ k: Kind) -> NSRect {
+        if inBench, let b = bench { return b.cascade(k, floats.filter(\.docked).count) }
+        return NSRect(origin: FloatWindow.nextFrame().origin, size: k.size)
     }
 
-    func closed(_ f: FloatWindow) { floats.removeAll { $0 === f }; saveFloats() }
+    /// A node (or a conversation) as a new window at `frame` — in the coordinates of where windows live now (the
+    /// screen, or the workbench).
+    @discardableResult
+    func openNode(_ k: Kind, data: [String: String], frame: NSRect) -> FloatWindow {
+        let blank = k == .conv && data["key"] == nil
+        let f = FloatWindow(saved: nil, kind: k, key: data["key"], title: data["title"] ?? "", data: data, at: inBench ? nil : frame)
+        if blank { f.focusOnLoad = true }
+        floats.append(f)
+        if inBench, let b = bench { f.dock(in: b.area, frame: frame); b.show() }
+        f.show(focus: blank || k == .note); saveFloats(); redrawWires()
+        return f
+    }
+
+    func float(id: String) -> FloatWindow? { floats.first { $0.id == id } }
+    /// The PGA window (or workbench card) under a point of the screen, the frontmost one.
+    func float(at p: NSPoint) -> FloatWindow? {
+        if inBench, let b = bench {
+            for v in b.area.subviews.reversed() { if let f = floats.first(where: { $0.content === v }), NSMouseInRect(p, f.screenFrame, false) { return f } }
+            return nil
+        }
+        let n = NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0)
+        return floats.first { $0.panel.windowNumber == n } ?? floats.first { $0.panel.isVisible && NSMouseInRect(p, $0.panel.frame, false) }
+    }
+    func redrawWires() { Wires.shared.redraw(); bench?.area.needsDisplay = true }
+
+    /// A wire: what `src` holds goes into the conversation `dst`. Only a conversation reads what is wired into it.
+    func link(_ src: FloatWindow, into dst: FloatWindow) {
+        guard src !== dst else { return }
+        guard dst.kind == .conv else { NSSound.beep(); return }
+        if !dst.inputs.contains(src.id) { dst.inputs.append(src.id) }
+        dst.inputs.removeAll { $0 == dst.id }
+        saveFloats(); pushInputs(to: dst); redrawWires()
+    }
+    func unlink(_ src: FloatWindow, from dst: FloatWindow) {
+        dst.inputs.removeAll { $0 == src.id }; saveFloats(); pushInputs(to: dst); redrawWires()
+    }
+
+    /// Tells a conversation's page what is wired into it; the page hands it to its agents (PUT /chat-context).
+    func pushInputs(to t: FloatWindow) {
+        guard t.kind == .conv else { return }
+        Web.call(t.web, "inputs", t.inputs.compactMap { float(id: $0)?.asInput })
+    }
+    /// A window's content changed (a note typed into, a file picked, a conversation got its key): those it feeds are told.
+    func changed(_ f: FloatWindow) {
+        saveFloats()
+        for t in floats where t.inputs.contains(f.id) {
+            pushT[t.id]?.cancel()
+            let w = DispatchWorkItem { [weak self] in self?.pushInputs(to: t) }
+            pushT[t.id] = w; DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: w)
+        }
+    }
+
+    func closed(_ f: FloatWindow) {
+        floats.removeAll { $0 === f }
+        for t in floats where t.inputs.contains(f.id) { t.inputs.removeAll { $0 == f.id }; pushInputs(to: t) }
+        saveFloats(); redrawWires()
+    }
+
+    // ------------------------------------------------ the two ways of seeing PGA: the workbench, or the desktop
+    /// ⌥⇧Space: every window into one workbench window (an app in the Dock), or each out onto the desktop on its own.
+    @objc func toggleMode() {
+        config.mode = inBench ? "desk" : "bench"; Store.write("config.json", config)
+        if inBench { enterBench() } else { leaveBench() }
+    }
+    func enterBench() {
+        if bench == nil { bench = Bench() }
+        NSApp.setActivationPolicy(.regular)
+        let b = bench!; b.show()
+        var n = 0
+        for f in floats { f.dock(in: b.area, frame: f.card ?? b.cascade(f.kind, n)); if f.card == nil { n += 1 } }
+        saveFloats(); redrawWires()
+    }
+    func leaveBench() {
+        for f in floats { f.undock(); f.show(focus: false); f.applyPin() }
+        bench?.window.orderOut(nil)
+        NSApp.setActivationPolicy(.accessory)
+        saveFloats(); redrawWires()
+    }
 
     func message(_ body: [String: Any]) {
         switch body["kind"] as? String {
         case "open": openFloat(key: body["key"] as? String, title: body["title"] as? String ?? "")
         case "new": openFloat(key: nil)
         case "home": showHome()
+        case "mode": toggleMode()
         case "log": Log.write("page: \(body["text"] as? String ?? "")")
         default: break
         }
     }
 
     @objc func newFloat() { openFloat(key: nil) }
+    @objc func showBench() { bench?.show() }
     @objc func showHome() { if home == nil { home = HomeWindow() }; home!.show() }
     @objc func showAll() { floats.forEach { $0.show(focus: false) } }
     @objc func hideAll() { floats.forEach { $0.panel.orderOut(nil) } }
     @objc func bring(_ item: NSMenuItem) { (item.representedObject as? FloatWindow)?.show(focus: true) }
 
-    // ------------------------------------------------ ⌥Space anywhere: a new question
+    // ------------------------------------------------ ⌥Space anywhere: a new question; ⌥⇧Space: workbench ↔ desktop
     func registerHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            DispatchQueue.main.async { AppDelegate.shared.newFloat() }; return noErr
+        InstallEventHandler(GetApplicationEventTarget(), { _, ev, _ in
+            var hk = EventHotKeyID()
+            GetEventParameter(ev, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
+            let which = hk.id
+            DispatchQueue.main.async { if which == 2 { AppDelegate.shared.toggleMode() } else { AppDelegate.shared.newFloat() } }
+            return noErr
         }, 1, &spec, nil, nil)
-        let id = EventHotKeyID(signature: OSType(0x5047_4144), id: 1)       // 'PGAD'
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &hotKey)
+        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), EventHotKeyID(signature: OSType(0x5047_4144), id: 1), GetApplicationEventTarget(), 0, &hotKey)     // ⌥Space
+        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey | shiftKey), EventHotKeyID(signature: OSType(0x5047_4144), id: 2), GetApplicationEventTarget(), 0, &hotKey2)   // ⌥⇧Space
     }
 
     // ------------------------------------------------ the PGA service (it needs Docker for its database)
@@ -137,6 +232,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         add("新浮窗", #selector(newFloat), " ").keyEquivalentModifierMask = [.option]
         add("所有对话…", #selector(showHome), "")
+        let fc = add(inBench ? "分开到桌面" : "收进工作台", #selector(toggleMode), " "); fc.keyEquivalentModifierMask = [.option, .shift]
+        if inBench { add("显示工作台", #selector(showBench), "") }
         if !floats.isEmpty {
             menu.addItem(.separator())
             for f in floats {

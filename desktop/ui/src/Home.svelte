@@ -4,6 +4,7 @@
   import { api, uid, ago } from "./lib/api.js";
   import { post } from "./lib/native.js";
 
+  let { docked = false } = $props();          // docked in the workbench: a narrow column
   let chats = $state([]);
   let q = $state("");
   let error = $state("");
@@ -16,12 +17,12 @@
   onMount(() => { load(); const t = setInterval(load, 20000); return () => clearInterval(t); });
 </script>
 
-<div class="home">
+<div class="home" class:docked>
   <header>
     <h1>所有对话</h1>
     <span class="n">{chats.length}</span>
     <span class="grow"></span>
-    <button class="new" onclick={() => post("new")}>＋ 新对话 <kbd>⌥ Space</kbd></button>
+    <button class="new" onclick={() => post("new")}>＋ 新对话{#if !docked} <kbd>⌥ Space</kbd>{/if}</button>
   </header>
   <input class="q" placeholder="搜对话…" bind:value={q} />
   {#if error}<p class="err">连不上 PGA：{error}</p>{/if}
@@ -40,6 +41,7 @@
 
 <style>
   .home { height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr); padding: 34px 20px 0; gap: 10px; }
+  .docked { padding: 12px 10px 0; } .docked h1 { font-size: 15px; } .docked .row { padding: 6px 8px; } .docked .last { display: none; }
   header { display: flex; align-items: baseline; gap: 8px; -webkit-user-select: none; user-select: none; }
   h1 { font-size: 18px; margin: 0; } .n { color: var(--dim); font-size: 12px; } .grow { flex: 1; }
   .new { padding: 6px 12px; border-radius: 10px; background: var(--accent); color: white; font-size: 13px; }

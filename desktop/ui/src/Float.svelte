@@ -1,6 +1,8 @@
 <script>
   // One conversation in a floating window: what was said, what the agent is doing right now, and a composer.
   // Files dropped from Finder come in as paths (the agents run on this Mac and read them where they are).
+  // What is wired into its left dot (other conversations, notes, files, skills, documents, topics) is handed to its
+  // agents with every question: PUT /chat-context, the same store the browser version's stage uses.
   import { onMount, tick } from "svelte";
   import { api, uid, page } from "./lib/api.js";
   import { post, onNative } from "./lib/native.js";
@@ -19,6 +21,8 @@
   let dragging = $state(false);
   let scroller, box;
   let since = 0;
+  let inputs = $state([]);                      // the windows wired into this one, from the shell
+  let ctxSent = "";
 
   const report = () => post("state", { key: key || "", title });
   const nearBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80;
@@ -49,6 +53,26 @@
     } catch {}
   }
 
+  // what the wired-in windows hand over, as one text; a conversation hands over what was asked in it
+  async function inputText() {
+    const parts = await Promise.all(inputs.map(async (x) => {
+      if (x.type !== "conv") return x.text || "";
+      if (!x.key) return "";
+      try {
+        const c = await api(`/v1/users/${uid}/chats/${encodeURIComponent(x.key)}/context`);
+        return `Another conversation of the user, «${x.title}». What was asked there:\n` + (c.questions || []).slice(-15).map((q) => `- ${String(q.text || "").slice(0, 300)}`).join("\n");
+      } catch { return ""; }
+    }));
+    return parts.filter(Boolean).join("\n\n");
+  }
+  async function sendContext() {
+    if (!key) return;
+    const text = await inputText();
+    if (text === ctxSent) return;
+    try { await api(`/v1/users/${uid}/chat-context`, { method: "PUT", body: { key, text } }); ctxSent = text; } catch {}
+  }
+  onNative("inputs", (xs) => { inputs = xs || []; sendContext(); });
+
   async function send() {
     const words = draft.trim();
     if ((!words && !files.length) || sending) return;
@@ -58,6 +82,7 @@
     turns = [...turns, { role: "user", text, at: new Date().toISOString() }];
     if (!title) title = words.slice(0, 40) || "文件";
     draft = ""; files = []; sending = true; error = ""; since = Date.now(); report(); toBottom(true);
+    if (inputs.length) await sendContext();       // a new conversation: what is wired in goes with its first question
     try {
       const r = await api(`/v1/users/${uid}/agents/ask`, { body: { text, agent, conversation: key, history, refs: [], images: [], files: [], web: false } });
       if (r?.error && !r?.text) error = r.error;
@@ -79,7 +104,7 @@
 
   onMount(() => {
     api(`/v1/agents`).then((r) => { agents = Object.keys(r?.agents || {}); }).catch(() => {});
-    load(true); watch();
+    load(true); watch(); post("ready");
     const a = setInterval(() => { if (sending || run) watch(); }, 700);
     const b = setInterval(() => { if (!sending && !run && document.visibilityState === "visible") { load(); watch(); } }, 8000);
     return () => { clearInterval(a); clearInterval(b); };
@@ -92,6 +117,11 @@
 
 <div class="float" class:dragging>
   <div class="talk" bind:this={scroller}>
+    {#if inputs.length}
+      <div class="ins" title="连进来的内容：这段对话的 agent 每次回答都会读到">
+        ← {#each inputs as x (x.id)}<span class="in t-{x.type}">{x.title}</span>{/each}
+      </div>
+    {/if}
     {#if !turns.length && !sending}
       <div class="hello">
         <b>问点什么</b>
@@ -145,6 +175,10 @@
 <style>
   .float { height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; position: relative; }
   .talk { overflow-y: auto; padding: 6px 14px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .ins { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11.5px; color: var(--dim);
+    padding: 4px 0 6px; background: var(--bg); }
+  .in { padding: 1px 8px; border-radius: 8px; background: var(--soft); max-width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 2px solid var(--tc, var(--line)); }
+  .t-conv { --tc: #8fb4ff; } .t-note { --tc: #a1a1aa; } .t-file { --tc: #5fc9c0; } .t-skill { --tc: #e9b35f; } .t-doc { --tc: #7fcf9f; } .t-topic { --tc: #d6a75c; }
   .hello { margin: auto 0; display: grid; gap: 4px; color: var(--muted); font-size: 13px; padding: 0 4px; }
   .hello b { color: var(--text); font-size: 15px; font-weight: 600; }
   .you { align-self: flex-end; max-width: 88%; background: var(--user); padding: 7px 11px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }

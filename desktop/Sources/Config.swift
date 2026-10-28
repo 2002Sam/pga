@@ -25,6 +25,7 @@ struct Config: Codable {
     var server = "http://localhost:8010"
     var uid = ""
     var ui: String? = nil          // while developing: serve the interface from this folder (e.g. desktop/ui/dist) instead of the app
+    var mode: String? = nil        // "bench": every window in one workbench window; "desk" (default): each on its own over the desktop
 
     /// The account: the one in config.json, else the installation's owner (asked of the database once and kept).
     /// A WebKit window keeps its own storage, apart from Chrome's; without this it would start a new, empty account.
@@ -39,6 +40,8 @@ struct Config: Codable {
     }
 }
 
+/// A window on the desktop, as kept in floats.json: a conversation, or a node (note, file, skill, document, topic)
+/// wired into one. `inputs`: the windows wired into this one (their right dot to its left dot).
 struct SavedFloat: Codable {
     var id: String
     var key: String?
@@ -46,6 +49,10 @@ struct SavedFloat: Codable {
     var title: String
     var x: Double, y: Double, w: Double, h: Double
     var pinned: Bool
+    var type: String?
+    var data: [String: String]?
+    var inputs: [String]?
+    var card: [Double]?            // its place in the workbench window (x, y, w, h), when it has been there
 }
 
 enum Shell {
