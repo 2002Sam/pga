@@ -669,7 +669,7 @@ html.embed .cbar { flex-wrap: wrap; } html.embed .cbar select { max-width: 110px
 .padx { font-size: 12px; color: var(--dim); padding: 8px; }
 .app.padmin .pad > :not(.padh) { display: none; } .app.padmin .padh { flex-direction: column; padding: 10px 4px; border: 0; } .app.padmin .padh b { writing-mode: vertical-rl; font-weight: 500; color: var(--muted); } .app.padmin .padst { display: none; }
 html.embed .pad { display: none; }
-@media (max-width: 860px) { .pad { display: none; } .app.haspad { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .app > .pad { display: none; } .app.haspad { grid-template-columns: 1fr; } }
 .cvdraw[hidden], .cvtree[hidden], .cvbox[hidden] { display: none !important; }
 .cvo { max-height: 160px; } .k-board .cvo { max-height: 7.8em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .padh b { flex: none; white-space: nowrap; }
@@ -841,7 +841,7 @@ html.embed.efull .cact { display: flex !important; } html.embed.efull #vChats { 
 .stfcard em { display: flex; align-items: center; gap: 6px; } .stfplus { margin-left: auto; border: 1px solid var(--line-2); background: var(--raised); color: var(--text); border-radius: 6px; width: 20px; height: 18px; padding: 0; line-height: 1; cursor: pointer; } .stfplus:hover { border-color: var(--fc); }
 
 /* ---------------------------------------------------------------- the stage: one axis, wired like a blueprint */
-#vStage .starena { position: absolute; left: 0; right: 0; top: 56px; bottom: 0; overflow: hidden; overflow-x: auto; cursor: grab; scrollbar-width: thin; }   /* the row runs on to the right: it scrolls */
+#vStage .starena { position: absolute; left: 0; right: 0; top: 56px; bottom: 14px; overflow: hidden; overflow-x: auto; cursor: grab; scrollbar-width: thin; }   /* the row runs on to the right: it scrolls */
 #vStage.panning .starena { cursor: grabbing; }
 .stworld { position: absolute; left: 0; top: 0; width: 1px; height: 1px; transform-origin: 0 0; }
 .staxis { position: absolute; left: -100000px; width: 200000px; top: -1px; height: 2px; background: linear-gradient(90deg, transparent, var(--line-2) 10%, var(--line-2) 90%, transparent); pointer-events: none; }
@@ -1029,7 +1029,7 @@ html.compout .cpane > .cback { display: flex; grid-row: 3; align-items: center; 
 html.cmoving, html.cmoving * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
 /* 随记: the composer out of its page, floating over the app — the same box as the composer in a page */
 .cnote { position: fixed; z-index: 70; display: flex; resize: both; overflow: hidden; min-width: 300px; min-height: 130px; padding: 0 !important; border: 0 !important; background: transparent !important; }
-.cnote > .inner { flex: 1; max-width: none; margin: 0; min-height: 0; display: grid; grid-template-rows: 0 minmax(44px, 1fr) auto; box-shadow: 0 22px 60px rgba(0,0,0,.4); cursor: grab; transition: box-shadow .15s, transform .15s, opacity .15s; }
+.cnote > .inner { flex: 1; max-width: none; margin: 0; min-height: 0; display: grid; grid-template-rows: minmax(44px, 1fr) auto; box-shadow: 0 22px 60px rgba(0,0,0,.4); cursor: grab; transition: box-shadow .15s, transform .15s, opacity .15s; }
 .cnote.doc > .inner { grid-template-rows: minmax(0, 1fr) minmax(44px, 30%) auto; }
 /* held: lifted; over its conversation: it leans in, ready to drop back */
 .cnote.lift > .inner { transform: scale(1.015); box-shadow: 0 34px 90px rgba(0,0,0,.5); }
@@ -1061,3 +1061,18 @@ html.embed .envbar { flex-wrap: wrap; white-space: normal; row-gap: 2px; overflo
 .ccomp .impmode { flex-wrap: wrap; row-gap: 2px; } .ccomp .impmode span { white-space: normal; overflow: visible; flex: 1 1 220px; }
 html.embed .ccomp .cbar { row-gap: 6px; } html.embed .ccomp .cbar > textarea { min-width: 0; }
 .md .katex { display: inline-block; max-width: 100%; overflow-x: auto; overflow-y: hidden; vertical-align: middle; } .md { overflow-wrap: anywhere; }
+
+/* the notepad as a page of the stage */
+.stpadwin .stpadbox { min-height: 0; display: grid; overflow: hidden; border-radius: 0 0 12px 12px; }
+.stpadbox > .pad { height: 100%; min-width: 0; border-right: 0; }
+.stpadbox .padgrip, .stpadbox .padfold { display: none; }
+/* 所有对话 can be very small; world and self knowledge in it are rows like the conversations */
+#stlq { min-width: 0; } .stlh { min-width: 0; overflow: hidden; }
+.stnode.docked > .stcard { display: flex !important; align-items: center; gap: 6px; padding: 2px 8px !important; border-radius: 6px; border: 0; box-shadow: none; background: transparent; cursor: pointer; }
+.stnode.docked > .stcard:hover { background: var(--soft); }
+.stnode.docked > .stcard::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tc); }
+.stnode.docked > .stcard > span { display: none; }
+.stnode.docked > .stcard b { font-size: 12.5px; font-weight: 400; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+#vStage .starena::-webkit-scrollbar { height: 6px; } #vStage .starena::-webkit-scrollbar-track { background: transparent; }
+#vStage .starena::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
+.app.mini .stbar { left: 46px; }                    /* clear of the rail's » button */

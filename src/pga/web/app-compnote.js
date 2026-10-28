@@ -254,7 +254,7 @@ const cnEnd = () => {
 };
 document.addEventListener("pointerup", cnEnd, true); document.addEventListener("pointercancel", cnEnd, true);
 function cnDragTo(el, x, y, ox, oy) {
-  el.style.left = Math.max(0, Math.min(innerWidth - 80, x - ox)) + "px"; el.style.top = Math.max(0, Math.min(innerHeight - 40, y - oy)) + "px";
+  el.style.left = Math.max(0, Math.min(innerWidth - el.offsetWidth, x - ox)) + "px"; el.style.top = Math.max(0, Math.min(innerHeight - el.offsetHeight, y - oy)) + "px";   // it stays on screen
   let dock = null; try { dock = cnOver(CN.src[el.dataset.cn], x, y); } catch {}
   el.classList.toggle("snap", !!dock); el._dock = dock;
 }

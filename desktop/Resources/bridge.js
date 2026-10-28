@@ -29,7 +29,7 @@
         border: 0 !important; box-shadow: none !important; backdrop-filter: none !important; }
       #stbar > .cvdim, #stbar > .grow { display: none !important; }
       #vStage .starena { top: 38px !important; }
-      .padh { padding-left: 80px !important; } .app.padmin .padh { padding-left: 4px !important; padding-top: 34px !important; }`;   /* room for the window's buttons */
+      #unfold { left: 78px !important; }`;   /* the rail's button clear of the window's buttons */
     document.head.appendChild(st);
     // the window has no title bar: its empty top edge moves it (a double-click zooms it)
     const free = (e) => e.clientY < 30 && !e.target.closest("button, a, input, textarea, select, label, [contenteditable], [data-rz], [data-lrz], .stwh, .stlh, .stnode, .padgrip, .split");

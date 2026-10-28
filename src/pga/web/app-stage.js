@@ -43,6 +43,7 @@ function showStage() {
     let saved = null; try { saved = JSON.parse(localStorage.getItem("pga_st4") || "null"); } catch {}
     if (saved?.nodes?.length) ST.nodes = saved.nodes; else stDefault();
     if (saved && saved.v !== 5) for (const w of ST.nodes) if (w.type === "win") { delete w.bw; delete w.pre; }   // narrowed by the old fit-the-screen rule: natural again
+    if (!ST.nodes.some((n) => n.pad) && store.get("pga_pad_off") !== "1") ST.nodes.push(stPadNode(-1));       // the notepad is a page here
     ST.focus = stWins()[0]?.id || null;
     stBind(); new ResizeObserver(() => stRender()).observe($("#starena"));
   }
@@ -52,6 +53,18 @@ function stDefault() {                            // one window, the latest conv
   recentItems().slice(0, 1).forEach((r, i) => ST.nodes.push({ id: stId(), type: "win", key: r.item, ord: i }));
   const first = ST.nodes[0]?.id || null;
   ST.nodes.push({ id: "world", type: "world", win: first }, { id: "self", type: "self", win: first });
+}
+
+/* ------------------------------------------------ the notepad (常驻笔记) is a page of the stage, not a sidebar: a window
+   whose content is the notepad itself (app-pad.js), moved in and out of it */
+const stPadNode = (ord) => ({ id: "pad", type: "win", pad: true, ord, bw: 320 });
+function stPadIn(e) {
+  const p = $("#pad"), box = e.querySelector(".stpadbox"); if (!p || !box) return;
+  box.appendChild(p); if (typeof PAD === "object") { PAD.open = true; padLayout?.(); }
+}
+function stPadOut() {                               // the page closed: the notepad waits, unseen, until it is a page again
+  let hold = $("#padhold"); if (!hold) { document.body.insertAdjacentHTML("beforeend", `<div id="padhold" hidden></div>`); hold = $("#padhold"); }
+  const p = $("#pad"); if (p) hold.appendChild(p);
 }
 
 /* ------------------------------------------------ the layout: a row that always fits the screen */
@@ -66,7 +79,7 @@ function stLayout() {
   ST.nodes = ST.nodes.filter((n) => !n.rail || ids.has(n.win));                                   // a wire from the history column goes with its window
   for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: unwired
   for (const w of wins) if (w.links) w.links = w.links.filter((l) => ids.has(l.from) && l.from !== w.id);
-  const lp = stPanel(), lw = Math.max(200, Math.min(A.w - 60, lp.w || 240));
+  const lp = stPanel(), lw = Math.max(120, Math.min(A.w - 60, lp.w || 240));
   const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win && !n.rail && !stDock(n));
   const units = lp.free ? [] : [{ kind: "list", w: lw, open: true }];
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
@@ -93,6 +106,10 @@ function stLayout() {
 
 /* ------------------------------------------------ drawing */
 function stWinHtml(n) {
+  if (n.pad) return `<div class="stwin stpadwin">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="rz rz-${d}" data-rz="${d}"></i>`).join("")}
+    <div class="stwh" data-stfocus="${n.id}"><b class="stwt">${L("笔记", "Notepad")}</b><span class="grow"></span>
+      <button class="stb" data-stw="min" title="${L("缩成小页面", "Make it a small page")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉笔记页（右键空白处可以再加回来）", "Close the notepad page (right-click the stage to add it again)")}">×</button></div>
+    <div class="stpadbox"></div></div>`;
   return `<div class="stwin">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="rz rz-${d}" data-rz="${d}" title="${L("拖动改大小，双击还原", "Drag to resize, double-click to reset")}"></i>`).join("")}
     <div class="stwh" data-stfocus="${n.id}"><b class="stwt">${esc(stTitle(n.key))}</b><em class="stctxn" data-stctxn="${n.id}"></em><span class="grow"></span>
       <button class="stb ${n.side === false ? "" : "on"}" data-stw="side" title="${L("右侧栏：环境、上下文、世界树", "Side panel: environment, context, world tree")}">◧</button><button class="stb" data-stw="min" title="${L("缩成小页面", "Make it a small page")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉这个窗口（对话还在）", "Close the window (the conversation stays)")}">×</button></div>
@@ -109,8 +126,8 @@ function stCardHtml(n) {
   return `<div class="stcard st-${n.type}" style="--tc:${t[2]}"><i class="stk">${L(...t.slice(0, 2))}</i>${["world", "self"].includes(n.type) ? "" : `<button class="stx" data-stdel="${n.id}" title="${L("拿掉", "Remove")}">×</button>`}${body}</div>
     <i class="stpin r" title="${L("拉线连到一个窗口", "Pull a wire into a window")}"></i>`;
 }
-function stGrow(w) {                               // the stage reaches at least this far (the row, plus room to drop a page past it)
-  const x = Math.max(w || 0, (ST.span || 0) + 200);
+function stGrow(w) {                               // the stage reaches as far as the row (further while a page is carried past its end)
+  const x = Math.max(w || 0, ST.span || 0);
   for (const id of ["stnodes", "stbars", "stwires"]) { const e = document.getElementById(id); if (e) e.style.width = Math.ceil(x) + "px"; }
 }
 function stRender() {
@@ -118,7 +135,7 @@ function stRender() {
   const { units, A } = stLayout(), keep = new Set(ST.nodes.map((n) => n.id)), held = ST.drag?.n;
   box.querySelectorAll(".stnode").forEach((el) => { if (!keep.has(el.dataset.nid)) el.remove(); });
   const el = (n) => { let e = box.querySelector(`.stnode[data-nid="${n.id}"]`);
-    if (!e) { e = document.createElement("div"); e.className = `stnode t-${n.type}`; e.dataset.nid = n.id; e.innerHTML = n.type === "win" ? stWinHtml(n) : stCardHtml(n); box.appendChild(e); if (n.type === "win") stFrame(n, e); }
+    if (!e) { e = document.createElement("div"); e.className = `stnode t-${n.type}`; e.dataset.nid = n.id; e.innerHTML = n.type === "win" ? stWinHtml(n) : stCardHtml(n); box.appendChild(e); if (n.type === "win") { if (n.pad) stPadIn(e); else stFrame(n, e); } }
     else if (n.type !== "win" && n.type !== "note" && e.dataset.sig !== (n.title || "") + (S.forest ? 1 : 0)) e.innerHTML = stCardHtml(n);
     e.dataset.sig = (n.title || "") + (S.forest ? 1 : 0); return e; };
   const rid = (ST.rid = (ST.rid || 0) + 1);
@@ -154,13 +171,13 @@ function stRender() {
     if (u.kind === "shelf") barHtml += `<div class="stshelf" style="left:${u.x - 4}px;width:${ST_CW + 8}px;height:${A.h - 8}px"><em>${L("未连接", "Unwired")}</em></div>`;
   }
   {                                                // 所有对话, with world and self knowledge in its lower part
-    const lp = stPanel(), lu = units.find((u) => u.kind === "list"), w = lu ? lu.w : Math.max(200, Math.min(A.w - 60, lp.w || 240));
-    const dock = ST.nodes.filter(stDock), ch = 58, kh = dock.length ? 22 + dock.length * (ch + 8) : 0;
-    let h = Math.max(lp.min ? 44 + kh : 200 + kh, Math.min(A.h - 16, lp.h || A.h - 16)); if (lp.min) h = 44 + kh;
+    const lp = stPanel(), lu = units.find((u) => u.kind === "list"), w = lu ? lu.w : Math.max(120, Math.min(A.w - 60, lp.w || 240));
+    const dock = ST.nodes.filter(stDock), ch = 26, kh = dock.length ? 20 + dock.length * (ch + 2) : 0;   // knowledge: rows like the conversations'
+    let h = Math.max(lp.min ? 44 + kh : 90 + kh, Math.min(A.h - 16, lp.h || A.h - 16)); if (lp.min) h = 44 + kh;
     const x = lu ? lu.x : Math.max(0, Math.min(A.w - w, (lp.fx ?? 0) * A.w)), y = Math.max(0, Math.min(A.h - h, lp.fy == null ? 8 : lp.fy * A.h));
     stList({ x, y, w, h, kh, min: !!lp.min, free: !!lp.free }, A);
     dock.forEach((n, i) => { const e = el(n); e.classList.remove("tab", "short", "moved"); e.classList.add("docked"); e.classList.toggle("shelved", !n.win);
-      const cy = y + h - kh + 18 + i * (ch + 8); place(e, x + 8, cy, w - 16, ch); pos.set(n.id, { x: x + 8, y: cy, w: w - 16, h: ch, zone: ST_PIN(n), win: n.win }); });
+      const cy = y + h - kh + 16 + i * (ch + 2); place(e, x + 8, cy, w - 16, ch); pos.set(n.id, { x: x + 8, y: cy, w: w - 16, h: ch, zone: ST_PIN(n), win: n.win }); });
   }
   let k = 0;                                       // small pages: where you left them, else stacked in the lower right corner
   for (const w of stWins().filter((x) => x.mini)) {
@@ -420,9 +437,9 @@ function stDragTo(sx, sy) {
   const d = ST.drag; if (!d) return;
   if (Math.hypot(sx - d.sx, sy - d.sy) > 4) d.moved = true; d.lx = sx; d.ly = sy;
   const A = stArena(), w = d.el.offsetWidth, sl = stSL();
-  const big = d.n.type === "win" && !d.n.mini, lo = big ? -w * 0.6 : sl, hi = big ? Infinity : sl + A.w - w;   // a page may go on past the right edge (the stage scrolls)
-  const l = Math.max(lo, Math.min(hi, d.l0 + sx - d.sx + sl - d.s0)); d.el.style.left = l + "px";
-  const px = l + d.gx - sl;                       // held near an edge of the stage: it scrolls that way
+  const big = d.n.type === "win" && !d.n.mini, lo = sl, hi = Math.max(sl, sl + A.w - w);       // nothing leaves what you see of the stage
+  const raw = d.l0 + sx - d.sx + sl - d.s0, l = Math.max(lo, Math.min(hi, raw)); d.el.style.left = l + "px";
+  const px = raw + d.gx - sl;                     // held at an edge of the stage: it scrolls that way, the page along with it
   d.v = big ? (px > A.w - 48 ? Math.min(24, (px - A.w + 48) / 2) : px < 48 && sl > 0 ? -Math.min(24, (48 - px) / 2) : 0) : 0;
   if (d.v && !d.auto) d.auto = requestAnimationFrame(function step() {
     const D = ST.drag; if (!D || !D.v) { if (D) D.auto = 0; return; }
@@ -587,7 +604,7 @@ function stMini(n, on) {                          // – : the window becomes a 
   n.mini = on; if (on && ST.focus === n.id) ST.focus = stWins().find((w) => w !== n && !w.mini)?.id || n.id;
   ST.shift = null; stRender(); stSave();
 }
-function stClose(n) { ST.nodes = ST.nodes.filter((x) => x !== n); if (ST.focus === n.id) ST.focus = stWins()[0]?.id || null; stRender(); stSave(); stContexts(); }
+function stClose(n) { if (n.pad) { stPadOut(); store.set("pga_pad_off", "1"); } ST.nodes = ST.nodes.filter((x) => x !== n); if (ST.focus === n.id) ST.focus = stWins()[0]?.id || null; stRender(); stSave(); stContexts(); }
 function stMax(n, on) {
   const el = document.querySelector(`.stnode[data-nid="${n.id}"] .stwin`); if (!el) return;
   n.max = on; el.classList.toggle("max", on); $("#vStage").classList.toggle("hasmax", on);
@@ -609,11 +626,12 @@ function stMenu(sx, sy) {
   document.querySelector(".stmenu")?.remove();
   const m = document.createElement("div"); m.className = "cvpal cvmenu stmenu card"; m.style.left = Math.min(sx, innerWidth - 260) + "px"; m.style.top = Math.min(sy, innerHeight - 330) + "px";
   m.innerHTML = `<div class="stmh">${win ? L(`连给「${esc(stTitle(win.key).slice(0, 18))}」`, `Into “${esc(stTitle(win.key).slice(0, 20))}”`) : L("放在未连接的架子上", "On the unwired shelf")}</div>`
-    + [["conv", "💬", 0], ["topic", "🌳", 0], ["doc", "📚", 1], ["file", "📎", 1], ["note", "📝", 1], ["skill", "✦", 2], ["win", "▢"]].map(([t, i, p]) => `<button data-stadd="${t}">${i} ${t === "win" ? L("新对话窗口", "New conversation window") : L(...ST_T[t].slice(0, 2)) + (t === "note" ? "" : "…")}${p != null ? `<em>${L(...ST_PINS[p])}</em>` : ""}</button>`).join("");
+    + [["conv", "💬", 0], ["topic", "🌳", 0], ["doc", "📚", 1], ["file", "📎", 1], ["note", "📝", 1], ["skill", "✦", 2], ["win", "▢"], ...(ST.nodes.some((x) => x.pad) ? [] : [["pad", "🗒"]])].map(([t, i, p]) => `<button data-stadd="${t}">${i} ${t === "win" ? L("新对话窗口", "New conversation window") : t === "pad" ? L("笔记页", "Notepad page") : L(...ST_T[t].slice(0, 2)) + (t === "note" ? "" : "…")}${p != null ? `<em>${L(...ST_PINS[p])}</em>` : ""}</button>`).join("");
   m.dataset.at = JSON.stringify(at); document.body.appendChild(m);
 }
 async function stAdd(type, at) {
   if (type === "win") { const n = stOpen(null, at); return n; }
+  if (type === "pad") { store.set("pga_pad_off", "0"); const n = stPadNode(-1); ST.nodes.push(n); stWins().forEach((o, k) => { o.ord = k; }); ST.focus = n.id; stRender(); stSave(); return n; }
   if (type === "note") { const n = { id: stId(), type, win: at.win, text: "" }; ST.nodes.push(n); stRender(); stSave(); stContexts(); setTimeout(() => document.querySelector(`[data-stnote="${n.id}"]`)?.focus(), 50); return n; }
   let rows = [];
   if (type === "skill" || type === "file") { let pal = { skills: [], images: [] }; try { pal = await api(`/v1/users/${S.uid}/canvas-palette`); } catch {}
@@ -677,9 +695,9 @@ function stBind() {
     if (ST.lmove) { const m = ST.lmove, lp = stPanel(), A = stArena(), dx = e.clientX - m.x, dy = e.clientY - m.y;
       if (!m.d) { lp.free = true; lp.fx = Math.max(0, Math.min(A.w - m.w0, m.l0 + dx)) / A.w; lp.fy = Math.max(0, Math.min(A.h - m.h0, m.t0 + dy)) / A.h; }
       else {
-        if (m.d.includes("e") || m.d.includes("w")) { const w = Math.max(200, Math.min(A.w - 60, m.w0 + (m.d.includes("e") ? dx : -dx))); lp.w = w;
+        if (m.d.includes("e") || m.d.includes("w")) { const w = Math.max(120, Math.min(A.w - 60, m.w0 + (m.d.includes("e") ? dx : -dx))); lp.w = w;
           if (lp.free && m.d.includes("w")) lp.fx = (m.l0 + m.w0 - w) / A.w; }
-        if (m.d.includes("n") || m.d.includes("s")) { const h = Math.max(160, Math.min(A.h, m.h0 + (m.d.includes("s") ? dy : -dy))); lp.h = h;
+        if (m.d.includes("n") || m.d.includes("s")) { const h = Math.max(80, Math.min(A.h, m.h0 + (m.d.includes("s") ? dy : -dy))); lp.h = h;
           lp.fy = (m.d.includes("n") ? m.t0 + m.h0 - h : m.t0) / A.h; }
       }
       stRender(); return; }

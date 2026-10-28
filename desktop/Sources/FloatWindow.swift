@@ -38,8 +38,8 @@ final class Header: NSView {
         while let ev = NSApp.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: .distantFuture, inMode: .eventTracking, dequeue: true) {
             let p = ev.screenPoint, b = area.bounds
             var f = f0.offsetBy(dx: p.x - start.x, dy: p.y - start.y)
-            let loX: CGFloat = b.minX - f.width + 60, hiX: CGFloat = b.maxX - 60, loY: CGFloat = b.minY - f.height + 40, hiY: CGFloat = b.maxY - f.height
-            f.origin.x = Swift.max(loX, Swift.min(hiX, f.origin.x)); f.origin.y = Swift.max(loY, Swift.min(hiY, f.origin.y))   // it stays reachable
+            let loX: CGFloat = b.minX, hiX: CGFloat = Swift.max(b.minX, b.maxX - f.width), loY: CGFloat = b.minY, hiY: CGFloat = Swift.max(b.minY, b.maxY - f.height)
+            f.origin.x = Swift.max(loX, Swift.min(hiX, f.origin.x)); f.origin.y = Swift.max(loY, Swift.min(hiY, f.origin.y))   // it stays inside the workbench
             o.content.frame = f; AppDelegate.shared.redrawWires()
             if ev.type == .leftMouseUp { break }
         }
