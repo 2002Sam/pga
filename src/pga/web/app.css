@@ -1124,3 +1124,19 @@ html.deskapp .stlbar { left: 84px; height: 22px; }
 .stmapacts { position: absolute; top: 4px; right: calc(50% + min(260px, 22%) + 8px); z-index: 8; display: flex; gap: 6px; }
 .stmapacts .stmapbtn { position: static; }
 .stnode.docked { z-index: 13; }
+/* 所有对话 is a sidebar the full height of the app; while it is open the stage, the map and its buttons start after it */
+#vStage .starena { transition: left .28s cubic-bezier(.2,.8,.2,1); } #vStage.chats-open .starena { left: var(--chats-w, 0px); }
+#vStage.resizing .starena { transition: none; }
+#vStage .stmap { left: calc(var(--chats-w, 0px) + (100% - var(--chats-w, 0px)) / 2); transition: left .28s cubic-bezier(.2,.8,.2,1); }
+#vStage .stmapacts { right: calc(50% - var(--chats-w, 0px) / 2 + min(260px, 22%) + 8px); }
+#vStage.chats-open .stbar { left: calc(var(--chats-w, 0px) + 14px); }
+#stlist.side { position: absolute; left: 0; top: 0; bottom: 0; width: var(--chats-w, 240px); height: auto; z-index: 14; margin: 0; padding: 8px 6px 8px 8px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto; background: var(--panel); border: 0; border-right: 1px solid var(--line-2); border-radius: 0; box-shadow: none; cursor: auto; }
+#stlist.side .stlh { cursor: default; } #stlist.side .lrz-e { right: -3px; top: 0; bottom: 0; }
+html.deskapp #stlist.side { padding-top: 34px; }
+#stlist .stkrow { display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; min-height: 24px; }
+#stlist .stkrow:hover { background: var(--soft); }
+#stlist .stkrow::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tc); }
+#stlist .stkrow b { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 400; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#stlist .stkdot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--line-2); cursor: pointer; transition: transform .15s; }
+#stlist .stkdot:hover { transform: scale(1.3); border-color: #6fa8ff; } #stlist .stkrow.stwired .stkdot { background: #6fa8ff; border-color: #6fa8ff; }

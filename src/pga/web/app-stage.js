@@ -71,7 +71,7 @@ function stPadOut() {                               // the page closed: the note
 const ST_MINW = 300, ST_FIT = 560;                  // the least a page gets from an edge or a squeeze; the least it gives to fit the screen
 const stDock = (n) => ["world", "self"].includes(n.type) && n.fx == null;    // world and self knowledge live in the 所有对话 panel
 function stPanel() {                                // 所有对话: a panel of its own — docked at the left of the row, or wherever you dragged it
-  if (!ST.lp) { try { ST.lp = JSON.parse(localStorage.getItem("pga_st_lp") || "null"); } catch {} ST.lp = ST.lp || {}; }
+  if (!ST.lp) { try { ST.lp = JSON.parse(localStorage.getItem("pga_st_lp") || "null"); } catch {} ST.lp = ST.lp || {}; ST.listOpen = !!ST.lp.open; }
   return ST.lp;
 }
 function stLayout() {
@@ -79,9 +79,8 @@ function stLayout() {
   ST.nodes = ST.nodes.filter((n) => !n.rail || ids.has(n.win));                                   // a wire from the history column goes with its window
   for (const n of ST.nodes) if (n.type !== "win" && n.win && !ids.has(n.win)) n.win = null;       // its window is gone: unwired
   for (const w of wins) if (w.links) w.links = w.links.filter((l) => ids.has(l.from) && l.from !== w.id);
-  const lp = stPanel(), lw = Math.max(120, Math.min(A.w - 60, lp.w || 240));
   const shelf = ST.nodes.filter((n) => n.type !== "win" && !n.win && !n.rail && !stDock(n));
-  const units = lp.free || stDropMode() ? [] : [{ kind: "list", w: lw, open: true }];   // a dropdown or a floating panel take no room in the row
+  const units = [];                                 // 所有对话 is a sidebar outside the stage: the stage itself moves over for it
   if (shelf.length) units.push({ kind: "shelf", nodes: shelf, w: ST_CW, open: true });
   for (const w of wins) { const col = ST.nodes.filter((n) => n.win === w.id && !n.rail && !stDock(n)); units.push({ kind: "col", win: w, nodes: col, w: ST_CW, open: true, hide: !col.length }); units.push({ kind: "win", win: w, w: w.bw || ST_MINW, open: true, flex: !w.bw }); }
   // Nothing is squeezed or folded to fit the screen: a page keeps its width, and what does not fit runs on to the right —
@@ -90,9 +89,9 @@ function stLayout() {
   const colOpen = (w) => units.some((c) => c.kind === "col" && c.win === w && !c.hide && c.open);
   const preOf = (u) => (u.kind === "col" || (u.kind === "win" && !colOpen(u.win)) ? u.win.pre || 0 : 0);   // a gap before a page goes before its column
   const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += preOf(u) + u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
-  const room = A.w - 2 * ST_PADX, lead = units[0]?.kind === "list" ? lw + ST_GAP : 0;
+  const room = A.w - 2 * ST_PADX;
   const flex = units.filter((u) => u.kind === "win" && u.open && u.flex);
-  for (const u of flex) u.w = Math.max(ST_MINW, Math.min(ST_WW, room - lead));
+  for (const u of flex) u.w = Math.max(ST_MINW, Math.min(ST_WW, room));
   if (flex.length && width() > room) { const cut = (width() - room) / flex.length; for (const u of flex) u.w = Math.max(Math.min(u.w, ST_FIT), u.w - cut); }
   if (flex.length && width() < room) { const add = (room - width()) / flex.length; for (const u of flex) u.w += add; }
   const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
@@ -142,7 +141,6 @@ function stRender() {
   const place = (e, x, y, w, h, show = true) => { e.dataset.r = rid; if (e === held?.el) return; e.style.left = x + "px"; e.style.top = y + "px"; e.style.width = w + "px"; e.style.height = h + "px"; e.hidden = !show; };
   let barHtml = ""; const pos = new Map(), runs = new Set();
   for (const u of units) {
-    if (u.kind === "list") continue;              // the panel is drawn after the row, docked here
     if (u.kind === "win") {
       const e = el(u.win); u.win.el = e;
       if (u.hide || !u.open) { place(e, -9999, 0, u.w, A.h, false); if (!u.hide) { const t = stTitle(u.win.key);
@@ -170,24 +168,7 @@ function stRender() {
     });
     if (u.kind === "shelf") barHtml += `<div class="stshelf" style="left:${u.x - 4}px;width:${ST_CW + 8}px;height:${A.h - 8}px"><em>${L("未连接", "Unwired")}</em></div>`;
   }
-  {                                                // 所有对话, with world and self knowledge in its lower part
-    const lp = stPanel(), lu = units.find((u) => u.kind === "list"), w = lu ? lu.w : Math.max(120, Math.min(A.w - 60, lp.w || 240));
-    const dock = ST.nodes.filter(stDock), ch = 26, kh = dock.length ? 20 + dock.length * (ch + 2) : 0;   // knowledge: rows like the conversations'
-    const drop = stDropMode() && !lp.free, sl = stSL();
-    let h = Math.max(lp.min ? 44 + kh : 90 + kh, Math.min(A.h - 16, lp.h || (drop ? Math.round(A.h * 0.72) : A.h - 16))); if (lp.min) h = 44 + kh;
-    let x = lu ? lu.x : Math.max(0, Math.min(A.w - w, (lp.fx ?? 0) * A.w)), y = Math.max(0, Math.min(A.h - h, lp.fy == null ? 8 : lp.fy * A.h));
-    if (drop) { x = sl + 8; y = 2; }                // the dropdown hangs from its bar, wherever the stage is scrolled to
-    const bar = $("#stlbar"); if (bar) { bar.classList.toggle("on", !!ST.listOpen); bar.hidden = !drop; const c = bar.querySelector("em"); if (c) c.textContent = recentItems().length; }
-    if (drop && !ST.listOpen) {                    // folded: the list and its knowledge rows wait out of sight
-      const b = $("#stlist"); if (b) b.hidden = true;
-      dock.forEach((n) => { const e = el(n); place(e, -9999, 0, 10, 10, false); });
-    } else {
-    stList({ x, y, w, h, kh, min: !!lp.min, free: !!lp.free }, A);
-    $("#stlist")?.classList.toggle("drop", drop);
-    dock.forEach((n, i) => { const e = el(n); e.classList.remove("tab", "short", "moved"); e.classList.add("docked"); e.classList.toggle("shelved", !n.win);
-      const cy = y + h - kh + 16 + i * (ch + 2); place(e, x + 8, cy, w - 16, ch); pos.set(n.id, { x: x + 8, y: cy, w: w - 16, h: ch, zone: ST_PIN(n), win: n.win }); });
-    }
-  }
+  stSideList();                                    // 所有对话, with world and self knowledge in its lower part
   let k = 0;                                       // small pages: where you left them, else stacked in the lower right corner
   for (const w of stWins().filter((x) => x.mini)) {
     const e = el(w); w.el = e; stMiniLook(e, true);
@@ -264,22 +245,39 @@ function stDragFlush() { if (ST.raf) { cancelAnimationFrame(ST.raf); ST.raf = 0;
    conversation, newest first. A click opens one as a window; pulling from it draws a wire into the window you drop it on
    (anywhere else on the stage: the one you are on) — it becomes that window's conversation reference. Wired ones show
    their wire from the column to the window; the dot at a row's end toggles its wire into the window you are on. */
-function stList(g, A) {
+/* It stands the full height at the left of the app; while it is open the stage starts after it (--chats-w), so no page
+   is ever under it. ☰ at the top left opens it, ‹ in its head closes it, its right edge sets its width. */
+function stSideList() {
+  const v = $("#vStage"), lp = stPanel(), open = !!ST.listOpen, w = Math.max(180, Math.min(520, lp.w || 240));
   let box = $("#stlist");
   if (!box) {
-    $("#starena").insertAdjacentHTML("beforeend", `<aside class="stlist card" id="stlist">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="lrz lrz-${d}" data-lrz="${d}"></i>`).join("")}
-      <div class="stlh" title="${L("按住拖动；拖到最左边会停靠回去", "Hold to move; drop it at the far left to dock it again")}"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb" data-stlistmin title="${L("收回左上角的小横条", "Fold back into the bar at the top left")}">–</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
-      <div class="stlk" id="stlk"><em>${L("知识", "Knowledge")}</em></div></aside>`);
+    v.insertAdjacentHTML("beforeend", `<aside class="stlist side" id="stlist"><i class="lrz lrz-e" data-lrz="e" title="${L("拖动改宽度", "Drag to resize")}"></i>
+      <div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
+      <button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <div class="stlk" id="stlk"></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
+    box.querySelector("[data-lrz]").addEventListener("pointerdown", (e) => {     // its right edge: wider or narrower, the stage following
+      if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); e.target.setPointerCapture(e.pointerId);
+      ST.lmove = { x: e.clientX, w0: box.offsetWidth }; v.classList.add("dragging", "resizing");
+    });
+    box.addEventListener("pointermove", (e) => { const m = ST.lmove; if (!m) return; stPanel().w = Math.max(180, Math.min(520, m.w0 + e.clientX - m.x)); stRender(); });
+    const end = () => { if (!ST.lmove) return; ST.lmove = null; v.classList.remove("dragging", "resizing"); stPanelSave(); };
+    box.addEventListener("pointerup", end); box.addEventListener("pointercancel", end);
   }
-  box.hidden = false; box.classList.toggle("min", g.min); box.classList.toggle("free", g.free);
-  Object.assign(box.style, { left: g.x + "px", top: g.y + "px", width: g.w + "px", height: g.h + "px" }); box.style.setProperty("--kh", g.kh + "px");
-  $("#stlk").hidden = !g.kh;
-  const mb = box.querySelector("[data-stlistmin]"); if (mb) mb.textContent = g.min ? "▭" : "–";
+  box.hidden = !open; v.classList.toggle("chats-open", open); v.style.setProperty("--chats-w", open ? w + "px" : "0px");
+  const bar = $("#stlbar"); if (bar) { bar.hidden = open; const c = bar.querySelector("em"); if (c) c.textContent = recentItems().length; }
+  if (!open) return;
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
   if (box.dataset.sig !== sig) { box.dataset.sig = sig; stListItems(); }
+  const dock = ST.nodes.filter(stDock), K = $("#stlk"), ks = dock.map((n) => n.id + (n.win || "") + (S.forest ? 1 : 0)).join();
+  K.hidden = !dock.length;
+  if (K.dataset.sig !== ks) {                      // world and self knowledge: rows like the conversations'; the dot wires one into the page you are on
+    K.dataset.sig = ks; const F = S.forest?.knowledge || [];
+    K.innerHTML = `<em>${L("知识", "Knowledge")}</em>` + dock.map((n) => { const k = F.find((x) => x.system === (n.type === "world" ? "world" : "user"));
+      return `<div class="stkrow ${n.win ? "stwired" : ""}" data-stk="${n.id}" style="--tc:${ST_T[n.type][2]}"><b ${k ? `data-doc="${k.id}"` : ""}>${L(...ST_T[n.type].slice(0, 2))}</b>
+        <i class="stkdot" title="${n.win ? L("连在一个页面上 · 点一下断开", "Wired into a page · click to cut") : L("点一下连进你正在用的页面", "Click to wire it into the page you are on")}"></i></div>`; }).join("");
+  }
 }
 async function stSync(b) {                         // ⟳: the import, now — new and changed conversations from the apps on this machine
   if (b.classList.contains("on")) return;
@@ -296,8 +294,8 @@ async function stSync(b) {                         // ⟳: the import, now — n
   b.classList.remove("on");
 }
 function stTidyLayout() {                         // ✦ first tidies the stage: every page side by side, two to a screen, wired ones together
-  const A = stArena(), lp = stPanel(), lead = lp.free ? 0 : Math.max(120, lp.w || 240) + ST_GAP, room = A.w - 2 * ST_PADX;
-  const pw = Math.max(320, Math.floor((room - lead - ST_GAP) / 2));
+  const A = stArena(), room = A.w - 2 * ST_PADX;                 // the open sidebar has already narrowed the stage
+  const pw = Math.max(320, Math.floor((room - ST_GAP) / 2));
   const wins = stWins(), byKey = new Map(wins.filter((w) => w.key).map((w) => [w.key, w])), nb = new Map(wins.map((w) => [w.id, new Set()]));
   const tie = (a, b) => { if (a && b && a !== b && nb.has(a) && nb.has(b)) { nb.get(a).add(b); nb.get(b).add(a); } };
   for (const w of wins) for (const l of w.links || []) tie(w.id, l.from);                       // window to window
@@ -323,9 +321,8 @@ async function stTidy(b) {                         // ✦: the stage laid out, t
   toast(L(`台面排好了：${pages} 个页面，一屏两个，连着线的挨在一起 · ${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线`, `Laid out: ${pages} pages, two to a screen, wired ones together · ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines`) + (why ? ` · ${why}` : ""));
   b.classList.remove("on"); b.title = L(`上次整理 ${new Date().toLocaleTimeString()} · 再点一次重新整理`, `Last tidied ${new Date().toLocaleTimeString()} · click to tidy again`);
 }
-const stDropMode = () => stPanel().drop !== false;      // 所有对话 folds into a small bar at the top left, and drops down when you click it
-function stDropToggle(open) {
-  ST.listOpen = open ?? !ST.listOpen; stRender();
+function stDropToggle(open) {                       // 所有对话 open or closed, kept across reloads
+  const lp = stPanel(); ST.listOpen = lp.open = open ?? !ST.listOpen; stPanelSave(); stRender();
   if (ST.listOpen) setTimeout(() => $("#stlq")?.focus(), 30);
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
@@ -365,16 +362,20 @@ function stOver() {                              // the wires from the history c
   if (!svg) { document.body.insertAdjacentHTML("beforeend", `<svg id="stover" class="stover"></svg>`); svg = $("#stover"); }
   if (S.view !== "stage" || $("#vStage")?.classList.contains("hasmax")) { svg.innerHTML = ""; return; }
   stRailMarks();
-  const list = $("#stli")?.getBoundingClientRect(), ar = $("#starena")?.getBoundingClientRect(); if (!list || !ar) { svg.innerHTML = ""; return; }
+  const list = $("#stli")?.getBoundingClientRect(), ar = $("#starena")?.getBoundingClientRect(); if (!list || !ar || $("#stlist")?.hidden) { svg.innerHTML = ""; return; }
   let h = "";
-  const tab = $("#stlist")?.hidden ? document.querySelector("#stbars .sttab.list")?.getBoundingClientRect() : null;
-  const from = (key) => { if (tab) return { x: tab.right - 6, y: tab.top + tab.height / 2, out: true };
-    const r = stRailRow(key)?.getBoundingClientRect(); if (!r) return null;
+  const from = (key) => { const r = stRailRow(key)?.getBoundingClientRect(); if (!r) return null;
     const y = Math.max(list.top + 4, Math.min(list.bottom - 4, r.top + r.height / 2)); return { x: r.right - 9, y, out: y !== r.top + r.height / 2 }; };
+  const visible = (w) => ar.left + w.x - stSL() + 4 >= ar.left;     // a page scrolled away to the left: no wire across the stage to it
   for (const n of ST.nodes) {
-    if (!n.rail) continue; const a = from(n.key), w = ST.pos?.get(n.win); if (!a || !w) continue;
+    if (!n.rail) continue; const a = from(n.key), w = ST.pos?.get(n.win); if (!a || !w || !visible(w)) continue;
     const x1 = ar.left + w.x - stSL(), y1 = ar.top + stPinY(w, 0), d = stCurve(a.x, a.y, x1, y1);
     h += `<path class="stwire z0 ${a.out ? "faint" : ""}" d="${d}"/><path class="sthit" d="${d}" data-unrail="${n.id}"><title>${esc(stTitle(n.key))} · ${L("点一下断开", "click to cut")}</title></path>`;
+  }
+  for (const n of ST.nodes.filter(stDock)) {      // world and self knowledge, from their rows into the data input
+    const r = document.querySelector(`#stlk [data-stk="${n.id}"] .stkdot`)?.getBoundingClientRect(), w = n.win && ST.pos?.get(n.win); if (!r || !w || !visible(w)) continue;
+    const z = ST_PIN(n), d = stCurve(r.left + r.width / 2, r.top + r.height / 2, ar.left + w.x - stSL(), ar.top + stPinY(w, z));
+    h += `<path class="stwire z${z}" d="${d}"/><path class="sthit" d="${d}" data-unk="${n.id}"><title>${L("点一下断开", "click to cut")}</title></path>`;
   }
   const g = ST.rw; if (g) h += `<path class="stwire tmp z0" d="${stCurve(g.x0, g.y0, g.x, g.y)}"/><circle class="stball z0" cx="${g.x}" cy="${g.y}" r="5"/>`;
   svg.innerHTML = h;
@@ -415,6 +416,8 @@ document.addEventListener("click", (e) => {                     // the sidebar's
   if (ST.rpClick && e.target.closest("#stlist [data-ritem]")) { e.stopPropagation(); e.preventDefault(); }
   ST.rpClick = false;
   const cut = e.target.closest?.("[data-unrail]"); if (cut) { ST.nodes = ST.nodes.filter((n) => n.id !== cut.dataset.unrail); stRender(); stSave(); stContexts(); }
+  const k = e.target.closest?.("[data-unk], .stkdot"), kn = k && ST.nodes.find((n) => n.id === (k.dataset.unk || k.closest("[data-stk]")?.dataset.stk));
+  if (kn) { kn.win = kn.win ? null : ST.focus || stWins()[0]?.id || null; stRender(); stSave(); stContexts(); }
 }, true);
 document.addEventListener("scroll", () => { if (S.view === "stage") requestAnimationFrame(stOver); }, true);
 window.addEventListener("resize", () => { if (S.view === "stage") requestAnimationFrame(stOver); });
@@ -438,22 +441,21 @@ function stGrab(n, sx, sy, gx = 40) {               // gx: where on the page you
 }
 function stEdgeHold(id, side) {                    // an edge you pull: only the page across it gives or takes the room, the rest stay put
   const us = (ST.units || []).filter((u) => !u.hide && u.x != null && u.open);
-  const i = us.findIndex((u) => (id === "list" ? u.kind === "list" : u.kind === "win" && u.win.id === id)); if (i < 0) return false;
+  const i = us.findIndex((u) => u.kind === "win" && u.win.id === id); if (i < 0) return false;
   const step = side.includes("e") ? 1 : -1; let nb = null;
   for (let j = i + step; j >= 0 && j < us.length; j += step) if (us[j].kind === "win") { nb = us[j]; break; }
   for (const u of us) if (u.kind === "win" && u !== nb && u.win.id !== id) u.win.bw = Math.round(u.w);   // the others keep their width
   if (!nb) return false;                                                                                 // nobody across: it opens a gap
   delete nb.win.bw; ST.shift = null; return true;
 }
-function stGroups(n) {                             // the row by its parts: the list with its knowledge, each page with its column, each stack of tabs
+function stGroups(n) {                             // the row by its parts: each page with its column, each stack of tabs
   const els = (ids) => ids.map((id) => document.querySelector(`.stnode[data-nid="${id}"]`)).filter((x) => x && !x.hidden);
   const gs = [], runs = new Map(); let col = null;
   for (const u of ST.units || []) {
     if (u.hide || u.x == null || (u.win && u.win.id === n.id)) continue;
     if (!u.open) { if (!runs.has(u.run)) runs.set(u.run, { key: "run", x: u.run.x, w: ST_TAB, els: [], wins: [] }); const g = runs.get(u.run);
       if (u.kind === "win") g.wins.push(u.win.id); continue; }
-    if (u.kind === "list") gs.push({ key: "list", x: u.x, w: u.w, els: [$("#stlist"), ...els(ST.nodes.filter(stDock).map((x) => x.id))] });
-    else if (u.kind === "col") col = { u, els: els(u.nodes.map((x) => x.id)) };
+    if (u.kind === "col") col = { u, els: els(u.nodes.map((x) => x.id)) };
     else if (u.kind === "win") { const c = col?.u.win === u.win ? col : null; col = null;     // a page and its column move as one
       gs.push({ key: "win", win: u.win, x: c ? c.u.x : u.x, w: u.w + (c ? u.x - c.u.x : 0), off: c ? u.x - c.u.x : 0, els: c ? c.els : [], pel: u.win.el, page: true, wins: [u.win.id] }); }
     else gs.push({ key: u.kind, x: u.x, w: u.w, els: els(u.nodes.map((x) => x.id)) });
@@ -540,7 +542,6 @@ function stSettle(d) {                             // a page let go: everything 
   ST.shift = 0;
   for (const b of bs) {
     const us = stLayout().units;
-    if (b.key === "list") { const u = us.find((x) => x.kind === "list"); if (u) ST.shift = Math.max(0, Math.floor(b.x - u.x)); continue; }
     if (!b.page) continue;
     const u = us.find((x) => x.kind === "col" && x.win === b.win && !x.hide && x.open) || us.find((x) => x.kind === "win" && x.win === b.win);
     if (u?.open && u.x != null && b.x - u.x >= 1) b.win.pre = Math.floor(b.x - u.x);
@@ -728,7 +729,7 @@ window.stPanStart = stPanStart; window.stPanMove = stPanMove; window.stPanEnd = 
 function stMap() {                                 // the minimap: every part of the row in miniature, and the part you see
   const a = $("#starena"), v = $("#vStage"); if (!a || !v || S.view !== "stage") return;
   let m = $("#stmap");
-  if (!m) { v.insertAdjacentHTML("beforeend", `<label class="stmap" id="stmap"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></label><button class="stlbar" id="stlbar" title="${L("所有对话：点一下展开", "All conversations: click to open")}">☰ ${L("所有对话", "All conversations")} <em></em> ▾</button><span class="stmapacts"><button class="stb stsync stmapbtn" data-stsync title="${L("导入：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Import: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">↻ ${L("导入", "Import")}</button><button class="stb sttidy stmapbtn" data-sttidy title="${L("整理：把新对话放进世界树、重写变了的主题总结、按标题把零散对话归成线", "Tidy: new conversations into the world tree, changed topics summarised again, loose ones joined into lines by title")}">✦ ${L("整理", "Tidy")}</button></span><div class="stmtip" id="stmtip" hidden></div>`); m = $("#stmap");
+  if (!m) { v.insertAdjacentHTML("beforeend", `<label class="stmap" id="stmap"><div class="stmi" id="stmi"></div><div class="stmv" id="stmv"></div></label><button class="stlbar" id="stlbar" title="${L("所有对话：点一下在左边打开", "All conversations: click to open them at the left")}">☰ ${L("所有对话", "All conversations")} <em></em></button><span class="stmapacts"><button class="stb stsync stmapbtn" data-stsync title="${L("导入：现在把本机 Claude Code、Codex 等应用里的对话导进来", "Import: bring in the conversations from Claude Code, Codex and the other apps on this machine now")}">↻ ${L("导入", "Import")}</button><button class="stb sttidy stmapbtn" data-sttidy title="${L("整理：把新对话放进世界树、重写变了的主题总结、按标题把零散对话归成线", "Tidy: new conversations into the world tree, changed topics summarised again, loose ones joined into lines by title")}">✦ ${L("整理", "Tidy")}</button></span><div class="stmtip" id="stmtip" hidden></div>`); m = $("#stmap");
     m.addEventListener("pointerleave", () => { $("#stmtip").hidden = true; ST.mapHover = null; });
     m.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); try { m.setPointerCapture(e.pointerId); } catch {} ST.mapDrag = true; stMapGo(e.clientX); });
     m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); stMapTip(e.clientX); });
@@ -737,7 +738,6 @@ function stMap() {                                 // the minimap: every part of
   const T = Math.max(a.scrollWidth, a.clientWidth, 1), W = m.clientWidth || 1, k = W / T, H = m.clientHeight || 30;
   const box = (x, w, cls, title = "") => `<i class="${cls}" style="left:${(x * k).toFixed(1)}px;width:${Math.max(2, w * k).toFixed(1)}px" title="${esc(title)}"></i>`;
   let h = "";
-  const lp = $("#stlist"); if (lp && !lp.hidden) h += box(parseFloat(lp.style.left) || 0, lp.offsetWidth, "mlist", L("所有对话", "All conversations"));
   for (const w of stWins()) { const p = ST.pos?.get(w.id); if (!p) continue; h += box(p.x, p.w, (p.tab ? "mtab" : w.mini ? "mmini" : "mpage") + (w.id === ST.focus ? " on" : ""), stTitle(w.key)); }
   for (const n of ST.nodes) { if (n.type === "win" || n.rail) continue; const p = ST.pos?.get(n.id); if (p) h += box(p.x, p.w, "mcard"); }
   $("#stmi").innerHTML = h; m.dataset.k = k; m.style.setProperty("--mh", H + "px");
@@ -748,12 +748,10 @@ function stMapTip(cx) {                           // over the map: the page ther
   const k = Number(m.dataset.k) || 1, r = m.getBoundingClientRect(), x = (cx - r.left) / k;
   let hit = null;
   for (const w of stWins()) { const p = ST.pos?.get(w.id); if (p && x >= p.x - 4 / k && x <= p.x + p.w + 4 / k) { hit = { w, p }; if (!w.mini) break; } }
-  const lp = $("#stlist"); if (!hit && lp && !lp.hidden) { const lx = parseFloat(lp.style.left) || 0; if (x >= lx && x <= lx + lp.offsetWidth) hit = { list: true }; }
   if (!hit) { tip.hidden = true; ST.mapHover = null; return; }
-  const id = hit.list ? "list" : hit.w.id;
+  const id = hit.w.id;
   tip.style.left = Math.max(8, Math.min(innerWidth - 268, cx - 130)) + "px"; tip.style.top = r.bottom + 6 + "px"; tip.hidden = false;
   if (ST.mapHover === id) return; ST.mapHover = id;
-  if (hit.list) { tip.innerHTML = `<b>${L("所有对话", "All conversations")}</b><span class="cvdim">${recentItems().length} ${L("段", "")}</span>`; return; }
   const t = hit.w.pad ? L("笔记", "Notes") : stTitle(hit.w.key);
   tip.innerHTML = `<b>${esc(t)}</b><div class="stmthumb" id="stmthumb"></div>`;
   try {                                           // a small picture of the page: its last few turns, as they stand
@@ -783,18 +781,9 @@ function stBind() {
   arena.addEventListener("auxclick", (e) => { if (e.button === 1) e.preventDefault(); });
   arena.addEventListener("pointerdown", (e) => {
     const ground = e.target === arena || ["stnodes", "stbars", "stwires"].includes(e.target.id) || e.target.classList?.contains("stground");
-    if (ground && ST.listOpen) stDropToggle(false);                     // a click on the ground folds the open list away
     if (e.button === 1 || (e.button === 0 && ground)) { e.preventDefault(); stPanStart(e.screenX); stCap(e); return; }   // the whole stage moves sideways
     if (e.button !== 0) return; document.querySelector(".stmenu")?.remove();
     const pin = e.target.closest(".stin, .stout, .stpin"); if (pin && stWireStart(e, pin)) { stCap(e); return; }
-    const lz = e.target.closest("[data-lrz]"), lh = !lz && e.target.closest("#stlist .stlh") && !e.target.closest("button");
-    if (lz || lh) {                                 // the 所有对话 panel: pulled by an edge or corner, or moved by its head
-      e.preventDefault(); window.getSelection()?.removeAllRanges();
-      const b = $("#stlist"), r = arena.getBoundingClientRect(), g = b.getBoundingClientRect();
-      ST.lmove = { d: lz?.dataset.lrz || null, x: e.clientX, y: e.clientY, l0: g.left - r.left + stSL(), t0: g.top - r.top, w0: g.width, h0: g.height };
-      if (lz && !stPanel().free && /[ew]/.test(lz.dataset.lrz)) stEdgeHold("list", lz.dataset.lrz);
-      ST.lmove.open = new Map((ST.units || []).map((u) => [u.kind + (u.win?.id || ""), u.open]));
-      v.classList.add("dragging", lz ? "resizing" : "moving"); stCap(e); return; }
     const rz = e.target.closest("[data-rz]");
     if (rz) { e.preventDefault(); window.getSelection()?.removeAllRanges();     // no selecting the page while you pull an edge
       const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid), el = rz.closest(".stnode"), l = parseFloat(el.style.left);
@@ -811,15 +800,6 @@ function stBind() {
   });
   arena.addEventListener("pointermove", (e) => {
     if (ST.pan) { stPanMove(e.screenX); return; }
-    if (ST.lmove) { const m = ST.lmove, lp = stPanel(), A = stArena(), dx = e.clientX - m.x, dy = e.clientY - m.y;
-      if (!m.d) { lp.free = true; lp.drop = false; ST.listOpen = false; lp.fx = Math.max(0, Math.min(A.w - m.w0, m.l0 + dx)) / A.w; lp.fy = Math.max(0, Math.min(A.h - m.h0, m.t0 + dy)) / A.h; }
-      else {
-        if (m.d.includes("e") || m.d.includes("w")) { const w = Math.max(120, Math.min(A.w - 60, m.w0 + (m.d.includes("e") ? dx : -dx))); lp.w = w;
-          if (lp.free && m.d.includes("w")) lp.fx = (m.l0 + m.w0 - w) / A.w; }
-        if (m.d.includes("n") || m.d.includes("s")) { const h = Math.max(80, Math.min(A.h, m.h0 + (m.d.includes("s") ? dy : -dy))); lp.h = h;
-          lp.fy = (m.d.includes("n") ? m.t0 + m.h0 - h : m.t0) / A.h; }
-      }
-      stRender(); return; }
     if (ST.rz) { const r = ST.rz, dx = e.clientX - r.x, dy = e.clientY - r.y, A = stArena();
       if (r.n.mini) {                                // a small page: any edge or corner, the opposite one staying put
         if (r.d.includes("e") || r.d.includes("w")) { const w = Math.round(Math.max(200, Math.min(A.w - 16, r.w0 + (r.d.includes("e") ? dx : -dx))));
@@ -843,9 +823,6 @@ function stBind() {
   });
   arena.addEventListener("pointerup", (e) => {
     if (ST.pan) { stPanEnd(); return; }
-    if (ST.lmove) { const m = ST.lmove, lp = stPanel(); ST.lmove = null; v.classList.remove("dragging", "resizing", "moving");
-      if (!m.d && (lp.fx ?? 1) * stArena().w < 24) { lp.free = false; delete lp.fx; }     // dropped at the far left: docked again
-      stPanelSave(); stRender(); return; }
     if (ST.wire) { stWireEnd(e.clientX, e.clientY); return; }
     if (ST.rz) { ST.rz = null; v.classList.remove("dragging", "resizing"); stSave(); return; }
     stDragFlush(); const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
@@ -860,7 +837,7 @@ document.addEventListener("click", (e) => {
   const add = e.target.closest("[data-stadd]"); if (add) { const m = add.closest(".stmenu"), at = JSON.parse(m.dataset.at); m.remove(); stAdd(add.dataset.stadd, at); return; }
   const sy = e.target.closest("[data-stsync]"); if (sy) { stSync(sy); return; }
   const td = e.target.closest("[data-sttidy]"); if (td) { stTidy(td); return; }
-  if (e.target.closest("[data-stlistmin]")) { const lp = stPanel(); lp.drop = true; lp.free = false; lp.min = false; stPanelSave(); stDropToggle(false); return; }
+  if (e.target.closest("[data-stlistmin]")) { stDropToggle(false); return; }
   if (e.target.closest("#stlbar")) { stDropToggle(); return; }
   const uf = e.target.closest("[data-stunfold]"); if (uf) { const id = uf.dataset.stunfold; if (id === "shelf") { const w = stWins(); for (const o of w) o.bw = Math.min(o.bw || ST_WW, ST_WW); } else stFocus(id, true); return; }
   const cut = e.target.closest("[data-unlink]"); if (cut) { const [to, from, pin] = cut.dataset.unlink.split("|"), w = ST.nodes.find((x) => x.id === to); if (w) w.links = (w.links || []).filter((l) => !(l.from === from && l.pin === Number(pin))); stRender(); stSave(); stContexts(); return; }
