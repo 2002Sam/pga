@@ -1114,3 +1114,13 @@ html.deskapp .stmapbtn { height: 22px; }
 /* a page pulled up by its head: let go and it fills the screen */
 #vStage.maxhint::after { content: "松手全屏 · Let go to fill the screen"; position: absolute; inset: 6px; z-index: 30; pointer-events: none; display: grid; place-items: center;
   border: 2px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--accent); font-size: 15px; }
+/* 所有对话 folds into a bar at the top left and drops down from it; ⟳ 导入 and ✦ 整理 sit left of the map */
+.stlbar { position: absolute; top: 4px; left: 14px; z-index: 9; height: 24px; padding: 0 12px; border-radius: 8px; font-size: 12px; border: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--panel) 92%, transparent); color: var(--text); cursor: pointer; white-space: nowrap; }
+.stlbar em { font-style: normal; color: var(--dim); font-size: 11px; } .stlbar.on { border-color: var(--accent); color: var(--accent); } .stlbar[hidden] { display: none; }
+html.deskapp .stlbar { left: 84px; height: 22px; }
+#stlist.drop { z-index: 12; box-shadow: 0 22px 60px rgba(0,0,0,.45); }
+#vStage .stbar > .cvdim { display: none; }
+.stmapacts { position: absolute; top: 4px; right: calc(50% + min(260px, 22%) + 8px); z-index: 8; display: flex; gap: 6px; }
+.stmapacts .stmapbtn { position: static; }
+.stnode.docked { z-index: 13; }
