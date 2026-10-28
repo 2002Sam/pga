@@ -1111,3 +1111,6 @@ html.deskapp #vStage .starena { top: 38px !important; }
   font-size: 12px; border-radius: 8px; border: 1px solid var(--line-2); background: color-mix(in srgb, var(--panel) 92%, transparent); white-space: nowrap; }
 html.deskapp .stmapbtn { height: 22px; }
 .stmapbtn.on { animation: none; color: var(--accent); } .stmapbtn.on::before { content: "…"; }
+/* a page pulled up by its head: let go and it fills the screen */
+#vStage.maxhint::after { content: "松手全屏 · Let go to fill the screen"; position: absolute; inset: 6px; z-index: 30; pointer-events: none; display: grid; place-items: center;
+  border: 2px dashed var(--accent); border-radius: 16px; background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--accent); font-size: 15px; }

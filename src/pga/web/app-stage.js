@@ -286,8 +286,24 @@ async function stSync(b) {                         // ⟳: the import, now — n
   } catch (err) { toast(err.message); b.title = L("刷新失败，点一下重试", "Refresh failed; click to retry"); }
   b.classList.remove("on");
 }
-async function stTidy(b) {                         // ✦: every conversation where it belongs, now
+function stTidyLayout() {                         // ✦ first tidies the stage: every page side by side, two to a screen, wired ones together
+  const A = stArena(), lp = stPanel(), lead = lp.free ? 0 : Math.max(120, lp.w || 240) + ST_GAP, room = A.w - 2 * ST_PADX;
+  const pw = Math.max(320, Math.floor((room - lead - ST_GAP) / 2));
+  const wins = stWins(), byKey = new Map(wins.filter((w) => w.key).map((w) => [w.key, w])), nb = new Map(wins.map((w) => [w.id, new Set()]));
+  const tie = (a, b) => { if (a && b && a !== b && nb.has(a) && nb.has(b)) { nb.get(a).add(b); nb.get(b).add(a); } };
+  for (const w of wins) for (const l of w.links || []) tie(w.id, l.from);                       // window to window
+  for (const n of ST.nodes) if (n.type === "conv" && n.win) tie(n.win, byKey.get(n.key)?.id);   // a conversation wired in that is open too
+  const order = [], seen = new Set(), at = new Map(wins.map((w, i) => [w.id, i]));
+  const walk = (id) => { if (seen.has(id)) return; seen.add(id); order.push(id); [...nb.get(id)].sort((a, b) => at.get(a) - at.get(b)).forEach(walk); };
+  wins.forEach((w) => walk(w.id));
+  order.forEach((id, i) => { const w = wins.find((x) => x.id === id); w.ord = i; w.mini = false; w.bw = pw; delete w.pre; });
+  ST.shift = null; stRender(); stSave();
+  const a = $("#starena"); if (a) a.scrollTo({ left: 0, behavior: "smooth" });
+  return wins.length;
+}
+async function stTidy(b) {                         // ✦: the stage laid out, then every conversation where it belongs
   if (b.classList.contains("on")) return;
+  const pages = stTidyLayout();
   b.classList.add("on"); b.title = L("正在整理…", "Tidying…");
   let placed = 0, sums = 0, lines = 0, why = "";
   try { const r = await api(`/v1/users/${S.uid}/world/place`, { method: "POST" }); placed = r.placed || 0; sums = r.summarised || 0; if (r.why === "not built") why = L("世界树还没建", "the world tree is not built yet"); }
@@ -295,7 +311,7 @@ async function stTidy(b) {                         // ✦: every conversation wh
   try { const r = await api(`/v1/users/${S.uid}/timeline/organize`, { body: { use_model: false } }); lines = r.new_lines || 0; } catch {}
   try { await loadTimeline(); if (typeof loadWorld === "function") loadWorld().catch?.(() => {}); } catch {}
   stRender();
-  toast(L(`整理好了：${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线`, `Tidied: ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines`) + (why ? ` · ${why}` : ""));
+  toast(L(`台面排好了：${pages} 个页面，一屏两个，连着线的挨在一起 · ${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线`, `Laid out: ${pages} pages, two to a screen, wired ones together · ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines`) + (why ? ` · ${why}` : ""));
   b.classList.remove("on"); b.title = L(`上次整理 ${new Date().toLocaleTimeString()} · 再点一次重新整理`, `Last tidied ${new Date().toLocaleTimeString()} · click to tidy again`);
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
@@ -476,6 +492,8 @@ function stDragTo(sx, sy) {
   });
   if (d.n.type !== "win" || d.n.mini) d.el.style.top = Math.max(0, Math.min(A.h - d.el.offsetHeight, d.t0 + sy - d.sy)) + "px";
   if (big) {
+    const up = sy - d.sy < -60;                     // pulled up by its head: let go and it fills the screen
+    if (up !== !!d.up) { d.up = up; $("#vStage").classList.toggle("maxhint", up); }
     stPush(d, l, w);
     const me = ST.pos?.get(d.n.id);                // its wired cards come along, keeping their place beside it
     if (me) { const dx = l - me.x; me.x = l;
@@ -527,7 +545,7 @@ function stDrop(sx) {
     }
   }
   if (d.n.type === "win" && d.n.mini) { if (d.moved) { const A = stArena(); d.n.fx = parseFloat(d.el.style.left) / A.w; d.n.fy = parseFloat(d.el.style.top) / A.h; } }
-  else if (d.n.type === "win") stSettle(d);
+  else if (d.n.type === "win") { stSettle(d); if (d.up) { $("#vStage").classList.remove("maxhint"); stRender(); stSave(); stMax(d.n, true); return d; } }
   if (d.fromList && !d.moved) { ST.nodes = ST.nodes.filter((x) => x !== d.n); stRender(); stOpen(d.n.key); return null; }
   stRender(); stSave(); stContexts(); return d;
 }
