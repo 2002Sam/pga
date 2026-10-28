@@ -81,15 +81,23 @@ final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
     var web: DropWebView!
 
     override init() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable, .miniaturizable],
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         super.init()
-        window.title = "PGA 完整版"; window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAFull"); window.delegate = self
+        // no white title bar: the strip with the window's buttons takes the page's own colour (it still moves the window)
+        window.title = "PGA 完整版"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
+        window.backgroundColor = NSColor(white: 0.08, alpha: 1)
+        window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAFull"); window.delegate = self
         web = Web.makeFull(owner: self, float: false)
         web.navigationDelegate = self; web.uiDelegate = self
-        window.contentView = web
+        let root = NSView(frame: window.contentView?.bounds ?? .zero), strip: CGFloat = 26
+        web.frame = NSRect(x: 0, y: 0, width: root.bounds.width, height: root.bounds.height - strip); web.autoresizingMask = [.width, .height]
+        root.addSubview(web)
+        window.contentView = root
         web.load(URLRequest(url: Web.full([:])))
     }
     func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
-    func message(_ body: [String: Any]) {}
+    func message(_ body: [String: Any]) {
+        if body["kind"] as? String == "bg", let c = body["color"] as? String { window.backgroundColor = Web.color(c) ?? window.backgroundColor }
+    }
 }

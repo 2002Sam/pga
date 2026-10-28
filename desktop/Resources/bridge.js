@@ -29,6 +29,10 @@
       #stbar > .cvdim, #stbar > .grow { display: none !important; }
       #vStage .starena { top: 38px !important; }`;
     document.head.appendChild(st);
+    let bg = "";                                   // the window's strip at the top takes the page's colour (and follows the theme)
+    const tell = () => { const c = getComputedStyle(document.querySelector(".app") || document.body).backgroundColor;
+      if (c && c !== bg && !/rgba\(0, 0, 0, 0\)/.test(c)) { bg = c; post({ kind: "bg", color: c }); } };
+    addEventListener("load", tell); setInterval(tell, 2000);
   }
 
   addEventListener("contextmenu", (e) => {

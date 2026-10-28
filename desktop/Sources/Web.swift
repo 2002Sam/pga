@@ -64,6 +64,12 @@ enum Web {
         web.takesPaths = float
         return web
     }
+    /// "rgb(r, g, b)" / "rgba(r, g, b, a)" from a page's computed style.
+    static func color(_ css: String) -> NSColor? {
+        let n = css.components(separatedBy: CharacterSet(charactersIn: "0123456789.").inverted).compactMap(Double.init)
+        guard n.count >= 3 else { return nil }
+        return NSColor(srgbRed: n[0] / 255, green: n[1] / 255, blue: n[2] / 255, alpha: 1)
+    }
     static func full(_ query: [String: String]) -> URL {
         var c = URLComponents(string: AppDelegate.shared.config.server + "/")!
         c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
