@@ -113,7 +113,7 @@ final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
         case "bg": if let c = body["color"] as? String { window.backgroundColor = Web.color(c) ?? window.backgroundColor }
         case "drag": drag()
         case "zoom": window.zoom(nil)
-        default: break
+        default: AppDelegate.shared.message(body)
         }
     }
 }

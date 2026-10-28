@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registerHotKey()
         Wires.shared.setup()
         check { up in
-            let go = { self.restore(); self.launchArgs(); Catalog.shared.refresh(force: true) }
+            let go = { self.restore(); if CommandLine.arguments.count <= 1 { self.showFull() }; self.launchArgs(); Catalog.shared.refresh(force: true) }   // opened from the Dock: 完整版
             if up { go() } else { self.startService(go) }
         }
     }
@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // ------------------------------------------------ floating windows
     func restore() {
         for s in Store.read("floats.json", as: [SavedFloat].self) ?? [] { floats.append(FloatWindow(saved: s)) }
-        if inBench { enterBench() } else { floats.forEach { $0.show(focus: false) } }
+        if inBench { enterBench(show: false) } else { floats.forEach { $0.show(focus: false) } }
     }
 
     /// open -a "PGA 浮窗" --args --home | --new | --bench | --desk | --full | --open <conversation key>
@@ -149,9 +149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config.mode = inBench ? "desk" : "bench"; Store.write("config.json", config)
         if inBench { enterBench() } else { leaveBench() }
     }
-    func enterBench() {
+    func enterBench(show: Bool = true) {
         if bench == nil { bench = Bench() }
-        let b = bench!; b.show()
+        let b = bench!; if show { b.show() }
         var n = 0
         for f in floats { f.dock(in: b.area, frame: f.card ?? b.cascade(f.kind, n)); if f.card == nil { n += 1 } }
         saveFloats(); redrawWires()
@@ -175,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func newFloat() { openFloat(key: nil) }
     @objc func showBench() { bench?.show() }
+    @objc func showBenchOrEnter() { if inBench { showBench() } else { toggleMode() } }
     @objc func showFull() { if fullApp == nil { fullApp = FullWindow() }; fullApp!.show() }
     @objc func showHome() { if home == nil { home = HomeWindow() }; home!.show() }
     @objc func showAll() { floats.forEach { $0.show(focus: false) } }
@@ -273,16 +274,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         view.addItem(withTitle: "新对话", action: #selector(newFloat), keyEquivalent: "n").target = self
         view.addItem(withTitle: "所有对话…", action: #selector(showHome), keyEquivalent: "").target = self
         view.addItem(withTitle: "完整版 PGA（网页端全部功能）", action: #selector(showFull), keyEquivalent: "0").target = self
+        view.addItem(withTitle: "工作台", action: #selector(showBenchOrEnter), keyEquivalent: "9").target = self
         viewItem.submenu = view
         NSApp.mainMenu = main
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
 
-    /// A click on the Dock icon: the workbench (in either mode — from the desktop it gathers the windows back into it).
+    /// A click on the Dock icon: 完整版, the whole PGA (the workbench and the floating windows are a click away in its menus).
     func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if inBench { showBench() } else { toggleMode() }
-        return true
+        showFull(); return true
     }
     /// Right-click on the Dock icon.
     func applicationDockMenu(_ s: NSApplication) -> NSMenu? {
@@ -290,6 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         m.addItem(ActionItem(inBench ? "分开到桌面（每个对话一个浮窗）" : "收回工作台（一个窗口）") { self.toggleMode() })
         m.addItem(ActionItem("新对话") { self.newFloat() })
         m.addItem(ActionItem("完整版 PGA（网页端全部功能）") { self.showFull() })
+        if inBench { m.addItem(ActionItem("工作台") { self.showBench() }) }
         m.addItem(ActionItem("所有对话…") { self.showHome() })
         return m
     }

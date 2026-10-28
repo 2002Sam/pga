@@ -1075,4 +1075,10 @@ html.embed .ccomp .cbar { row-gap: 6px; } html.embed .ccomp .cbar > textarea { m
 .stnode.docked > .stcard b { font-size: 12.5px; font-weight: 400; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
 #vStage .starena::-webkit-scrollbar { height: 6px; } #vStage .starena::-webkit-scrollbar-track { background: transparent; }
 #vStage .starena::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 3px; }
-.app.mini .stbar { left: 46px; }                    /* clear of the rail's » button */
+/* a page's window: header, then its page filling the rest (WebKit sizes a grid item's height:100% by the whole window, not its row) */
+.stnode > .stwin { display: flex; flex-direction: column; }
+.stnode > .stwin > iframe, .stnode > .stwin > .stpadbox { flex: 1 1 auto; height: auto; min-height: 0; }
+/* the side rail's » : a small handle on the left edge, clear of every page's title */
+#unfold { top: 50%; left: 0; width: 16px; height: 52px; margin-top: -26px; border-radius: 0 8px 8px 0; border-left: 0; font-size: 11px; opacity: .7; }
+#unfold:hover { opacity: 1; width: 22px; }
+.app.mini .stbar { left: 14px; }

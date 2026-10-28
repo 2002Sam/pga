@@ -100,7 +100,16 @@ function pick(px, py) {
   return best;
 }
 function neighbours(id) { const s = new Set([id]); for (const e of G.edges) { if (e.source.id === id) s.add(e.target.id); if (e.target.id === id) s.add(e.source.id); } return s; }
+/* the canvas follows its box: it may have been set up while hidden (at 0×0, the 3D sky showing), or the window resized */
+function sizeCanvas() {
+  const cv = $("#gcv"); if (!cv || !cv.clientWidth) return false;
+  const dpr = devicePixelRatio || 1, w = Math.round(cv.clientWidth * dpr), h = Math.round(cv.clientHeight * dpr);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  return true;
+}
+window.addEventListener("resize", () => { if (S.view === "graph" && G.mode !== "3d") drawGraph(); });
 function drawGraph() {
+  sizeCanvas();
   if (G.mode !== "net") { if (G.mode === "tree") drawWorld(); return; }
   const cv = $("#gcv"); if (!cv || !G.t) return;
   const ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1, W = cv.width / dpr, H = cv.height / dpr;

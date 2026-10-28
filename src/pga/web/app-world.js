@@ -42,10 +42,12 @@ function layoutWorld() {
   h.each((d) => { const n = d.data.node; n.angle = d.x; n.radius = d.y; n.x = Math.cos(d.x - Math.PI / 2) * d.y; n.y = Math.sin(d.x - Math.PI / 2) * d.y;
     n.hue = d.depth === 0 ? null : W.hues.get(d.ancestors().reverse()[1]?.data.node.id); n.hidden = W.collapsed.has(n.id) ? kids(n.id).length : 0; });
   W.root = h;
-  if (!W.fitted && G.zoom) {                                  // the whole tree in view the first time
-    W.fitted = true; const cv = $("#gcv"), k = Math.min(cv.clientWidth, cv.clientHeight) / (2 * R + 260);
-    d3.select(cv).call(G.zoom.transform, d3.zoomIdentity.translate(cv.clientWidth / 2 + 120, cv.clientHeight / 2 + 20).scale(k));
-  }
+  worldFit();
+}
+function worldFit() {                                          // the whole tree in view, centred — once the canvas has a size
+  const cv = $("#gcv"); if (W.fitted || !G.zoom || !W.R || !cv?.clientWidth) return;
+  W.fitted = true; const k = Math.min(cv.clientWidth, cv.clientHeight) / (2 * W.R + 260);
+  d3.select(cv).call(G.zoom.transform, d3.zoomIdentity.translate(cv.clientWidth / 2 + 120, cv.clientHeight / 2 + 20).scale(k));
 }
 const wR = (n) => (n.kind === "root" ? 16 : n.kind === "leaf" ? 2.6 + Math.min(3, (n.turns || 1) / 30) : n.kind === "aim" ? 8 : 9 - Math.min(4, n.radius / 160) + Math.min(4, (n.count || 0) / 25));
 function wColor(n, a = 1) {
@@ -62,6 +64,7 @@ function worldPick(px, py) {
 }
 function drawWorld() {
   const cv = $("#gcv"); if (!cv || !G.t) return;
+  if (!W.fitted && W.root) { worldFit(); if (W.fitted) return; }      // the fit draws again
   const ctx = cv.getContext("2d"), dpr = devicePixelRatio || 1;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
   if (!W.root) return;

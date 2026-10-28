@@ -65,7 +65,7 @@ document.addEventListener("pointerup", async (e) => {
 });
 
 async function boot() {
-  setMini(store.get("pga_rail_open") !== "1"); applySplits();          // the conversation list stays folded unless you opened it
+  setMini(true); applySplits();                                        // the side rail (the pages, the conversation list) starts folded
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
     api(`/v1/agents`).then((d) => { const A = d.agents || {}; S.acctOf = Object.fromEntries(Object.entries(A).map(([k, v]) => [k, v.account || ""])); }).catch(() => {})]);
