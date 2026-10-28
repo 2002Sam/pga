@@ -4,7 +4,8 @@
    - right-click (outside text fields): the desktop app's menu of every node there is;
    - what is wired into the window's left dot goes to its conversation's agents (PUT /chat-context), as on the stage;
    - focus: into the composer;
-   - in 完整版, the stage has no dark bar across its top. */
+   - in 完整版, the stage has no dark bar across its top, and the window (which has no title bar) moves by the page's
+     empty top edge. */
 (() => {
   const N = window.PGA_NATIVE || {};
   const post = (m) => { try { webkit.messageHandlers.pga.postMessage(m); } catch (e) {} };
@@ -27,8 +28,13 @@
     st.textContent = `#stbar { left: auto !important; right: 12px !important; top: 6px !important; padding: 0 !important; background: transparent !important;
         border: 0 !important; box-shadow: none !important; backdrop-filter: none !important; }
       #stbar > .cvdim, #stbar > .grow { display: none !important; }
-      #vStage .starena { top: 38px !important; }`;
+      #vStage .starena { top: 38px !important; }
+      .padh { padding-left: 80px !important; } .app.padmin .padh { padding-left: 4px !important; padding-top: 34px !important; }`;   /* room for the window's buttons */
     document.head.appendChild(st);
+    // the window has no title bar: its empty top edge moves it (a double-click zooms it)
+    const free = (e) => e.clientY < 30 && !e.target.closest("button, a, input, textarea, select, label, [contenteditable], [data-rz], [data-lrz], .stwh, .stlh, .stnode, .padgrip, .split");
+    addEventListener("mousedown", (e) => { if (e.button === 0 && e.detail === 1 && free(e)) { e.preventDefault(); post({ kind: "drag" }); } }, true);
+    addEventListener("dblclick", (e) => { if (free(e)) post({ kind: "zoom" }); }, true);
     let bg = "";                                   // the window's strip at the top takes the page's colour (and follows the theme)
     const tell = () => { const c = getComputedStyle(document.querySelector(".app") || document.body).backgroundColor;
       if (c && c !== bg && !/rgba\(0, 0, 0, 0\)/.test(c)) { bg = c; post({ kind: "bg", color: c }); } };

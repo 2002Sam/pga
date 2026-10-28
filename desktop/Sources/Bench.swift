@@ -84,20 +84,36 @@ final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
                           backing: .buffered, defer: false)
         super.init()
-        // no white title bar: the strip with the window's buttons takes the page's own colour (it still moves the window)
+        // no title bar at all: the page fills the window, the window's buttons sit on it at the top left; the window
+        // moves by the empty top edge of the page (bridge.js tells where), and a double-click there zooms it
         window.title = "PGA 完整版"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(white: 0.08, alpha: 1)
         window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAFull"); window.delegate = self
         web = Web.makeFull(owner: self, float: false)
         web.navigationDelegate = self; web.uiDelegate = self
-        let root = NSView(frame: window.contentView?.bounds ?? .zero), strip: CGFloat = 26
-        web.frame = NSRect(x: 0, y: 0, width: root.bounds.width, height: root.bounds.height - strip); web.autoresizingMask = [.width, .height]
-        root.addSubview(web)
-        window.contentView = root
+        window.contentView = web
         web.load(URLRequest(url: Web.full([:])))
     }
     func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+
+    /// Moving the window from the page: it follows the pointer while the button is held.
+    private var moving: Timer?
+    func drag() {
+        moving?.invalidate()
+        let start = NSEvent.mouseLocation, o = window.frame.origin
+        moving = Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] t in
+            guard let self, NSEvent.pressedMouseButtons & 1 != 0 else { t.invalidate(); return }
+            let p = NSEvent.mouseLocation
+            self.window.setFrameOrigin(NSPoint(x: o.x + p.x - start.x, y: o.y + p.y - start.y))
+        }
+    }
+
     func message(_ body: [String: Any]) {
-        if body["kind"] as? String == "bg", let c = body["color"] as? String { window.backgroundColor = Web.color(c) ?? window.backgroundColor }
+        switch body["kind"] as? String {
+        case "bg": if let c = body["color"] as? String { window.backgroundColor = Web.color(c) ?? window.backgroundColor }
+        case "drag": drag()
+        case "zoom": window.zoom(nil)
+        default: break
+        }
     }
 }
