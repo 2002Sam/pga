@@ -19,6 +19,14 @@ Let a wire go on empty space to pick a node for it. Right-click a window (or emp
 node there is — a new conversation, an existing one, a note, a file, a skill, a document, a world-tree topic — which
 opens beside it, wired in; the same menu cuts wires.
 
+## The browser version's full pages
+
+A conversation window shows the browser version's own full conversation page (everything it has: tools and steps,
+attachments, versions, ratings, translation, voice, / prompts, @ agents, the movable composer, the side panel), served
+by the PGA server and connected to the desktop app by `Resources/bridge.js` (its title, right-click, wires). Its code is
+not copied, so it is always the current one. `"chat": "light"` in config.json uses the desktop app's own small page
+instead. **完整版** (the workbench's title bar, the 视图 menu, the Dock menu) opens the whole browser version in a window.
+
 ## What it is
 
 - **Native shell** (`Sources/`, Swift, AppKit + WebKit, no Xcode project): an app in the Dock and the menu bar. A click

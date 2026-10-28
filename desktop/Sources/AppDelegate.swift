@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var serviceUp = false, starting = false
     var hotKey: EventHotKeyRef?, hotKey2: EventHotKeyRef?
     var bench: Bench?                                    // the workbench window, while PGA is seen that way
+    var fullApp: FullWindow?                             // 完整版: the whole browser version in a window
     var inBench: Bool { config.mode == "bench" }
     private var pushT: [String: DispatchWorkItem] = [:]
 
@@ -57,12 +58,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if inBench { enterBench() } else { floats.forEach { $0.show(focus: false) } }
     }
 
-    /// open -a "PGA 浮窗" --args --home | --new | --bench | --desk | --open <conversation key>
+    /// open -a "PGA 浮窗" --args --home | --new | --bench | --desk | --full | --open <conversation key>
     func launchArgs() {
         let a = CommandLine.arguments
         if a.contains("--home") { showHome() }
         if a.contains("--bench") && !inBench { toggleMode() }
         if a.contains("--desk") && inBench { toggleMode() }
+        if a.contains("--full") { showFull() }
         if a.contains("--new") { openFloat(key: nil) }
         if let i = a.firstIndex(of: "--open"), i + 1 < a.count { openFloat(key: a[i + 1]) }
     }
@@ -173,6 +175,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func newFloat() { openFloat(key: nil) }
     @objc func showBench() { bench?.show() }
+    @objc func showFull() { if fullApp == nil { fullApp = FullWindow() }; fullApp!.show() }
     @objc func showHome() { if home == nil { home = HomeWindow() }; home!.show() }
     @objc func showAll() { floats.forEach { $0.show(focus: false) } }
     @objc func hideAll() { floats.forEach { $0.panel.orderOut(nil) } }
@@ -230,6 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         add("新浮窗", #selector(newFloat), " ").keyEquivalentModifierMask = [.option]
         add("所有对话…", #selector(showHome), "")
+        add("完整版 PGA（网页端全部功能）", #selector(showFull), "")
         let fc = add(inBench ? "分开到桌面" : "收进工作台", #selector(toggleMode), " "); fc.keyEquivalentModifierMask = [.option, .shift]
         if inBench { add("显示工作台", #selector(showBench), "") }
         if !floats.isEmpty {
@@ -268,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let t = view.addItem(withTitle: "工作台 ⇄ 桌面浮窗", action: #selector(toggleMode), keyEquivalent: " "); t.keyEquivalentModifierMask = [.option, .shift]; t.target = self
         view.addItem(withTitle: "新对话", action: #selector(newFloat), keyEquivalent: "n").target = self
         view.addItem(withTitle: "所有对话…", action: #selector(showHome), keyEquivalent: "").target = self
+        view.addItem(withTitle: "完整版 PGA（网页端全部功能）", action: #selector(showFull), keyEquivalent: "0").target = self
         viewItem.submenu = view
         NSApp.mainMenu = main
     }
@@ -284,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let m = NSMenu()
         m.addItem(ActionItem(inBench ? "分开到桌面（每个对话一个浮窗）" : "收回工作台（一个窗口）") { self.toggleMode() })
         m.addItem(ActionItem("新对话") { self.newFloat() })
+        m.addItem(ActionItem("完整版 PGA（网页端全部功能）") { self.showFull() })
         m.addItem(ActionItem("所有对话…") { self.showHome() })
         return m
     }

@@ -179,7 +179,8 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
 
         var page: [String: Any] = ["mode": self.kind == .conv ? "float" : "node", "type": self.kind.rawValue, "data": self.data]
         if let k = self.key { page["key"] = k }
-        web = Web.make(owner: self, page: page)
+        let full = self.kind == .conv && AppDelegate.shared.config.chat != "light"     // a conversation: the browser version's full page
+        web = full ? Web.makeFull(owner: self, float: true) : Web.make(owner: self, page: page)
         web.navigationDelegate = self; web.uiDelegate = self
         header.frame = NSRect(x: 0, y: rect.height - FloatWindow.headerH, width: rect.width, height: FloatWindow.headerH)
         header.autoresizingMask = [.width, .minYMargin]
@@ -196,8 +197,13 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
         content.addSubview(grip)
         panel.contentView = content
         showTitle()
-        var q = ["mode": page["mode"] as! String]; if let k = self.key { q["key"] = k }
-        web.load(URLRequest(url: Web.page(q)))
+        if full {
+            var q = ["view": "chats", "embed": "1"]; if let k = self.key { q[k.hasPrefix("chat:") ? "c" : "item"] = k }
+            web.load(URLRequest(url: Web.full(q)))
+        } else {
+            var q = ["mode": page["mode"] as! String]; if let k = self.key { q["key"] = k }
+            web.load(URLRequest(url: Web.page(q)))
+        }
     }
 
     static func nextFrame() -> NSRect {                // new conversations cascade down from the top right of the screen you are on

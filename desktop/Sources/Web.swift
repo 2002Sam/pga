@@ -40,6 +40,36 @@ enum Web {
         return web
     }
 
+    /// The browser version's own pages (served by the PGA server), with bridge.js added: the full conversation page in a
+    /// window (`float`), or the whole app (完整版). They keep their storage in this app's WebKit store, so the account
+    /// is put there before they load.
+    static let bridge: String = {
+        guard let u = Bundle.main.url(forResource: "bridge", withExtension: "js"), let s = try? String(contentsOf: u, encoding: .utf8) else { return "" }
+        return s
+    }()
+    static func makeFull(owner: WebOwner, float: Bool) -> DropWebView {
+        let cfg = WKWebViewConfiguration()
+        cfg.websiteDataStore = .default()
+        let uc = WKUserContentController(), uid = AppDelegate.shared.config.uid
+        uc.addUserScript(WKUserScript(source: """
+        try { if ("\(uid)") localStorage.setItem("pga_uid", "\(uid)"); } catch (e) {}
+        window.PGA_NATIVE = { float: \(float), uid: "\(uid)" };
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        uc.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        uc.add(WeakHandler(owner), name: "pga")
+        cfg.userContentController = uc
+        cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        cfg.mediaTypesRequiringUserActionForPlayback = []
+        let web = DropWebView(frame: .zero, configuration: cfg)
+        web.takesPaths = float
+        return web
+    }
+    static func full(_ query: [String: String]) -> URL {
+        var c = URLComponents(string: AppDelegate.shared.config.server + "/")!
+        c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+        return c.url!
+    }
+
     static func page(_ query: [String: String]) -> URL {
         var c = URLComponents(string: "pga://app/index.html")!
         c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -121,9 +151,11 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// A web view that takes files dropped from Finder as paths (the agents run on this Mac and read them where they are).
 final class DropWebView: WKWebView {
+    var takesPaths = true                                   // false: drops go to the page itself (the whole app has its own)
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }        // a click on a window in the background acts at once
     private func paths(_ s: NSDraggingInfo) -> [String] {
-        (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []).map(\.path)
+        guard takesPaths else { return [] }
+        return (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []).map(\.path)
     }
     override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation {
         if !paths(s).isEmpty { Web.call(self, "dragging", true); return .copy }
@@ -140,7 +172,8 @@ final class DropWebView: WKWebView {
 /// Browser chores WebKit leaves to its host: alerts, file pickers, links out of PGA, the microphone for voice input.
 class WebChrome: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if let url = a.request.url, url.scheme != "pga", url.scheme != "about", url.scheme != "blob", url.scheme != "data" {
+        let server = URL(string: AppDelegate.shared.config.server)
+        if let url = a.request.url, !["pga", "about", "blob", "data"].contains(url.scheme ?? ""), url.host != server?.host || url.port != server?.port {
             NSWorkspace.shared.open(url); decisionHandler(.cancel); return
         }
         decisionHandler(.allow)

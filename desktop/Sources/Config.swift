@@ -26,6 +26,7 @@ struct Config: Codable {
     var uid = ""
     var ui: String? = nil          // while developing: serve the interface from this folder (e.g. desktop/ui/dist) instead of the app
     var mode: String? = nil        // "bench": every window in one workbench window; "desk" (default): each on its own over the desktop
+    var chat: String? = nil        // "light": conversations in the desktop app's own small page; else (default) the browser version's full page
 
     /// The account: the one in config.json, else the installation's owner (asked of the database once and kept).
     /// A WebKit window keeps its own storage, apart from Chrome's; without this it would start a new, empty account.

@@ -11,7 +11,7 @@ enum Kind: String {
         let v = hex[rawValue]!
         return NSColor(srgbRed: CGFloat(v >> 16 & 0xff) / 255, green: CGFloat(v >> 8 & 0xff) / 255, blue: CGFloat(v & 0xff) / 255, alpha: 1)
     }
-    var size: NSSize { self == .conv ? NSSize(width: 420, height: 580) : NSSize(width: 260, height: self == .note ? 200 : 170) }
+    var size: NSSize { self == .conv ? NSSize(width: 480, height: 640) : NSSize(width: 260, height: self == .note ? 200 : 170) }
 }
 
 struct Item { let title: String; let sub: String; let data: [String: String] }

@@ -54,10 +54,11 @@ final class Bench: WebChrome, NSWindowDelegate, WebOwner {
         // in the title bar: a new conversation, and the way out to the desktop
         let bar = NSStackView(); bar.orientation = .horizontal; bar.spacing = 6; bar.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 10)
         bar.addArrangedSubview(NSButton(title: "＋ 新对话", target: AppDelegate.shared, action: #selector(AppDelegate.newFloat)))
+        bar.addArrangedSubview(NSButton(title: "完整版", target: AppDelegate.shared, action: #selector(AppDelegate.showFull)))
         bar.addArrangedSubview(NSButton(title: "分开到桌面 ⌥⇧Space", target: AppDelegate.shared, action: #selector(AppDelegate.toggleMode)))
         for case let b as NSButton in bar.arrangedSubviews { b.bezelStyle = .accessoryBarAction; b.controlSize = .small; b.font = .systemFont(ofSize: 12) }
         let acc = NSTitlebarAccessoryViewController(); acc.view = bar; acc.layoutAttribute = .trailing
-        bar.frame.size = NSSize(width: 250, height: top)
+        bar.frame.size = NSSize(width: 320, height: top)
         window.addTitlebarAccessoryViewController(acc)
     }
 
@@ -72,4 +73,23 @@ final class Bench: WebChrome, NSWindowDelegate, WebOwner {
         if body["kind"] as? String == "menu" { AppDelegate.shared.showMenu(at: NSEvent.mouseLocation) } else { AppDelegate.shared.message(body) }
     }
     func windowShouldClose(_ s: NSWindow) -> Bool { window.orderOut(nil); return false }   // hidden, cards and all (the Dock icon brings it back)
+}
+
+/// 完整版: the whole browser version (stage, world tree, notes, graph, settings, agents) in a window of its own.
+final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
+    let window: NSWindow
+    var web: DropWebView!
+
+    override init() {
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                          backing: .buffered, defer: false)
+        super.init()
+        window.title = "PGA 完整版"; window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAFull"); window.delegate = self
+        web = Web.makeFull(owner: self, float: false)
+        web.navigationDelegate = self; web.uiDelegate = self
+        window.contentView = web
+        web.load(URLRequest(url: Web.full([:])))
+    }
+    func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
+    func message(_ body: [String: Any]) {}
 }

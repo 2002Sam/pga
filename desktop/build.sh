@@ -14,6 +14,7 @@ swiftc -O -swift-version 5 -target "$(uname -m)-apple-macos13" -o "$APP/Contents
   -framework AppKit -framework WebKit -framework Carbon
 cp Info.plist "$APP/Contents/"
 cp -R ui/dist "$APP/Contents/Resources/ui"
+cp Resources/* "$APP/Contents/Resources/"
 ICON=../src/pga/web/icons/PGA.icns; [[ -f $ICON ]] && cp "$ICON" "$APP/Contents/Resources/PGA.icns"
 codesign --force --deep -s - "$APP" >/dev/null 2>&1
 echo "built $APP"
