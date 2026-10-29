@@ -298,8 +298,7 @@ function stSideList() {
     v.insertAdjacentHTML("beforeend", `<aside class="stlist side" id="stlist"><i class="lrz lrz-e" data-lrz="e" title="${L("拖动改宽度", "Drag to resize")}"></i>
       <div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
       <button class="stb" id="stlmk" data-rk="only" title="${L("只看标注和置顶的", "Only the marked and pinned")}">★</button><button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
-      <div class="stmy" id="stmy"><div class="stmyh"><b>${L("我的输入", "What I typed")}</b><em class="cvdim" id="stmyn"></em></div><div class="stmyl" id="stmyl"></div></div>
-      <div class="stlk" id="stlk"></div></aside>`);
+      <div class="stmy" id="stmy"><div class="stmyh"><b>${L("我的输入", "What I typed")}</b><em class="cvdim" id="stmyn"></em></div><div class="stmyl" id="stmyl"></div></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); stInputsDraw(); });
     box.querySelector("[data-lrz]").addEventListener("pointerdown", (e) => {     // its right edge: wider or narrower, the stage following
@@ -316,14 +315,8 @@ function stSideList() {
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
   if (box.dataset.sig !== sig) { box.dataset.sig = sig; stListItems(); }
   stInputs();
-  const dock = ST.nodes.filter(stDock), K = $("#stlk"), ks = dock.map((n) => n.id + (n.win || "") + (S.forest ? 1 : 0)).join();
-  K.hidden = !dock.length;
-  if (K.dataset.sig !== ks) {                      // world and self knowledge: rows like the conversations'; the dot wires one into the page you are on
-    K.dataset.sig = ks; const F = S.forest?.knowledge || [];
-    K.innerHTML = `<em>${L("知识", "Knowledge")}</em>` + dock.map((n) => { const k = F.find((x) => x.system === (n.type === "world" ? "world" : "user"));
-      return `<div class="stkrow ${n.win ? "stwired" : ""}" data-stk="${n.id}" style="--tc:${ST_T[n.type][2]}"><b ${k ? `data-doc="${k.id}"` : ""}>${L(...ST_T[n.type].slice(0, 2))}</b>
-        <i class="stkdot" title="${n.win ? L("连在一个页面上 · 点一下断开", "Wired into a page · click to cut") : L("点一下连进你正在用的页面", "Click to wire it into the page you are on")}"></i></div>`; }).join("");
-  }
+  const wired = ST.nodes.filter((n) => stDock(n) && n.win);     // world and self knowledge have no rows here any more: nothing hidden stays wired
+  if (wired.length) { wired.forEach((n) => { n.win = null; }); stSave(); stContexts(); }
 }
 async function stSync(b) {                         // ⟳: the import, now — new and changed conversations from the apps on this machine
   if (b.classList.contains("on")) return;
@@ -388,7 +381,8 @@ function stLeafOf(key) {                           // the world tree's leaf for 
   return ST.leaves?.get(key) || null;
 }
 const stFolderOf = (key) => { const l = stLeafOf(key); return l ? worldPath(l).slice(1, -1) : []; };   // root and leaf left out
-/* 我的输入: the bottom fifth of 所有对话 — what you typed lately, in any conversation, newest first (your words only).
+/* 我的输入: the bottom third of 所有对话 — what you typed lately, in any conversation, newest first, one line each like
+   files in a folder (your words only).
    Click one: its conversation opens, at that question. Fetched again a minute later at most, and after an import. */
 async function stInputs(force) {
   if (!$("#stmyl") || (!force && ST.inAt && Date.now() - ST.inAt < 60000)) return;
@@ -399,7 +393,7 @@ async function stInputs(force) {
 function stInputsDraw() {
   const box = $("#stmyl"); if (!box || !ST.inputs) return; const q = ST.q || "";
   const xs = ST.inputs.filter((x) => !q || x.text.toLowerCase().includes(q) || (x.title || "").toLowerCase().includes(q));
-  box.innerHTML = xs.map((x) => `<div class="stmyr" data-inkey="${esc(x.key)}" data-inrun="${esc(x.run || "")}" title="${esc(x.text)}"><b>${esc(x.text)}</b><span>${esc(x.title || "")}${x.at ? " · " + ago(x.at) : ""}</span></div>`).join("")
+  box.innerHTML = xs.map((x) => `<div class="stmyr" data-inkey="${esc(x.key)}" data-inrun="${esc(x.run || "")}" title="${esc(x.text + "\n— " + (x.title || ""))}"><b>${esc(x.text.replace(/\s+/g, " "))}</b><span>${x.at ? ago(x.at) : ""}</span></div>`).join("")
     || `<div class="cvdim" style="padding:6px 8px">${q ? L("没有找到", "Nothing found") : L("最近还没有输入", "Nothing typed lately")}</div>`;
   const n = $("#stmyn"); if (n) n.textContent = String(xs.length);
 }
@@ -463,11 +457,6 @@ function stOver() {                              // the wires from the history c
     if (!n.rail) continue; const a = from(n.key), w = ST.pos?.get(n.win); if (!a || !w || !visible(w)) continue;
     const x1 = ar.left + w.x - stSL(), y1 = ar.top + stPinY(w, 0), d = stCurve(a.x, a.y, x1, y1);
     h += `<path class="stwire z0 ${a.out ? "faint" : ""}" d="${d}"/><path class="sthit" d="${d}" data-unrail="${n.id}"><title>${esc(stTitle(n.key))} · ${L("点一下断开", "click to cut")}</title></path>`;
-  }
-  for (const n of ST.nodes.filter(stDock)) {      // world and self knowledge, from their rows into the data input
-    const r = document.querySelector(`#stlk [data-stk="${n.id}"] .stkdot`)?.getBoundingClientRect(), w = n.win && ST.pos?.get(n.win); if (!r || !w || !visible(w)) continue;
-    const z = ST_PIN(n), d = stCurve(r.left + r.width / 2, r.top + r.height / 2, ar.left + w.x - stSL(), ar.top + stPinY(w, z));
-    h += `<path class="stwire z${z}" d="${d}"/><path class="sthit" d="${d}" data-unk="${n.id}"><title>${L("点一下断开", "click to cut")}</title></path>`;
   }
   const g = ST.rw; if (g) h += `<path class="stwire tmp z0" d="${stCurve(g.x0, g.y0, g.x, g.y)}"/><circle class="stball z0" cx="${g.x}" cy="${g.y}" r="5"/>`;
   svg.innerHTML = h;
