@@ -298,9 +298,10 @@ function stSideList() {
     v.insertAdjacentHTML("beforeend", `<aside class="stlist side" id="stlist"><i class="lrz lrz-e" data-lrz="e" title="${L("拖动改宽度", "Drag to resize")}"></i>
       <div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
       <button class="stb" id="stlmk" data-rk="only" title="${L("只看标注和置顶的", "Only the marked and pinned")}">★</button><button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <div class="stmy" id="stmy"><div class="stmyh"><b>${L("我的输入", "What I typed")}</b><em class="cvdim" id="stmyn"></em></div><div class="stmyl" id="stmyl"></div></div>
       <div class="stlk" id="stlk"></div></aside>`);
     box = $("#stlist");
-    $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
+    $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); stInputsDraw(); });
     box.querySelector("[data-lrz]").addEventListener("pointerdown", (e) => {     // its right edge: wider or narrower, the stage following
       if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); e.target.setPointerCapture(e.pointerId);
       ST.lmove = { x: e.clientX, w0: box.offsetWidth }; v.classList.add("dragging", "resizing");
@@ -314,6 +315,7 @@ function stSideList() {
   if (!open) return;
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
   if (box.dataset.sig !== sig) { box.dataset.sig = sig; stListItems(); }
+  stInputs();
   const dock = ST.nodes.filter(stDock), K = $("#stlk"), ks = dock.map((n) => n.id + (n.win || "") + (S.forest ? 1 : 0)).join();
   K.hidden = !dock.length;
   if (K.dataset.sig !== ks) {                      // world and self knowledge: rows like the conversations'; the dot wires one into the page you are on
@@ -329,7 +331,7 @@ async function stSync(b) {                         // ⟳: the import, now — n
   try {
     const r = await api(`/v1/users/${S.uid}/hub/sync`, { method: "POST" });
     const got = Object.values(r?.synced || {}).reduce((t, x) => ({ n: t.n + (x?.new || 0), u: t.u + (x?.updated || 0) }), { n: 0, u: 0 });
-    await loadTimeline(); stRender();
+    await loadTimeline(); stRender(); stInputs(true);
     const errs = Object.keys(r?.errors || {}).filter((k) => k !== "digest");     // the apps that could not be read (the digest is a later step)
     toast(L(`导入好了：新增 ${got.n || Math.max(0, recentItems().length - n0)} 段，更新 ${got.u} 段`, `Imported: ${got.n || Math.max(0, recentItems().length - n0)} new, ${got.u} updated`)
       + (errs.length ? L(` · ${errs.join("、")} 没读到`, ` · ${errs.join(", ")} could not be read`) : ""));
@@ -362,9 +364,10 @@ async function stTidy(b) {                         // ✦: the stage laid out, t
   try { const r = await api(`/v1/users/${S.uid}/world/place`, { method: "POST" }); placed = r.placed || 0; sums = r.summarised || 0; if (r.why === "not built") why = L("世界树还没建", "the world tree is not built yet"); }
   catch (err) { why = err.message; }
   try { const r = await api(`/v1/users/${S.uid}/timeline/organize`, { body: { use_model: false } }); lines = r.new_lines || 0; } catch {}
+  let filed = 0; try { const r = await api(`/v1/users/${S.uid}/projects/sort`, { method: "POST" }); filed = (r.ruled || 0) + (r.sorted || 0); } catch {}
   try { await loadTimeline(); if (typeof loadWorld === "function") loadWorld().catch?.(() => {}); } catch {}
   stRender();
-  toast(L(`台面排好了：${pages} 个页面，一屏两个，连着线的挨在一起 · ${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线`, `Laid out: ${pages} pages, two to a screen, wired ones together · ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines`) + (why ? ` · ${why}` : ""));
+  toast(L(`台面排好了：${pages} 个页面，一屏两个，连着线的挨在一起 · ${placed} 段对话放进世界树，${sums} 个主题重写了总结，${lines} 条新线 · ${filed} 段归进项目`, `Laid out: ${pages} pages, two to a screen, wired ones together · ${placed} into the world tree, ${sums} topics summarised, ${lines} new lines · ${filed} filed under projects`) + (why ? ` · ${why}` : ""));
   b.classList.remove("on"); b.title = L(`上次整理 ${new Date().toLocaleTimeString()} · 再点一次重新整理`, `Last tidied ${new Date().toLocaleTimeString()} · click to tidy again`);
 }
 function stDropToggle(open) {                       // 所有对话 open or closed, kept across reloads
@@ -372,8 +375,8 @@ function stDropToggle(open) {                       // 所有对话 open or clos
   if (ST.listOpen) setTimeout(() => $("#stlq")?.focus(), 30);
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
-/* Each row: the conversation, and under it the folder of the world tree it is filed in (click: only that folder). Newest
-   first; pinned ones above the rest; a mark (★, or a word of yours) on any. */
+/* Each row: one conversation, under its project (pga.projectsort files them when they are imported). Newest first;
+   pinned ones above the rest; a mark (★, or a word of yours) on any. */
 const stMarks = () => (ST.marks ||= (() => { try { return JSON.parse(localStorage.getItem("pga_marks") || "{}"); } catch { return {}; } })());
 function stMarkSet(key, f) {
   const m = stMarks(), o = { ...(m[key] || {}) }; f(o);
@@ -385,6 +388,25 @@ function stLeafOf(key) {                           // the world tree's leaf for 
   return ST.leaves?.get(key) || null;
 }
 const stFolderOf = (key) => { const l = stLeafOf(key); return l ? worldPath(l).slice(1, -1) : []; };   // root and leaf left out
+/* 我的输入: the bottom fifth of 所有对话 — what you typed lately, in any conversation, newest first (your words only).
+   Click one: its conversation opens, at that question. Fetched again a minute later at most, and after an import. */
+async function stInputs(force) {
+  if (!$("#stmyl") || (!force && ST.inAt && Date.now() - ST.inAt < 60000)) return;
+  ST.inAt = Date.now();
+  try { ST.inputs = (await api(`/v1/users/${S.uid}/inputs?limit=80`)).inputs || []; } catch { ST.inAt = 0; return; }
+  stInputsDraw();
+}
+function stInputsDraw() {
+  const box = $("#stmyl"); if (!box || !ST.inputs) return; const q = ST.q || "";
+  const xs = ST.inputs.filter((x) => !q || x.text.toLowerCase().includes(q) || (x.title || "").toLowerCase().includes(q));
+  box.innerHTML = xs.map((x) => `<div class="stmyr" data-inkey="${esc(x.key)}" data-inrun="${esc(x.run || "")}" title="${esc(x.text)}"><b>${esc(x.text)}</b><span>${esc(x.title || "")}${x.at ? " · " + ago(x.at) : ""}</span></div>`).join("")
+    || `<div class="cvdim" style="padding:6px 8px">${q ? L("没有找到", "Nothing found") : L("最近还没有输入", "Nothing typed lately")}</div>`;
+  const n = $("#stmyn"); if (n) n.textContent = String(xs.length);
+}
+document.addEventListener("click", (e) => {
+  const r = S.view === "stage" && e.target.closest?.("#stmy [data-inkey]"); if (!r) return;
+  e.preventDefault(); e.stopPropagation(); pjOpenOn(window, r.dataset.inkey, r.dataset.inrun, r.dataset.inrun ? "" : r.title);
+}, true);
 function stListItems() {                           // every past conversation, newest first, one tight row each
   const box = $("#stli"); if (!box) return;
   if (!W.nodes.length && !ST.wtAsked) { ST.wtAsked = true; wtFetch().then(() => W.nodes.length && stListItems()); }
@@ -392,11 +414,10 @@ function stListItems() {                           // every past conversation, n
   const xs = recentItems().filter((x) => (!q || (x.title || "").toLowerCase().includes(q) || (M[x.item]?.mark || "").toLowerCase().includes(q))
     && (!ST.onlyMarked || M[x.item]) && (!fd || stFolderOf(x.item).some((f) => f.id === fd.id)));
   const pinned = xs.filter((x) => M[x.item]?.pin).sort((a, b) => M[b.item].pin - M[a.item].pin), rest = xs.filter((x) => !M[x.item]?.pin);
-  const row = (x) => { const m = M[x.item] || {}, fs = stFolderOf(x.item), path = fs.map((f) => f.title).join(" › ");
-    return `<div class="ritem ${m.pin ? "pinned" : ""} ${m.mark ? "marked" : ""}" data-ritem="${esc(x.item)}" title="${esc((x.title || "") + " · " + (x.agent ? agentLabel(x.agent) : "PGA") + (x.last ? " · " + ago(x.last) : "") + (path ? "\n" + L("归在：", "Filed under: ") + path : ""))}">
+  const row = (x) => { const m = M[x.item] || {};
+    return `<div class="ritem ${m.pin ? "pinned" : ""} ${m.mark ? "marked" : ""}" data-ritem="${esc(x.item)}" title="${esc((x.title || "") + " · " + (x.agent ? agentLabel(x.agent) : "PGA") + (x.last ? " · " + ago(x.last) : ""))}">
       <div class="rline"><b>${esc(x.title || L("新对话", "New chat"))}</b>${m.mark ? `<i class="rmark">${esc(m.mark)}</i>` : ""}
-        <span class="racts"><button data-rk="pin" title="${m.pin ? L("取消置顶", "Unpin") : L("置顶", "Pin to the top")}">${m.pin ? "⊗" : "📌"}</button><button data-rk="mark" title="${m.mark ? L("改标注（清空就去掉）", "Change the mark (empty removes it)") : L("标注", "Mark it")}">★</button></span></div>
-      ${fs.length ? `<a class="rpath" data-rk="folder" data-fid="${fs[fs.length - 1].id}">📁 ${esc(fs.slice(-2).map((f) => f.title).join(" › "))}</a>` : ""}</div>`; };
+        <span class="racts"><button data-rk="pin" title="${m.pin ? L("取消置顶", "Unpin") : L("置顶", "Pin to the top")}">${m.pin ? "⊗" : "📌"}</button><button data-rk="mark" title="${m.mark ? L("改标注（清空就去掉）", "Change the mark (empty removes it)") : L("标注", "Mark it")}">★</button></span></div></div>`; };
   let html = "";
   if (pinned.length) html += `<div class="rgrp">📌 ${L("置顶", "Pinned")}</div>` + pinned.map(row).join("");
   for (const g of pjGroups(rest.slice(0, 400))) {   // every conversation under its project (the folder it ran in), the latest project first

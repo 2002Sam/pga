@@ -328,6 +328,11 @@ class HubService:
                 report["digest"] = True
             except HubError as exc:
                 report["errors"]["digest"] = str(exc)
+        try:                                             # the new conversations filed under their projects (pga.projectsort)
+            from pga import projectsort
+            report["projects"] = projectsort.sort(self.rt, user, limit=120, now=now)
+        except Exception as exc:  # noqa: BLE001 - filing waits for the next pass
+            report["errors"]["projects"] = str(exc)[:200]
         if changed:
             what = ", ".join(f"{a.name} +{n}" for a, n in changed)
             headline = "; ".join((a.summary or {}).get("headline", "") for a, _ in changed if a.summary)[:600]

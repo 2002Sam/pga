@@ -12,6 +12,7 @@ again quickly (notes/inputs/<you>.md)."""
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import re
@@ -51,8 +52,18 @@ def _clip(t: str | None, n: int) -> str:
     return t if len(t) <= n else t[: n - 1] + "…"
 
 
+WAKE = re.compile(r'<message\b[^>]*\btrigger="true"[^>]*>([\s\S]*?)</message>')
+
+
+def _relayed(t: str) -> str:
+    """A message relayed to an agent inside an envelope (a Claude project's <wake>): the words in it, with what came
+    before (an attached file) kept."""
+    m = WAKE.search(t or "") if "<wake" in (t or "") else None
+    return (t[: t.index("<wake")] + html.unescape(m.group(1))).strip() if m else (t or "")
+
+
 def _unwrap(t: str) -> str:
-    return re.sub(r"^\s*<(\w+)>\s*([\s\S]*?)\s*</\1>\s*$", r"\2", t or "")
+    return re.sub(r"^\s*<(\w+)>\s*([\s\S]*?)\s*</\1>\s*$", r"\2", _relayed(t))
 
 
 HARNESS = re.compile(r"^\s*(<(?!user_query\b)[a-z][\w-]*[\s>/]|Caveat: )")      # a turn opening with an app's own tag (but not <user_query>)
@@ -60,6 +71,7 @@ HARNESS = re.compile(r"^\s*(<(?!user_query\b)[a-z][\w-]*[\s>/]|Caveat: )")      
 
 def _yours(text: str) -> bool:
     """A user turn you typed, not one the app put there (Codex's goal continuations, Claude Code's command echoes…)."""
+    text = _relayed(text)
     return bool(text.strip()) and not HARNESS.match(text)
 
 

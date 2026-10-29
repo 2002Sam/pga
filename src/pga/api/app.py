@@ -583,6 +583,44 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"id": str(n.id), "ref": n.ref, "title": n.title, "questions": qs, "segments": segs,
                 "context": sg.context(rt, u, n.ref) if split else None}
 
+    @app.post("/v1/users/{user_id}/projects/sort")
+    def projects_sort(user_id: uuid.UUID, again: bool = Query(False), rt: Runtime = Depends(get_rt)):
+        """File the conversations not filed yet under their projects (pga.projectsort); the import pipeline does it too.
+        again: file every conversation afresh."""
+        from pga import projectsort
+        u = user_or_404(rt, user_id)
+        with rt.billing(user_ctx(u)):
+            return projectsort.sort(rt, u, limit=600, again=again)
+
+    INPUTS: dict[str, tuple[float, list]] = {}
+
+    @app.get("/v1/users/{user_id}/inputs")
+    def recent_inputs(user_id: uuid.UUID, limit: int = Query(80, ge=1, le=300), rt: Runtime = Depends(get_rt)):
+        """What you typed lately, across every conversation, newest first (your words only), each with where it opens."""
+        import time as _t
+        from pga import segments as sg
+        from pga.redact import redact
+        from pga.timeline import Timeline
+        u = user_or_404(rt, user_id)
+        hit = INPUTS.get(str(u.id))
+        if hit and _t.time() - hit[0] < 45:
+            return {"inputs": hit[1][:limit]}
+        items = sorted(Timeline(rt).items(u, utcnow() - timedelta(days=30)), key=lambda it: max(it.times) if it.times else utcnow(), reverse=True)[:30]
+        out = []
+        for it in items:
+            try:
+                qs = sg.questions(rt, u, it.key)[-8:]
+            except Exception:  # noqa: BLE001 - one unreadable conversation does not stop the list
+                continue
+            for q in qs:
+                text = redact(re.sub(r'@"[^"]*"|@\S+\.(?:png|jpe?g|gif|webp|pdf)\b', "📎", q["text"]).strip())   # an attached file: its path says nothing
+                if len(re.sub(r"\W", "", text)) < 2 or text.startswith("[System"):     # "。", a bare file: nothing to find it by
+                    continue
+                out.append({"key": it.key, "title": it.title, "text": text[:400], "at": q.get("at") or (max(it.times).isoformat() if it.times else None), "run": q.get("run")})
+        out.sort(key=lambda q: q.get("at") or "", reverse=True)
+        INPUTS[str(u.id)] = (_t.time(), out)
+        return {"inputs": out[:limit]}
+
     @app.get("/v1/users/{user_id}/chats/{key}/questions")
     def chat_questions(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
         """What you asked in one conversation, oldest first: your words only, each with the turn it opens at (no model call)."""

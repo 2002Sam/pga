@@ -230,12 +230,14 @@ class Timeline:
             meta[lid] = {"id": lid, "title": title[:80], "kind": k2, "weight": weight, "chars": chars, "days": len(days), "span": round(span, 1),
                          "steps": bool(((tl.get("lines") or {}).get(lid) or {}).get("steps")),
                          "items": len(its), **({"tree": lid[4:]} if kind == "aim" else {"tree": "you"} if lid == "you" else {})}
+        from pga import projectsort
+        pst = projectsort.state(user)                               # each conversation under its project (pga.projectsort)
         sessions = []
         for it in items:
             spans = _sessions(it.times) if it.kind != "import" else (it.spans or [(t, t, n) for t, n in zip(it.times, it.turns or [1])])
             for i, (a, b, n) in enumerate(spans):
                 sessions.append({"id": f"{it.key}#{i}", "item": it.key, "line": lines[it.key], "kind": it.kind, "title": it.title,
-                                 "agent": it.agent, "project": it.project, "at": a.isoformat(), "end": b.isoformat(), "turns": n,
+                                 "agent": it.agent, "project": projectsort.project_of(pst, it.key, it.project), "folder": it.project, "at": a.isoformat(), "end": b.isoformat(), "turns": n,
                                  "first": i == 0, "ref": it.ref})
         sessions.sort(key=lambda x: x["at"])
         hidden = [k for k in ((user.preferences or {}).get("archived_chats") or []) if str(k).startswith("c:")]

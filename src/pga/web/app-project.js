@@ -5,22 +5,41 @@
 
 const PJ = { qs: {}, open: (() => { try { return localStorage.getItem("pga_pj_open") !== "0"; } catch { return true; } })() };
 const pjKey = () => S.chat || (S.imp ? `c:${S.imp.cid}` : null);
-function pjGo(key, run) {                          // open that conversation (on the stage: its page) at that question
-  const here = pjKey();
-  const jump = (doc) => { const t = run && doc?.getElementById(`t-${run}`); if (t) t.scrollIntoView({ block: "start", behavior: "smooth" }); };
-  if (key === here) { jump(document); return; }
-  try {
-    const P = window.parent;
-    if (P !== window && P.stOpen) { P.stOpen(key); if (run) setTimeout(() => { try { const w = P.ST.nodes.find((n) => n.type === "win" && n.key === key);
-      jump(P.document.querySelector(`.stnode[data-nid="${w.id}"] iframe`)?.contentDocument); } catch {} }, 1800); return; }
-  } catch {}
-  if (key.startsWith("chat:")) { S.chat = key; S.imp = null; loadChat(key).then(() => setTimeout(() => jump(document), 300)); renderChat(); }
-  else if (typeof openItem === "function") openItem(key);
+function pjGo(key, run, text) {                    // open that conversation (on the stage: its page) at that question
+  if (key === pjKey()) { pjJump(run, text); return; }
+  try { const P = window.parent; if (P !== window && P.stOpen) { pjOpenOn(P, key, run, text); return; } } catch {}
+  if (key.startsWith("chat:")) { S.chat = key; S.imp = null; loadChat(key).then(() => setTimeout(() => pjJump(run, text), 300)); renderChat(); }
+  else if (typeof openItem === "function") { openItem(key); pjOpenOn(null, key, run, text); }
+}
+/* scroll this page to one of your questions: its turn (PGA's own conversations) or, in an imported one, the question of
+   yours that starts with the same words; true when found. The page then stays there (no jump to the latest words). */
+const pjFlat = (t) => String(t || "").replace(/[\s*_#`>\[\]()|-]+/g, "").toLowerCase();
+window.pjJump = (run, text, again) => {
+  let t = run && document.getElementById(`t-${run}`);
+  if (!t && text) { const want = pjFlat(text).slice(0, 28); if (want) t = [...document.querySelectorAll("#cdlg .cmsg.question .ct, #cdlg .cmsg.me .ct")].find((e) => pjFlat(e.textContent).startsWith(want))?.closest(".cmsg"); }
+  if (!t) return false;
+  const r = t.getBoundingClientRect(); if (again && r.top >= 0 && r.top < innerHeight - 40) return true;   // still in view
+  PJ.jumped = true; t.scrollIntoView({ block: "center" }); t.classList.add("pjhit"); setTimeout(() => t.classList.remove("pjhit"), 2600);
+  return true;
+};
+/* open a conversation and, once its page has loaded, go to that question. P: the stage's window (its page is an iframe
+   there), or null for this page. */
+function pjOpenOn(P, key, run, text) {
+  if (P) P.stOpen(key);
+  if (!run && !text) return;
+  let k = 0, found = 0;
+  const go = () => { let ok = false; try {
+    let w = window;
+    if (P) { const n = P.ST.nodes.find((x) => x.type === "win" && x.key === key); w = P.document.querySelector(`.stnode[data-nid="${n?.id}"] iframe`)?.contentWindow; }
+    ok = !!w?.pjJump?.(run, text, found > 0); } catch {}
+    if (ok) { if (++found < 4) setTimeout(go, 800); return; }      // looked at again a few times: a page still loading may re-render
+    if (++k < 25) setTimeout(go, 400); };
+  setTimeout(go, 300);
 }
 /* every conversation under its project: the folder it ran in (Claude Code's / Codex's working folder; PGA's own chats without
    one are 日常对话), the most recently used project first, each folded or open as you left it */
 const PJN = L("日常对话", "Everyday chats");
-const pjName = (x) => { const p = (x?.project || "").trim(); return !p || /^(scratch-|pga-agent-|tmp|new-chat$)/i.test(p) ? PJN : p; };   // PGA's own scratch folders are no project
+const pjName = (x) => { const p = (x?.project || "").trim(); return !p || p === "日常对话" || /^(scratch-|pga-agent-|tmp|new-chat$)/i.test(p) ? PJN : p; };   // PGA's own scratch folders are no project
 function pjGroups(xs) {
   const by = new Map();
   for (const x of xs) { const n = pjName(x); if (!by.has(n)) by.set(n, { name: n, items: [], last: "" }); const g = by.get(n); g.items.push(x); if ((x.last || "") > g.last) g.last = x.last || ""; }
@@ -73,12 +92,12 @@ async function pjStrip() {                         // the strip on the left of a
 const _renderRightPJ = renderRight;
 renderRight = function (...a) { const r = _renderRightPJ(...a); pjStrip(); return r; };
 document.addEventListener("click", (e) => {
-  const g = e.target.closest("[data-pjgo]"); if (g) { e.preventDefault(); pjGo(g.dataset.pjgo, g.dataset.pjrun || ""); }
+  const g = e.target.closest("[data-pjgo]"); if (g) { e.preventDefault(); pjGo(g.dataset.pjgo, g.dataset.pjrun || "", g.dataset.pjrun ? "" : g.title); }
 });
 setTimeout(() => { try { pjRender(); } catch {} }, 1500);   // once the page has settled (its first render may come before the world tree is in)
 
 (function () {                                   // after a refresh: the latest words, unless you scroll first
   let touched = false; const mark = () => { touched = true; };
   addEventListener("wheel", mark, { passive: true, once: true }); addEventListener("keydown", mark, { once: true });
-  for (const t of [400, 1200, 2500, 4500]) setTimeout(() => { if (touched) return; const d = $("#cdlg"); if (d) d.scrollTop = d.scrollHeight; }, t);
+  for (const t of [400, 1200, 2500, 4500]) setTimeout(() => { if (touched || PJ.jumped) return; const d = $("#cdlg"); if (d) d.scrollTop = d.scrollHeight; }, t);
 })();
