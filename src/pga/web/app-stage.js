@@ -397,12 +397,11 @@ function stListItems() {                           // every past conversation, n
       <div class="rline"><b>${esc(x.title || L("新对话", "New chat"))}</b>${m.mark ? `<i class="rmark">${esc(m.mark)}</i>` : ""}
         <span class="racts"><button data-rk="pin" title="${m.pin ? L("取消置顶", "Unpin") : L("置顶", "Pin to the top")}">${m.pin ? "⊗" : "📌"}</button><button data-rk="mark" title="${m.mark ? L("改标注（清空就去掉）", "Change the mark (empty removes it)") : L("标注", "Mark it")}">★</button></span></div>
       ${fs.length ? `<a class="rpath" data-rk="folder" data-fid="${fs[fs.length - 1].id}">📁 ${esc(fs.slice(-2).map((f) => f.title).join(" › "))}</a>` : ""}</div>`; };
-  let day = "", html = "";
+  let html = "";
   if (pinned.length) html += `<div class="rgrp">📌 ${L("置顶", "Pinned")}</div>` + pinned.map(row).join("");
-  for (const x of rest.slice(0, 400)) {
-    const g = x.last ? dayGroup(x.last) : L("更早", "Older");
-    if (g !== day) { day = g; html += `<div class="rgrp">${esc(g)}</div>`; }
-    html += row(x);
+  for (const g of pjGroups(rest.slice(0, 400))) {   // every conversation under its project (the folder it ran in), the latest project first
+    const shut = !q && pjShut(g.name);
+    html += pjHead(g, shut) + (shut ? "" : g.items.map(row).join(""));
   }
   const keep = box.scrollTop;
   box.innerHTML = (fd ? `<div class="rfold">📁 ${esc(worldPath(fd).slice(1).map((f) => f.title).join(" › "))}<button data-rk="unfolder" title="${L("看全部", "Show all")}">×</button></div>` : "")

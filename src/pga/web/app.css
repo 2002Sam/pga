@@ -1203,3 +1203,12 @@ html.embed.eside #vChats.hasqs, html.embed.efull #vChats.hasqs { grid-template-c
   .cbar select { max-width: 70px !important; }
 }
 #ctree { display: flex; flex-direction: column; min-height: 0; } #ctree .pjl { display: flex; flex-direction: column; } #ctree .pjr { flex: none; line-height: 1.4; }
+/* by project: a head per project (name, count, ▾) and its conversations under it — in 所有对话 and in a page's left strip */
+.rproj { display: flex; align-items: center; gap: 6px; padding: 10px 8px 4px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
+.rproj .rpn { font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rproj .rpc { font-size: 10.5px; } .rproj i { font-style: normal; font-size: 10px; margin-left: auto; } .rproj:hover .rpn { color: var(--text); }
+.cqs .cqi { display: block; -webkit-line-clamp: unset; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 6px 9px; font-size: 13px; }
+.cqs .cqi.here { background: var(--soft); box-shadow: none; font-weight: 500; }
+.cqs .cqq { font-size: 11.5px; color: var(--muted); padding: 3px 9px 3px 20px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 1px solid var(--line-2); margin-left: 12px; }
+.cqs .cqq:hover { color: var(--text); background: var(--soft); }
+#ctree[hidden] { display: none !important; }

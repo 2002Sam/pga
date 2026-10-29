@@ -583,6 +583,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"id": str(n.id), "ref": n.ref, "title": n.title, "questions": qs, "segments": segs,
                 "context": sg.context(rt, u, n.ref) if split else None}
 
+    @app.get("/v1/users/{user_id}/chats/{key}/questions")
+    def chat_questions(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
+        """What you asked in one conversation, oldest first: your words only, each with the turn it opens at (no model call)."""
+        from pga import segments as sg
+        u = user_or_404(rt, user_id)
+        return {"key": key, "questions": sg.questions(rt, u, key)}
+
     @app.get("/v1/users/{user_id}/world/{node_id}/questions")
     def world_questions(user_id: uuid.UUID, node_id: uuid.UUID, limit: int = Query(80, ge=1, le=400), rt: Runtime = Depends(get_rt)):
         """A project's questions: what you asked in every conversation filed under this folder of the world tree, newest first
