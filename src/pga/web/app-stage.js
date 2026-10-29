@@ -298,18 +298,30 @@ function stSideList() {
     v.insertAdjacentHTML("beforeend", `<aside class="stlist side" id="stlist"><i class="lrz lrz-e" data-lrz="e" title="${L("拖动改宽度", "Drag to resize")}"></i>
       <div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
       <button class="stb" id="stlmk" data-rk="only" title="${L("只看标注和置顶的", "Only the marked and pinned")}">★</button><button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
-      <div class="stmy" id="stmy"><div class="stmyh"><b>${L("我的输入", "What I typed")}</b><em class="cvdim" id="stmyn"></em></div><div class="stmyl" id="stmyl"></div></div></aside>`);
+      <div class="stmy" id="stmy"><i class="stmysep" data-mysep title="${L("拖动改高度 · 双击还原", "Drag to resize · double-click to reset")}"></i><div class="stmyh"><b>${L("我的输入", "What I typed")}</b><em class="cvdim" id="stmyn"></em></div><div class="stmyl" id="stmyl"></div></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); stInputsDraw(); });
     box.querySelector("[data-lrz]").addEventListener("pointerdown", (e) => {     // its right edge: wider or narrower, the stage following
       if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); e.target.setPointerCapture(e.pointerId);
       ST.lmove = { x: e.clientX, w0: box.offsetWidth }; v.classList.add("dragging", "resizing");
     });
-    box.addEventListener("pointermove", (e) => { const m = ST.lmove; if (!m) return; stPanel().w = Math.max(180, Math.min(520, m.w0 + e.clientX - m.x)); stRender(); });
-    const end = () => { if (!ST.lmove) return; ST.lmove = null; v.classList.remove("dragging", "resizing"); stPanelSave(); };
+    const sep = box.querySelector("[data-mysep]");                              // the line above 我的输入: up or down, the list above following
+    sep.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); sep.setPointerCapture(e.pointerId);
+      ST.mymove = { y: e.clientY, h0: $("#stmy").offsetHeight }; sep.classList.add("on");
+    });
+    sep.addEventListener("dblclick", () => { delete stPanel().myh; stPanelSave(); stMyHeight(); });
+    box.addEventListener("pointermove", (e) => {
+      const y = ST.mymove; if (y) { stPanel().myh = Math.round(Math.max(60, Math.min(box.clientHeight - 160, y.h0 - (e.clientY - y.y)))); stMyHeight(); return; }
+      const m = ST.lmove; if (!m) return; stPanel().w = Math.max(180, Math.min(520, m.w0 + e.clientX - m.x)); stRender();
+    });
+    const end = () => {
+      if (ST.mymove) { ST.mymove = null; sep.classList.remove("on"); stPanelSave(); }
+      if (!ST.lmove) return; ST.lmove = null; v.classList.remove("dragging", "resizing"); stPanelSave();
+    };
     box.addEventListener("pointerup", end); box.addEventListener("pointercancel", end);
   }
-  box.hidden = !open; v.classList.toggle("chats-open", open); v.style.setProperty("--chats-w", open ? w + "px" : "0px");
+  stMyHeight(); box.hidden = !open; v.classList.toggle("chats-open", open); v.style.setProperty("--chats-w", open ? w + "px" : "0px");
   const bar = $("#stlbar"); if (bar) { bar.hidden = open; const c = bar.querySelector("em"); if (c) c.textContent = recentItems().length; }
   if (!open) return;
   const sig = String(recentItems().length) + (recentItems()[0]?.item || "") + (recentItems()[0]?.title || "");
@@ -367,6 +379,10 @@ function stDropToggle(open) {                       // 所有对话 open or clos
   const lp = stPanel(); ST.listOpen = lp.open = open ?? !ST.listOpen; stPanelSave(); stRender();
   if (ST.listOpen) setTimeout(() => $("#stlq")?.focus(), 30);
 }
+function stMyHeight() {                            // 我的输入 at the height you dragged it to (else the bottom third)
+  const box = $("#stlist"), h = stPanel().myh; if (!box) return;
+  box.classList.toggle("myset", !!h); if (h) box.style.setProperty("--myh", h + "px");
+}
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
 /* Each row: one conversation, under its project (pga.projectsort files them when they are imported). Newest first;
    pinned ones above the rest; a mark (★, or a word of yours) on any. */
@@ -381,8 +397,8 @@ function stLeafOf(key) {                           // the world tree's leaf for 
   return ST.leaves?.get(key) || null;
 }
 const stFolderOf = (key) => { const l = stLeafOf(key); return l ? worldPath(l).slice(1, -1) : []; };   // root and leaf left out
-/* 我的输入: the bottom third of 所有对话 — what you typed lately, in any conversation, newest first, one line each like
-   files in a folder (your words only).
+/* 我的输入: the bottom third of 所有对话 (the line above it drags) — what you typed lately, in any conversation, newest
+   first, up to four lines each with your paragraphs kept (your words only).
    Click one: its conversation opens, at that question. Fetched again a minute later at most, and after an import. */
 async function stInputs(force) {
   if (!$("#stmyl") || (!force && ST.inAt && Date.now() - ST.inAt < 60000)) return;
@@ -390,10 +406,14 @@ async function stInputs(force) {
   try { ST.inputs = (await api(`/v1/users/${S.uid}/inputs?limit=80`)).inputs || []; } catch { ST.inAt = 0; return; }
   stInputsDraw();
 }
+const stInputText = (t) => {                       // your paragraphs kept, blank lines and long runs of spaces folded, the rest cut (four lines show)
+  t = String(t || "").trim().replace(/[ \t]+/g, " ").replace(/\n\s*\n+/g, "\n");
+  return t.length > 280 ? t.slice(0, 280) + "…" : t;
+};
 function stInputsDraw() {
   const box = $("#stmyl"); if (!box || !ST.inputs) return; const q = ST.q || "";
   const xs = ST.inputs.filter((x) => !q || x.text.toLowerCase().includes(q) || (x.title || "").toLowerCase().includes(q));
-  box.innerHTML = xs.map((x) => `<div class="stmyr" data-inkey="${esc(x.key)}" data-inrun="${esc(x.run || "")}" title="${esc(x.text + "\n— " + (x.title || ""))}"><b>${esc(x.text.replace(/\s+/g, " "))}</b><span>${x.at ? ago(x.at) : ""}</span></div>`).join("")
+  box.innerHTML = xs.map((x) => `<div class="stmyr" data-inkey="${esc(x.key)}" data-inrun="${esc(x.run || "")}" title="${esc(x.text + "\n— " + (x.title || ""))}"><b>${esc(stInputText(x.text))}</b><span>${x.at ? ago(x.at) : ""}</span></div>`).join("")
     || `<div class="cvdim" style="padding:6px 8px">${q ? L("没有找到", "Nothing found") : L("最近还没有输入", "Nothing typed lately")}</div>`;
   const n = $("#stmyn"); if (n) n.textContent = String(xs.length);
 }
