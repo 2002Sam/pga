@@ -29,7 +29,7 @@ function pjGo(key, run) {                          // open that conversation (on
 }
 async function pjRender() {
   const box = $("#ctree"), v = $("#vChats"); if (!box || !v || S.view !== "chats") return;
-  if (!W.nodes.length) { await wtFetch(); if (!W.nodes.length) return; }
+  if (!W.nodes.length || !W.byId?.size) { await wtFetch(true); if (!W.nodes.length) { clearTimeout(PJ.retry); PJ.retry = setTimeout(pjRender, 2500); return; } }   // not loaded yet: again shortly
   const key = pjKey(), f = pjFolder(key);
   box.hidden = false;
   if (!f) {
@@ -62,3 +62,4 @@ document.addEventListener("click", (e) => {
   if (e.target.closest("[data-pjfold]")) { PJ.open = !PJ.open; try { localStorage.setItem("pga_pj_open", PJ.open ? "1" : "0"); } catch {} pjRender(); return; }
   const g = e.target.closest("[data-pjgo]"); if (g) { e.preventDefault(); pjGo(g.dataset.pjgo, g.dataset.pjrun || ""); }
 });
+setTimeout(() => { try { pjRender(); } catch {} }, 1500);   // once the page has settled (its first render may come before the world tree is in)
