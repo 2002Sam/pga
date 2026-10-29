@@ -448,7 +448,9 @@ function stEdgeHold(id, side) {                    // an edge you pull: only the
   for (let j = i + step; j >= 0 && j < us.length; j += step) if (us[j].kind === "win") { nb = us[j]; break; }
   for (const u of us) if (u.kind === "win" && u !== nb && u.win.id !== id) u.win.bw = Math.round(u.w);   // the others keep their width
   if (!nb) return false;                                                                                 // nobody across: it opens a gap
-  delete nb.win.bw; ST.shift = null; return true;
+  ST.shift = null;
+  if (step < 0) return { win: nb.win, w0: (nb.win.bw = Math.round(nb.w)) };     // a left edge: the page before gives exactly what this one takes, so its right edge stays
+  delete nb.win.bw; return true;
 }
 function stGroups(n) {                             // the row by its parts: each page with its column, each stack of tabs
   const els = (ids) => ids.map((id) => document.querySelector(`.stnode[data-nid="${id}"]`)).filter((x) => x && !x.hidden);
@@ -820,6 +822,9 @@ function stBind() {
       }
       if (r.d.includes("e") || r.d.includes("w")) {
         r.n.bw = Math.round(Math.max(320, Math.min(A.w - 80, r.w0 + (r.d.includes("e") ? dx : -dx))));
+        if (r.d.includes("w") && r.across?.win) {     // between two pages: the one before gives the room, down to its least
+          r.n.bw = Math.min(r.n.bw, r.w0 + r.across.w0 - 320); r.across.win.bw = r.across.w0 + r.w0 - r.n.bw; stRender(); return;
+        }
         if (r.d.includes("w") && !r.across) {        // its outer left edge: a gap opens before it (or closes), nothing else moves
           const want = r.pre0 + r.w0 - r.n.bw; r.n.pre = Math.max(0, want); if (!r.n.pre) delete r.n.pre;
           if (want >= 0) { ST.shift = r.off0; stRender(); return; }
@@ -827,7 +832,12 @@ function stBind() {
         const lay = stLayout(), u = lay.units.find((x) => x.kind === "win" && x.win === r.n);         // only the edge you pull moves
         if (u && u.open && !r.across) ST.shift = lay.off + r.edge - (r.d.includes("e") ? u.x : u.x + u.w);
       }
-      stRender(); return; }
+      stRender();
+      if (r.d.includes("w") && !r.across) {           // the row has no room to shift (wider than the screen): the stage scrolls instead, so the right edge stays under you
+        const p = ST.pos?.get(r.n.id), a = $("#starena");
+        if (p && a) { const by = p.x + p.w - r.edge; if (Math.abs(by) >= 1) { if (a.scrollLeft + by + a.clientWidth > a.scrollWidth) stGrow(a.scrollLeft + by + a.clientWidth); a.scrollLeft += by; r.edge += by; } }
+      }
+      return; }
     if (ST.wire) { const r = arena.getBoundingClientRect(); ST.wire.x = e.clientX - r.left + stSL(); ST.wire.y = e.clientY - r.top; stWires(); return; }
     if (ST.drag) stDragSoon(e.screenX, e.screenY);
   });
