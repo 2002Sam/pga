@@ -1149,3 +1149,18 @@ html.deskapp #stlist.side { padding-top: 34px; }
 .stmi .mpage.mws { background: color-mix(in srgb, var(--wc) 55%, transparent); } .stmi .mpage.mws.on { background: var(--wc); box-shadow: 0 0 0 1px var(--text); }
 .stmi .mmini.mws { background: color-mix(in srgb, var(--wc) 60%, transparent); }
 .stmi .mwsline { top: auto; bottom: -4px; height: 3px; background: var(--wc); }
+/* 所有对话: each row with the world-tree folder it is filed in; pinned and marked ones */
+.ctree[hidden] { display: none; }
+#stlist .ritem { display: block; padding: 3px 26px 3px 8px; }
+#stlist .ritem .rline { display: flex; align-items: center; gap: 5px; min-width: 0; }
+#stlist .ritem .rline b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stlist .ritem .racts { display: none; gap: 1px; flex: none; } #stlist .ritem:hover .racts { display: inline-flex; }
+#stlist .racts button { border: 0; background: none; padding: 0 3px; font-size: 11px; line-height: 18px; border-radius: 4px; cursor: pointer; color: var(--muted); opacity: .75; }
+#stlist .racts button:hover { background: var(--hover); color: var(--text); opacity: 1; }
+#stlist .rmark { flex: none; font-style: normal; font-size: 10.5px; line-height: 16px; padding: 0 6px; border-radius: 8px; color: #e9b35f; background: color-mix(in srgb, #e9b35f 16%, transparent); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#stlist .ritem.marked { box-shadow: inset 2px 0 0 #e9b35f; }
+#stlist .rpath { display: block; font-size: 10.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; text-decoration: none; margin-top: 1px; }
+#stlist .rpath:hover { color: var(--accent); }
+#stlist .rfold { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 5px 8px; margin-bottom: 4px; border-radius: 6px; background: var(--raised); color: var(--accent); }
+#stlist .rfold button { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; }
+#stlmk.on { color: #e9b35f; }

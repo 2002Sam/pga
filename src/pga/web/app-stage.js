@@ -297,7 +297,7 @@ function stSideList() {
   if (!box) {
     v.insertAdjacentHTML("beforeend", `<aside class="stlist side" id="stlist"><i class="lrz lrz-e" data-lrz="e" title="${L("拖动改宽度", "Drag to resize")}"></i>
       <div class="stlh"><b>${L("所有对话", "All conversations")}</b><em class="cvdim" id="stln"></em><span class="grow"></span>
-      <button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
+      <button class="stb" id="stlmk" data-rk="only" title="${L("只看标注和置顶的", "Only the marked and pinned")}">★</button><button class="stb" data-stlistmin title="${L("收起（左上角 ☰ 再打开）", "Close (☰ at the top left opens it again)")}">‹</button></div><input id="stlq" placeholder="${L("搜对话…", "Search…")}"><div class="stli" id="stli"></div>
       <div class="stlk" id="stlk"></div></aside>`);
     box = $("#stlist");
     $("#stlq").addEventListener("input", (e) => { ST.q = e.target.value.toLowerCase(); stListItems(); });
@@ -372,17 +372,43 @@ function stDropToggle(open) {                       // 所有对话 open or clos
   if (ST.listOpen) setTimeout(() => $("#stlq")?.focus(), 30);
 }
 function stPanelSave() { try { localStorage.setItem("pga_st_lp", JSON.stringify(ST.lp || {})); } catch {} }
+/* Each row: the conversation, and under it the folder of the world tree it is filed in (click: only that folder). Newest
+   first; pinned ones above the rest; a mark (★, or a word of yours) on any. */
+const stMarks = () => (ST.marks ||= (() => { try { return JSON.parse(localStorage.getItem("pga_marks") || "{}"); } catch { return {}; } })());
+function stMarkSet(key, f) {
+  const m = stMarks(), o = { ...(m[key] || {}) }; f(o);
+  if (o.pin || o.mark) m[key] = o; else delete m[key];
+  try { localStorage.setItem("pga_marks", JSON.stringify(m)); } catch {} stListItems();
+}
+function stLeafOf(key) {                           // the world tree's leaf for a conversation, by its key
+  if (ST.leafAt !== W.nodes) { ST.leafAt = W.nodes; ST.leaves = new Map(W.nodes.filter((n) => n.kind === "leaf" && n.ref).map((n) => [n.ref, n])); }
+  return ST.leaves?.get(key) || null;
+}
+const stFolderOf = (key) => { const l = stLeafOf(key); return l ? worldPath(l).slice(1, -1) : []; };   // root and leaf left out
 function stListItems() {                           // every past conversation, newest first, one tight row each
   const box = $("#stli"); if (!box) return;
-  const keep = box.scrollTop, q = ST.q || "", xs = recentItems().filter((x) => !q || (x.title || "").toLowerCase().includes(q));
+  if (!W.nodes.length && !ST.wtAsked) { ST.wtAsked = true; wtFetch().then(() => W.nodes.length && stListItems()); }
+  const M = stMarks(), q = ST.q || "", fd = ST.folder && W.byId?.get(ST.folder);
+  const xs = recentItems().filter((x) => (!q || (x.title || "").toLowerCase().includes(q) || (M[x.item]?.mark || "").toLowerCase().includes(q))
+    && (!ST.onlyMarked || M[x.item]) && (!fd || stFolderOf(x.item).some((f) => f.id === fd.id)));
+  const pinned = xs.filter((x) => M[x.item]?.pin).sort((a, b) => M[b.item].pin - M[a.item].pin), rest = xs.filter((x) => !M[x.item]?.pin);
+  const row = (x) => { const m = M[x.item] || {}, fs = stFolderOf(x.item), path = fs.map((f) => f.title).join(" › ");
+    return `<div class="ritem ${m.pin ? "pinned" : ""} ${m.mark ? "marked" : ""}" data-ritem="${esc(x.item)}" title="${esc((x.title || "") + " · " + (x.agent ? agentLabel(x.agent) : "PGA") + (x.last ? " · " + ago(x.last) : "") + (path ? "\n" + L("归在：", "Filed under: ") + path : ""))}">
+      <div class="rline"><b>${esc(x.title || L("新对话", "New chat"))}</b>${m.mark ? `<i class="rmark">${esc(m.mark)}</i>` : ""}
+        <span class="racts"><button data-rk="pin" title="${m.pin ? L("取消置顶", "Unpin") : L("置顶", "Pin to the top")}">${m.pin ? "⊗" : "📌"}</button><button data-rk="mark" title="${m.mark ? L("改标注（清空就去掉）", "Change the mark (empty removes it)") : L("标注", "Mark it")}">★</button></span></div>
+      ${fs.length ? `<a class="rpath" data-rk="folder" data-fid="${fs[fs.length - 1].id}">📁 ${esc(fs.slice(-2).map((f) => f.title).join(" › "))}</a>` : ""}</div>`; };
   let day = "", html = "";
-  for (const x of xs.slice(0, 400)) {
+  if (pinned.length) html += `<div class="rgrp">📌 ${L("置顶", "Pinned")}</div>` + pinned.map(row).join("");
+  for (const x of rest.slice(0, 400)) {
     const g = x.last ? dayGroup(x.last) : L("更早", "Older");
     if (g !== day) { day = g; html += `<div class="rgrp">${esc(g)}</div>`; }
-    html += `<div class="ritem" data-ritem="${esc(x.item)}" title="${esc((x.title || "") + " · " + (x.agent ? agentLabel(x.agent) : "PGA") + (x.last ? " · " + ago(x.last) : ""))}"><b>${esc(x.title || L("新对话", "New chat"))}</b></div>`;
+    html += row(x);
   }
-  box.innerHTML = html || `<div class="cvdim" style="padding:10px">${L("没有找到", "Nothing found")}</div>`;
+  const keep = box.scrollTop;
+  box.innerHTML = (fd ? `<div class="rfold">📁 ${esc(worldPath(fd).slice(1).map((f) => f.title).join(" › "))}<button data-rk="unfolder" title="${L("看全部", "Show all")}">×</button></div>` : "")
+    + (html || `<div class="cvdim" style="padding:10px">${L("没有找到", "Nothing found")}</div>`);
   box.scrollTop = keep; const n = $("#stln"); if (n) n.textContent = String(xs.length);
+  $("#stlmk")?.classList.toggle("on", !!ST.onlyMarked);
   stOver();
 }
 function stRailNode(key, win) {
@@ -428,7 +454,7 @@ function stOver() {                              // the wires from the history c
 }
 document.addEventListener("pointerdown", (e) => {
   if (S.view !== "stage" || e.button !== 0) return;
-  const it = e.target.closest("#stlist [data-ritem]"); if (!it) return;
+  const it = e.target.closest("#stlist [data-ritem]"); if (!it || e.target.closest("[data-rk]")) return;
   const r = it.getBoundingClientRect();
   ST.rp = { key: it.dataset.ritem, x: e.clientX, y: e.clientY, pin: e.clientX > r.right - 26, wire: false };
 }, true);
@@ -459,6 +485,14 @@ document.addEventListener("pointerup", (e) => {
   if (w && stWins().some((x) => x.id === w && x.key !== p.key)) { stRailNode(p.key, w); stRender(); stSave(); stContexts(); } else stOver();
 }, true);
 document.addEventListener("click", (e) => {                     // the sidebar's own click (open in the chats page) is not wanted here
+  const rk = S.view === "stage" && e.target.closest?.("#stlist [data-rk]");
+  if (rk) { e.stopPropagation(); e.preventDefault(); const key = rk.closest("[data-ritem]")?.dataset.ritem, op = rk.dataset.rk;
+    if (op === "pin") stMarkSet(key, (o) => { o.pin = o.pin ? 0 : Date.now(); });
+    else if (op === "mark") { const cur = stMarks()[key]?.mark || "", t = prompt(L("标注这段对话（一个词或 ★；清空就去掉）", "Mark this conversation (a word, or ★; empty removes it)"), cur || "★"); if (t !== null) stMarkSet(key, (o) => { o.mark = t.trim().slice(0, 24); }); }
+    else if (op === "folder") { ST.folder = rk.dataset.fid; $("#stli").scrollTop = 0; stListItems(); }
+    else if (op === "unfolder") { ST.folder = null; stListItems(); }
+    else if (op === "only") { ST.onlyMarked = !ST.onlyMarked; stListItems(); }
+    return; }
   if (ST.rpClick && e.target.closest("#stlist [data-ritem]")) { e.stopPropagation(); e.preventDefault(); }
   ST.rpClick = false;
   const cut = e.target.closest?.("[data-unrail]"); if (cut) { ST.nodes = ST.nodes.filter((n) => n.id !== cut.dataset.unrail); stRender(); stSave(); stContexts(); }

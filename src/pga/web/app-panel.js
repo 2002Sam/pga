@@ -95,7 +95,7 @@ function wtCurrent() {
 }
 function wtSaveOpen() { try { localStorage.setItem("pga_wt_open", JSON.stringify([...S.wtOpen].slice(-300))); } catch {} }
 function worldPanel() {
-  const box = $("#ctree"); if (!box || S.view !== "chats") return;
+  const box = $("#ctree"); if (!box || box.hidden || S.view !== "chats") return;
   if (!W.nodes.length) { box.innerHTML = `<div class="eh">${L("世界树", "World tree")}</div><div class="ca-empty">${W.data && !W.data.built ? L("世界树还没有生成：到「世界树」页生成", "Not built yet: build it on the world tree page") : "…"}</div>`; wtFetch().then(() => W.nodes.length && worldPanel()); return; }
   const cur = wtCurrent(), root = W.nodes.find((n) => n.kind === "root");
   if (cur && !W.autoOpened?.has(cur.id)) { worldPath(cur).forEach((x) => S.wtOpen.add(x.id)); (W.autoOpened = W.autoOpened || new Set()).add(cur.id); }
@@ -148,7 +148,7 @@ openLeaf = async function (n) {
   const p = $("#ctree"); if (p?.animate) p.animate([{ opacity: 0, transform: "scale(1.15)" }, { opacity: 1, transform: "none" }], { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" });
 };
 
-function renderRight() { envCard(); worldPanel(); }
+function renderRight() { envCard(); const t = $("#ctree"); if (t) t.hidden = true; }   // the world tree lives in 所有对话 now: each conversation shows its folder there
 const _rcPanel = renderChat;
 renderChat = function () { _rcPanel(); toBottomButton(); renderRight(); };
 
