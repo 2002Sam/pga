@@ -1140,3 +1140,12 @@ html.deskapp #stlist.side { padding-top: 34px; }
 #stlist .stkrow b { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 400; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #stlist .stkdot { flex: none; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--line-2); cursor: pointer; transition: transform .15s; }
 #stlist .stkdot:hover { transform: scale(1.3); border-color: #6fa8ff; } #stlist .stkrow.stwired .stkdot { background: #6fa8ff; border-color: #6fa8ff; }
+/* workspaces: pages at work on one problem wear one colour — a strip on the head, a band above the row, the map */
+.stwsb { font-size: 10px; opacity: .35; } .stwsb:hover { opacity: 1; }
+.stnode.inws .stwsb { color: var(--wc); opacity: 1; }
+.stnode.inws > .stwin > .stwh { box-shadow: inset 0 3px 0 var(--wc); }
+.stwsband { position: absolute; top: 1px; height: 4px; border-radius: 3px; background: var(--wc); opacity: .85; pointer-events: none !important; }
+.stwsdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--wc); margin-right: 7px; vertical-align: middle; }
+.stmi .mpage.mws { background: color-mix(in srgb, var(--wc) 55%, transparent); } .stmi .mpage.mws.on { background: var(--wc); box-shadow: 0 0 0 1px var(--text); }
+.stmi .mmini.mws { background: color-mix(in srgb, var(--wc) 60%, transparent); }
+.stmi .mwsline { top: auto; bottom: -4px; height: 3px; background: var(--wc); }
