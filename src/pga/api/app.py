@@ -583,6 +583,28 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         return {"id": str(n.id), "ref": n.ref, "title": n.title, "questions": qs, "segments": segs,
                 "context": sg.context(rt, u, n.ref) if split else None}
 
+    @app.get("/v1/users/{user_id}/world/{node_id}/questions")
+    def world_questions(user_id: uuid.UUID, node_id: uuid.UUID, limit: int = Query(80, ge=1, le=400), rt: Runtime = Depends(get_rt)):
+        """A project's questions: what you asked in every conversation filed under this folder of the world tree, newest first
+        (your words only, no answers), each with the conversation and the turn it opens at."""
+        from pga import segments as sg
+        from pga.db.models import WorldNode
+        from pga.worldtree import WorldTree
+        u = user_or_404(rt, user_id)
+        n = rt.session.get(WorldNode, node_id)
+        if n is None or n.user_id != u.id:
+            raise HTTPException(404, "no such folder")
+        out = []
+        for leaf in WorldTree(rt).leaves_under(n):
+            if leaf.kind != "leaf" or not leaf.ref or (leaf.data or {}).get("hidden"):
+                continue
+            for q in sg.questions(rt, u, leaf.ref)[-40:]:
+                if q["text"].lstrip().startswith("[System"):           # notes the app wrote into the chat, not yours
+                    continue
+                out.append({"key": leaf.ref, "title": leaf.title, "text": q["text"][:600], "at": q.get("at"), "run": q.get("run"), "i": q["i"]})
+        out.sort(key=lambda q: q.get("at") or "", reverse=True)
+        return {"folder": {"id": str(n.id), "title": n.title}, "questions": out[:limit]}
+
     @app.get("/v1/users/{user_id}/chats/{key}/context")
     def chat_context(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
         """One conversation's data tree, and its segments when it is in the world tree (worked out once and kept)."""

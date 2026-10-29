@@ -1164,3 +1164,42 @@ html.deskapp #stlist.side { padding-top: 34px; }
 #stlist .rfold { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 5px 8px; margin-bottom: 4px; border-radius: 6px; background: var(--raised); color: var(--accent); }
 #stlist .rfold button { margin-left: auto; border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 13px; }
 #stlmk.on { color: #e9b35f; }
+/* 项目: the project's questions on the left of a conversation, the project's conversations in the right panel */
+#vChats.hasqs { grid-template-columns: 210px minmax(0, 1fr) var(--actw, 330px) !important; }
+html.embed #vChats.hasqs { grid-template-columns: clamp(150px, 20vw, 210px) minmax(0, 1fr) !important; }
+html.embed.eside #vChats.hasqs, html.embed.efull #vChats.hasqs { grid-template-columns: clamp(150px, 20vw, 210px) minmax(0, 1fr) clamp(176px, 26vw, 236px) !important; }
+@media (max-width: 1100px) { #vChats.hasqs { grid-template-columns: 190px minmax(0, 1fr) !important; } }
+@media (max-width: 820px) { #vChats.hasqs .cqs { display: none; } #vChats.hasqs, html.embed #vChats.hasqs { grid-template-columns: minmax(0, 1fr) !important; }
+  html.embed.eside #vChats.hasqs { grid-template-columns: minmax(0, 1fr) clamp(176px, 30vw, 236px) !important; } }
+@media (max-width: 600px) { html.embed.eside #vChats.hasqs { grid-template-columns: minmax(0, 1fr) !important; } }
+.cqs { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; min-width: 0; border-right: 1px solid var(--line); background: var(--inset); }
+.cqh { display: grid; gap: 1px; padding: 10px 10px 6px; font-size: 12.5px; } .cqh .cvdim { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cql { overflow: auto; min-height: 0; padding: 0 6px 10px; }
+.cqg { font-size: 10.5px; color: var(--dim); padding: 8px 4px 2px; }
+.cqi { font-size: 12px; line-height: 1.5; padding: 5px 7px; border-radius: 7px; cursor: pointer; color: var(--text); display: grid; gap: 1px;
+  overflow: hidden; } .cqi:hover { background: var(--soft); }
+.cqi { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; } .cqi span { display: none; }
+.cqi.here { box-shadow: inset 2px 0 0 var(--accent); }
+#ctree .pjh { display: flex; align-items: center; gap: 6px; padding: 6px 4px; cursor: pointer; font-size: 13px; color: var(--muted); user-select: none; }
+#ctree .pjh b { font-weight: 500; color: var(--text); } #ctree .pjh .pjc { font-size: 11px; color: var(--dim); } #ctree .pjh i { font-style: normal; color: var(--dim); }
+#ctree .pjl { display: grid; gap: 1px; max-height: 46vh; overflow: auto; }
+#ctree .pjr { font-size: 13px; padding: 6px 8px; border-radius: 7px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+#ctree .pjr:hover { background: var(--soft); } #ctree .pjr.on { background: var(--raised, var(--soft)); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+#ctree .pjnone { font-size: 12px; padding: 4px; line-height: 1.6; }
+
+/* narrow composer: the row wraps, selects shrink, the effort/agent pickers get compact */
+.ccomp, .cont { container-type: inline-size; }
+.ccomp .cbar select, .cont .cbar select { min-width: 0; flex: 0 1 auto; text-overflow: ellipsis; }
+.ccomp .cbar #chatEffort { max-width: 84px; }
+@container (max-width: 520px) {
+  .cbar { gap: 4px !important; }
+  .cbar select { height: 28px !important; font-size: 12px; max-width: 86px !important; padding: 0 4px; }
+  .cbar .ctool { width: 28px !important; height: 28px !important; }
+  .cbar button.primary, .cbar button.ghost:not(.ctool) { height: 28px !important; padding: 0 10px; font-size: 12px; }
+  .cbar #chatEffort, .cbar .kpick { max-width: 62px !important; }
+}
+@container (max-width: 340px) {
+  .cbar .kpick, .cbar #lineNote, .cbar .polishb { display: none; }
+  .cbar select { max-width: 70px !important; }
+}
+#ctree { display: flex; flex-direction: column; min-height: 0; } #ctree .pjl { display: flex; flex-direction: column; } #ctree .pjr { flex: none; line-height: 1.4; }
