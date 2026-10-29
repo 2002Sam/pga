@@ -89,9 +89,10 @@ function stLayout() {
   const colOpen = (w) => units.some((c) => c.kind === "col" && c.win === w && !c.hide && c.open);
   const preOf = (u) => (u.kind === "col" || (u.kind === "win" && !colOpen(u.win)) ? u.win.pre || 0 : 0);   // a gap before a page goes before its column
   const width = () => { let t = -ST_GAP, run = false; for (const u of units) { if (u.hide) continue; if (u.open) { t += preOf(u) + u.w + ST_GAP; run = false; } else if (!run) { t += ST_TAB + ST_GAP; run = true; } } return t; };
-  const room = A.w - 2 * ST_PADX;
+  const room = Math.max(1, A.w - 2 * ST_PADX);
+  for (const u of units) if (u.kind === "win") u.w = Math.min(u.w, room);
   const flex = units.filter((u) => u.kind === "win" && u.open && u.flex);
-  for (const u of flex) u.w = Math.max(ST_MINW, Math.min(ST_WW, room));
+  for (const u of flex) u.w = Math.min(room, Math.max(ST_MINW, Math.min(ST_WW, room)));
   if (flex.length && width() > room) { const cut = (width() - room) / flex.length; for (const u of flex) u.w = Math.max(Math.min(u.w, ST_FIT), u.w - cut); }
   if (flex.length && width() < room) { const add = (room - width()) / flex.length; for (const u of flex) u.w += add; }
   const free = Math.max(0, room - width()), off = ST.shift == null ? free / 2 : Math.max(0, Math.min(free, ST.shift));   // centred, unless an edge you pulled holds it
@@ -218,9 +219,9 @@ function stFrame(n, el) {
   f.addEventListener("load", () => { try { stHold(f, n); stSide(n); } catch {} });
 }
 function stHold(f, n) {                          // inside a conversation: press and hold (~0.25 s, still), then move the window
-  const cw = f.contentWindow, doc = cw.document; let h = null;
+  const cw = f.contentWindow, doc = cw.document; let h = null, dragged = false;
   doc.addEventListener("pointerdown", (e) => {
-    stFocus(n.id);
+    dragged = false; stFocus(n.id);
     if (e.button !== 0 || e.target.closest("input, textarea, select, button, a, [contenteditable], #ccomp")) return;   // the composer moves on its own
     h = { sx: e.screenX, sy: e.screenY, on: false, t: setTimeout(() => { if (!h) return; h.on = true; doc.documentElement.classList.add("stgrab");
       try { doc.documentElement.setPointerCapture(e.pointerId); } catch {} stGrab(n, h.sx, h.sy, e.clientX); cw.getSelection()?.removeAllRanges(); }, 250) };
@@ -230,8 +231,9 @@ function stHold(f, n) {                          // inside a conversation: press
     if (!h.on) { if (Math.hypot(e.screenX - h.sx, e.screenY - h.sy) > 5) { clearTimeout(h.t); h = null; } return; }
     e.preventDefault(); cw.getSelection()?.removeAllRanges(); stDragSoon(e.screenX, e.screenY);
   }, true);
-  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; h = null; doc.documentElement.classList.remove("stgrab"); if (was) { stDragFlush(); stDrop(); } };
+  const end = () => { if (!h) return; clearTimeout(h.t); const was = h.on; dragged = was; h = null; doc.documentElement.classList.remove("stgrab"); if (was) { stDragFlush(); stDrop(); } };
   doc.addEventListener("pointerup", end, true); doc.addEventListener("pointercancel", end, true);
+  doc.addEventListener("click", () => { if (!dragged && !ST.drag && !ST.pan && !cw.getSelection()?.toString()) stShow(n.id); }, true);
   doc.addEventListener("selectstart", (e) => { if (h?.on) e.preventDefault(); }, true);
   const st = doc.createElement("style"); st.textContent = "html.stgrab, html.stgrab * { cursor: grabbing !important; user-select: none !important; }"; doc.head.appendChild(st);
 }
@@ -637,7 +639,7 @@ function stOpen(key, at) {
     if (card) ST.nodes = ST.nodes.filter((c) => c !== card);
     n = { id: stId(), type: "win", key: key || null }; wins.splice(after + 1, 0, n); wins.forEach((o, k) => { o.ord = k; }); ST.nodes.push(n);
   }
-  ST.focus = n.id; stRender(); stSave(); stContexts(); stShow(n.id);
+  n.mini = false; ST.focus = n.id; stRender(); stSave(); stContexts(); stShow(n.id);
   document.querySelector(`.stnode[data-nid="${n.id}"]`)?.animate?.([{ opacity: 0, transform: "scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 260 });
   return n;
 }
@@ -648,13 +650,16 @@ function stOpenAt(key, x) {                         // a page opened where you d
   rest.splice(at, 0, n); rest.forEach((o, i) => { o.ord = i; });
   ST.focus = n.id; stRender(); stSave(); stShow(n.id);
 }
-function stShow(id) {                              // a page off to the side: the stage scrolls to it
-  const p = ST.pos?.get(id), a = $("#starena"); if (!p || !a || p.tab) return;
-  const sl = a.scrollLeft, w = a.clientWidth;
-  if (p.x < sl + ST_PADX) a.scrollTo({ left: Math.max(0, p.x - ST_PADX), behavior: "smooth" });
-  else if (p.x + p.w > sl + w - ST_PADX) a.scrollTo({ left: Math.max(0, Math.min(p.x - ST_PADX, p.x + p.w - w + ST_PADX)), behavior: "smooth" });
+function stShow(id) {                              // move only as far as it takes to bring the page wholly into the arena (which already excludes the sidebar)
+  const n = ST.nodes.find((x) => x.id === id), p = ST.pos?.get(id), a = $("#starena");
+  if (!p || !a || p.tab || !n || n.mini || n.max || ST.drag || ST.pan) return;   // a small page floats, a full-screen one is the screen
+  const W = a.clientWidth, sl = a.scrollLeft, l = p.x - ST_PADX, r = p.x + p.w + ST_PADX;
+  const left = r - l > W || l < sl ? l : r > sl + W ? r - W : sl;                 // wider than the stage: its left edge
+  if (Math.abs(left - sl) < 1) return;
+  if (left + W > a.scrollWidth) stGrow(left + W);
+  a.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
 }
-function stFocus(id, render) { if (ST.focus === id && !render) return; ST.focus = id; if (render) stRender(); else document.querySelectorAll(".stnode.t-win").forEach((el) => el.classList.toggle("focus", el.dataset.nid === id)); }
+function stFocus(id, render) { if (ST.focus === id && !render) return; ST.focus = id; if (render) stRender(); else document.querySelectorAll(".stnode.t-win").forEach((el) => el.classList.toggle("focus", el.dataset.nid === id)); if (render) stShow(id); }
 function stMiniLook(e, mini) {
   e.classList.toggle("mini", mini);
   const mb = e.querySelector('[data-stw="min"]'); if (mb && mb.dataset.m !== String(mini)) { mb.dataset.m = String(mini); mb.textContent = mini ? "▭" : "–";
@@ -733,7 +738,12 @@ function stMap() {                                 // the minimap: every part of
     m.addEventListener("pointerleave", () => { $("#stmtip").hidden = true; ST.mapHover = null; });
     m.addEventListener("pointerdown", (e) => { e.preventDefault(); e.stopPropagation(); try { m.setPointerCapture(e.pointerId); } catch {} ST.mapDrag = true; stMapGo(e.clientX); });
     m.addEventListener("pointermove", (e) => { if (ST.mapDrag) stMapGo(e.clientX); stMapTip(e.clientX); });
-    const end = () => { ST.mapDrag = false; }; m.addEventListener("pointerup", end); m.addEventListener("pointercancel", end);
+    const end = (e) => { ST.mapDrag = false;
+      if (e.type !== "pointerup") return;
+      const x = (e.clientX - m.getBoundingClientRect().left) / (Number(m.dataset.k) || 1);
+      const hit = stWins().find((n) => { const p = ST.pos?.get(n.id); return p && x >= p.x && x <= p.x + p.w; });
+      if (hit) { stFocus(hit.id); stShow(hit.id); }
+    }; m.addEventListener("pointerup", end); m.addEventListener("pointercancel", end);
     a.addEventListener("scroll", () => requestAnimationFrame(stMapView)); }
   const T = Math.max(a.scrollWidth, a.clientWidth, 1), W = m.clientWidth || 1, k = W / T, H = m.clientHeight || 30;
   const box = (x, w, cls, title = "") => `<i class="${cls}" style="left:${(x * k).toFixed(1)}px;width:${Math.max(2, w * k).toFixed(1)}px" title="${esc(title)}"></i>`;
@@ -826,6 +836,7 @@ function stBind() {
     if (ST.wire) { stWireEnd(e.clientX, e.clientY); return; }
     if (ST.rz) { ST.rz = null; v.classList.remove("dragging", "resizing"); stSave(); return; }
     stDragFlush(); const d = stDrop(); if (d && !d.moved && d.n.type === "conv") stOpen(d.n.key, { win: d.n.win });
+    else if (d && !d.moved && d.n.type === "win") stShow(d.n.id);
     else if (d && !d.moved && d.el.classList.contains("tab") && d.n.win) stFocus(d.n.win, true);
   });
   arena.addEventListener("dblclick", (e) => { const rz = e.target.closest("[data-rz]"); if (rz) { const n = ST.nodes.find((x) => x.id === rz.closest(".stnode").dataset.nid); if (n.mini) { delete n.mw; delete n.mh; } else { delete n.bw; delete n.pre; } ST.shift = null; stRender(); stSave(); } });
