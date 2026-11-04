@@ -44,3 +44,30 @@ def adopt_system_proxy() -> dict[str, str]:
     if env:
         log.info("using the system proxy %s", env.get("HTTPS_PROXY"))
     return env
+
+
+TARGETS = [("Anthropic API", "https://api.anthropic.com"), ("OpenAI API", "https://api.openai.com"), ("DeepSeek API", "https://api.deepseek.com"),
+           ("GitHub", "https://github.com"), ("Google", "https://www.google.com"), ("百度", "https://www.baidu.com")]
+
+
+def probe(timeout: float = 8.0) -> dict:
+    """Is the network fine from where PGA runs? Each target is asked once (any HTTP answer, even 401 or 404, means it was
+    reached) with the same proxy settings PGA's own clients use; how long it took, or why it failed."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    import httpx
+
+    def one(t: tuple[str, str]) -> dict:
+        name, url = t
+        t0 = time.monotonic()
+        try:
+            r = httpx.get(url, timeout=timeout, follow_redirects=False)
+            return {"name": name, "url": url, "ok": True, "status": r.status_code, "ms": round((time.monotonic() - t0) * 1000)}
+        except Exception as exc:  # noqa: BLE001 - the reason is the answer
+            return {"name": name, "url": url, "ok": False, "error": (type(exc).__name__ + ": " + str(exc))[:160], "ms": round((time.monotonic() - t0) * 1000)}
+
+    with ThreadPoolExecutor(len(TARGETS)) as pool:
+        rows = list(pool.map(one, TARGETS))
+    proxy = {k: os.environ[k] for k in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy") if os.environ.get(k)}
+    return {"results": rows, "proxy": proxy, "system_proxy": system_proxy()}

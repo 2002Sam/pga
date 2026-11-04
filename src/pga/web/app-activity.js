@@ -8,6 +8,24 @@ const CA_KIND = { read: ["📄", L("读", "read")], search: ["🔍", L("搜", "s
 const SCREEN = /screenshot|computer|screen|desktop|browser|navigate|click|playwright|chrome/i;
 const caK = (n) => kfmt(n || 0);
 
+function activityLiveHtml(clock = liveSecs()) {
+  const lv = S.live?.run;
+  if (!(S.sending || S.regenBusy)) return "";
+    const { steps, words } = parseSteps(lv?.text);
+    return `<section class="cact-s ca-live"><h4>${L("正在进行", "Running now")}<span>${clock}s</span></h4>
+      <div class="ca-row"><b>${esc(lv?.agent ? agentLabel(lv.agent) : L("正在分配 agent…", "Picking an agent…"))}</b><em>${esc(lv?.env?.model || "")}</em>
+        <small>${steps.length ? esc(`${steps.length} ${L("步", "steps")} · ${steps[steps.length - 1].tool} ${steps[steps.length - 1].target || ""}`) : words ? L("正在写回答", "Writing") : L("在想", "Thinking")}</small></div></section>`;
+}
+function refreshActivityLive() {
+  if (S.view !== "chats") return;
+  const box = $("#cactBody"), section = box?.querySelector(".ca-live");
+  if (!section) return;
+  const signature = activityLiveHtml(0);
+  if (box._liveSignature === signature) return;
+  box._liveSignature = signature;
+  section.outerHTML = activityLiveHtml();
+}
+
 function renderActivity() {
   const box = $("#cactBody"); if (!box) return;
   if (S.view !== "chats") return;
@@ -18,20 +36,13 @@ function renderActivity() {
   }
   if (!key) { box.innerHTML = `<section class="cact-s"><h4>${L("agent 在做什么", "What the agents do")}</h4><div class="ca-empty">${L("开始一段对话后，这里会显示每一次 agent 调用、用量、上下文和它读写过的文件。", "Once a conversation starts: every agent call, usage, context, and the files it read or wrote.")}</div></section>`; return; }
   let html = "";
-  // now
-  const lv = S.live?.run;
-  if (S.sending || S.regenBusy) {
-    const { steps, words } = parseSteps(lv?.text);
-    html += `<section class="cact-s ca-live"><h4>${L("正在进行", "Running now")}<span>${liveSecs()}s</span></h4>
-      <div class="ca-row"><b>${esc(lv?.agent ? agentLabel(lv.agent) : L("正在分配 agent…", "Picking an agent…"))}</b><em>${esc(lv?.env?.model || "")}</em>
-        <small>${steps.length ? esc(`${steps.length} ${L("步", "steps")} · ${steps[steps.length - 1].tool} ${steps[steps.length - 1].target || ""}`) : words ? L("正在写回答", "Writing") : L("在想", "Thinking")}</small></div></section>`;
-  }
+  html += activityLiveHtml();
   // calls
   const tot = { calls: agents.length, secs: 0, in: 0, cached: 0, out: 0 }, by = {};
   for (const t of agents) {
     const h = t.how || {}, u = h.usage || {};
     tot.secs += h.seconds || 0; tot.in += u.input || 0; tot.cached += u.cached || 0; tot.out += u.output || 0;
-    const a = t.agent || "?", b = by[a] = by[a] || { calls: 0, in: 0, cached: 0, out: 0, secs: 0, model: t.model || h.model || "" };
+    const a = JSON.stringify([t.agent || "?", t.model || h.model || ""]), b = by[a] = by[a] || { agent: t.agent || "?", calls: 0, in: 0, cached: 0, out: 0, secs: 0, model: t.model || h.model || "" };
     b.calls++; b.in += u.input || 0; b.cached += u.cached || 0; b.out += u.output || 0; b.secs += h.seconds || 0;
   }
   html += `<section class="cact-s"><h4>${L("agent 调用", "Agent calls")}<span>${L(`${tot.calls} 次 · ${Math.round(tot.secs)}s`, `${tot.calls} · ${Math.round(tot.secs)}s`)}</span></h4>
@@ -44,10 +55,10 @@ function renderActivity() {
   if (Object.keys(by).length) {
     const max = Math.max(...Object.values(by).map((b) => b.in + b.out), 1);
     html += `<section class="cact-s"><h4>${L("用量", "Usage")}<span>${L(`读 ${caK(tot.in)} · 写 ${caK(tot.out)}`, `in ${caK(tot.in)} · out ${caK(tot.out)}`)}${tot.in ? ` · ${Math.round(tot.cached / tot.in * 100)}% ${L("缓存", "cached")}` : ""}</span></h4>
-      ${Object.entries(by).map(([a, b]) => `<div class="ca-row"><b>${esc(agentLabel(a))}</b><em>${b.calls}×</em>
+      ${Object.entries(by).map(([a, b]) => `<div class="ca-row"><b>${esc(b.model || L("未记录模型", "Model unrecorded"))}</b><em>${b.calls}×</em>
         <div style="grid-column:1/-1"><div class="ca-bar"><i style="width:${((b.in + b.out) / max * 100).toFixed(0)}%"></i></div></div>
-        <small>${esc([b.model, `${L("读", "in")} ${caK(b.in)}`, b.cached ? `${L("缓存", "cached")} ${caK(b.cached)}` : "", `${L("写", "out")} ${caK(b.out)}`, `${Math.round(b.secs)}s`].filter(Boolean).join(" · "))}</small></div>`).join("")}
-      <div style="margin-top:6px"><a href="#" id="usageBtn">${L("所有 agent 的额度与用量 →", "All agents' quota and usage →")}</a></div></section>`;
+        <small>${esc([agentLabel(b.agent), `${L("读", "in")} ${caK(b.in)}`, b.cached ? `${L("缓存", "cached")} ${caK(b.cached)}` : "", `${L("写", "out")} ${caK(b.out)}`, `${Math.round(b.secs)}s`].filter(Boolean).join(" · "))}</small></div>`).join("")}
+      <div style="margin-top:6px"><a href="#" id="usageBtn">${L("所有模型的用量与账户额度 →", "All models and account quotas →")}</a></div></section>`;
   }
   // the arena
   if (S.arena === undefined || S.arena === null) { S.arena = []; api(`/v1/users/${S.uid}/arena`).then((r) => { S.arena = r; renderActivity(); }).catch(() => {}); }
@@ -79,11 +90,11 @@ function renderActivity() {
   if (cmds.length) html += `<section class="cact-s"><h4>${L("命令", "Commands")}<span>${cmds.length}</span></h4>${cmds.slice(-15).reverse().map((x) => `<div class="ca-file"><span>⌘</span><code title="${esc(x.target)}">${esc(x.target)}</code></div>`).join("")}</section>`;
   if (web.length) html += `<section class="cact-s"><h4>${L("网页", "Web")}<span>${web.length}</span></h4>${web.slice(-15).reverse().map((x) => `<div class="ca-file"><span>🌐</span><code title="${esc(x.target)}">${esc(x.target)}</code></div>`).join("")}</section>`;
   html += `<section class="cact-s"><h4>${L("桌面与屏幕", "Desktop and screen")}<span>${screen.length}</span></h4>${screen.slice(-15).reverse().map((x) => `<div class="ca-file"><span>🖥</span><code title="${esc(x.target)}">${esc(x.tool)} ${esc(x.target)}</code></div>`).join("") || `<div class="ca-empty">${L("这段对话里 agent 没有看屏幕或操作桌面。", "No screen or desktop use in this conversation.")}</div>`}</section>`;
-  box.innerHTML = html;
+  box.innerHTML = html; box._liveSignature = activityLiveHtml(0);
 }
 const _rcAct = renderChat;
 renderChat = function () { _rcAct(); renderActivity(); };
-setInterval(() => { if (S.view === "chats" && (S.sending || S.regenBusy)) renderActivity(); }, 1000);
+setInterval(refreshActivityLive, 1000);
 document.addEventListener("click", (e) => {
   const r = e.target.closest("[data-ca-turn]"); if (!r) return;
   const el = document.getElementById("t-" + r.dataset.caTurn); if (!el) return;

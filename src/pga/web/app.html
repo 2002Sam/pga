@@ -21,6 +21,15 @@
 <link rel="stylesheet" href="/ui/skins.css">
 </head>
 <body>
+<div class="boot" id="boot" aria-hidden="true"><div class="boot-logo"><i class="boot-wave"></i><i class="boot-wave"></i><div class="boot-ring"></div><div class="boot-core"></div></div><div class="boot-t">PGA</div></div>
+<script>/* the loading splash: only on the app page itself (not in a stage window), gone once boot() has drawn the first view */
+(function () { const b = document.getElementById("boot"), t0 = performance.now(); let done = false;
+  let embed = false; try { embed = new URLSearchParams(location.search).has("embed") || window.self !== window.top; } catch { embed = true; }
+  if (embed) { b.remove(); window.pgaBootDone = () => {}; return; }
+  window.pgaBootDone = () => { if (done) return; done = true;
+    setTimeout(() => { b.classList.add("out"); setTimeout(() => b.remove(), 520); }, Math.max(0, 1600 - (performance.now() - t0))); };
+  setTimeout(window.pgaBootDone, 10000);   // never stuck behind it
+})();</script>
 <div class="app">
   <button id="unfold" title="展开">»</button><div class="split" data-split="railw"></div>
   <aside class="rail">
@@ -50,9 +59,9 @@
   </main>
 
   <main class="view" id="vChats" hidden>
-    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><div class="ccomp" id="ccomp"></div></section>
-    <aside class="cact" id="cact"><div id="cenv"></div><div id="ctree" class="ctree"></div>
-      <details class="cdet"><summary data-l="agent 的细节操作|What the agents did">agent 的细节操作</summary><div id="cactBody"></div><section class="cact-s cact-map"><h4 data-l="对话树|Conversation tree">对话树</h4><aside class="cmap wide" id="cmap" hidden></aside></section></details></aside>
+    <section class="cpane"><div class="dh2" id="chead"></div><div class="dlg" id="cdlg"><div class="inner" id="cdlgIn"></div></div><div class="ccomp" id="ccomp"></div><aside class="cmap turnrail" id="cmap" aria-label="对话位置" hidden></aside></section>
+    <aside class="cact" id="cact"><div id="cenv"></div><div id="ctree" class="ctree"></div><div id="cbr" class="ecard cbr" hidden></div>
+      <details class="cdet"><summary data-l="agent 的细节操作|What the agents did">agent 的细节操作</summary><div id="cactBody"></div><section class="cact-s cact-map"><h4 data-l="对话树|Conversation tree">对话树</h4></section></details></aside>
   </main>
 
   <main class="view" id="vGraph" hidden><canvas id="gcv"></canvas><div id="g3d" hidden></div><div id="g3dlab"></div><div class="gbar card" id="gbar"></div><aside class="gside card" id="gside" hidden></aside><div class="gtip" id="gtip" hidden></div></main>
@@ -66,6 +75,7 @@
 <script src="/ui/app-tree.js"></script>
 <script src="/ui/app-access.js"></script>
 <script src="/ui/app-treeops.js"></script>
+<script src="/ui/app-select-menu.js"></script>
 <script src="/ui/app-chats.js"></script>
 <script src="/ui/app-live.js"></script>
 <script src="/ui/app-compose.js"></script>
@@ -79,12 +89,20 @@
 <script src="/ui/app-project.js"></script>
 <script src="/ui/app-dispatch.js"></script>
 <script src="/ui/app-stage.js"></script>
+<script src="/ui/app-pages.js"></script>
+<script src="/ui/app-manager.js"></script>
 <script src="/ui/app-dream.js"></script>
 <script src="/ui/app-polish.js"></script>
 <script src="/ui/app-compnote.js"></script>
 <script src="/ui/app-pad.js"></script>
+<script src="/ui/app-memo.js"></script>
+<script src="/ui/app-consolidate.js"></script>
+<script src="/ui/app-nettest.js"></script>
+<script src="/ui/app-knowledge.js"></script>
 <script src="/ui/app-events.js"></script>
+<script src="/ui/app-editor.js"></script>
 <script src="/ui/app-hand.js"></script>
+<script src="/ui/app-model-rail.js"></script>
 
 </body>
 </html>

@@ -186,7 +186,7 @@
   :scope :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   :scope input[type=checkbox], :scope input[type=radio], :scope input[type=range] { accent-color: var(--accent); }
   /* surfaces that stand up */
-  :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .second, :scope .bctx, :scope .cmap, :scope .runout, :scope .lkcard { border: 0 !important; border-radius: 22px; background: var(--raised) !important; box-shadow: var(--up); }
+  :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .second, :scope .bctx, :scope .cmap:not(.turnrail), :scope .runout, :scope .lkcard { border: 0 !important; border-radius: 22px; background: var(--raised) !important; box-shadow: var(--up); }
   :scope .ctx, :scope .cpop, :scope #toast, :scope .modal .box, :scope .shell-pop { border: 0; border-radius: 20px; background: var(--pop); box-shadow: var(--up), 0 20px 50px -20px rgba(0,0,0,.25); }
   :scope .modal { background: rgba(120,120,130,.25); }
   :scope .ccomp > .inner, :scope .cont > .inner { border: 0; border-radius: 26px; padding: 10px 12px; background: var(--raised); box-shadow: var(--up); }
@@ -384,4 +384,14 @@
   :scope .lktog i { background: var(--bg); box-shadow: var(--down); } :scope .lktog input:checked + i { background: var(--pill); }
   :scope .lktog i::after { background: var(--raised); box-shadow: var(--up-s); }
   :scope .lks-r { border-top-color: var(--line); } :scope .lkcard.cur { box-shadow: var(--up), 0 0 0 2px var(--accent); }
+}
+
+/* Position ticks must stay unpainted under every skin, even on hover/press. */
+#cmap.turnrail, #cmap.turnrail:hover, #cmap.turnrail.wide,
+#cmap.turnrail .railmarks, #cmap.turnrail .railrow,
+#cmap.turnrail button, #cmap.turnrail button:hover, #cmap.turnrail button:active, #cmap.turnrail button.on {
+  appearance:none; -webkit-appearance:none;
+  background:transparent !important; border:0 !important; border-radius:0 !important;
+  box-shadow:none !important; filter:none !important;
+  backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
 }

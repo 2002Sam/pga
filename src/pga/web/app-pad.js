@@ -106,7 +106,7 @@ async function padSend(idx) {
   if (was?.key) {                                 // asked again in its own conversation, its window brought up
     padLocate(s);
     const acc = S.acc?.["*new"] || {};
-    return api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: s.agent || "auto", conversation: s.key, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } })
+    return api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: s.agent || "auto", conversation: s.key, access: acc.access || "auto", folder: acc.folder || "", mcp: !!acc.mcp } })
       .then((r) => { s.st = r?.error && !r?.text ? "err" : "done"; }).catch(() => { s.st = "err"; }).finally(padSync);
   }
   const r = await stAsk(text);                    // a window of its own on the stage, the question already sent

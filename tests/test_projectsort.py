@@ -53,3 +53,38 @@ def test_a_message_relayed_in_an_envelope_counts_as_yours():
          '</thread></project></wake>')
     assert _yours(t) and _unwrap(t) == '@"/u/img.png" 去掉 <b> 这个'
     assert not _yours("<command-name>/clear</command-name>")
+
+
+def test_manual_category_survives_automatic_reclassification(user):
+    projectsort.assign(user, 'chat:a', '论文思考')
+    projectsort.assign(user, 'imp:example', 'PGA')
+    st = projectsort.state(user)
+    assert st['of']['c:example'] == 'PGA'
+    assert 'imp:example' not in st['of']
+    projectsort.sort(None, user, items=[], now=NOW, ask=lambda *a: {}, again=True)
+    assert projectsort.state(user)['of']['chat:a'] == '论文思考'
+    assert projectsort.state(user)['of']['c:example'] == 'PGA'
+
+
+def test_conversation_category_api_creates_distinct_empty_chats_and_moves_them(session_factory, policy, provider, backend, user):
+    from fastapi.testclient import TestClient
+    from pga.api.app import create_app
+    from pga.runtime import Runtime
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    url = f'/v1/users/{user.id}/conversation-projects'
+    with TestClient(app) as c:
+        assert '论文思考' in c.get(url).json()['names']
+        a = c.post(url, json={'project':'PGA','create':True}).json()
+        b = c.post(url, json={'project':'论文思考','create':True}).json()
+        assert a['key'] != b['key']
+        catalog = c.get(url).json()
+        assert catalog['of'][a['key']] == 'PGA' and catalog['of'][b['key']] == '论文思考'
+        assert a['key'] in catalog['drafts']
+        chat = c.get(f"/v1/users/{user.id}/chats/{a['key']}").json()
+        assert chat['turns'] == [] and not chat['branch']
+        assert c.post(url,json={'project':'论文思考','key':a['key']}).status_code == 200
+        assert c.get(url).json()['of'][a['key']] == '论文思考'
+        assert c.post(url,json={'project':'不存在','key':a['key']}).status_code == 422
+        assert c.post(url,json={'project':'PGA','key':''}).status_code == 422
+        assert c.get(url).json()['of'][a['key']] == '论文思考'

@@ -296,5 +296,18 @@ function renderCont() {
       <button class="primary" id="send" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : bud || bf ? L("分支", "Branch") : L("发送", "Send")}</button></div></div>`;
   autoGrow($("#tnText"));
 }
-function autoGrow(t) { if (!t) return; t.style.height = "36px"; t.style.height = Math.min(240, t.scrollHeight + 2) + "px"; }
+// Input events can arrive several times within a frame (including IME input).
+// Measure only the final value; direct callers still use synchronous autoGrow.
+const growPending = new WeakSet();
+function autoGrowSoon(t) {
+  if (!t || growPending.has(t)) return;
+  growPending.add(t);
+  requestAnimationFrame(() => { growPending.delete(t); if (t.isConnected) autoGrow(t); });
+}
+function autoGrow(t) {                               // the composer grows with what you type (up to 240 px) and shrinks back when you delete
+  if (!t) return;
+  const n = t.value.length, nl = t.value.split("\n").length, longer = n >= (t._agLen ?? 0) && nl >= (t._agNl ?? 0); t._agLen = n; t._agNl = nl;
+  if (longer && t.style.height && (parseFloat(t.style.height) >= 240 || t.scrollHeight <= t.clientHeight)) return;   // typing on and it still fits: nothing to redo
+  t.style.height = "36px"; t.style.height = Math.min(240, t.scrollHeight + 2) + "px";   // (collapsing it to measure lays the page out twice: only when it may change)
+}
 

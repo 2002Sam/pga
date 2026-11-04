@@ -31,8 +31,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pga.agents import links
 from pga.agents import quota as quotas
-from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE
+from pga.agents.base import AUTO, FULL, READ_ONLY, WORKSPACE_WRITE
 
 _RATINGS: dict = {"at": 0.0, "user": None, "rows": {}}
 
@@ -60,7 +61,7 @@ def rating_table(rt, user_id=None) -> dict:
     return rows
 
 
-ACCESS = {"read": READ_ONLY, "write": WORKSPACE_WRITE, "full": FULL}     # the levels you can pick per conversation
+ACCESS = {"read": READ_ONLY, "auto": AUTO, "full": FULL}     # the levels you can pick per conversation ("write", the old middle one, now means auto)
 from pga.agents.pool import MODES, AgentPool, PoolResult, load
 from pga.db.types import utcnow
 
@@ -322,6 +323,9 @@ class AgentRouter:
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         said_tail = f"\n\n{tail}" if tail else ""             # for this message only: after the question, so the opening stays cached
         prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text) + said_tail
+        seed = links.seed_for(conv) if conv else None       # a past conversation that could not be resumed: its summary or text
+        if seed:
+            earlier = f"{seed}\n\n{earlier}" if earlier else seed
         if earlier:                                        # the older part, folded by topic (pga.fold); a held session has it already
             prompt = f"{earlier}\n\n{prompt}"
         run_id, t0, steps = uuid.uuid4(), utcnow(), []
@@ -333,8 +337,9 @@ class AgentRouter:
             ws = self.pool.conversation_workspace(name, conv) if conv else self.pool._workspace(run_id, "ask", name)
             if access in ACCESS:                          # what you set for this conversation (the button by the composer)
                 perms = ACCESS[access]
-            if folder:                                    # …and the folder it works in
-                ws = folder
+            home = links.cwd_for(name, conv) if conv and not folder and project is None else None
+            if folder or home:                            # …and the folder it works in (a resumed session: the one it was held in)
+                ws = folder or home
             if project is not None:                       # the work happens in your project, whichever agent does it
                 ws, perms = project.path, (FULL if project.full_access else READ_ONLY)
             before = time.time()
@@ -361,9 +366,9 @@ class AgentRouter:
                 break
             if step.result.ok:
                 result_text, used = step.result.text, name
-                if project is not None or folder:            # a real folder: only what changed there, not a full walk
+                if project is not None or folder or home:    # a real folder: only what changed there, not a full walk
                     from pga.projects import changed_files
-                    files = changed_files(project.path if project is not None else folder, before - 1)
+                    files = changed_files(project.path if project is not None else folder or home, before - 1)
                 else:
                     files = [str(p) for p in Path(ws).rglob("*") if p.is_file() and not p.name.startswith(".") and "uploads" not in p.parts
                              and p.stat().st_mtime >= before - 1][:20]              # what this answer wrote
@@ -384,6 +389,8 @@ class AgentRouter:
                           **({"conversation": str(conversation)[:80]} if conversation else {})}, steps,
                          error=None if used else "; ".join(f"{s.result.agent}: {s.result.error}" for s in steps)[:800] or "no agent available")
         res.run_id = run_id
+        if seed and res.ok:                                # read once: from now on the conversation's own session holds it
+            links._put("seeds", conv, None)
         self.pool._record(res, asked, user, None, None, t0)
         last = steps[-1].result if steps else None
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,

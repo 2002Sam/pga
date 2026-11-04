@@ -96,6 +96,57 @@ def test_codex_keeps_one_thread_per_conversation_and_resumes_it_after_a_restart(
     assert c.quota["remaining"] == pytest.approx(0.7) and c.quota["source"] == "codex_live"
 
 
+@pytest.mark.parametrize("name", ["chatgpt", "codex"])
+def test_default_codex_pool_runs_four_isolated_conversations(tmp_path, monkeypatch, name):
+    import threading
+    import uuid
+    from concurrent.futures import ThreadPoolExecutor
+
+    from pga.agents import live, pool
+
+    # Keep the real pool, adapter and thread/event routing; replace only the RPC peer.
+    srv = links.CodexServer(name, [], {})
+    turns = {}
+    lock = threading.Lock()
+
+    def complete_together():
+        # Interleave messages from all four threads before any of them completes.
+        for tid, prompt in turns.items():
+            srv._notify({"method": "item/agentMessage/delta", "params": {"threadId": tid, "delta": prompt}})
+        for tid in reversed(list(turns)):
+            srv._notify({"method": "turn/completed", "params": {"threadId": tid, "turn": {"status": "completed"}}})
+
+    ready = threading.Barrier(4, action=complete_together)
+
+    class Peer:
+        def request(self, method, params, timeout):
+            if method == "thread/start":
+                return {"thread": {"id": uuid.uuid4().hex}}
+            assert method == "turn/start"
+            tid = params["threadId"]
+            with lock:
+                turns[tid] = params["input"][0]["text"]
+            ready.wait(timeout=3)  # fails if a single global slot serializes the windows
+            return {"turn": {"id": tid}}
+
+    srv.rpc = Peer()
+    monkeypatch.setattr(links.CodexServer, "get", classmethod(lambda cls, ad, full=False: srv))
+    p = AgentPool(None)
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        futures = [workers.submit(p._call, name, AgentTask(prompt=f"window-{i}", workspace=str(tmp_path),
+                    timeout_s=5, meta={"conversation": f"parallel-{i}"}), "test") for i in range(4)]
+        results = [f.result(timeout=8).result for f in futures]
+    assert all(r.ok and r.data["via"] == "app-server" for r in results)
+    assert len({r.session_id for r in results}) == 4
+    for i, r in enumerate(results):
+        assert r.text.endswith(f"window-{i}")
+        assert all(f"window-{j}" not in r.text for j in range(4) if j != i)
+        assert live.text(r.data["live_id"]).strip() == r.text
+        assert links.thread_for(name, f"parallel-{i}") == r.session_id
+    assert not srv.listeners
+    assert not pool.busy(name, 4)
+
+
 def test_a_conversation_stays_in_one_running_session_and_is_resumed_after_it_idles_out(tmp_path):
     ad = ClaudeLocal("cl", {"command": _script(tmp_path, "claude", FAKE_STREAM_CLI)})
     ask = lambda new: ad.run(AgentTask(prompt=f"history … {new}", workspace=str(tmp_path), meta={"conversation": "u:c", "new_text": new}))  # noqa: E731
@@ -123,6 +174,35 @@ def test_link_states_steer_routing_only_while_the_keeper_runs(rt):
     assert pool.usable(name, 0)[0] and links.ok_at(name) is not None
 
 
+def test_stream_session_applies_changed_turn_limit_on_resume(tmp_path):
+    ad = ClaudeLocal("cl", {"command": _script(tmp_path, "claude", FAKE_STREAM_CLI)})
+    task = AgentTask(prompt="first", workspace=str(tmp_path), max_turns=40, meta={"conversation": "u:limits"})
+    first = ad.run(task)
+    task.max_turns = 400
+    task.meta["new_text"] = "second"
+    second = ad.run(task)
+    assert first.ok and second.ok and first.session_id == second.session_id
+    assert first.text.split()[1] != second.text.split()[1]
+    assert "msg 1 resumed True: second" in second.text
+    assert links.StreamSession._ALL["cl|u:limits"].max_turns == 400
+
+
+def test_stream_conversations_keep_replies_separate(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    ad = ClaudeLocal("cl", {"command": _script(tmp_path, "claude", FAKE_STREAM_CLI)})
+
+    def ask(conv):
+        return ad.run(AgentTask(prompt=conv, workspace=str(tmp_path), meta={"conversation": conv}))
+
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        results = list(workers.map(ask, ["first-window", "second-window"]))
+    assert all(r.ok for r in results)
+    assert results[0].session_id != results[1].session_id
+    assert results[0].text.endswith(": first-window")
+    assert results[1].text.endswith(": second-window")
+
+
 def test_the_keeper_tells_the_owner_once_when_a_link_drops(session_factory, session, user, policy, provider, backend, monkeypatch):
     user.preferences = {"owner": True}
     session.flush()
@@ -139,3 +219,54 @@ def test_the_keeper_tells_the_owner_once_when_a_link_drops(session_factory, sess
     assert k.check(name)["state"] == "online"
     assert len(list(session.scalars(select(Notification).where(Notification.user_id == user.id)))) == 1
     assert os.path.exists(links.state_file())
+
+
+def test_codex_records_native_compaction_without_starting_another_thread(tmp_path):
+    events = '''
+        if "compact-me" in p["input"][0]["text"]:
+            for method in ("item/started", "item/completed"):
+                send({"method": method, "params": {"threadId": tid, "turnId": turn, "item": {"type": "contextCompaction", "id": "compact"}}})
+'''
+    script = FAKE_APP_SERVER.replace('        reply = ', events + '        reply = ', 1)
+    ad = CodexLocal("cx", {"command": _script(tmp_path, "codex-compact", script)})
+    first = ad.run(AgentTask(prompt="compact-me", workspace=str(tmp_path), meta={"conversation": "compact-test"}))
+    assert first.ok and first.data["compaction"] == {"status": "completed"}
+    second = ad.run(AgentTask(prompt="next", workspace=str(tmp_path), meta={"conversation": "compact-test", "new_text": "next"}))
+    assert second.ok and second.session_id == first.session_id
+    assert "compaction" not in second.data  # previous compression is not a permanent status
+
+
+def test_codex_exec_honors_selected_model_and_effort(tmp_path):
+    ad = CodexLocal("cx", {"model": "old-model", "reasoning": "low"})
+    task = AgentTask(prompt="hello", workspace=str(tmp_path), meta={"model": "chosen-model", "effort": "high"})
+    cmd = ad.command(task, "codex")
+    assert cmd[cmd.index("-m") + 1] == "chosen-model"
+    assert 'model_reasoning_effort="high"' in cmd
+    assert 'model_reasoning_effort="low"' not in cmd
+
+
+def test_claude_native_tool_request_waits_for_pga_response(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+    from pga.agents import live, approvals
+    from pga.agents.base import AUTO
+    body = FAKE_STREAM_CLI.replace('    out = ', '''    print(json.dumps({"type":"control_request","request_id":"approval-1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{"file_path":"notes.txt","content":"test"}}}),flush=True)
+    response = json.loads(sys.stdin.readline())
+    assert response["type"] == "control_response"
+    assert response["response"]["request_id"] == "approval-1"
+    assert response["response"]["response"]["behavior"] == "allow"
+    out = ''', 1)
+    ad = ClaudeLocal('approval-claude', {'command':_script(tmp_path,'claude-approval',body)})
+    lid = live.start(ad.name,tags={'conversation':'user:chat:approval'})
+    task = AgentTask(prompt='test',workspace=str(tmp_path),permissions=AUTO,timeout_s=5,
+                     meta={'conversation':'user:chat:approval','live_id':lid})
+    with ThreadPoolExecutor() as pool:
+        f = pool.submit(ad.run,task)
+        for _ in range(100):
+            row = next(x for x in live.snapshot() if x['id']==lid)
+            if row.get('approval'): break
+            time.sleep(.01)
+        assert row.get('approval') and not f.done()
+        approvals.answer(row['approval']['id'],'user','allow')
+        assert f.result(timeout=3).ok
+    live.finish(lid,True)

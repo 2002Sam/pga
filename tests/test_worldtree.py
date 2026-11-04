@@ -157,3 +157,28 @@ def test_annotating_writes_ordered_tags_that_link_conversations(rt, user, tree, 
     leaf = wt.leaf_of(user, "chat:a")
     assert leaf.data["tags"][0] == "世界模型" and leaf.data["gist"]
     assert wt.annotate(user) == 0                                     # done once
+
+
+def test_a_tidy_keeps_the_tree_in_step_and_its_undo_puts_it_back(rt, user, tree, monkeypatch):
+    """归档整理 (pga.consolidate) on the real tree: the 🗃 conversation takes the originals' place, they are hidden, a later
+    pass does not bring them back, and undo or 已归档 → 放回 shows them again."""
+    from pga import consolidate, projectsort
+    wt, m = tree
+    wt.build(user)
+    monkeypatch.setattr("pga.worldtree.WorldTree._ask", lambda self, *a, **k: m(*a, **k))
+    t0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    chat(rt, user, "chat:a2", "世界模型的空间表征 再问一次", t0 + timedelta(hours=1))
+    wt.place(user)
+    world = by_title(wt, user, "世界模型研究")
+    project = projectsort.project_of(projectsort.state(user), "chat:a", "")
+    now = t0 + timedelta(days=10)
+    r = consolidate.apply_group(rt, user, project, "世界模型", ["chat:a", "chat:a2"], now=now, write=lambda *a: "## 做了什么\n空间表征")
+    new = wt.leaf_of(user, r["key"])
+    assert new is not None and new.parent_id == world.id and r["tree"] == str(new.id)
+    assert all((wt.leaf_of(user, k).data or {}).get("merged_into") == r["key"] for k in ("chat:a", "chat:a2"))
+    assert (world.data or {}).get("stale")
+    assert wt.place(user)["placed"] == 0 and (wt.leaf_of(user, "chat:a").data or {}).get("hidden")   # archived: not placed again
+    consolidate.restored(rt, user, "chat:a")                                                     # 已归档 → 放回 one of them
+    assert not (wt.leaf_of(user, "chat:a").data or {}).get("hidden")
+    consolidate.undo(rt, user, r["id"])
+    assert not (wt.leaf_of(user, "chat:a2").data or {}).get("hidden") and (wt.leaf_of(user, r["key"]).data or {}).get("hidden")

@@ -1,7 +1,8 @@
 """Adapters: how each kind of agent is reached.
 
 Local CLIs run non-interactively inside the task's workspace, with permissions mapped onto each tool's own
-safety switches. Only 完全 (full access, which you choose per conversation or project) opens them all the way, as the tool
+safety switches. 自动 (the default) lets it act on its own and holds back only what is risky: Claude Code's auto mode,
+Codex's workspace-write sandbox. Only 完全 (full access, which you choose per conversation or project) opens them all the way, as the tool
 does in your own terminal; read-only and write keep their sandboxes:
 
     claude_local   Claude Code   `claude -p --output-format json`      read_only: Read/Glob/Grep/Web*  · write: +Edit/Write, no Bash
@@ -20,7 +21,9 @@ through its local API server, and Claude through the Anthropic API when a workin
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
 import os
 import queue
 import shlex
@@ -33,7 +36,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE, Adapter, AgentError, AgentResult, AgentTask
+from pga.agents.base import AUTO, FULL, READ_ONLY, WORKSPACE_WRITE, Adapter, AgentError, AgentResult, AgentTask
 
 
 @lru_cache(maxsize=32)
@@ -191,7 +194,9 @@ class ClaudeLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--max-turns", str(task.max_turns)]
-        if not _pga_workspace(task):                  # PGA's own folders keep the session, so its steps can be shown later
+        if task.meta.get("resume"):                   # carrying on a run that ran out of turns: the very same session
+            cmd += ["--resume", str(task.meta["resume"])]
+        elif not _pga_workspace(task):                # PGA's own folders keep the session, so its steps can be shown later
             cmd.append("--no-session-persistence")
         want = task.meta.get("mcp", task.permissions == FULL)   # your own MCP servers: on in a full-access project, else when you turn them on
         mcp = _mcp_rules() if want else ""
@@ -200,6 +205,9 @@ class ClaudeLocal(CLIAdapter):
         if task.permissions == FULL:                  # you opened it up: like Claude Code in your terminal, edits accepted
             return cmd + ["--permission-mode", "bypassPermissions", "--allowedTools",
                           "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite" + mcp] + self.choice_flags(task)
+        if task.permissions == AUTO:                  # reads are allowed; writes/commands ask the PGA host
+            return cmd + ["--permission-mode", "manual", "--permission-prompts", "host", "--allowedTools",
+                          "Read,Glob,Grep,LS,WebSearch,WebFetch,TodoWrite"] + self.choice_flags(task)
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep" + mcp,
                     "--disallowedTools", "Bash,WebFetch,WebSearch,NotebookEdit"]
@@ -214,7 +222,7 @@ class ClaudeLocal(CLIAdapter):
         return (["--model", str(model)] if model else []) + (["--effort", str(effort)] if effort else [])
 
     def stdin(self, task: AgentTask) -> str:
-        return _prompt(task)
+        return task.meta.get("resume_text") or _prompt(task)
 
     def session_command(self, task: AgentTask, exe: str, resume: str | None) -> list[str]:
         """The same command kept running: one user message per stdin line, a `result` event after each."""
@@ -234,7 +242,25 @@ class ClaudeLocal(CLIAdapter):
                 return links.StreamSession.ask(self, task)
             except links.LinkDown:
                 pass
-        return super()._run(task)
+        if task.permissions == AUTO:
+            return AgentResult(ok=False, status="FAILED", error="审批连接不可用，请恢复 agent 连接后重试；未执行操作")
+        return self._go_on(task, super()._run(task))
+
+    def _go_on(self, task: AgentTask, res: AgentResult, rounds: int = 8) -> AgentResult:
+        """claude -p that ran into its turn limit is not done: resume that very session with "continue" (each round gets a
+        fresh budget), joining what each round said. Only where the session was kept (PGA's own folders)."""
+        said = [res.text] if res.text else []
+        for _ in range(rounds):
+            sid = (res.data or {}).get("session")
+            if res.ok or not hit_turn_limit(res) or not sid or self.type != "claude_local":
+                break
+            log.info("%s hit its turn limit: resuming session %s", self.name, sid)
+            res = super()._run(dataclasses.replace(task, meta={**task.meta, "resume": sid, "resume_text": CONTINUE_TEXT}))
+            if res.text:
+                said.append(res.text)
+        if len(said) > 1:
+            res.text = "\n\n".join(said)
+        return res
 
     def progress(self, line: str, task: AgentTask) -> str | None:
         return _stream_json_progress(line, task)
@@ -271,6 +297,8 @@ class ClaudeLocal(CLIAdapter):
         return AgentResult(ok=ok, text=text, status="SUCCEEDED" if ok else "FAILED", cost_usd=None,
                            session_id=d.get("session_id"), error=None if ok else why[:500], model=model,
                            data={"turns": d.get("num_turns"), "notional_cost_usd": d.get("total_cost_usd"),
+                                 **({"model_usage": d["modelUsage"]} if isinstance(d.get("modelUsage"), dict) else {}),
+                                 **({"max_turns": True} if d.get("subtype") == "error_max_turns" else {}),
                                  **({"session": d["session_id"]} if d.get("session_id") and _pga_workspace(task) else {}),
                                  **({"usage": {k: d["usage"].get(k) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")}}
                                     if isinstance(d.get("usage"), dict) else {}),
@@ -291,7 +319,7 @@ class CodebuddyLocal(ClaudeLocal):
         if task.permissions == FULL:
             return cmd + ["--permission-mode", "bypassPermissions", "--tools", "Read,Write,Edit,Bash,Glob,Grep,WebSearch,WebFetch"] + self.choice_flags(task)
         cmd.append("--strict-mcp-config")
-        if task.permissions == WORKSPACE_WRITE:
+        if task.permissions in (AUTO, WORKSPACE_WRITE):      # CodeBuddy has no auto mode: edits accepted, no shell
             cmd += ["--permission-mode", "acceptEdits", "--tools", "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"]
         else:
             cmd += ["--permission-mode", "default", "--tools", "Read,Glob,Grep,WebSearch,WebFetch"]
@@ -323,7 +351,7 @@ class CodexLocal(CLIAdapter):
         from pga.agents import links
         if self.linked():
             try:
-                srv = links.CodexServer.get(self, full=task.permissions == FULL)
+                srv = links.CodexServer.get(self, full=task.permissions in (AUTO, FULL))
             except links.LinkDown:
                 srv = None                                     # cannot start the app server: one-off `codex exec`
             if srv is not None:
@@ -332,18 +360,22 @@ class CodexLocal(CLIAdapter):
                 except links.LinkDown as exc:                  # the thread or turn never started: same work, one-off
                     from pga.agents import live
                     live.append(task.meta.get("live_id"), f"（app-server：{exc}，改用 codex exec）\n")
+        if task.permissions == AUTO:
+            return AgentResult(ok=False, status="FAILED", error="审批连接不可用，请恢复 app-server 连接后重试；未执行操作")
         return super()._run(task)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         task.meta["_codex_out"] = out = os.path.join(task.workspace or tempfile.gettempdir(), f".codex-last-{os.getpid()}-{id(task)}.txt")
-        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"   # 完全: as in your terminal
+        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions in (AUTO, WORKSPACE_WRITE) else "read-only"   # 完全: as in your terminal
         cmd = [exe, "exec", "--json", "--skip-git-repo-check", *([] if _pga_workspace(task) else ["--ephemeral"]), "-s", sandbox, "-o", out]
         if task.workspace:
             cmd += ["-C", task.workspace]
-        if self.config.get("model"):
-            cmd += ["-m", str(self.config["model"])]
-        if self.config.get("reasoning"):                       # model_reasoning_effort: minimal | low | medium | high
-            cmd += ["-c", f'model_reasoning_effort="{self.config["reasoning"]}"']
+        model = task.meta.get("model") or self.config.get("model")
+        effort = task.meta.get("effort") or self.config.get("reasoning")
+        if model:
+            cmd += ["-m", str(model)]
+        if effort:
+            cmd += ["-c", "model_reasoning_effort=" + json.dumps(str(effort))]
         for feature in self.config.get("disable") or []:       # e.g. memories (no reading ~/.codex/memories), shell_tool
             if task.permissions == FULL and feature == "shell_tool":
                 continue                                         # a project you opened up: it may run commands there
@@ -363,7 +395,7 @@ class CodexLocal(CLIAdapter):
             if kind == "reasoning":
                 return "（思考）" + str(item.get("text") or item.get("summary") or "")[:400]
             if kind in ("command_execution", "local_shell_call"):
-                return "$ " + str(item.get("command") or "")[:200]
+                return "$ " + " ".join(str(item.get("command") or "").split())[:200]   # one line: a heredoc must not spill into the words
             if kind == "web_search":
                 return "（搜索）" + str(item.get("query") or "")[:200]
         if ev.get("type") in ("error", "turn.failed"):
@@ -392,6 +424,15 @@ class CodexLocal(CLIAdapter):
                     err = str(ev.get("message") or ev.get("error") or ev)[:500]
         return AgentResult(ok=bool(text) and not err, text=text, error=err, status="SUCCEEDED" if text and not err else "FAILED",
                            data={**({"usage": usage} if usage else {}), **({"thread": thread} if thread and _pga_workspace(task) else {})})
+
+
+log = logging.getLogger(__name__)
+CONTINUE_TEXT = "Continue exactly where you stopped and finish the task. Do not repeat what is already done."
+
+
+def hit_turn_limit(res: AgentResult) -> bool:
+    """The run stopped at its turn limit (not a real failure): the work can go on in the same session."""
+    return bool((res.data or {}).get("max_turns")) or "maximum number of turns" in (res.error or "").lower()
 
 
 def _pga_workspace(task: AgentTask) -> bool:
@@ -463,7 +504,7 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
                 live.set_extra(lid, "todos", [{"content": str(t.get("content") or ""), "status": t.get("status")} for t in arg["todos"] if isinstance(t, dict)])
             hint = (arg.get("file_path") or arg.get("pattern") or arg.get("query") or arg.get("url") or arg.get("command")
                     or arg.get("description") or "")
-            out.append(f"→ {b.get('name')} {str(hint)[:120]}".rstrip())
+            out.append(f"→ {b.get('name')} {' '.join(str(hint).split())[:120]}".rstrip())   # one line, or its rest reads as the answer
     return "\n".join(out) or None
 
 
@@ -525,8 +566,10 @@ class GeminiLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "Answer the request given on standard input."]
-        if task.permissions != WORKSPACE_WRITE:
+        if task.permissions not in (AUTO, WORKSPACE_WRITE):
             cmd += ["--approval-mode", "default"]
+        elif task.permissions == AUTO:
+            cmd += ["--approval-mode", "auto_edit"]
         if self.config.get("model"):
             cmd += ["-m", str(self.config["model"])]
         return cmd

@@ -21,8 +21,8 @@ Three patterns, each borrowed from one of the projects PGA learns from:
     convoy   a planner splits the work, workers take the pieces in parallel, a merger joins them (Gas Town's convoy → refinery)
 
 Every step is recorded as an AgentRun (parent = the workflow run). Agents that are not installed are skipped;
-a daily cost cap stops paid external agents; one run per agent at a time unless `max_concurrent` says otherwise
-(Paperclip's V1 rule). Workspaces live under ~/Documents/PGA/workspaces/.
+a daily cost cap stops paid external agents; `max_concurrent` limits simultaneous runs (Claude and Codex default to four,
+other agents to one). Workspaces live under ~/Documents/PGA/workspaces/.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ import re
 import threading
 import time
 import uuid
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -74,12 +75,12 @@ DEFAULT: dict[str, Any] = {
         "chatgpt": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "严肃问题 · ChatGPT（gpt-astra）",
                     "capabilities": ["serious", "research", "review", "write", "code", "general"], "reasoning": "medium",
                     "disable": ["memories", "shell_tool"],         # answers only: no local memory files, no shell commands
-                    "timeout_s": 600, "max_turns": 20, "traits": {"quality": 5, "speed": 2, "cost": 3},
+                    "timeout_s": 600, "max_turns": 20, "max_concurrent": 4, "traits": {"quality": 5, "speed": 2, "cost": 3},
                     "quota": {"source": "codex_sessions"},
                     "link": "ChatGPT 应用自带的 Codex：常驻 app-server（JSON-RPC），每段对话一个可恢复的线程，额度实时读取；只读沙箱，用你登录的 ChatGPT 账号；默认模型 = ~/.codex/config.toml（gpt-astra）。app-server 起不来时退回 codex exec"},
         "claude": {"adapter": "claude_local", "role": "代码 · Claude Code（订阅）",
-                   "capabilities": ["code", "serious", "review", "research", "write", "plan", "general"], "timeout_s": 900,
-                   "max_turns": 40, "traits": {"quality": 5, "speed": 3, "cost": 3},
+                   "capabilities": ["code", "serious", "review", "research", "write", "plan", "general"], "timeout_s": 3600,
+                   "max_turns": 400, "max_concurrent": 4, "traits": {"quality": 5, "speed": 3, "cost": 3},
                    "quota": {"source": "observed", "window_hours": 5, "window_runs": 40},
                    # questions go straight to the Anthropic API when ANTHROPIC_API_KEY works (billed per token);
                    # writing code always uses Claude Code
@@ -97,7 +98,7 @@ DEFAULT: dict[str, Any] = {
                    "link": "Hermes 本地 API（/v1/runs，带会话 id；需要在 ~/.hermes/.env 打开 API_SERVER_ENABLED，并把 API_SERVER_KEY 存进这里）；没开时用命令行 hermes chat -Q。模型用 ~/.hermes 里的（openai-codex · gpt-astra，与 ChatGPT 共用额度）"},
         "codex": {"adapter": "codex_local", "command": CHATGPT_CODEX, "role": "工程师 · Codex", "capabilities": ["code", "review", "general"],
                   "disable": ["memories"],
-                  "timeout_s": 900, "max_turns": 40, "traits": {"quality": 4, "speed": 2, "cost": 3}, "quota": {"source": "codex_sessions"},
+                  "timeout_s": 900, "max_turns": 40, "max_concurrent": 4, "traits": {"quality": 4, "speed": 2, "cost": 3}, "quota": {"source": "codex_sessions"},
                   "link": "同 ChatGPT 的 Codex CLI，但用于写代码（工作目录可写）"},
         "gemini": {"adapter": "gemini_local", "role": "Gemini CLI", "capabilities": ["research", "review", "general"],
                    "traits": {"quality": 4, "speed": 3, "cost": 2}, "quota": {"source": "observed", "window_hours": 24, "window_runs": 100},
@@ -182,6 +183,9 @@ def load() -> dict:
         r = data.get("routing") or {}
         out["routing"] = {**out["routing"], **r, "categories": r.get("categories") or out["routing"]["categories"],
                           "task_kinds": r.get("task_kinds") or out["routing"]["task_kinds"]}
+    for a in out["agents"].values():
+        if a.get("adapter") in ("claude_local", "codex_local"):
+            a.setdefault("max_concurrent", 4)
     return out
 
 
@@ -228,6 +232,17 @@ def save(data: dict) -> dict:
 
 _SEMAPHORES: dict[str, threading.BoundedSemaphore] = {}
 _SEM_LOCK = threading.Lock()
+_CONVERSATIONS: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
+
+
+def _conversation_lock(name: str, conversation: str) -> threading.Lock:
+    # Only callers/waiters retain locks; finished conversations do not accumulate forever.
+    with _SEM_LOCK:
+        key = (name, conversation)
+        lock = _CONVERSATIONS.get(key)
+        if lock is None:
+            lock = _CONVERSATIONS[key] = threading.Lock()
+        return lock
 
 
 def _slot(name: str, n: int) -> threading.BoundedSemaphore:
@@ -351,10 +366,44 @@ class AgentPool:
             task.prompt = f"{PGA_MARK}\n{task.prompt}"
         if callable(task.meta.get("translate")):            # the reader's language, paragraph by paragraph, while it writes
             live.translate_along(lid, task.meta["translate"])
+        slot = _slot(name, int(a.get("max_concurrent", 1)))
+        conv = task.meta.get("conversation")
+        waits = ([(_conversation_lock(name, str(conv)), "conversation")] if conv else []) + [(slot, "capacity")]
+        acquired = []
+        deadline = time.monotonic() + task.timeout_s
+        res = None
         try:
-            with _slot(name, int(a.get("max_concurrent", 1))):
-                res = self.adapters[name].run(task)
+            live.set_extra(lid, "phase", "queued")
+            # Serialize a conversation before selecting/replacing its session or installing a listener.
+            # Waiting for that conversation must not occupy a slot needed by other windows.
+            for lock, reason in waits:
+                live.set_extra(lid, "queue_reason", reason)
+                while True:
+                    if live.stopped(lid):
+                        res = AgentResult(ok=False, status="STOPPED", error="你停止了排队", data={"stopped": True})
+                        break
+                    left = deadline - time.monotonic()
+                    if left <= 0:
+                        res = AgentResult(ok=False, status="TIMEOUT", error="等待 agent 空闲超时，请稍后重试")
+                        break
+                    if lock.acquire(timeout=min(left, 0.1)):
+                        acquired.append(lock)
+                        break
+                if res is not None:
+                    break
+            if res is None:
+                if live.stopped(lid):
+                    res = AgentResult(ok=False, status="STOPPED", error="你停止了排队", data={"stopped": True})
+                else:
+                    live.set_extra(lid, "phase", "running")
+                    res = self.adapters[name].run(task)
+            if not res.agent:
+                res.agent = name
+            if not res.adapter:
+                res.adapter = self.adapters[name].type
         finally:
+            for lock in reversed(acquired):
+                lock.release()
             r = locals().get("res")
             trace = live.text(lid)
             if r is not None and trace.strip() and trace.strip() != (r.text or "").strip():
@@ -537,7 +586,8 @@ class AgentPool:
             r = st.result
             s.add(AgentRun(user_id=user.id if user else None, parent_id=parent.id, job_id=job_id, workflow=res.workflow,
                            pattern=res.pattern, step=st.step, agent=r.agent or "-", adapter=r.adapter or "-", status=r.status,
-                           prompt=st.task.prompt[:20000], output=r.text[:50000], data=_jsonable(r.data), error=r.error,
+                           prompt=st.task.prompt[:20000], output=r.text[:50000],
+                           data=_jsonable({**(r.data or {}), **({"model": r.model} if r.model else {})}), error=r.error,
                            workspace=st.task.workspace, cost_usd=r.cost_usd, duration_s=r.duration_s, attempt=st.attempt,
                            started_at=st.started, finished_at=st.finished))
             if r.usage is not None and user is not None:              # PGA's own model: count it against the budget

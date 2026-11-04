@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from pga.agents.base import FULL, WORKSPACE_WRITE, AgentResult, AgentTask
+from pga.agents.base import AUTO, FULL, WORKSPACE_WRITE, AgentResult, AgentTask
 
 if TYPE_CHECKING:
     from pga.agents.base import Adapter
@@ -91,7 +91,7 @@ def _parse(s: str | None) -> datetime | None:
 # ---------------------------------------------------------------- the state file
 
 _LOCK = threading.RLock()
-_STATE: dict[str, dict] = {"agents": {}, "threads": {}, "sessions": {}, "tokens": {}}
+_STATE: dict[str, dict] = {"agents": {}, "threads": {}, "sessions": {}, "tokens": {}, "cwds": {}, "seeds": {}}
 _LOADED: list[str] = []          # the file the state was loaded from (tests point PGA_LINKS_FILE elsewhere)
 _ACTIVE = threading.Event()      # set while a keeper runs: only then do link states steer routing
 
@@ -151,6 +151,17 @@ def thread_for(agent: str, conv: str) -> str | None:
 
 def session_for(agent: str, conv: str) -> str | None:
     return _get("sessions", f"{agent}|{conv}")
+
+
+def cwd_for(agent: str, conv: str) -> str | None:
+    """The folder a carried-on session was held in: Claude Code finds a session (and its cache) only from there."""
+    d = _get("cwds", f"{agent}|{conv}")
+    return d if d and os.path.isdir(d) else None
+
+
+def seed_for(conv: str) -> str | None:
+    """A past conversation that could not be resumed: its summary or whole text, read once by the first answer."""
+    return _get("seeds", conv)
 
 
 def active() -> bool:
@@ -559,6 +570,7 @@ class CodexServer:
         self.rpc: RpcProcess | None = None
         self.loaded: set[str] = set()
         self.listeners: dict[str, queue.Queue] = {}
+        self.approval_tasks = {}
         self.lock = threading.Lock()
         self.started_at = 0.0
 
@@ -598,7 +610,7 @@ class CodexServer:
             if self.rpc and self.rpc.alive():
                 return
             self.loaded.clear()
-            self.rpc = RpcProcess(self.argv, self.env, str(Path.home()), self._notify, _codex_answer)
+            self.rpc = RpcProcess(self.argv, self.env, str(Path.home()), self._notify, self._answer)
             try:
                 self.rpc.request("initialize", {"clientInfo": {"name": "pga", "title": "PGA", "version": "0.1"}}, 30)
                 self.rpc.notify("initialized")
@@ -606,6 +618,18 @@ class CodexServer:
                 self.rpc.close()
                 raise
             self.started_at = time.time()
+
+    def _answer(self, m: dict) -> dict:
+        p = m.get("params") or {}
+        task = self.approval_tasks.get(p.get("threadId"))
+        if task and task.permissions == AUTO and m.get("method") in (
+                "item/commandExecution/requestApproval", "item/fileChange/requestApproval"):
+            from pga.agents import approvals
+            allowed = approvals.request(task, {"method": m["method"], "command": p.get("command"),
+                                               "reason": p.get("reason"), "cwd": p.get("cwd"),
+                                               "changes": p.get("changes")})
+            return {"decision": "accept" if allowed else "decline"}
+        return _codex_answer(m)
 
     def _notify(self, m: dict) -> None:
         if m.get("method") == "_closed":
@@ -625,17 +649,17 @@ class CodexServer:
         """One turn on a thread: the conversation's own thread (kept, resumable) or a fresh ephemeral one."""
         from pga.agents import live
         lid, conv = task.meta.get("live_id"), task.meta.get("conversation")
-        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions == WORKSPACE_WRITE else "read-only"   # 完全: as in your terminal
+        sandbox = "danger-full-access" if task.permissions == FULL else "workspace-write" if task.permissions in (AUTO, WORKSPACE_WRITE) else "read-only"   # 完全: as in your terminal
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         model = task.meta.get("model") or ad.config.get("model")
         effort = task.meta.get("effort") or ad.config.get("reasoning")
         used_model = None
         tid, fresh = (thread_for(self.name, conv) if conv else None), True
-        if tid and tid in self.loaded:
+        if tid and tid in self.loaded and _SEEN_PERMS.get(f"{self.name}|{conv}") == task.permissions:
             fresh = False
         elif tid:
             try:
-                self.rpc.request("thread/resume", {"threadId": tid, "cwd": cwd, "sandbox": sandbox, "approvalPolicy": "never",
+                self.rpc.request("thread/resume", {"threadId": tid, "cwd": cwd, "sandbox": sandbox, "approvalPolicy": "on-request" if task.permissions == AUTO else "never",
                                                    "excludeTurns": True}, 60)
                 self.loaded.add(tid)
                 fresh = False
@@ -643,7 +667,7 @@ class CodexServer:
                 log.info("codex thread %s not resumed (%s): a new one", tid, exc)
                 tid = None
         if not tid:
-            params: dict[str, Any] = {"cwd": cwd, "sandbox": sandbox, "approvalPolicy": "never", "ephemeral": not conv,
+            params: dict[str, Any] = {"cwd": cwd, "sandbox": sandbox, "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "ephemeral": not conv,
                                       "serviceName": "PGA"}
             if task.system.strip():
                 params["developerInstructions"] = task.system.strip()
@@ -663,8 +687,9 @@ class CodexServer:
             text += "\n\nReply with JSON only."
         q: queue.Queue = queue.Queue()
         self.listeners[tid] = q
+        self.approval_tasks[tid] = task
         try:
-            params = {"threadId": tid, "input": [{"type": "text", "text": text}]
+            params = {"threadId": tid, "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "input": [{"type": "text", "text": text}]
                       + [{"type": "localImage", "path": str(p)} for p in task.meta.get("images") or []]}
             if model:
                 params["model"] = str(model)
@@ -672,6 +697,7 @@ class CodexServer:
                 params["effort"] = str(effort)
             turn_id = self.rpc.request("turn/start", params, 60)["turn"]["id"]
             finals, deltas, err, usage = [], [], None, None
+            compaction = None
             deadline = time.monotonic() + task.timeout_s
             while True:
                 left = deadline - time.monotonic()
@@ -703,16 +729,22 @@ class CodexServer:
                 if meth == "item/agentMessage/delta":
                     deltas.append(p.get("delta") or "")
                     live.append(lid, p.get("delta") or "")
+                elif meth == "item/started" and (p.get("item") or {}).get("type") == "contextCompaction":
+                    compaction = {"status": "running"}
+                    live.set_extra(lid, "compaction", compaction)
                 elif meth == "item/completed":
                     item = p.get("item") or {}
                     kind = item.get("type")
-                    if kind == "agentMessage":
+                    if kind == "contextCompaction":
+                        compaction = {"status": "completed"}
+                        live.set_extra(lid, "compaction", compaction)
+                    elif kind == "agentMessage":
                         finals.append(str(item.get("text") or ""))
                         live.append(lid, "\n")
                     elif kind == "fileChange":
                         live.append(lid, "→ Edit " + ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200] + "\n")
                     elif kind == "commandExecution":
-                        live.append(lid, f"$ {str(item.get('command') or '')[:200]}\n")
+                        live.append(lid, f"$ {' '.join(str(item.get('command') or '').split())[:200]}\n")
                     elif kind == "webSearch":
                         live.append(lid, f"（搜索）{str(item.get('query') or '')[:200]}\n")
                 elif meth == "thread/tokenUsage/updated":
@@ -730,11 +762,15 @@ class CodexServer:
                     break
         finally:
             self.listeners.pop(tid, None)
+            self.approval_tasks.pop(tid, None)
+            from pga.agents import approvals
+            approvals.finish(lid)
         out = (finals[-1] if finals else "".join(deltas)).strip()
         ok = bool(out) and not err
         return AgentResult(ok=ok, text=out, error=None if ok else (err or "no answer"), status="SUCCEEDED" if ok else "FAILED",
                            session_id=tid, model=str(model or used_model or "") or None,
-                           data={"via": "app-server", "thread": tid, **({"effort": effort} if effort else {}), **({"usage": usage} if usage else {})})
+                           data={"via": "app-server", "thread": tid, **({"effort": effort} if effort else {}), **({"usage": usage} if usage else {}),
+                                 **({"compaction": compaction} if compaction else {})})
 
 
 # ---------------------------------------------------------------- stream-json sessions (Claude Code / CodeBuddy)
@@ -744,8 +780,9 @@ _SEEN_PERMS: dict[str, str] = {}             # agent|conversation → the access
 
 
 def _perm_note(perms: str, cwd: str) -> str:
-    from pga.agents.base import FULL, WORKSPACE_WRITE
+    from pga.agents.base import AUTO, FULL, WORKSPACE_WRITE
     what = {FULL: "you can read and edit files, run shell commands (Bash) and start subagents",
+            AUTO: "you can read files and request edits and shell commands; use the available tools and wait for user approval when prompted, rather than claiming read-only access",
             WORKSPACE_WRITE: "you can read and edit files, but not run shell commands"}.get(perms, "you can read and search files and the web, but not edit files or run commands")
     return (f"[PGA note — access for this conversation, as of now: {what}. Working folder: {cwd}. "
             "Earlier turns may have had other tools; go by your tools now. If a tool is listed, use it.]")
@@ -763,6 +800,7 @@ class StreamSession:
         self.resumed = bool(self.session_id)
         self.permissions, self.cwd = task.permissions, task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         self.choice = (task.meta.get("model"), task.meta.get("effort"), bool(task.meta.get("mcp")))
+        self.max_turns = task.max_turns
         exe = ad.exe()
         if not exe:
             raise LinkDown(f"{ad.binary} is not installed")
@@ -785,7 +823,7 @@ class StreamSession:
         key = f"{ad.name}|{conv}"
         with cls._ALL_LOCK:
             s = cls._ALL.get(key)
-            if s and (not s.alive() or s.permissions != task.permissions or s.choice != (task.meta.get("model"), task.meta.get("effort"), bool(task.meta.get("mcp")))
+            if s and (not s.alive() or s.permissions != task.permissions or s.max_turns != task.max_turns or s.choice != (task.meta.get("model"), task.meta.get("effort"), bool(task.meta.get("mcp")))
                       or (task.workspace and s.cwd != task.workspace)):
                 s.close()
                 s = None
@@ -799,7 +837,35 @@ class StreamSession:
             # the model goes by them — say plainly what it can do now, so it does not refuse what it is now allowed
             text = f"{_perm_note(task.permissions, s.cwd)}\n\n{text}"
         _SEEN_PERMS[key] = task.permissions
-        return s.send(ad, task, text)
+        try:
+            return cls._carry_on(s, ad, task, s.send(ad, task, text))
+        except LinkDown:
+            if warm or not s.resumed:
+                raise
+        # the session it was to resume is gone (its file deleted, or it was held elsewhere): a new one, told everything
+        log.info("%s session %s could not be resumed: a new one", ad.name, s.session_id)
+        _put("sessions", key, None)
+        with cls._ALL_LOCK:
+            s.close()
+            s = cls._ALL[key] = cls(ad, conv, task)
+        return s.send(ad, task, None)
+
+    @staticmethod
+    def _carry_on(s: "StreamSession", ad: "Adapter", task: AgentTask, res: AgentResult, rounds: int = 8) -> AgentResult:
+        """A long task that runs into the turn limit is not over: say "continue" in the same session, so the work goes on
+        where it stopped, and join what each round said (the limit counts per message, so every round gets a fresh budget)."""
+        said = [res.text] if res.text else []
+        for _ in range(rounds):
+            from pga.agents.adapters import CONTINUE_TEXT, hit_turn_limit
+            if res.ok or not hit_turn_limit(res):
+                break
+            log.info("%s hit its turn limit: continuing the same session", ad.name)
+            res = s.send(ad, task, CONTINUE_TEXT)
+            if res.text:
+                said.append(res.text)
+        if len(said) > 1:
+            res.text = "\n\n".join(said)
+        return res
 
     @classmethod
     def count(cls, name: str) -> int:
@@ -878,6 +944,17 @@ class StreamSession:
                     ev = json.loads(line)
                 except ValueError:
                     ev = None
+                if isinstance(ev, dict) and ev.get("type") == "control_request":
+                    req = ev.get("request") or {}
+                    if req.get("subtype") == "can_use_tool":
+                        from pga.agents import approvals
+                        allowed = task.permissions == FULL or (task.permissions == AUTO and approvals.request(
+                            task, {"tool": req.get("tool_name"), "input": req.get("input")}))
+                        response = {"behavior": "allow", "updatedInput": req.get("input") or {}} if allowed else {"behavior": "deny", "message": "User did not approve this operation"}
+                        self.p.stdin.write(json.dumps({"type": "control_response", "response": {
+                            "subtype": "success", "request_id": ev.get("request_id"), "response": response}}) + "\n")
+                        self.p.stdin.flush()
+                    continue
                 if isinstance(ev, dict):
                     if ev.get("session_id") and ev.get("session_id") != self.session_id:
                         self.session_id = ev["session_id"]

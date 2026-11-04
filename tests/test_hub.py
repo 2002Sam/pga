@@ -268,6 +268,17 @@ def test_a_pool_agent_sees_its_own_apps_past_and_can_carry_it_on(session_factory
     cxid = c.get(f"/v1/users/{user.id}/agents/chatgpt/past").json()[0]["id"]
     r = c.post(f"/v1/users/{user.id}/agents/chatgpt/past/{cxid}/continue").json()
     assert r["resumes"] == "thread" and links.thread_for("chatgpt", f"{user.id}:{r['conversation']}") == "thread-42"   # Codex resumes that very thread
+    real = tmp_path / "Users-x-proj"                       # the folder the session was held in: it resumes there
+    real.mkdir()
+    (proj / "sess-1.jsonl").write_text((proj / "sess-1.jsonl").read_text().replace("/Users/x/proj", str(real)))
+    r = c.post(f"/v1/users/{user.id}/agents/claude/past/{past[0]['id']}/continue").json()
+    conv = f"{user.id}:{r['conversation']}"
+    assert r["resumes"] == "session" and links.session_for("claude", conv) == "sess-1" and links.cwd_for("claude", conv) == str(real)
+    assert links.seed_for(conv) is None
+    (proj / "sess-1.jsonl").unlink()                         # gone (no session, no summary): the whole text, read once
+    r = c.post(f"/v1/users/{user.id}/agents/claude/past/{past[0]['id']}/continue", json={}).json()
+    conv = f"{user.id}:{r['conversation']}"
+    assert r["resumes"] == "full" and links.session_for("claude", conv) is None and "earlier_conversation" in links.seed_for(conv)
 
 
 def test_sessions_pga_ran_itself_are_left_out_and_removed():

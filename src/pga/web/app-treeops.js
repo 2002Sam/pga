@@ -51,6 +51,7 @@ async function refresh(id) { S.forest = null; if (id) delete S.detail[id]; await
 /* the composer continues the conversation you are reading (at its end); a branch starts from the node you picked */
 const chainEnd = () => { const { nodes } = chainOf(S.node); return nodes[nodes.length - 1] || nodeOf(S.node); };
 async function send() {
+  if (composerBusy()) return;
   const branching = S.branchFrom && nodeOf(S.branchFrom);
   const n = branching || (S.bud != null ? nodeOf(S.node) : chainEnd()), text = ($("#tnText")?.value || "").trim(); if (!n) return;
   if (!text) { toast(L("先写下你要从这里问什么", "Write what you want to ask first")); return; }
@@ -126,7 +127,7 @@ async function showSettings() {
   const t = S.proc?.task; if (!t) { toast(L("这个抱负还没有在长期运行：先按开始", "Not running yet: press Start first")); return; }
   let preset = "balanced"; try { preset = (await api(`/v1/aims/${S.aim}/allocation`)).settings?.preset || "balanced"; } catch {}
   let idl = { on: true, minutes: 60 }; try { idl = await api(`/v1/users/${S.uid}/idle`); } catch {}
-  modal(`<h2>${L("设置", "Settings")}</h2><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
+  modal(`<h2>${L("设置", "Settings")}</h2><button type="button" onclick="mrSettings()">模型快捷档位</button><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
     <div class="label">${L("驱动模式", "Drive mode")}</div>${LEVELS.map(([k, nm, d]) => `<label class="opt"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}><span><b style="font-weight:500">${nm}</b><div class="d">${d}</div></span></label>`).join("")}
     <div style="margin:4px 0 16px 26px;font-size:13px">${L("每想", "Stop every")} <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:60px"> ${L("轮停下来一次", "rounds")}</div>
     <div class="label">${L("受控分叉 · 多次生成", "Controlled forking · samples")}</div>

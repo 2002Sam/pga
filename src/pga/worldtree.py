@@ -336,6 +336,7 @@ class WorldTree:
         if not self.built(user):
             return {"placed": 0, "why": "not built"}
         have = {n.ref: n for n in self.nodes(user.id) if n.ref}
+        derived = (user.preferences or {}).get("derived_from") or {}
         todo, quick = [], 0
         for x in self.items(user):
             n = have.get(x["key"])
@@ -343,6 +344,13 @@ class WorldTree:
                 if (n.data or {}).get("last") != x["last"] or n.title != _clean(x["title"], 200):
                     n.title, n.data = _clean(x["title"], 200) or n.title, {**(n.data or {}), **self._leaf_data(x)}
                     self._stale(self.s.get(WorldNode, n.parent_id) if n.parent_id else None)
+                continue
+            src = derived.get(x["key"])                      # a branch, copy or second opinion: the topic of what it came from
+            pl = have.get(src) if src else None
+            p0 = self.s.get(WorldNode, pl.parent_id) if pl is not None and pl.parent_id else None
+            if x["kind"] != "aim" and p0 is not None and p0.kind != "root":
+                have[x["key"]] = self._put(user, p0, x)
+                quick += 1
                 continue
             if x["kind"] != "aim" and x["line"].startswith("aim:") and self._put_under_aim(user, x):
                 quick += 1
@@ -458,7 +466,7 @@ class WorldTree:
             level = [n for n in topics if n.depth == depth][:12]
             blocks = []
             for i, n in enumerate(level):
-                kids = self.children(n)
+                kids = [k for k in self.children(n) if not (k.data or {}).get("hidden")]      # removed, or archived by a tidy (its 🗃 stands for it)
                 lines = [f"  - {'topic' if k.kind in ('topic', 'plan') else 'motivation' if k.kind == 'aim' else 'conversation'}: {_clean(k.title, 70)}"
                          + (f" — {_clean(k.summary, 160)}" if k.summary else f" — {_clean((k.data or {}).get('excerpt', ''), 120)}" if (k.data or {}).get("excerpt") else "")
                          for k in kids[:40]]

@@ -70,6 +70,7 @@ async function boot() {
   await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
     api(`/v1/agents`).then((d) => { const A = d.agents || {}; S.acctOf = Object.fromEntries(Object.entries(A).map(([k, v]) => [k, v.account || ""])); }).catch(() => {})]);
   show(S.view === "tree" && !S.aim ? "home" : S.view);
+  requestAnimationFrame(() => requestAnimationFrame(() => window.pgaBootDone?.()));   // the first view is painted: the splash goes
   if (S.view !== "chats") loadTimeline();
   setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (!S.sending) { loadChats(); loadTimeline(); } }, 20000);
 }

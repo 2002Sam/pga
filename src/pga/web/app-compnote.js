@@ -15,13 +15,19 @@ const cmBlocks = () => [...($("#cdlgIn")?.children || [])].filter((x) => !x.clas
 
 /* ------------------------------------------------ inside a conversation: its place between messages, or out of the page */
 function cmApply() {
-  const k = cmKey(); if (!$("#vChats")) return;
-  const out = !!(k && cmNotes()[k]?.open); document.documentElement.classList.toggle("compout", out);
-  if (out) { const h = cmHost(); try { if (!h.document.querySelector(`.cnote[data-cn="${CSS.escape(k)}"]`)) h.cnOpen({ key: k, title: cmTitle(), src: window }); else h.cnSrc?.(k, window); } catch {} }
-  if (!$("#cback")) $(".cpane")?.insertAdjacentHTML("beforeend", `<div class="cback" id="cback"><span>${L("输入框在随记里", "The composer is in a note")}</span><button class="sm" data-cmback>${L("↩ 放回这里", "↩ Put it back here")}</button></div>`);
-  if (!CM.drag || CM.drag.note) cmPlace(k && !out ? CM.at[k] : null);    // not while it is in your hand
+  if (!$("#vChats")) return;
+  const key=cmKey(), notes=cmNotes(), saved=key && notes[key];
+  // Retire old detached/inline positions, preserving any saved note draft.
+  if(saved?.open) {
+    const tx=$("#chatText"); if(tx && !tx.value && saved.text)tx.value=saved.text;
+    notes[key]={...saved,open:false};cmSaveNotes(notes);
+    try { cmHost().document.querySelector(`.cnote[data-cn="${CSS.escape(key)}"]`)?.remove(); } catch {}
+  }
+  document.documentElement.classList.remove("compout","cinline","cmoving","cmlift");
+  $("#cback")?.remove();cmPlace(null);
 }
 function cmPlace(at) {                             // between messages: an empty slot in the text the composer sits on
+  at = null; // The composer always stays at the bottom, including legacy saved positions.
   const box = $("#cdlgIn"), comp = $("#ccomp"); if (!box || !comp) return;
   let slot = box.querySelector(".cslot");
   if (at == null) { slot?.remove(); document.documentElement.classList.remove("cinline"); comp.style.top = ""; return; }
@@ -80,11 +86,7 @@ function cmLine(best) {                            // where it will land
 }
 
 /* ------------------------------------------------ the composer in its page */
-document.addEventListener("pointerdown", (e) => {
-  if (e.button !== 0 || CM.drag || CM.press || document.documentElement.classList.contains("compout") || !e.target.closest?.("#ccomp")) return;
-  if (e.target.closest("select, option, input[type=range]")) return;     // a menu opens under a still pointer: never taken for a hold
-  CM.press = cmPress(e, cmLift);
-}, true);
+// Composer press-and-hold dragging has been removed.
 document.addEventListener("pointermove", (e) => {
   const p = CM.press;
   if (p && !cmPressMove(p, e)) { if (p.dead) CM.press = null; return; }

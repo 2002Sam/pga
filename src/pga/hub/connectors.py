@@ -650,6 +650,32 @@ def read_one(connector: str, external_id: str) -> Conv | None:
     return None
 
 
+def session_home(connector: str, external_id: str) -> tuple[bool, str | None]:
+    """Whether the session's own file is still here (so it can be resumed), and the folder it was held in."""
+    eid = re.sub(r"[^\w.\-]", "", external_id)[:200]
+    f = None
+    if eid and connector in ("claude_code", "codebuddy"):
+        f = next(iter((CLAUDE_CODE_DIR if connector == "claude_code" else CODEBUDDY_DIR).glob(f"*/{eid}.jsonl")), None)
+    elif eid and connector == "codex":
+        f = next((p for r in CODEX_DIRS for p in r.glob(f"**/*{eid}*.jsonl")), None)
+    if f is None:
+        return False, None
+    try:
+        with f.open(encoding="utf-8", errors="replace") as fh:
+            for _, line in zip(range(200), fh):
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                pl = e.get("payload") if isinstance(e, dict) else None
+                cwd = isinstance(e, dict) and (e.get("cwd") or (pl.get("cwd") if isinstance(pl, dict) else None))
+                if cwd:
+                    return True, str(cwd)
+    except OSError:
+        return False, None
+    return True, None
+
+
 LOCAL_FULL = ("claude_code", "codebuddy", "workbuddy", "codex", "hermes")
 
 

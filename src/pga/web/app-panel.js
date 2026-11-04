@@ -19,7 +19,7 @@ function recentItems() {
 const dayGroup = (iso) => { const d = new Date(iso), now = new Date(), days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
   return days <= 0 ? L("今天", "Today") : days === 1 ? L("昨天", "Yesterday") : days < 7 ? L("最近 7 天", "Previous 7 days") : days < 30 ? L("最近 30 天", "Previous 30 days") : L("更早", "Older"); };
 function renderRecent() {
-  const box = $("#clist"); if (!box) return;
+  const box = $("#clist"); if (!box || EMBED) return;   // in a window the list is never shown
   const xs = recentItems(), here = _hereKey(), keep = box.querySelector(".rlist")?.scrollTop;
   let html = "", g = null;
   for (const x of xs) {
@@ -29,7 +29,7 @@ function renderRecent() {
       <span>${esc([x.kind === "tree" ? L("树", "tree") : x.kind === "import" ? (x.agent || L("导入", "imported")) : "PGA", x.last ? ago(x.last) : ""].filter(Boolean).join(" · "))}</span></div>`;
   }
   box.innerHTML = `<div class="ch"><button class="ghost sm" data-act="search" title="${L("搜索所有对话", "Search everything")}">${I.search}</button><span class="grow"></span>
-      <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话", "Bring in conversations from other apps")}">${L("导入", "Import")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>
+      <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话", "Bring in conversations from other apps")}">${L("导入", "Import")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button>${typeof memoBtns === "function" ? memoBtns() : ""}</div>
     <div class="rlist">${html || `<div class="empty" style="padding:20px">${L("还没有对话", "No conversations yet")}</div>`}</div>`;
   if (keep) box.querySelector(".rlist").scrollTop = keep;
 }
@@ -51,6 +51,54 @@ function toBottomButton() {
   const d = $("#cdlg"); d.addEventListener("scroll", () => { $("#toBottom").hidden = d.scrollHeight - d.scrollTop - d.clientHeight < 240; });
 }
 
+/* ------------------------------------------------ the middle, left edge: ‹ back to the conversation before this one
+   (the one you had open before in this pane, else the one this branch grew from); in a window, that conversation's own window if it has one */
+S.chatBack = [];
+const _loadChatBK = loadChat;
+loadChat = function (key) {
+  if (S.chatShown && key && !key.startsWith("new:") && key !== S.chatShown && S.chatBack.at(-1) !== S.chatShown && !S.chatBacking) S.chatBack.push(S.chatShown);
+  S.chatBacking = false; if (key && !key.startsWith("new:")) S.chatShown = key;
+  return _loadChatBK(key);
+};
+function chatBackTarget() {
+  const prev = S.chatBack.at(-1); if (prev && prev !== S.chat) return { key: prev, pop: true };
+  const from = S.chat && S.chatCtx?.[S.chat]?.branch?.from; if (from) return { key: from };
+  try {                                                // in a window: the window it grew from on the stage (the server may not have kept the branch)
+    const P = window.parent !== window ? window.parent : null; if (!P?.ST) return null;
+    const me = P.ST.nodes.find((n) => n.type === "win" && P.document.querySelector(`.stnode[data-nid="${n.id}"] iframe`)?.contentWindow === window);
+    const up = me?.par && P.ST.nodes.find((n) => n.id === me.par && n.type === "win");
+    if (up) return { key: up.key || "", win: up.id };
+    if (me?.from && me.from !== me.key) return { key: me.from };
+  } catch {}
+  return null;
+}
+function chatBackTitle(key) { return (S.allChats || []).find((x) => x.key === key)?.title || (S.chatCtx?.[S.chat]?.branch?.from === key ? S.chatCtx[S.chat].parent_title : "") || ""; }
+function backButton() {
+  const pane = $(".cpane"); if (!pane) return;
+  if (Q.get("embed")) {                               // in a window: the ‹ sits in the window's own title bar, outside this page
+    try { const P = window.parent, me = P.ST?.nodes.find((n) => n.type === "win" && P.document.querySelector(`.stnode[data-nid="${n.id}"] iframe`)?.contentWindow === window);
+      const e = me && P.document.querySelector(`.stnode[data-nid="${me.id}"]`); if (e) P.stBackLook(e, me); } catch {}
+    $("#chatBack")?.remove(); return;
+  }
+  const t = S.view === "chats" && !S.lineView && !S.imp && !S.treeItem ? chatBackTarget() : null;
+  let b = $("#chatBack");
+  if (!t) { b?.remove(); return; }
+  if (!b) { pane.insertAdjacentHTML("beforeend", `<button id="chatBack" class="chatback">‹</button>`); b = $("#chatBack"); }
+  const ti = chatBackTitle(t.key);
+  b.title = L("回到之前的对话", "Back to the conversation before") + (ti ? `「${ti.slice(0, 40)}」` : "");
+}
+function chatGoBack() {
+  const t = chatBackTarget(); if (!t) return;
+  if (t.pop) S.chatBack.pop();
+  try {                                                // in a window: bring up that conversation's own window if it has one
+    const P = window.parent !== window ? window.parent : null, w = P?.ST?.nodes.find((n) => n.type === "win" && n.key === t.key);
+    const id = t.win || w?.id; if (id && P.stFocus) { P.stFocus(id, true); return; }
+  } catch {}
+  S.chatBacking = true; S.lineView = null; S.imp = null; S.treeItem = null; S.chat = t.key;
+  history.replaceState(null, "", qs()); renderChat(); loadChat(t.key);
+}
+document.addEventListener("click", (e) => { if (e.target.closest("#chatBack")) { e.preventDefault(); chatGoBack(); } });
+
 /* ------------------------------------------------ the right, top: where it runs, and its context */
 function envCard() {
   const box = $("#cenv"); if (!box || S.view !== "chats") return;
@@ -67,12 +115,12 @@ function envCard() {
   const known = parts.reduce((a, p) => a + p[1], 0), sys = Math.max(0, used - known);
   if (used) parts.push([L("系统与工具", "System and tools"), sys, "#f08aa8"]);
   const total = used || known, pct = Math.min(100, total / win * 100);
-  const folder = acc.folder ? acc.folder.replace(/^\/Users\/[^/]+/, "~") : L("这段对话自己的文件夹", "Its own folder");
+  const folder = (acc.folder || acc.resolved_folder || "").split("/").filter(Boolean).pop() || L("目录待确认", "Folder pending");
   box.innerHTML = `<div class="ecard"><div class="eh">${L("环境", "Environment")}</div>
       <div class="erow"><span class="ei">💻</span>${L("这台电脑", "This computer")}<em>${esc(location.hostname)}</em></div>
       <div class="erow"><span class="ei">📁</span><span class="ef" title="${esc(acc.folder || "")}">${esc(folder)}</span><a href="#" data-pickdir="1">${L("换", "Change")}</a></div>
       <div class="erow"><span class="ei">◆</span>${esc(agentLabel(last?.agent || agentName))}<em>${esc(last?.model || h.model || "")}</em></div>
-      <div class="erow"><span class="ei">🔒</span>${esc({ read: L("只读", "Read only"), write: L("可写文件", "May write"), full: L("完全访问", "Full access") }[acc.access || "read"] || acc.access)}${acc.mcp ? " · MCP" : ""}</div></div>
+      <div class="erow"><span class="ei">🔒</span>${esc({ read: L("只读", "Read only"), auto: L("自动", "Auto"), write: L("自动", "Auto"), full: L("完全批准", "Full approval") }[acc.access || "auto"] || acc.access)}${acc.mcp ? " · MCP" : ""}</div></div>
     <div class="ecard"><div class="eh">${L("上下文", "Context")}</div>
       <div class="eu"><b>${pct.toFixed(0)}% ${L("已用", "used")}</b><span>${kfmt(total)} / ${kfmt(win)}</span></div>
       <div class="ebar">${parts.filter((p) => p[1] > 0).map((p) => `<i style="width:${(p[1] / win * 100).toFixed(2)}%;background:${p[2]}"></i>`).join("")}</div>
@@ -150,7 +198,7 @@ openLeaf = async function (n) {
 
 function renderRight() { envCard(); const t = $("#ctree"); if (t) t.hidden = true; }   // the world tree lives in 所有对话 now: each conversation shows its folder there
 const _rcPanel = renderChat;
-renderChat = function () { _rcPanel(); toBottomButton(); renderRight(); };
+renderChat = function () { _rcPanel(); toBottomButton(); backButton(); renderRight(); };
 
 document.addEventListener("click", async (e) => {
   const ri = e.target.closest("[data-ritem]"); if (ri) { openItem(ri.dataset.ritem); return; }
@@ -176,3 +224,11 @@ drawWorldBar = function () {
   bar.querySelector(".gh")?.insertAdjacentHTML("afterbegin", `<button class="sm ghost gfold" data-gmin="1" title="${W.barMin ? L("展开", "Expand") : L("收起", "Collapse")}">${W.barMin ? "▸" : "▾"}</button>`);
 };
 document.addEventListener("click", (e) => { if (!e.target.closest("[data-gmin]")) return; W.barMin = !W.barMin; try { localStorage.setItem("pga_gbar_min", W.barMin ? "1" : "0"); } catch {} drawWorldBar(); });
+
+/* the composer: a click anywhere on its card (off its buttons and menus) puts you in the text */
+document.addEventListener("pointerdown", (e) => {            // pointerdown: some page code cancels it, which leaves no mousedown
+  const card = e.target.closest(".ccomp .inner, .cont .inner"); if (!card || e.button !== 0) return;
+  if (e.target.closest("textarea, input, select, button, a, label, summary, details, [contenteditable], [data-act], .dplan, .pop, img")) return;
+  const ta = card.querySelector("textarea"); if (!ta || ta.disabled) return;
+  e.preventDefault(); ta.focus(); if (document.activeElement === ta && ta.selectionStart === ta.selectionEnd) ta.setSelectionRange(ta.value.length, ta.value.length);
+});

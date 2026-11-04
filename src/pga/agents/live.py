@@ -8,6 +8,8 @@ runs stay visible for a little while. In-memory only: API and worker share one p
 
 from __future__ import annotations
 
+import logging
+from contextlib import contextmanager
 import threading
 import time
 import uuid
@@ -30,6 +32,33 @@ def start(agent: str, *, category: str = "", workflow: str = "", step: str = "",
     return lid
 
 
+_OBSERVERS: dict[str, list] = {}
+
+
+@contextmanager
+def observe(conversation, callback):
+    """Observe complete deltas before the UI tail is truncated; always detach on exit."""
+    with _LOCK:
+        _OBSERVERS.setdefault(conversation, []).append(callback)
+    try:
+        yield
+    finally:
+        with _LOCK:
+            callbacks = _OBSERVERS.get(conversation, [])
+            if callback in callbacks:
+                callbacks.remove(callback)
+            if not callbacks:
+                _OBSERVERS.pop(conversation, None)
+
+
+def _notify(lid, text, callbacks):
+    for callback in callbacks:
+        try:
+            callback(lid, text)
+        except Exception:
+            logging.getLogger(__name__).exception("Live output observer failed")
+
+
 def append(lid: str | None, text: str) -> None:
     if not lid or not text:
         return
@@ -37,6 +66,8 @@ def append(lid: str | None, text: str) -> None:
         r = _RUNS.get(lid)
         if r is not None:
             r["text"] = (r["text"] + text)[-MAX_TEXT:]
+        callbacks = list(_OBSERVERS.get((r or {}).get("tags", {}).get("conversation"), []))
+    _notify(lid, text, callbacks)
 
 
 def set_extra(lid: str | None, key: str, value) -> None:
@@ -94,6 +125,8 @@ def image(lid: str, n: int) -> tuple[bytes, str] | None:
 
 
 def finish(lid: str | None, ok: bool, text: str | None = None, error: str | None = None) -> None:
+    from pga.agents import approvals
+    approvals.finish(lid)
     if not lid:
         return
     with _LOCK:

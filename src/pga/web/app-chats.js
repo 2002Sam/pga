@@ -73,7 +73,7 @@ function tlFoldToggle() {
 document.addEventListener("click", (e) => { if (e.target.closest("#tlFold")) { e.preventDefault(); tlFoldToggle(); } });
 function renderTimeline() { if (tlMode() === "lines") renderLines(); else renderTimeAxis(); }
 const tlHead = () => `<div class="ch"><button class="ghost sm" data-act="search" title="${L("搜索所有对话", "Search everything")} (${MOD} K)">${I.search}</button><span class="seg"><button class="${tlMode() === "lines" ? "on" : ""}" data-tlmode="lines">${L("按线", "Lines")}</button><button class="${tlMode() === "time" ? "on" : ""}" data-tlmode="time">${L("按时间", "Time")}</button></span>${tlMode() === "time" ? `<button class="sm ghost tlfoldb ${tlFolded() ? "on" : ""}" id="tlFold" title="${tlFolded() ? L("展开回一条条线", "Spread back into lines") : L("把所有对话收拢到一条线上，每段对话一个点，快速挑一段", "Gather every conversation onto one line, one point each, to pick one quickly")}" aria-label="${tlFolded() ? L("展开", "Spread") : L("收拢", "Gather")}">${tlFolded() ? TLICON.spread : TLICON.gather}</button>` : ""}<span class="grow"></span>
-  <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button></div>`;
+  <button class="sm ghost" id="tlImport" title="${L("导入别的应用里的对话，并把它们整理到一条条线上", "Bring in conversations from other apps and tidy them into lines")}">${L("导入与整理", "Import & tidy")}</button><button class="sm" id="newChat">${L("＋ 新对话", "+ New chat")}</button>${typeof memoBtns === "function" ? memoBtns() : ""}</div>`;
 /* one row per line (one piece of ongoing work), the latest first; the strip under it marks the days it was active */
 function renderLines() {
   const box = $("#clist"); if (!box) return;
@@ -216,7 +216,7 @@ function renderLineDialog() {
     if (x.kind === "chat") html += chatTurnsHtml(buf.map((e) => e.turn), x.key);
     else if (x.kind === "import") {             // one stretch at a time, so a time shows only where there was a pause
       let run = [];
-      const put = () => { if (run.length) html += PGATree.chat(run, { md, name: (m) => m.agent }); run = []; };
+      const put = () => { if (run.length) html += `<div style="display:contents" data-file-key="${esc(x.key)}">${PGATree.chat(run, { md, name: (m) => m.agent })}</div>`; run = []; };
       for (const e of buf) {
         if (e.gap) { put(); html += `<div class="ctime">${esc(e.gap)}</div>`; continue; }
         run.push(e.conv.who === "user" ? { agent: "you", kind: "question", text: e.conv.text, at: e.at, data: {} } : { agent: e.agent || "AI", kind: "answer", text: e.conv.text, at: e.at, data: {} });
@@ -244,13 +244,15 @@ function renderLineDialog() {
   if (tg.kind === "tree") { $("#ccomp").innerHTML = `<div class="inner" style="text-align:center"><button class="primary" data-opentree="${esc(tg.ref.tree)}" data-node="${esc(tg.ref.node)}">${L(`到树上接着「${esc(tg.title.slice(0, 16))}」说`, `Carry on “${esc(tg.title.slice(0, 20))}” on the tree`)}</button></div>`; return; }
   $("#ccomp").innerHTML = `<div class="inner">${envBar(tg.kind === "chat" ? tg.key : "", tg.kind === "chat" ? S.chatTurns[tg.key] || [] : [])}
     <div class="ltgt"><i style="background:hsl(${hueOf(tg.key)} 55% 58%)"></i>${L("接着：", "Carrying on: ")}<b>${esc(tg.title.slice(0, 40))}</b><span>${L("（点上面任意一段的标签可以换）", "(click any label above to switch)")}</span></div>
-    ${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（Enter 发送，Shift+Enter 换行）", "Your response, next step, or a question… (Enter sends, Shift+Enter for a new line)"))}">${esc(S.chatDraft || "")}</textarea>
-      ${accBtn(tg.kind === "chat" ? tg.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
+    ${followupHtml()}${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${esc(L("你的回应、下一步计划，或者接着问…（Enter 发送，Shift+Enter 换行）", "Your response, next step, or a question… (Enter sends, Shift+Enter for a new line)"))}">${esc(S.chatDraft || "")}</textarea>
+      ${accBtn(tg.kind === "chat" ? tg.key : "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>${effortSel(tg.kind === "chat" ? tg.key : "")}${branchCountTool()}${typeof knowledgeTool === "function" ? knowledgeTool() : ""}
       <button class="ghost" id="lineNote" ${S.sending ? "disabled" : ""} title="${L("只记下来，不问 agent：之后接着聊时 agent 会读到", "Just write it down, no agent: agents read it when the conversation goes on")}">${L("只记下来", "Just note")}</button>
-      <button class="primary" id="lineSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></div></div>`;
-  autoGrow($("#chatText"));
+      <button class="primary" id="lineSend">${S.sending || S.regenBusy ? L("追加", "Queue") : L("发送", "Send")}</button></div></div>`;
+  autoGrow($("#chatText")); compactComposer();
 }
 async function lineSend(noteOnly) {
+  if (!noteOnly && (S.sending || S.regenBusy)) return queueFollowup();
+  if (composerBusy()) return;
   const d = S.lineD?.[S.lineView]; if (!d) return;
   const tg = d.items.find((x) => x.key === S.lineTarget) || d.items[d.items.length - 1], text = ($("#chatText")?.value || "").trim();
   if (!text) { toast(L("先写点什么", "Write something first")); return; }
@@ -359,19 +361,21 @@ function renderImported() {
         ? L(` · 共 ${d.messages} 条消息，从 ${esc(d.agent)} 的记录里完整读出`, ` · ${d.messages} messages, read in full from ${esc(d.agent)}'s own history`)
         : L(` · 共 ${d.messages} 条消息，PGA 保留了开头和结尾的摘录`, ` · ${d.messages} messages; PGA keeps excerpts from the start and the end`)}</div>`
       + ((d.turns || []).length ? impTurnsHtml(d)
-        : PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md })));
+        : PGATree.chat([{ kind: "conversation", agent: d.agent, text: `${d.title}\n${d.excerpt}`, at: d.started_at || d.updated_at, data: { messages: d.messages, project: d.project } }], { md })
+          + `<div class="macts"><button class="txt" data-cbranch="all" data-ckey="imp:${esc(d.id)}" title="${L("带着这段摘录分出一段新对话", "Branch with this excerpt")}">${L("从这里继续", "Carry on here")}</button></div>`));
   const conn = d?.agent_type, guess = CONN[conn] && S.agents.some((a) => a.name === CONN[conn]) ? CONN[conn] : "auto";
-  $("#ccomp").innerHTML = `<div class="inner">${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
+  $("#ccomp").innerHTML = `<div class="inner">${followupHtml()}${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("在 PGA 里接着这段对话说…（Enter 发送，Shift+Enter 换行）", "Carry on this conversation in PGA… (Enter sends, Shift+Enter for a new line)")}"></textarea>
     <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === guess ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
-    <span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="impSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("接着聊", "Carry on")}</button></span></div>
+    ${branchCountTool()}${typeof knowledgeTool === "function" ? knowledgeTool() : ""}<span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="impSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("接着聊", "Carry on")}</button></span></div>
     ${d ? `<label class="impmode"><input type="checkbox" id="impResume" ${impResume(d) ? "checked" : ""}><b>${L(`续上原会话（${d.messages} 条消息）`, `Resume the session (${d.messages} messages)`)}</b>
-      <span>${L("勾上：每一句都重读全部消息，耗额度 · 不勾：新开一段，只带摘要和最后几轮，省额度", "On: every message rereads all of them · Off: a fresh session with the summary and last turns")}</span></label>` : ""}</div>`;
-  autoGrow($("#chatText"));
+      <span>${L("勾上：原会话还在就在它原来的文件夹里接着用（有缓存时更省）；不在了先读概括，没有概括读全文，之后一直保持这段会话 · 不勾：只带最后几轮", "On: the session itself, in its own folder, while it is still here (cached when warm); else its summary, or its whole text, read once, then kept going · Off: only the last turns")}</span></label>` : ""}</div>`;
+  autoGrow($("#chatText")); compactComposer();
 }
 /* an imported conversation in full: your turns (with the pictures you sent), its answers, and above each answer how it got
    there — every tool call, its commentary and thinking, screenshots — folded like Claude Code's; time and tokens below */
 function impTurnsHtml(d) {
-  let out = "", aside = [];
+  let out = "", aside = [], k = 0;                  // k: turns so far (yours and its answers): where 从这里继续 branches
+  const carry = (n, before) => `<div class="macts${before ? " right" : ""}"><button class="txt" data-cbranch="${n}" data-ckey="imp:${esc(d.id)}" title="${before ? L("从这一问之前分出一段新对话，接着从这里聊", "Branch just before this question and carry on from here") : L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
   const src = { session: d.session, kind: d.source || "claude" };
   const flush = () => {
     if (!aside.length) return;
@@ -382,34 +386,43 @@ function impTurnsHtml(d) {
   for (const t of d.turns) {
     if (t.role === "aside") { aside.push(t); continue; }
     flush();
-    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + (d.session ? thumbs(src, t.images) : "")
+    if (!(t.text || "").trim()) continue;            // as the branch counts them (pga.chats.imported_turns)
+    k += 1;
+    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + (d.session ? thumbs(src, t.images) : "") + (k > 1 ? carry(k - 1, true) : "")
       : (t.how && d.session ? howBlock(t.how, src) : "") + PGATree.chat([{ agent: d.agent, kind: "answer", text: t.text, at: t.at, data: {} }], { md, name: (x) => x.agent })
-        + (t.how ? howMeta(t.how) : "");
+        + (t.how ? howMeta(t.how) : "") + carry(k);
   }
   flush();
-  return out;
+  return `<div style="display:contents" data-file-key="imp:${esc(d.id)}">${out}</div>`;
 }
 /* carrying on an imported conversation: Codex / Claude Code resume the very session; others get its excerpt as history;
    the new chat goes on the same line, so the time tree draws the path from the old conversation to now */
-/* resuming an imported session rereads all of it on every message: only by default when it is short */
-const impResume = (d) => (S.impResumeOf?.[d.id] ?? (d.messages || 0) <= 30);
+/* carrying on keeps the old conversation going (its session where it is still here — and its cache — else its summary
+   or whole text, read once); off: only its last turns as history */
+const impResume = (d) => (S.impResumeOf?.[d.id] ?? true);
 async function impSend() {
+  if (composerBusy()) return;
   const text = ($("#chatText")?.value || "").trim(); if (!text) { toast(L("先写点什么", "Write something first")); return; }
   const d = S.impData, imp = S.imp; if (!d || !imp) return;
+  const capture = typeof knowledgeEnabled === "function" && knowledgeEnabled();
   const agent = $("#chatAgent")?.value || "auto", name = agent !== "auto" ? agent : CONN[d.agent_type];
   let key = null;
   const resume = $("#impResume") ? $("#impResume").checked : impResume(d);
-  if (name && resume) { try { key = (await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(name)}/past/${d.id}/continue`, { method: "POST" })).conversation; } catch {} }
+  if (name && resume) { try { key = (await api(`/v1/users/${S.uid}/agents/${encodeURIComponent(name)}/past/${d.id}/continue`, { method: "POST", body: { line: imp.line || "" } })).conversation; } catch {} }
   key = key || `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   await api(`/v1/users/${S.uid}/timeline/items`, { method: "PUT", body: { key, line: imp.line } }).catch(() => {});
   const turns = [];
   for (const line of String(d.excerpt || "").split("\n")) { const m = line.match(/^(User|Assistant)\s*:\s?(.*)$/); if (m) turns.push({ role: m[1] === "User" ? "user" : "agent", text: m[2] }); else if (turns.length) turns[turns.length - 1].text += "\n" + line; }
+  if (composerBusy()) return;
+  if (capture) knowledgeSet(true, key);
   S.chatTurns[key] = turns.slice(-6); S.chat = key; S.imp = null; S.tlSel = key;
   S.chatAgent = agent !== "auto" ? agent : name || "auto";
   if (d.model && (agent === "auto" || agent === CONN[d.agent_type])) S.chatModel = { ...(S.chatModel || {}), [key]: d.model };   // the model it was imported with
   renderChat(); $("#chatText").value = text; await chatSend(); S.chatTurns[key] = (S.chatTurns[key] || []);
 }
 function renderChat() {
+  const readingBox = $("#cdlg"), readingTop = readingBox?.scrollTop || 0;
+  const following = !readingBox || readingBox.scrollHeight - readingTop - readingBox.clientHeight < 80;
   if (S.lineView) { renderLineDialog(); return; }
   if (S.imp) { renderImported(); return; }
   if (S.treeItem) {
@@ -420,20 +433,20 @@ function renderChat() {
   }
   const c = chatOf(S.chat), turns = S.chatTurns[S.chat] || [];
   const cc = (S.allChats || []).find((x) => x.key === S.chat);
-  $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
+  $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || S.chatCtx?.[S.chat]?.title || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
 `;
   $("#chead").innerHTML += headActs();
   const notes = turns;
   $("#cdlgIn").innerHTML = (S.chat ? lineCard() : "") + branchCtx(S.chat) + (!S.chat && !notes.length ? `<div class="chello"><h2>${L("问点什么", "Ask anything")}</h2><div>${L("一次性的、日常的问题在这里问：不会长成树。哪天它变成了一个长期的方向，再把它种成一棵树。", "Everyday, one-off questions go here and do not grow a tree. If one turns into a long-range direction, plant it as a tree.")}</div></div>`
-    : chatTurnsHtml(turns) + (S.sending && S.view === "chats" ? workCard() : ""));
+    : (S.chatSplits?.[S.chat] ? splitHtml(turns) : chatTurnsHtml(turns)) + (S.sending && S.view === "chats" ? workCard() : ""));
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
   $("#ccomp").innerHTML = `<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
-    ${attsHtml()}<div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
+    ${followupHtml()}${attsHtml()}<div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
       ${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
-      ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>
-      <span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="chatSend" ${S.sending ? "disabled" : ""}>${S.sending ? "…" : L("发送", "Send")}</button></span></div></div>`;
-  autoGrow($("#chatText"));
-  const box2 = $("#cdlg"); if (S.sending || S.scrollChat) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); }
+      ${accBtn(S.chat || "")}<select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>${effortSel(S.chat || "")}${branchCountTool()}${typeof knowledgeTool === "function" ? knowledgeTool() : ""}
+      <span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="chatSend">${S.sending || S.regenBusy ? L("追加", "Queue") : L("发送", "Send")}</button></span></div></div>`;
+  autoGrow($("#chatText")); compactComposer();
+  const box2 = $("#cdlg"); if (S.scrollChat || (S.sending && following)) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); } else if (box2) box2.scrollTop = readingTop;
 }
 /* one turn at a time: the question, the answer (and who gave it, marked when the agent changes), then what you can do
    with the answer: a second opinion from another agent, or a branch from here */
@@ -450,14 +463,16 @@ function chatTurnsHtml(turns, key = S.chat) {
     const who = t.agent && t.agent !== "-" ? agentLabel(t.agent) : "AI";
     if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
-    out += typeof sideOn === "function" && sideOn(t) ? sideBySide(t)
+    if (t.run) out += `<a class="tanchor" id="a-${esc(t.run)}"></a>`;
+    out += t.second || (t.run && S.secondBusy === t.run) ? secondPairHtml(t)
+      : typeof sideOn === "function" && sideOn(t) ? sideBySide(t)
       : procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
     if (!t.run) continue;
     out += replyMeta(t) + replyActs(t, key);
     if (S.regenBusy === t.run) out += workCard();
-    if (t.second) out += secondHtml(who, t.second);
+
   }
-  return out;
+  return `<div style="display:contents" data-file-key="${esc(key || "")}">${out}</div>`;
 }
 function secondHtml(first, x) {
   return `<div class="second"><div class="sh"><b>${L("第二意见", "Second opinion")}</b> · ${esc(x.agent)}${x.model ? ` <span class="dimt">${esc(x.model)}</span>` : ""}</div>
@@ -468,14 +483,29 @@ function secondHtml(first, x) {
 }
 function branchCtx(key) {
   const c = S.chatCtx?.[key]; if (!c?.branch) return "";
-  const parent = (S.allChats || []).find((x) => x.key === c.branch.from);
+  const parent = (S.allChats || []).find((x) => x.key === c.branch.from) || (c.parent_title ? { title: c.parent_title } : null);   // an imported one: its name from the server
+  if (c.branch.copy) return `<details class="bctx"><summary>${L(`复制自「${esc(parent?.title || "另一段对话")}」：下面 ${Math.floor(c.context.length / 2)} 轮是原对话的内容，agent 都会读到；你在这里接着聊，原来那段不动`, `A copy of “${esc(parent?.title || "another chat")}”: its ${Math.floor(c.context.length / 2)} turns below, which the agent reads; carry on here, the original stays`)}</summary>
+    <div class="bctxbody">${PGATree.chat(c.context.map((t) => ({ agent: t.role === "user" ? "you" : t.agent || "AI", kind: t.role === "user" ? "question" : "answer", text: t.text, at: null, data: {} })), { md, name: (x) => x.agent })}</div></details>`;
   return `<details class="bctx"><summary>${L(`从「${esc(parent?.title || "另一段对话")}」分出来的：前面 ${Math.floor(c.context.length / 2)} 轮是它的（点开看），agent 都会读到`, `Branched from “${esc(parent?.title || "another chat")}”: the ${Math.floor(c.context.length / 2)} turns before are its own (open to read); the agent reads them`)}</summary>
-    ${PGATree.chat(c.context.map((t) => ({ agent: t.role === "user" ? "you" : t.agent || "AI", kind: t.role === "user" ? "question" : "answer", text: t.text, at: null, data: {} })), { md, name: (x) => x.agent })}</details>`;
+    <div class="bctxbody">${PGATree.chat(c.context.map((t) => ({ agent: t.role === "user" ? "you" : t.agent || "AI", kind: t.role === "user" ? "question" : "answer", text: t.text, at: null, data: {} })), { md, name: (x) => x.agent })}</div></details>`;
 }
-async function secondOpinion(run, key) {
-  S.secondBusy = run; renderChat();
-  try { await api(`/v1/users/${S.uid}/chats/second`, { body: { run } }); await loadChat(key || S.chat); toast(L("第二意见来了", "Second opinion is in")); }
-  catch (err) { toast(err.message); } finally { S.secondBusy = null; renderChat(); }
+document.addEventListener('toggle', e => {
+  if (!e.target.matches?.('details.bctx') || !e.target.open) return;
+  const body = e.target.querySelector('.bctxbody');
+  if (body) requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+}, true);
+function stageNodeOf() {                            // the stage page this conversation is shown in, when it is in one
+  try { const P = window.parent; if (P === window) return null;
+    const n = P.ST.nodes.find((w) => w.type === "win" && w.el?.querySelector("iframe")?.contentWindow === window); return n ? { P, n } : null; } catch { return null; }
+}
+/* 第二意见: a conversation of its own, like 从这里继续 — a branch from just before this question, answered by another agent
+   (the server picks the best other one for this kind of question), and on the same topic as this conversation. On the stage it is
+   a branch window on the right; elsewhere the page turns to it. */
+async function secondOpinion(run, key) { return startSplit(run, key); }
+function secondPairHtml(t) {
+  const x = t.second;
+  const column = (agent, model, text) => `<section class="sbc"><div class="sbh"><b>${esc(agentLabel(agent || "AI"))}</b>${model ? `<span>${esc(model)}</span>` : ""}</div><div class="ct md">${md(text || "")}</div></section>`;
+  return `<div class="sbs second-pair" style="--n:2">${column(t.agent, t.model, t.text || t.error)}${x ? column(x.agent, x.model, x.text) : `<section class="sbc" aria-live="polite"><div class="sbh"><b>${L("第二意见", "Second opinion")}</b></div><span class="spin"></span> ${L("另一个 agent 正在回答…", "Another agent is answering…")}</section>`}</div>`;
 }
 /* translate one piece of output in place: toggles between the original and a cached translation; direction is
    picked from the text itself (has CJK → English, else → Chinese), independent of the page's own language */
@@ -498,9 +528,60 @@ async function toggleTranslate(btn) {
   } catch (err) { toast(err.message); }
   finally { btn.disabled = false; }
 }
-async function chatBranch(run, from) {
-  try { const r = await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: from || S.chat, upto: run } });
-    S.lineView = null; S.imp = null; S.chat = r.key; S.chatTurns[r.key] = []; history.replaceState(null, "", qs()); await loadChat(r.key); loadTimeline(); $("#chatText")?.focus();
-    toast(L("分出了一段新对话：前面的内容 agent 都看得到，原来那段不受影响", "A new branch: the agent sees what came before; the original stays as it was")); }
-  catch (err) { toast(err.message); }
+/* on the stage, 从这里继续 grows a branch window to the right of this one, in its tree (the stage makes it); elsewhere the
+   page turns to the new branch */
+function branchCountTool() {
+  return `<select id="branchCount" aria-label="Branch"><option value="">${L('分屏 / 第二意见', 'Split / second opinion')}</option><option value="2">${L('双 Agent 分屏', 'Two agents')}</option></select>`;
+}
+async function branchCopies() { return startSplit(); }
+function stageBranch(from, upto) {
+  try { const P = window.parent; if (P === window || typeof P.stBranchAt !== "function") return false;
+    const n = P.ST.nodes.find((w) => w.type === "win" && w.el?.querySelector("iframe")?.contentWindow === window); if (!n) return false;
+    P.stBranchAt(n, from, upto); return true; } catch { return false; }
+}
+// Record the successful fork on the source immediately, even when the child opens in another tab.
+function chatBranchCreated(from, result, requestedPoint) {
+  const child = {key:result.key, upto:String(result.upto ?? requestedPoint), title:result.title};
+  S.chatKids ||= {};
+  S.chatKids[from] = [...(S.chatKids[from] || []).filter(k => k.key !== child.key), child];
+  if ((S.imp ? 'imp:' + S.imp.cid : S.chat) === from) {
+    if (typeof convMap === 'function') convMap();
+    if (typeof branchTree === 'function') branchTree();
+  }
+}
+window.chatBranchCreated = chatBranchCreated;
+async function chatBranch(run, from, tree = true) {
+  if (stageBranch(from || S.chat, run)) return;
+  const source = from || S.chat;
+  const tab = window.open('about:blank', '_blank');
+  if (!tab) { toast(L('请允许打开新标签页后重试', 'Allow a new tab and retry')); return; }
+  try {
+    const r = await api(`/v1/users/${S.uid}/chats/branch`, {body:{from:source,upto:run}});
+    chatBranchCreated(source, r, run);
+    const url = new URL(location.href); url.searchParams.set('view','chats'); url.searchParams.set('c',r.key);
+    for (const p of ['embed','manager','tree','node','imp']) url.searchParams.delete(p);
+    tab.location.replace(url.href);
+  } catch (err) { tab.close(); toast(err.message); }
+}
+
+// Keep actions visible in a single compact row; model selection lives on the rail.
+function compactComposer() {
+  const bar=document.querySelector('#ccomp .cbar');
+  if(!bar || bar.classList.contains('compact-composer'))return;
+  const send=bar.querySelector('#chatSend, #lineSend, #impSend');if(!send)return;
+  const text=bar.querySelector('textarea'), group=bar.querySelector('.sendg');
+  if(group)group.replaceWith(...group.childNodes);
+  const panel=document.createElement('div');panel.className='composer-options';
+  for(const child of [...bar.children])if(child!==text&&child!==send)panel.append(child);
+  bar.classList.add('compact-composer');bar.append(send,panel);
+  const agent=panel.querySelector('#chatAgent');if(agent)agent.hidden=true;
+  const model=panel.querySelector('#chatModel'), effort=panel.querySelector('#chatEffort'), usage=panel.querySelector('[data-inline-usage]');
+  if(usage) {
+    const pair=document.createElement('span');pair.className='composer-model-pair';panel.insertBefore(pair,usage);
+    if(model)pair.append(model);
+    else {const label=document.createElement('span');label.textContent=usage.dataset.model||'';pair.append(label);}
+    if(effort)pair.append(effort);
+    if(usage.dataset.model){usage.dataset.omitModel='1';const prefix=usage.dataset.model+' · ';if(usage.textContent.startsWith(prefix))usage.textContent=usage.textContent.slice(prefix.length);}
+  }
+  styleComposerSelects(panel);
 }

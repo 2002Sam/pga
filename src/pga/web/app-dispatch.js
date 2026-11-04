@@ -31,7 +31,10 @@ const dispatchTool = () => `<button class="ghost ctool ${S.dispatchOn ? "on2" : 
 
 const _chatSendD = chatSend;
 chatSend = async function () {
+  if (S.sending || S.regenBusy) return queueFollowup();
+  if (composerBusy() || S.dispatchPlan?.busy) return;
   const text = ($("#chatText")?.value || "").trim();
+  if (S.chatSplits?.[S.chat]) return _chatSendD();
   if (S.dispatchOn && !S.multi?.length && text && looksMulti(text) && !S.dispatchPlan) {
     S.dispatchPlan = { text, busy: true, tasks: [] }; renderChat();
     try {
@@ -55,6 +58,48 @@ function planCard() {
     <div class="row2"><span class="grow"></span><button class="ghost" data-act="dpone">${L("还是交给一个 agent", "Send to one agent instead")}</button><button class="ghost" data-act="dpcancel">${L("取消", "Cancel")}</button>
       <button class="primary" data-act="dpgo" ${n ? "" : "disabled"}>${L(`派给 ${n} 个 agent 同时做`, `Send to ${n} agents at once`)}</button></div></div>`;
 }
+// Mount the actual dispatched conversations; never create or submit a second task.
+function dispatchStage(key, tasks) {
+  try {
+    const host = window.parent !== window ? window.parent : window;
+    if (!host.ST || typeof host.stRender !== "function") return;
+    const parent = host.ST.nodes.find((n) => n.type === "win" &&
+      host.document.querySelector(`.stnode[data-nid="${n.id}"] iframe`)?.contentWindow === window)
+      || host.ST.nodes.find((n) => n.type === "win" && n.key === key);
+    if (!parent) return;
+    parent.key = key;
+    const added = [];
+    for (const task of tasks) {
+      if (host.ST.nodes.some((n) => n.key === task.key)) continue;
+      const n = { id: host.stId(), type: "win", key: task.key, par: parent.id,
+        dispatchState: "running", run: true, runAt: Date.now(), title: task.title, agent: task.agent || "auto", side: false, ord: 0,
+        from: parent.from || key, ...(parent.ws ? { ws: parent.ws } : {}) };
+      host.ST.nodes.push(n);
+      parent.kids = [...(parent.kids || []), n.id];
+      added.push(n);
+    }
+    if (!added.length) return;
+    parent.sel = added[0].id;
+    delete parent.kidsCollapsed;
+    for (let n = parent, up; n.par && (up = host.ST.nodes.find((x) => x.id === n.par)); n = up) {
+      up.sel = n.id; delete up.kidsCollapsed;
+    }
+    host.stRender(); host.stSave(); host.stShow(added[0].id);
+  } catch (err) { console.warn("Unable to display dispatched task windows", err); }
+}
+function dispatchWindowRefresh(key, state) {
+  try {
+    const host = window.parent !== window ? window.parent : window;
+    const n = host.ST?.nodes.find((n) => n.key === key);
+    if (n && state) {
+      n.dispatchState = state; n.run = false; n.completedAt = Date.now(); if (!host.stSeen?.(n)) n.done = n.completedAt;   // finished in front of you: no number
+      host.stRender(); host.stSave();
+    }
+    const frame = n && host.document.querySelector(`.stnode[data-nid="${n.id}"] iframe`);
+    const child = frame?.contentWindow;
+    if (child?.S?.chat === key) child.loadChat(key)?.catch(() => {});
+  } catch {}
+}
 async function dispatchGo() {
   const p = S.dispatchPlan; if (!p) return;
   const tasks = p.tasks.filter((t) => t.on); if (!tasks.length) return;
@@ -69,15 +114,16 @@ async function dispatchGo() {
   const entry = { id: Math.random().toString(36).slice(2, 10), text: p.text, tasks: [], run: note.run };
   for (const [i, t] of tasks.entries()) {
     let tk;
-    try { tk = (await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: key, upto: note.run } })).key; } catch (err) { toast(err.message); continue; }
+    try { tk = (await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: key, upto: note.run, title: t.title } })).key; } catch (err) { toast(err.message); continue; }
     entry.tasks.push({ title: t.title, key: tk, agent: t.agent });
     S.dispatchLive[tk] = "running";
+    dispatchStage(key, [entry.tasks[entry.tasks.length - 1]]);
     const text = `${t.text}\n\n${L(`（这是从上面那条消息里拆出来的第 ${i + 1} 项，共 ${tasks.length} 项：${titles}。其余各项另有 agent 在同时处理。只做你这一项；不要改动和这一项无关的地方，也不要撤销别人的改动。）`,
       `(This is item ${i + 1} of ${tasks.length} split from the message above: ${titles}. Other agents are doing the other items at the same time. Do only yours; do not touch what is not part of it, nor undo others' changes.)`)}`;
-    api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: t.agent || "auto", conversation: tk, history: hist, access: acc.access || "read", folder: acc.folder || "", mcp: !!acc.mcp } })
+    api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: t.agent || "auto", conversation: tk, history: hist, access: acc.access || "auto", folder: acc.folder || "", mcp: !!acc.mcp } })
       .then((r) => { S.dispatchLive[tk] = r?.error && !r?.text ? "error" : "done"; })
       .catch(() => { S.dispatchLive[tk] = "error"; })
-      .finally(() => { boardRefresh(key); loadTimeline(); });
+      .finally(() => { dispatchWindowRefresh(tk, S.dispatchLive[tk]); boardRefresh(key); loadTimeline(); });
   }
   try { await api(`/v1/users/${S.uid}/chats/dispatch`, { method: "PUT", body: { key, entry, run: note.run } }); } catch {}
   history.replaceState(null, "", qs()); await loadChat(key); loadTimeline();

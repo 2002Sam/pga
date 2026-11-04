@@ -72,7 +72,7 @@ def _look(name: str, ad: "Adapter", cfg: dict, rt: Any) -> dict:
         ids = CLAUDE_API_MODELS if api else CLAUDE_MODELS
         return {"models": [{"id": i, "label": lbl, "efforts": [] if api else CLAUDE_EFFORTS, "images": True} for i, lbl in ids],
                 "default_model": (cfg.get("api") or {}).get("model") if api else cfg.get("model") or None,
-                "default_effort": None, "images": True, "via": "api" if api else "claude code"}
+                "default_effort": None if api else cfg.get("effort"), "images": True, "via": "api" if api else "claude code"}
     if t == "codebuddy_local":
         ids: list[str] = []
         exe = ad.exe()

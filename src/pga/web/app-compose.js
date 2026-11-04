@@ -105,7 +105,7 @@ function replyActs(t, key) {
     <button data-act="tonote" data-text="${esc(t.text)}" title="${L("存进笔记", "Save into a note")}">${typeof MI === "object" ? MI.note : "✎"}</button>
     ${vs.length > 1 ? `<button class="txt ${typeof sideOn === "function" && sideOn(t) ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
     <span class="sep"></span>
-    ${sec ? "" : `<button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""}>${sb ? L("正在问另一个 agent…", "Asking another agent…") : L("第二意见", "Second opinion")}</button>`}
+    <button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""} title="${L("在当前窗口内开启双 Agent 分屏，分别回答并继续对话", "Compare two agents in this window and keep talking to both")}">${sb ? L("正在准备分屏…", "Opening…") : L("第二意见", "Second opinion")}</button>
     <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}" title="${L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
 }
 function editBox(t) {
@@ -113,18 +113,22 @@ function editBox(t) {
     <button class="ghost" data-act="editcancel">${L("取消", "Cancel")}</button><button class="primary" data-act="editsend">${L("发送", "Send")}</button></div></div>`;
 }
 async function regen(run, key) {
+  if (composerBusy()) return;
+  let continueQueue = false;
   S.regenBusy = run; renderChat(); startLive((c) => c.includes(":regen:" + run));
-  try { const r = await api(`/v1/users/${S.uid}/chats/regen`, { body: { run, agent: $("#chatAgent")?.value || "auto" } }); if (r.error && !r.text) toast(r.error); }
+  try { const r = await api(`/v1/users/${S.uid}/chats/regen`, { body: { run, agent: $("#chatAgent")?.value || "auto" } }); continueQueue = !r.error && r.ok !== false && !r.stopped; if (r.error && !r.text) toast(r.error); }
   catch (err) { toast(err.message); }
-  finally { S.regenBusy = null; stopLive(); await loadChat(key); }
+  finally { S.regenBusy = null; stopLive(); await loadChat(key); await drainFollowups(key, continueQueue); }
 }
 async function editSend() {
+  if (composerBusy()) return;
   const e = S.editing; if (!e) return;
   const text = ($("#editText")?.value || "").trim(); if (!text) return;
   try {
     let key;
     if (e.prev) { const r = await api(`/v1/users/${S.uid}/chats/branch`, { body: { from: e.key, upto: e.prev } }); key = r.key; }
     else key = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+    if (composerBusy()) return;
     S.editing = null; S.lineView = null; S.imp = null; S.chat = key; S.chatTurns[key] = []; history.replaceState(null, "", qs());
     await loadChat(key); loadTimeline(); renderChat(); $("#chatText").value = text; await chatSend();
   } catch (err) { toast(err.message); }
@@ -296,7 +300,7 @@ function exportChat(fmt) {
 /* ------------------------------------------------ keyboard shortcuts */
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const KEYS = [[`${MOD} ⇧ O`, L("新对话", "New chat")], [`${MOD} K`, L("搜索所有对话", "Search everything")], ["⇧ Esc", L("回到输入框", "Focus the composer")],
-  [`${MOD} ⇧ S`, L("收起 / 展开左栏", "Toggle the sidebar")], [`${MOD} /`, L("这张快捷键表", "These shortcuts")], ["Esc", L("停止正在写的回答；关掉弹窗", "Stop the answer being written; close a dialog")],
+  [`${MOD} ⇧ S`, L("收起 / 展开左栏", "Toggle the sidebar")], [`${MOD} /`, L("这张快捷键表", "These shortcuts")], ["Esc", L("关掉弹窗", "Close a dialog")], [`${MOD} Esc`, L("停止正在写的回答", "Stop the answer being written")],
   [`${MOD} ⇧ ;`, L("复制最后一个代码块", "Copy the last code block")], ["Enter / ⇧ Enter", L("发送 / 换行", "Send / new line")], ["/", L("（输入框开头）提示词库", "(at the start) prompt library")],
   ["@", L("交给某个 agent", "Hand it to an agent")], ["↑", L("（输入框为空时）上一条你发的话", "(empty composer) your last message")]];
 function showKeys() { modal(`<h2>${L("快捷键", "Keyboard shortcuts")}</h2><div class="keys">${KEYS.map(([k, d]) => `<div><kbd>${esc(k)}</kbd><span>${esc(d)}</span></div>`).join("")}</div>`); }
@@ -350,6 +354,7 @@ document.addEventListener("dragleave", (e) => { if (!e.relatedTarget) document.b
 document.addEventListener("drop", (e) => { if (S.view !== "chats" || !e.dataTransfer?.files?.length) return; e.preventDefault(); document.body.classList.remove("dropping"); addFiles(e.dataTransfer.files); });
 /* captured before app-events.js sees the key: the "/" "@" list takes Enter, ↑ brings back your last message, the shortcuts */
 document.addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
   const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase(), box = e.target.id === "chatText" || e.target.id === "tnText" ? e.target : null;
   if (POP && box) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); e.stopImmediatePropagation(); POP.i = (POP.i + (e.key === "ArrowDown" ? 1 : POP.items.length - 1)) % POP.items.length; drawPop(); return; }
@@ -370,5 +375,5 @@ document.addEventListener("keydown", (e) => {
   if (mod && (k === "/" || e.code === "Slash")) { e.preventDefault(); showKeys(); return; }
   if (mod && e.shiftKey && (k === ";" || e.code === "Semicolon")) { e.preventDefault(); const cs = document.querySelectorAll("#cdlgIn pre code, #dlgIn pre code"); if (cs.length) copyText(cs[cs.length - 1].textContent); return; }
   if (e.shiftKey && e.key === "Escape") { e.preventDefault(); ($("#chatText") || $("#tnText"))?.focus(); return; }
-  if (e.key === "Escape" && !document.querySelector(".modal") && S.live?.run && !S.live.run.finished) { api(`/v1/agents/live/${S.live.run.id}/stop`, { method: "POST" }).then(() => toast(L("已让它停下", "Stopping"))).catch(() => {}); }
+  if (mod && e.key === "Escape" && !document.querySelector(".modal") && S.live?.run && !S.live.run.finished) { e.preventDefault(); e.stopImmediatePropagation(); api(`/v1/agents/live/${S.live.run.id}/stop`, { method: "POST" }).then(() => toast(L("已让它停下", "Stopping"))).catch(() => {}); }
 }, true);

@@ -1,7 +1,8 @@
 /* PGA app · the bars on the left, and home. Plain scripts sharing one global scope, loaded in order by app.html. */
 /* ------------------------------------------------ the bars on the left */
 function renderRail() {
-  const F = S.forest || { trees: [] }, working = (S.live || []).filter((r) => r.running).length;
+  if (EMBED) return;                                   // hidden in a window: nothing to draw
+  const F = S.forest || { trees: [] }, working = (S.liveRuns || []).filter((r) => r.running).length;
   $("#pulse").innerHTML = `<span class="dot ${working ? "on" : ""}"></span>${working ? L(`${working} 在工作`, `${working} working`) : ""}`;
   const maxN = Math.max(8, ...F.trees.map((t) => (t.nodes || []).length), (F.you?.nodes || []).length);
   const width = (n) => `${Math.max(4, Math.round(100 * Math.min(1, n / maxN)))}%`;
@@ -24,11 +25,11 @@ function renderRail() {
 }
 async function loadForest() {
   S.forest = await api(`/v1/users/${S.uid}/forest${EN ? "?lang=en" : ""}`);
-  try { S.live = await api(`/v1/agents/live`); } catch { S.live = []; }
+  try { S.liveRuns = await liveSnap(); } catch { S.liveRuns = []; }   // not S.live: that is the answer being watched
   if (!document.activeElement?.matches?.("#seedText")) renderRail();
   if (S.view === "home") renderHome();
 }
-async function loadChats() { try { S.allChats = await api(`/v1/users/${S.uid}/chats?archived=true&limit=300`); S.chats = S.allChats.filter((c) => !c.archived); } catch { S.chats = S.chats || []; } renderRail(); if (S.view === "chats") renderChatList(); }
+async function loadChats() { try { const all = await api(`/v1/users/${S.uid}/chats?archived=true&limit=300`); if (all !== S.allChats) { S.allChats = all; S.chats = all.filter((c) => !c.archived); } /* the same answer as before: the same lists, so what is built from them can be kept */ } catch { S.chats = S.chats || []; } renderRail(); if (S.view === "chats") renderChatList(); }
 
 function show(view, opts = {}) {
   S.view = view; closeCtx();

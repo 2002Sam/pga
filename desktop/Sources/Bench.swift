@@ -86,6 +86,7 @@ final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
         super.init()
         // no title bar at all: the page fills the window, the window's buttons sit on it at the top left; the window
         // moves by the empty top edge of the page (bridge.js tells where), and a double-click there zooms it
+        _ = downMonitor                                      // from the start: it must have seen the press the page reports
         window.title = "PGA 完整版"; window.titleVisibility = .hidden; window.titlebarAppearsTransparent = true
         window.backgroundColor = NSColor(white: 0.08, alpha: 1)
         window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAFull"); window.delegate = self
@@ -96,10 +97,22 @@ final class FullWindow: WebChrome, NSWindowDelegate, WebOwner {
     }
     func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
 
-    /// Moving the window from the page: it follows the pointer while the button is held.
+    /// Moving the window from the page. The system moves it (performDrag), so it behaves like any Mac window: pulled to the
+    /// top edge it shows the white box and fills the screen when let go, to the sides it tiles, and it snaps with the
+    /// Option key. (Moving it by hand with setFrameOrigin, as before, is invisible to the system: no tiling at all.)
+    /// The page says "drag" a moment after the button went down, so the press itself is kept as it passes.
     private var moving: Timer?
+    private var lastDown: NSEvent?
+    private lazy var downMonitor: Any? = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] e in
+        if e.window === self?.window { self?.lastDown = e }
+        return e
+    }
     func drag() {
-        moving?.invalidate()
+        _ = downMonitor
+        if NSEvent.pressedMouseButtons & 1 != 0, let e = lastDown ?? NSApp.currentEvent, ProcessInfo.processInfo.systemUptime - e.timestamp < 1.5 {
+            window.performDrag(with: e); return
+        }
+        moving?.invalidate()                                  // no press to hand over: follow the pointer by hand, as a fallback
         let start = NSEvent.mouseLocation, o = window.frame.origin
         moving = Timer.scheduledTimer(withTimeInterval: 1.0 / 120, repeats: true) { [weak self] t in
             guard let self, NSEvent.pressedMouseButtons & 1 != 0 else { t.invalidate(); return }

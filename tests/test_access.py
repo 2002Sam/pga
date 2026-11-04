@@ -1,8 +1,8 @@
-"""What agents may do in your conversations: read-only until you change it, per conversation or as your default."""
+"""What agents may do in your conversations: auto until you change it, per conversation or as your default."""
 from fastapi.testclient import TestClient
 
 from pga.agents.adapters import ClaudeLocal
-from pga.agents.base import FULL, READ_ONLY, WORKSPACE_WRITE, AgentTask
+from pga.agents.base import AUTO, FULL, READ_ONLY, WORKSPACE_WRITE, AgentTask
 from pga.agents.routing import AgentRouter
 from pga.api.app import create_app
 from pga.runtime import Runtime
@@ -24,7 +24,10 @@ def test_claude_flags_follow_the_level_and_mcp(monkeypatch):
     full = _cmd(FULL)                                                            # a full-access project: your MCP tools too
     assert "--strict-mcp-config" not in full and any(x.startswith("Bash,") and "mcp__notes" in x for x in full)
     assert "--strict-mcp-config" in _cmd(FULL, mcp=False)                        # …unless you turned them off
-    assert "bypassPermissions" not in " ".join(ro + rw) and "bypassPermissions" in " ".join(full)   # only 完全 skips the checks, as you asked
+    auto = _cmd(AUTO)                                                            # the default: acts on its own, Claude Code's auto mode
+    assert "manual" in auto and "--permission-prompts" in auto and "--disallowedTools" not in auto
+    assert "Bash" not in auto[auto.index("--allowedTools") + 1]
+    assert "bypassPermissions" not in " ".join(ro + rw + auto) and "bypassPermissions" in " ".join(full)   # only 完全批准 skips the checks
 
 
 def test_settings_per_conversation_and_default(session_factory, policy, provider, backend, user, session, monkeypatch, tmp_path):
@@ -33,7 +36,7 @@ def test_settings_per_conversation_and_default(session_factory, policy, provider
     app = create_app(session_factory=session_factory,
                      runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
     with TestClient(app) as c:
-        assert c.get(f"/v1/users/{user.id}/access", params={"key": "chat:a"}).json()["current"] == {"access": "read", "folder": "", "mcp": False}
+        assert c.get(f"/v1/users/{user.id}/access", params={"key": "chat:a"}).json()["current"] == {"access": "auto", "folder": "", "mcp": False}
         assert c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "nope"}).status_code == 422
         assert c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "full", "folder": "/no/such/dir"}).status_code == 422
         r = c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "full", "folder": str(tmp_path), "mcp": True}).json()
@@ -41,10 +44,11 @@ def test_settings_per_conversation_and_default(session_factory, policy, provider
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:a"})
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:b"})
         assert (seen[0]["access"], seen[0]["folder"], seen[0]["mcp"]) == ("full", str(tmp_path), True)
-        assert (seen[1]["access"], seen[1]["folder"], seen[1]["mcp"]) == ("read", None, False)    # another chat: still read-only
-        c.put(f"/v1/users/{user.id}/access", json={"access": "write", "as_default": True})
+        assert (seen[1]["access"], seen[1]["folder"], seen[1]["mcp"]) == ("auto", None, False)    # another chat: the default, auto
+        c.put(f"/v1/users/{user.id}/access", json={"access": "read", "as_default": True})
         c.post(f"/v1/users/{user.id}/agents/ask", json={"text": "hi", "conversation": "chat:c"})
-        assert seen[2]["access"] == "write"
+        assert seen[2]["access"] == "read"
+        assert c.put(f"/v1/users/{user.id}/access", json={"key": "chat:d", "access": "write"}).json()["access"] == "auto"   # the old middle level
 
 
 def test_background_work_leaves_claude_for_you_and_usage_splits(session_factory, policy, provider, backend, user, session, monkeypatch, tmp_path):
@@ -76,3 +80,30 @@ def test_background_work_leaves_claude_for_you_and_usage_splits(session_factory,
         assert sp["heavy"][0]["input"] == 700004 and sp["keep_for_me"] == ["claude_local"]
         assert c.put("/v1/agents/background", json={"keep_for_me": []}).json()["keep_for_me"] == []
         assert ap.load()["routing"]["keep_for_me"] == []
+
+
+def test_approval_full_persists_only_this_conversation(session_factory, policy, provider, backend, user, session):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from pga.agents import approvals, live
+    lid = live.start('claude', tags={'conversation':f'{user.id}:chat:approval'})
+    task = AgentTask(prompt='write', permissions=AUTO, timeout_s=5,
+                     meta={'live_id':lid,'conversation':f'{user.id}:chat:approval'})
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c, ThreadPoolExecutor() as pool:
+        f = pool.submit(approvals.request, task, {'tool':'Write','input':{'file_path':'notes.txt'}})
+        aid = None
+        for _ in range(100):
+            row = next(x for x in live.snapshot() if x['id'] == lid)
+            if row.get('approval'):
+                aid = row['approval']['id']; break
+            time.sleep(.01)
+        assert aid
+        r = c.post(f'/v1/users/{user.id}/approvals/{aid}', json={'decision':'full'})
+        assert r.status_code == 200 and r.json()['access']['access'] == 'full'
+        assert f.result(timeout=2)
+        assert c.get(f'/v1/users/{user.id}/access',params={'key':'chat:approval'}).json()['current']['access'] == 'full'
+        assert c.get(f'/v1/users/{user.id}/access',params={'key':'chat:other'}).json()['current']['access'] == 'auto'
+        assert c.post(f'/v1/users/{user.id}/approvals/{aid}', json={'decision':'allow'}).status_code == 404
+    live.finish(lid, True)

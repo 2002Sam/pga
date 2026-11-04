@@ -62,6 +62,20 @@ def save(user: User, st: dict) -> None:
     user.preferences = {**(user.preferences or {}), "projects": st}
 
 
+def assign(user: User, key: str, project: str) -> str:
+    st = state(user)
+    project = (st.get("merged") or {}).get(project, project)
+    if project not in st["list"] and project != EVERYDAY:
+        raise ValueError("Unknown conversation category")
+    key = "c:" + key[4:] if key.startswith("imp:") else key
+    if not key or len(key) > 120 or not key.startswith(("chat:", "c:", "agent:", "n:")):
+        raise ValueError("Invalid conversation key")
+    st["of"] = {**st["of"], key: project}
+    st["manual"] = {**st.get("manual", {}), key: project}
+    save(user, st)
+    return key
+
+
 def by_rule(folder: str, projects: list[str]) -> str | None:
     """A folder that names one of your projects goes there; a meaningless one says nothing."""
     f = (folder or "").strip()
@@ -77,7 +91,8 @@ def by_rule(folder: str, projects: list[str]) -> str | None:
 
 def project_of(st: dict, key: str, folder: str) -> str:
     """What a conversation is shown under: what was decided for it, else what its folder says, else 日常对话."""
-    return st["of"].get(key) or by_rule(folder, st["list"]) or EVERYDAY
+    p = st["of"].get(key) or by_rule(folder, st["list"]) or EVERYDAY
+    return (st.get("merged") or {}).get(p, p)           # a folder merged into another (pga.consolidate) is shown as that one
 
 
 def _projects(st: dict, items: list) -> str:
@@ -100,7 +115,8 @@ def sort(rt: "Runtime", user: User, items: list | None = None, limit: int = 240,
         items = Timeline(rt).items(user, now - timedelta(days=365))
     st = state(user)
     if again:
-        st["of"], st["list"] = {}, list(st["mine"])
+        st["of"] = dict(st.get("manual", {}))
+        st["list"] = list(dict.fromkeys([*st["mine"], *st["of"].values()]))
     todo, ruled = [], 0
     for it in items:
         if it.key in st["of"]:
@@ -134,6 +150,7 @@ def sort(rt: "Runtime", user: User, items: list | None = None, limit: int = 240,
                     p = EVERYDAY
                 else:
                     st["list"].append(p)
+            p = (st.get("merged") or {}).get(p, p)
             st["of"][it.key] = p
             asked += 1
     st["at"] = now.isoformat()
