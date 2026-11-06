@@ -1,105 +1,107 @@
 <div align="center">
 
-<img src="src/pga/web/icons/logo.png" width="160" alt="PGA 魔女猫 Logo" />
+**English** · [简体中文](README.zh-CN.md)
+
+<img src="src/pga/web/icons/logo.png" width="160" alt="PGA witch cat logo" />
 
 # PGA
 
-**个人多智能体工作台 · Personal Multi-Agent Workspace**
+**Personal Multi-Agent Workspace**
 
-在一个工作台里，与多个 AI 一起持续推进你的项目。
+Keep your projects moving with multiple AI agents in one workspace.
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square)](pyproject.toml)
 [![License](https://img.shields.io/badge/License-Apache--2.0-8b5b78?style=flat-square)](LICENSE)
-[![Self-hosted](https://img.shields.io/badge/部署-自托管-c39453?style=flat-square)](#quick-start)
+[![Self-hosted](https://img.shields.io/badge/Deployment-Self--hosted-c39453?style=flat-square)](#quick-start)
 
-[功能预览](#features) · [快速开始](#quick-start) · [支持的 Agent](#agents) · [开发与贡献](#development)
+[Features](#features) · [Quick start](#quick-start) · [Supported agents](#agents) · [Development](#development)
 
 </div>
 
-![PGA 工作台：按项目组织对话，与多个 Agent 并排工作](docs/media/screenshots/01-workspace.png)
+![PGA workspace: organize conversations by project and work with agents side by side](docs/media/screenshots/01-workspace.png)
 
-PGA 把项目、对话、文件和多个 AI 接到同一张台面上。你可以自己指定 Agent，也可以把需求交给项目管理员拆分和分配；工作结束后，对话、资料和知识仍留在项目里，方便下一次接着做。
+PGA brings projects, conversations, files, and AI agents onto a shared workbench. Choose an agent yourself, or let a project manager break down your request and assign the work. Conversations, materials, and knowledge stay with the project so you can pick up where you left off.
 
-适合同时使用多个 AI、长期推进代码或研究项目，以及需要反复对照资料和结果的人。
+Built for people who use several AI tools, work on long-running coding or research projects, and regularly compare sources and results.
 
-> **当前阶段：早期版本，持续迭代。** 网页工作台支持自托管，macOS 另有原生浮窗。本文截图均由当前前端在浏览器中直接采集，使用公开演示数据；不包含个人账号、私人对话，也不代表真实模型调用或性能测试。截图脚本见 [scripts/capture-readme.cjs](scripts/capture-readme.cjs)。
+> **Early development: actively evolving.** The web workspace is self-hosted, with an additional native floating-window app for macOS. Screenshots are captured directly from the current frontend using public demo data and show the Chinese UI. They contain no personal accounts or private conversations and do not demonstrate live model calls or measured performance. See [scripts/capture-readme.cjs](scripts/capture-readme.cjs).
 
 <a id="features"></a>
 
-## 从一段对话，到一个持续工作的项目
+## From a conversation to an ongoing project
 
-### 多窗口工作台
+### A workbench with room for multiple conversations
 
-每段对话都有自己的窗口，可以并排阅读、调整宽度、折叠和恢复。左侧按项目收纳对话，顶部小地图提供快速跳转；窗口里的输入、阅读位置和工作目录各自独立。
+Each conversation has its own window. Read them side by side, resize them, or fold them away. The sidebar groups conversations by project, and a minimap at the top lets you jump between windows. Each window keeps its own draft, reading position, and working directory.
 
-- **横向浏览**：`Shift` + 滚轮移动台面；点击小地图定位窗口。
-- **收起与恢复**：折叠单个窗口、整个分类或全部窗口。
-- **引用资料**：把文件、笔记和相关对话接到工作窗口，明确要参考什么。
-- **保存页面**：将当前排布存成页面，切换项目时恢复窗口、阅读位置和草稿。页面快照保存在服务端。
+- **Move around:** use `Shift` + scroll to pan across the workbench, or click the minimap to jump to a window.
+- **Fold and restore:** collapse a window, a category, or the entire workbench.
+- **Attach context:** connect files, notes, and related conversations to a working window.
+- **Save pages:** save the current arrangement as a page and restore windows, reading positions, and drafts when switching projects. Page snapshots are stored on the server.
 
 <details>
-<summary>查看页面管理截图</summary>
+<summary>View page management</summary>
 
-![页面管理：保存当前台面，切换到另一组工作](docs/media/screenshots/02-pages.png)
+![Page management: save the current workbench and switch to another set of conversations](docs/media/screenshots/02-pages.png)
 
 </details>
 
-### 项目管理员
+### A manager for each project
 
-把一段需求写进管理员文档，系统将它拆成任务，再结合 Agent 的偏好排序、可用额度和当前负载分配。任务进度以批注呈现，点击可以进入对应的处理对话。
+Write a request in the manager document. PGA breaks it into tasks and assigns them using your agent preferences, available quotas, and current workloads. Progress appears as comments; click one to open the corresponding task conversation.
 
-![项目管理员：需求写在正文，任务进度显示在右侧](docs/media/screenshots/07-manager.png)
+![Project manager: requests in the document, task progress in comments on the right](docs/media/screenshots/07-manager.png)
 
-- 连按两次 `Enter` 发送一个段落，`⌘/Ctrl + Enter` 发送整篇草稿。
-- 从管理员顶部进入知识图谱、项目对话检索和文档视图。
-- 需要已有背景的任务，可引用本分类相关对话的最近记录。
-- 工具执行或请求明显失败时，按备选顺序尝试其他 Agent；这不等于自动判断每个答案是否正确。
+- Press `Enter` twice to submit a paragraph, or `⌘/Ctrl + Enter` to submit the entire draft.
+- Open the knowledge graph, project conversation search, and document view from the manager's toolbar.
+- Tasks that need existing context can reference recent messages from related conversations in the same category.
+- When a tool execution or request clearly fails, PGA tries another agent in the fallback order. This does not automatically determine whether every answer is correct.
 
-### 第二意见：同一问题，两种思路
+### Second opinion: one question, two approaches
 
-两个 Agent 在同一个窗口并排作答。分屏前共享背景，分屏后各自延续上下文；后续输入可以同时发给两侧，也可以只选其中一侧。
+Two agents answer side by side in the same window. They share the conversation history before the split, then maintain separate contexts. Send follow-up messages to both sides or continue with just one.
 
-![第二意见：在同一窗口对比两个 Agent 的回答](docs/media/screenshots/03-second-opinion.png)
+![Second opinion: compare two agents' answers in one window](docs/media/screenshots/03-second-opinion.png)
 
-**「从这里继续」是另一项功能**：从选定位置创建独立会话，保留截至该位置的上下文。需要更多视角时，还可以使用评审与合成工作流。
+**Continue from here** creates a separate conversation from a selected point, carrying over only the context up to that point. Review and synthesis workflows are also available when you need more perspectives.
 
-### 文件就放在对话旁边
+### Files next to the conversation
 
-打开 AI 生成的文件，不必离开工作台。文件面板支持多个标签页，可以一边读回答，一边查看和修改成果。
+Open files produced by an agent without leaving the workspace. The file panel supports tabs, so you can read a response while reviewing or editing the result.
 
-![文件工作区：对话与 Markdown 文档并排显示](docs/media/screenshots/06-files.png)
+![File workspace: a conversation beside a Markdown document](docs/media/screenshots/06-files.png)
 
-- Markdown、代码和文本支持预览或编辑；代码编辑器使用本地 Monaco。
-- 支持图片、PDF、Word、表格、幻灯片和网页阅读，具体格式依赖可选转换工具。
-- 保存文件时检查外部修改冲突；编辑器资源不可用时回退到基础文本编辑。
-- 回答里的本地图片和生成图片可直接显示，点击查看大图。
+- Preview or edit Markdown, code, and text. The code editor uses a locally bundled Monaco Editor.
+- Read images, PDFs, Word documents, spreadsheets, slides, and web pages. Some formats require optional conversion tools.
+- Saving checks for external changes to the file. A basic text editor is available if the full editor cannot load.
+- Local and generated images appear directly in responses; click to enlarge them.
 
-### 世界树与项目记忆
+### World Tree and project memory
 
-把不断增长的对话组织成主题，逐层查看摘要，再回到具体讨论。世界树提供 **3D 星空、2D 层级、关系网** 三种视图。
+Organize growing conversation histories into topics, explore summaries at different levels, and return to the original discussions. World Tree offers **3D constellation, 2D hierarchy, and relationship network** views.
 
-![世界树：主题、子主题与对话的层级关系](docs/media/screenshots/04-world-tree.png)
+![World Tree: a hierarchy of topics, subtopics, and conversations](docs/media/screenshots/04-world-tree.png)
 
-还包括文档知识库、带时间与来源的事实图谱、Obsidian 导出，以及需逐条确认的归类和归档建议。生成主题摘要、事实抽取等操作会调用配置的模型。
+PGA also includes document knowledge stores, a fact graph with timestamps and sources, Obsidian export, and classification and archiving suggestions that require individual approval. Generating topic summaries and extracting facts use the models you configure.
 
-### 你的工作方式，你的外观
+### Make the workspace your own
 
-六套内置外观支持深色、浅色和跟随系统；字体大小、间距、圆角和动效也能调整。Agent 有自己的资料页，可设置头像、简介、固定要求、擅长领域和并发上限。
+Six built-in styles support dark, light, and system appearance. Adjust font size, spacing, corners, and motion. Each agent has a profile with an avatar, description, standing instructions, specialties, and concurrency limits.
 
 <details>
-<summary>查看外观设置截图</summary>
+<summary>View appearance settings</summary>
 
-![外观设置：六套风格与可调整的界面参数](docs/media/screenshots/05-appearance.png)
+![Appearance settings: six styles and adjustable interface preferences](docs/media/screenshots/05-appearance.png)
 
 </details>
 
-**macOS 浮窗**：用 `⌥ + Space` 打开悬浮对话，`⌥ + ⇧ + Space` 在浮窗和工作台之间切换。支持从 Finder 拖入文件。构建方式见 [desktop/README.md](desktop/README.md)。
+**macOS floating windows:** press `⌥ + Space` to open a floating conversation and `⌥ + ⇧ + Space` to switch between floating windows and the workbench. Drag files in from Finder. Build instructions are in [desktop/README.md](desktop/README.md).
 
 <a id="quick-start"></a>
 
-## 快速开始
+## Quick start
 
-需要 **macOS 或 Linux、Python 3.11+、Git**，以及已启动且包含 Compose 的 **Docker**。Docker 在这条安装路径中只用于 PostgreSQL；也可以使用已有数据库。
+You need **macOS or Linux, Python 3.11+, Git**, and a running **Docker installation with Compose**. This installation path uses Docker only for PostgreSQL; you can also connect an existing database.
 
 ```bash
 git clone https://github.com/2002Sam/pga.git
@@ -107,114 +109,114 @@ cd pga
 bash install.sh
 ```
 
-安装器会检查环境、创建虚拟环境、安装依赖、初始化 PostgreSQL、执行数据库迁移，并尝试注册后台服务。默认访问地址：**http://127.0.0.1:8000**。
+The installer checks prerequisites, creates a virtual environment, installs dependencies, initializes PostgreSQL, runs database migrations, and attempts to register a background service. The default address is **http://127.0.0.1:8000**.
 
-1. 打开网页，在「设置」中配置模型 API，或在「Agent 与连接」中接入已经安装并登录的本机 Agent。
-2. 新建一个项目分类，选择工作文件夹和权限。
-3. 打开一段对话开始工作；需要分工时，从分类旁的 `◎` 进入管理员。
+1. Open the web interface. Configure a model API in **Settings**, or connect an installed and authenticated local agent in **Agents & connections**.
+2. Create a project category and choose its working directory and permissions.
+3. Open a conversation to start working. To delegate tasks, open the manager using `◎` beside the category.
 
-新安装默认使用离线 `fake` 模型，可以先熟悉界面；真实问答需要连接 Agent 或配置模型服务。管理员的模型拆分使用 DeepSeek，未配置或超时时会回退到整段任务分配。
+New installations use the offline `fake` model so you can explore the interface first. Real conversations require a connected agent or configured model service. The manager uses DeepSeek to break down requests; if it is unavailable or times out, the full request is assigned as one task.
 
-> **远程部署**：当前 API 尚未实现访问鉴权。默认仅监听本机，远程使用请通过 SSH 隧道访问，勿直接将服务端口暴露到公网。
+> **Remote deployment:** the API does not yet implement access authentication. It listens on localhost by default. Use an SSH tunnel for remote access rather than exposing the service port directly to the internet.
 >
 > ```bash
 > ssh -N -L 8000:127.0.0.1:8000 user@server
 > ```
 
 <details>
-<summary>安装参数、更新与后台服务</summary>
+<summary>Installer options, updates, and background services</summary>
 
-| 命令 | 作用 |
+| Command | Purpose |
 |---|---|
-| `bash install.sh --check` | 只检查环境 |
-| `bash install.sh --port 8080 --db-port 55433` | 首次安装指定端口 |
-| `bash install.sh --no-service` | 安装但不注册后台服务 |
-| `PGA_PYTHON=/path/to/python3.12 bash install.sh` | 指定 Python 解释器 |
-| `PGA_DATABASE_URL='postgresql+psycopg://user:pass@host:5432/pga' bash install.sh --database existing` | 使用已创建的 PostgreSQL 数据库 |
+| `bash install.sh --check` | Check prerequisites only |
+| `bash install.sh --port 8080 --db-port 55433` | Choose ports for the first installation |
+| `bash install.sh --no-service` | Install without registering a background service |
+| `PGA_PYTHON=/path/to/python3.12 bash install.sh` | Choose a Python interpreter |
+| `PGA_DATABASE_URL='postgresql+psycopg://user:pass@host:5432/pga' bash install.sh --database existing` | Use an existing PostgreSQL database |
 
-安装器生成 `.env`、`agents.yaml` 和 `.pga-install/`，再次运行会沿用配置。请把源码目录放在固定位置。
+The installer creates `.env`, `agents.yaml`, and `.pga-install/` and reuses them on subsequent runs. Keep the source directory in a stable location.
 
-| 操作 | macOS | Linux 用户服务 |
+| Action | macOS | Linux user service |
 |---|---|---|
-| 停止 | `launchctl bootout gui/$(id -u)/local.pga.agent` | `systemctl --user stop pga` |
-| 重启 | `launchctl kickstart -k gui/$(id -u)/local.pga.agent` | `systemctl --user restart pga` |
-| 日志 | `tail -f ../logs/pga.log` | `journalctl --user -u pga -f` |
+| Stop | `launchctl bootout gui/$(id -u)/local.pga.agent` | `systemctl --user stop pga` |
+| Restart | `launchctl kickstart -k gui/$(id -u)/local.pga.agent` | `systemctl --user restart pga` |
+| Logs | `tail -f ../logs/pga.log` | `journalctl --user -u pga -f` |
 
-macOS 后台服务在用户登录后启动，Docker 也需要就绪。Linux 需要有效的用户服务会话；若要退出登录后继续运行，可配置 `loginctl enable-linger`。没有可用服务管理器时，使用 `--no-service`，再运行安装器生成的 `.pga-install/run`。
+On macOS, the background service starts after login and requires Docker to be ready. Linux requires an active user service session; configure `loginctl enable-linger` if it should continue after logout. Without a supported service manager, use `--no-service` and run the generated `.pga-install/run` script.
 
-**更新**：先备份数据库和配置，停止服务，运行 `git pull --ff-only`，然后重新执行 `bash install.sh`。
+**Updating:** back up the database and configuration, stop the service, run `git pull --ff-only`, and run `bash install.sh` again.
 
 </details>
 
 <a id="agents"></a>
 
-## 支持的 Agent
+## Supported agents
 
-PGA 负责组织协作，执行能力来自你连接的 Agent 和模型。账号、订阅或 API 用量仍按对应服务计费。
+PGA organizes collaboration; the agents and models you connect do the work. Accounts, subscriptions, and API usage are billed by their respective providers.
 
-| 接入 | 方式 |
+| Integration | Connection |
 |---|---|
-| Claude Code | 本机命令行、常驻会话、多账号 |
-| Codex / ChatGPT | 本机 Codex app-server、多账号与额度读取 |
-| Gemini CLI | 本机命令行、多账号 |
-| Hermes Agent | 本地 API 或命令行 |
-| WorkBuddy / CodeBuddy | 本机命令行、常驻会话 |
-| OpenCode | 本机命令行 |
-| 自定义 Agent | 命令行进程或 HTTP 接口 |
+| Claude Code | Local CLI, persistent sessions, multiple accounts |
+| Codex / ChatGPT | Local Codex app-server, multiple accounts, quota reporting |
+| Gemini CLI | Local CLI, multiple accounts |
+| Hermes Agent | Local API or CLI |
+| WorkBuddy / CodeBuddy | Local CLI, persistent sessions |
+| OpenCode | Local CLI |
+| Custom agents | CLI processes or HTTP endpoints |
 
-模型服务支持 Anthropic、OpenAI、DeepSeek、OpenRouter、Kimi、通义千问、智谱 GLM、Ollama，以及 OpenAI 兼容接口。可用模型和具体能力以所连接服务及本机工具版本为准。
+Model providers include Anthropic, OpenAI, DeepSeek, OpenRouter, Kimi, Qwen, Zhipu GLM, Ollama, and OpenAI-compatible endpoints. Available models and capabilities depend on the connected services and installed tool versions.
 
 <details>
-<summary>主要配置与数据位置</summary>
+<summary>Configuration and data locations</summary>
 
-| 配置 | 用途 |
+| Setting | Purpose |
 |---|---|
-| `.env` | 数据库连接、模型凭证、监听地址 |
-| `agents.yaml` | Agent 类型、命令、工作目录、偏好排序与并发设置 |
-| `models.yaml` | 模型目录与服务配置 |
-| `PGA_HOST` / `PGA_PORT` | 监听地址 / 端口 |
-| `PGA_DATABASE_URL` | PostgreSQL 连接串 |
-| `PGA_LLM_PROVIDER` | 内部模型提供者；支持 `fake` 离线模式 |
-| `DEEPSEEK_API_KEY` | DeepSeek 与管理员拆分 |
-| `PGA_AGENTS_FILE` / `PGA_MODELS_FILE` | 自定义配置文件位置 |
+| `.env` | Database connection, model credentials, and listening address |
+| `agents.yaml` | Agent types, commands, working directories, preferences, and concurrency |
+| `models.yaml` | Model catalog and provider settings |
+| `PGA_HOST` / `PGA_PORT` | Listening address / port |
+| `PGA_DATABASE_URL` | PostgreSQL connection string |
+| `PGA_LLM_PROVIDER` | Internal model provider; supports offline `fake` mode |
+| `DEEPSEEK_API_KEY` | DeepSeek and manager task decomposition |
+| `PGA_AGENTS_FILE` / `PGA_MODELS_FILE` | Custom configuration file locations |
 
-默认安装将工作区、状态、笔记、快照、日志放在仓库同级的 `workspaces/`、`state/`、`notes/`、`snapshots/`、`logs/`。部分账号、上传与预览数据位于 `~/Documents/PGA`；Obsidian 导出默认位于 `~/PGA Vault`。备份应包含数据库、配置和这些目录。
+By default, the installer places `workspaces/`, `state/`, `notes/`, `snapshots/`, and `logs/` alongside the repository directory. Some account, upload, and preview data lives under `~/Documents/PGA`; Obsidian exports default to `~/PGA Vault`. Include the database, configuration, and these directories in backups.
 
-**可选依赖**：LibreOffice 用于部分 Office 格式转换；Poppler 的 `pdftotext` 用于读取 PDF 附件；各 Agent 的命令行工具需单独安装。
+**Optional dependencies:** LibreOffice for some Office format conversions; Poppler's `pdftotext` for PDF attachments. Install each agent's CLI separately.
 
 </details>
 
-## 边界与当前限制
+## Boundaries and current limitations
 
-- 数据保存在自己的机器或服务器上；调用远程模型、搜索或 Agent 时，相关内容会交给对应服务。网页还会加载部分 CDN 资源。
-- 项目上下文限定与执行器的文件权限是两层机制。项目范围限制不等同于磁盘沙箱；请按任务选择只读、自动或完全批准权限。
-- 页面恢复的是排布、阅读位置和草稿，不是回滚数据库或已执行的文件操作。
-- 安装器支持 macOS / Linux，日常验证以 macOS 为主。原生浮窗仅支持 macOS；Windows 尚未验证。
-- 当前发布的是源码安装方式。根目录 Compose 只提供基础设施，不是完整应用的一键 Docker 部署；DMG 安装包与访问鉴权仍在计划中。
+- Data is stored on your machine or server. Requests to remote models, search services, or agents send relevant content to those services. The web interface also loads some CDN resources.
+- Project context boundaries and executor file permissions are separate mechanisms. Restricting project context is not a filesystem sandbox; choose read-only, automatic, or full-approval permissions to suit the task.
+- Restoring a page restores its layout, reading positions, and drafts. It does not roll back the database or completed file operations.
+- The installer supports macOS and Linux, with most day-to-day validation on macOS. Native floating windows are macOS-only; Windows has not been validated.
+- The current distribution is installed from source. The root Compose file provides infrastructure, not a complete application deployment. A DMG installer and access authentication are planned.
 
 <a id="development"></a>
 
-## 开发与贡献
+## Development and contributing
 
-后端是 Python / FastAPI / SQLAlchemy，数据库使用 PostgreSQL。网页由原生 HTML、CSS 和 JavaScript 组成；macOS 桌面壳使用 Swift、AppKit、WebKit 与 Svelte。
+The backend uses Python, FastAPI, SQLAlchemy, and PostgreSQL. The web interface uses plain HTML, CSS, and JavaScript. The macOS desktop shell uses Swift, AppKit, WebKit, and Svelte.
 
 ```text
 src/pga/
-├── agents/              # Agent 接入、调度、额度与评审
-├── manager_dispatch.py  # 管理员拆分和分配任务
-├── project_context.py   # 项目上下文
-├── worldtree.py         # 主题层级
-├── kg/ memory/ vault/   # 事实图谱、记忆和知识导出
+├── agents/              # Agent connections, scheduling, quotas, and review
+├── manager_dispatch.py  # Manager task decomposition and assignment
+├── project_context.py   # Project context
+├── worldtree.py         # Topic hierarchy
+├── kg/ memory/ vault/   # Fact graph, memory, and knowledge export
 ├── api/                 # HTTP API
-└── web/                 # 网页界面与魔女猫图标
-desktop/                 # macOS 浮窗
-migrations/              # 数据库迁移
-tests/                   # Python 与 JavaScript 测试
-scripts/                 # 安装、图标生成和 README 截图
+└── web/                 # Web interface and witch cat icons
+desktop/                 # macOS floating windows
+migrations/              # Database migrations
+tests/                   # Python and JavaScript tests
+scripts/                 # Installation, icons, and README screenshots
 ```
 
 <details>
-<summary>本地开发与测试</summary>
+<summary>Local development and testing</summary>
 
 ```bash
 docker compose up -d postgres
@@ -232,35 +234,35 @@ pytest
 node --test tests/*.mjs
 ```
 
-Python 测试需要独立的 PostgreSQL 测试数据库，可用 `PGA_TEST_DATABASE_URL` 指定。真实模型测试默认跳过。接口文档位于 `/docs`。
+Python tests require a separate PostgreSQL test database, configurable with `PGA_TEST_DATABASE_URL`. Live model tests are skipped by default. API documentation is available at `/docs`.
 
-桌面构建：
+Build the desktop app:
 
 ```bash
 cd desktop
 ./build.sh
 ```
 
-生成 `desktop/build/PGA 浮窗.app`；加 `--install` 会复制到 `~/Applications` 并启动。
+This creates `desktop/build/PGA 浮窗.app`. Add `--install` to copy it to `~/Applications` and launch it.
 
 </details>
 
-欢迎通过 [Issues](https://github.com/2002Sam/pga/issues) 反馈问题，或提交 Pull Request。报告问题时请附复现步骤、系统和工具版本；分享日志、截图前去掉凭证和私人内容。
+Report problems through [Issues](https://github.com/2002Sam/pga/issues) or submit a pull request. Include reproduction steps, your operating system, and relevant tool versions. Remove credentials and private content before sharing logs or screenshots.
 
-## Logo 与截图素材
+## Logo and screenshot assets
 
-PGA 使用魔女猫作为品牌形象：**应用图标采用猫头与魔女帽的大头照，全身形象作为吉祥物。**
+PGA's mascot is a witch cat. **Application icons use a close-up of the cat's head and hat; the full character serves as the mascot.**
 
-- [大头照源图](docs/media/pga-witch-cat-head.png) · [完整角色图](docs/media/pga-witch-cat.png)
-- [网页与桌面图标](src/pga/web/icons) · [截图说明与复现方法](docs/media/README.md)
-- `bash scripts/build-icons.sh` 从头像源图生成 favicon、PWA、Apple Touch 与 macOS ICNS 图标（需要 macOS）。
+- [Headshot source](docs/media/pga-witch-cat-head.png) · [Full character](docs/media/pga-witch-cat.png)
+- [Web and desktop icons](src/pga/web/icons) · [Asset notes and screenshot reproduction (Chinese)](docs/media/README.md)
+- Run `bash scripts/build-icons.sh` to generate favicon, PWA, Apple Touch, and macOS ICNS assets from the headshot source. Requires macOS.
 
-## 许可证与致谢
+## License and acknowledgments
 
-PGA 采用 [Apache License 2.0](LICENSE)。第三方组件保留各自许可证；复制或修改的代码来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+PGA is licensed under [Apache License 2.0](LICENSE). Third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for copied or modified code and its origins.
 
-感谢 Graphiti、Mixture-of-Agents、FastChat，以及提供界面、编辑器和可视化能力的开源项目。
+Thanks to Graphiti, Mixture-of-Agents, FastChat, and the open-source projects behind the interface, editor, and visualization tools.
 
 <div align="center">
-<sub>用 PGA 构建 PGA。</sub>
+<sub>Building PGA with PGA.</sub>
 </div>
