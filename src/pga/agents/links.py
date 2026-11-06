@@ -73,6 +73,10 @@ class RpcError(LinkDown):
     pass
 
 
+class RpcRejected(RpcError):
+    """A JSON-RPC error reply, distinct from a lost transport acknowledgement."""
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -151,6 +155,14 @@ def thread_for(agent: str, conv: str) -> str | None:
 
 def session_for(agent: str, conv: str) -> str | None:
     return _get("sessions", f"{agent}|{conv}")
+
+
+def _resume_text(task: AgentTask, session_id: str | None) -> str:
+    """Only apply a catch-up checkpoint to the native session it was built for."""
+    context = task.meta.get("resume_context") or {}
+    if context:
+        return context["text"] if context.get("session") == session_id else task.prompt
+    return task.meta.get("new_text") or task.prompt
 
 
 def cwd_for(agent: str, conv: str) -> str | None:
@@ -531,7 +543,7 @@ class RpcProcess:
             raise RpcError(f"{method}: no reply within {timeout:.0f}s")
         m = slot["msg"]
         if "error" in m:
-            raise RpcError(f"{method}: {(m['error'] or {}).get('message', m['error'])}")
+            raise RpcRejected(f"{method}: {(m['error'] or {}).get('message', m['error'])}")
         return m.get("result") or {}
 
     def notify(self, method: str, params: dict | None = None) -> None:
@@ -678,7 +690,7 @@ class CodexServer:
             self.loaded.add(tid)
             if conv:
                 _put("threads", f"{self.name}|{conv}", tid)
-        text = (task.meta.get("new_text") if not fresh and task.meta.get("new_text") else task.prompt).strip()
+        text = (_resume_text(task, tid) if not fresh else task.prompt).strip()
         if conv and not fresh and _SEEN_PERMS.get(f"{self.name}|{conv}") != task.permissions:   # resumed with other access: say so
             text = f"{_perm_note(task.permissions, cwd)}\n\n{text}"
         if conv:
@@ -689,16 +701,30 @@ class CodexServer:
         self.listeners[tid] = q
         self.approval_tasks[tid] = task
         try:
-            params = {"threadId": tid, "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "input": [{"type": "text", "text": text}]
+            # A loaded/resumed thread can retain its old sandbox. Set the effective
+            # permissions on every turn, including permission downgrades and cwd changes.
+            policy = {"type": "dangerFullAccess"} if task.permissions == FULL else (
+                {"type": "workspaceWrite", "writableRoots": [os.path.abspath(cwd)]}
+                if task.permissions in (AUTO, WORKSPACE_WRITE) else {"type": "readOnly"})
+            params = {"threadId": tid, "cwd": cwd, "sandboxPolicy": policy,
+                      "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "input": [{"type": "text", "text": text}]
                       + [{"type": "localImage", "path": str(p)} for p in task.meta.get("images") or []]}
             if model:
                 params["model"] = str(model)
             if effort:
                 params["effort"] = str(effort)
             turn_id = self.rpc.request("turn/start", params, 60)["turn"]["id"]
+            rpc = self.rpc
+            def steer_input(text):
+                try:
+                    return rpc.request("turn/steer", {"threadId": tid, "expectedTurnId": turn_id,
+                                                     "input": [{"type": "text", "text": text}]}, 15)
+                except RpcRejected as exc:
+                    raise live.SteerRejected(str(exc)) from exc
+            live.bind_steering(lid, steer_input)
             finals, deltas, err, usage = [], [], None, None
             compaction = None
-            deadline = time.monotonic() + task.timeout_s
+            deadline = task.response_deadline()
             while True:
                 left = deadline - time.monotonic()
                 if left <= 0:
@@ -729,6 +755,12 @@ class CodexServer:
                 if meth == "item/agentMessage/delta":
                     deltas.append(p.get("delta") or "")
                     live.append(lid, p.get("delta") or "")
+                elif meth == "item/started" and (p.get("item") or {}).get("type") == "commandExecution":
+                    item = p["item"]
+                    live.step(lid, {"t": "tool", "tool": "Bash", "id": item.get("id"),
+                                    "title": " ".join(str(item.get("command") or "").split())[:200]})
+                elif meth == "item/commandExecution/outputDelta":
+                    live.step_output(lid, str(p.get("itemId") or ""), str(p.get("delta") or ""))
                 elif meth == "item/started" and (p.get("item") or {}).get("type") == "contextCompaction":
                     compaction = {"status": "running"}
                     live.set_extra(lid, "compaction", compaction)
@@ -742,10 +774,15 @@ class CodexServer:
                         finals.append(str(item.get("text") or ""))
                         live.append(lid, "\n")
                     elif kind == "fileChange":
+                        live.step(lid, {"t": "tool", "tool": "Edit", "id": item.get("id"), "secs": 0,
+                                        "title": ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200]})
                         live.append(lid, "→ Edit " + ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200] + "\n")
                     elif kind == "commandExecution":
+                        live.step_done(lid, str(item.get("id") or ""), error=bool(item.get("exitCode")))
                         live.append(lid, f"$ {' '.join(str(item.get('command') or '').split())[:200]}\n")
                     elif kind == "webSearch":
+                        live.step(lid, {"t": "tool", "tool": "WebSearch", "id": item.get("id"), "secs": 0,
+                                        "title": str(item.get("query") or "")[:200]})
                         live.append(lid, f"（搜索）{str(item.get('query') or '')[:200]}\n")
                 elif meth == "thread/tokenUsage/updated":
                     usage = p.get("tokenUsage")
@@ -761,6 +798,7 @@ class CodexServer:
                         err = err or str((t.get("error") or {}).get("message") or t.get("status"))[:500]
                     break
         finally:
+            live.unbind_steering(lid)
             self.listeners.pop(tid, None)
             self.approval_tasks.pop(tid, None)
             from pga.agents import approvals
@@ -831,7 +869,7 @@ class StreamSession:
             if s is None:
                 s = cls._ALL[key] = cls(ad, conv, task)
         cont = warm or s.resumed
-        text = task.meta.get("new_text") if cont and task.meta.get("new_text") else None
+        text = _resume_text(task, s.session_id) if cont else None
         if text and not warm and _SEEN_PERMS.get(key) != task.permissions:
             # a resumed session (or one whose access you just changed): its earlier turns may have had fewer tools, and
             # the model goes by them — say plainly what it can do now, so it does not refuse what it is now allowed
@@ -920,7 +958,7 @@ class StreamSession:
             except (BrokenPipeError, OSError, ValueError) as exc:
                 raise LinkDown(f"session closed: {exc}") from exc
             out: list[str] = []
-            deadline = time.monotonic() + task.timeout_s
+            deadline = task.response_deadline()
             done = False
             while not done:
                 left = deadline - time.monotonic()
@@ -1080,7 +1118,7 @@ class HermesApi:
         lid, conv = task.meta.get("live_id"), task.meta.get("conversation")
         sid = f"pga-{hashlib.sha256(f'{ad.name}|{conv}'.encode()).hexdigest()[:20]}" if conv else f"pga-{uuid.uuid4().hex[:20]}"
         cont = bool(conv and session_for(ad.name, conv))
-        body: dict[str, Any] = {"input": (task.meta.get("new_text") if cont and task.meta.get("new_text") else task.prompt)
+        body: dict[str, Any] = {"input": (_resume_text(task, sid) if cont else task.prompt)
                                 + ("\n\nReply with JSON only." if task.want_json else ""), "session_id": sid}
         if task.system.strip():
             body["instructions"] = task.system.strip()

@@ -55,5 +55,5 @@ document.addEventListener("change", async (e) => {
   try { DRM.settings = await api(`/v1/users/${S.uid}/dream-settings`, { method: "PUT", body: { on: e.target.checked } }); } catch (err) { toast(err.message); }
 });
 const _stBarDR = stBar;                              // the moon goes in the stage bar
-stBar = function () { _stBarDR(); const nb = document.querySelector("#stbar [data-st='new']"); if (nb && !document.querySelector("[data-st='dream']")) { nb.insertAdjacentHTML("beforebegin", `<button class="sm ghost" data-st="dream"></button>`); drBadge(); } };
+stBar = function () { _stBarDR(); const nb = document.querySelector("#stbar [data-memo='list']") || document.querySelector("#stbar [data-st='new']"); if (nb && !document.querySelector("[data-st='dream']")) { nb.insertAdjacentHTML("beforebegin", `<button class="sm ghost" data-st="dream"></button>`); drBadge(); } };
 if (S.uid && !Q.get("embed")) { drLoad(); setInterval(drLoad, 10 * 60 * 1000); }

@@ -2,38 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-const src = fs.readFileSync(new URL('../src/pga/web/app-chats.js', import.meta.url), 'utf8');
+const more=fs.readFileSync('src/pga/web/app-more.js','utf8');
+const chats=fs.readFileSync('src/pga/web/app-chats.js','utf8');
 function harness(api) {
-  const t = { role:'agent', run:'r1', agent:'claude', text:'Original answer' };
-  const ctx = vm.createContext({ S:{chat:'chat:a',view:'chats',uid:'u',chatTurns:{'chat:a':[t]}}, api,
-    renderChat(){}, toast(){}, esc:x=>String(x), md:x=>String(x), agentLabel:x=>x, L:x=>x });
-  vm.runInContext(src.slice(src.indexOf('async function secondOpinion('),src.indexOf('/* translate one piece')),ctx);
-  return {ctx,t};
+ const sent=[],errors=[];
+ const S={uid:'u',chat:'chat:a',chatAgent:'codex',agents:[{name:'claude'},{name:'codex'}],chatTurns:{'chat:a':[{run:'r',agent:'claude'}]}};
+ const c=vm.createContext({S,api,composerBusy:()=>false,renderChat(){},loadChat:async()=>{},splitSend:async text=>sent.push(text),toast:s=>errors.push(s),L:s=>s});
+ vm.runInContext(more.slice(more.indexOf('async function startSplit('),more.indexOf('function splitHtml(')),c);
+ vm.runInContext(chats.slice(chats.indexOf('async function secondOpinion('),chats.indexOf('function secondPairHtml(')),c);
+ return {c,S,sent,errors};
 }
-test('second opinion stays attached to the source reply without a branch request',async()=>{
-  const calls=[]; const {ctx,t}=harness(async(url,opts)=>{calls.push(opts.body);return {agent:'codex',text:'Other answer'};});
-  await ctx.secondOpinion('r1','chat:a');
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)),[{run:'r1'}]);
-  assert.equal(ctx.S.chat,'chat:a'); assert.equal(t.second.text,'Other answer');
-  const html=ctx.secondPairHtml(t);
-  assert.equal((html.match(/<section /g)||[]).length,2);
-  assert.match(html,/Original answer/); assert.match(html,/Other answer/);
+test('second opinion directly starts a split and generates in the same window without DOM dialogs',async()=>{
+ const calls=[];const h=harness(async(url,opts)=>{calls.push({url,body:opts.body});return {question:'question',lanes:[]};});
+ await h.c.secondOpinion('r','chat:a');
+ assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)),{key:'chat:a',agents:['codex','claude'],run:'r'});
+ assert.deepEqual(h.sent,['question']);assert.equal(h.S.chat,'chat:a');assert.equal(h.S.splitStarting,false);
 });
-test('pending request renders two columns and repeated clicks do not duplicate it',async()=>{
-  let finish, count=0; const {ctx,t}=harness(()=>{count++;return new Promise(r=>finish=r);});
-  const pending=ctx.secondOpinion('r1','chat:a');
-  await ctx.secondOpinion('r1','chat:a');
-  assert.equal(count,1); assert.match(ctx.secondPairHtml(t),/aria-live/);
-  ctx.S.chat='chat:b'; finish({agent:'codex',text:'Done'}); await pending;
-  assert.equal(ctx.S.chat,'chat:b'); assert.equal(t.second.text,'Done'); assert.equal(ctx.S.secondBusy,null);
+test('repeated clicks during setup and after split creation do not create duplicate tasks',async()=>{
+ let done,n=0;const h=harness(()=>{n++;return new Promise(r=>done=r);});
+ const pending=h.c.secondOpinion('r','chat:a');await h.c.secondOpinion('r','chat:a');assert.equal(n,1);
+ done({question:'q',lanes:[]});await pending;await h.c.secondOpinion('r','chat:a');assert.equal(n,1);
 });
-test('failure leaves original answer intact and releases pending state',async()=>{
-  const {ctx,t}=harness(async()=>{throw Error('unavailable');});
-  await ctx.secondOpinion('r1','chat:a');
-  assert.equal(t.text,'Original answer'); assert.equal(t.second,undefined); assert.equal(ctx.S.secondBusy,null);
+test('failure reports error and allows retry without losing the conversation',async()=>{
+ const h=harness(async()=>{throw Error('unavailable');});await h.c.secondOpinion('r','chat:a');
+ assert.deepEqual(h.errors,['unavailable']);assert.equal(h.S.splitStarting,false);assert.equal(h.S.chat,'chat:a');assert.equal(h.S.chatSplits,undefined);
 });
-test('saved second opinions use the pair renderer instead of the legacy collapsed comparison',()=>{
-  const render=src.slice(src.indexOf('function chatTurnsHtml('),src.indexOf('function secondHtml('));
-  assert.ok(render.includes("t.second || (t.run && S.secondBusy === t.run) ? secondPairHtml(t)"));
-  assert.doesNotMatch(render,/out \+= secondHtml/);
+test('switching windows during creation never sends into the newly selected conversation',async()=>{
+ let done;const h=harness(()=>new Promise(r=>done=r));const pending=h.c.secondOpinion('r','chat:a');h.S.chat='chat:b';done({question:'q',lanes:[]});await pending;
+ assert.deepEqual(h.sent,[]);assert.ok(h.S.chatSplits['chat:a']);assert.equal(h.S.chat,'chat:b');
+});
+test('requires two different agents',async()=>{
+ const h=harness(async()=>{throw Error('must not call');});h.S.agents=[{name:'codex'},{name:'codex'}];await h.c.secondOpinion('r','chat:a');assert.equal(h.errors.length,1);assert.equal(h.S.splitStarting,undefined);
 });

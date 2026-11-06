@@ -34,11 +34,15 @@ test('unwired horizontal scrolling does no sidebar scans or layout measurements'
 });
 test('30-window map sorts history once per draw and retains DOM when unchanged',()=>{
  let reads=0,writes=0,html='';
- const inner={clientHeight:22,querySelectorAll:()=>[],querySelector:()=>null,get innerHTML(){return html},set innerHTML(v){writes++;html=v}};
- const els={'#starena':{scrollWidth:20000,clientWidth:1000},'#vStage':{},'#stmap':{clientWidth:500,clientHeight:30,dataset:{},style:{setProperty(){}}},'#stmi':inner};
+ const inner={style:{},clientHeight:22,querySelectorAll:()=>[],querySelector:()=>null,get innerHTML(){return html},set innerHTML(v){writes++;html=v}};
+ const stage={querySelector:()=>null,appendChild(){}};
+ const els={'#starena':{scrollWidth:20000,clientWidth:1000},'#vStage':stage,'#stmap':{parentElement:stage,clientWidth:500,clientHeight:30,dataset:{},style:{setProperty(){}}},'#stmi':inner};
  const nodes=Array.from({length:30},(_,i)=>({id:String(i),key:'chat:'+i,type:'win'}));
- const c=vm.createContext({ST:{nodes,pos:new Map(nodes.map((w,i)=>[w.id,{x:i*600,w:580}]))},S:{view:'stage'},$:id=>els[id],L:a=>a,esc:String,stWins:()=>nodes,stStat:()=>new Map(),stGroupOf:()=>null,stDraft:()=>'',stMapBand:()=>({top:0,height:1}),stMapView(){},recentItems:()=>{reads++;return nodes.map(w=>({item:w.key,title:'Title '+w.id}))}});
- const src=read('app-stage.js');vm.runInContext(src.slice(src.indexOf('function stMap()'),src.indexOf('// Use the same vertical projection')),c);
+ const c=vm.createContext({ST:{nodes,mapExpanded:new Set(['']),pos:new Map(nodes.map((w,i)=>[w.id,{x:i*600,w:580}]))},S:{view:'stage'},window:{},ST_MAPFOLD:16,$:id=>els[id],L:a=>a,esc:String,stWins:()=>nodes,stStat:()=>new Map(),stGroupOf:()=>null,stDraft:()=>'',stMapBand:()=>({top:0,height:1}),stPanelTools(){},stMapLayout(){},stFoldedAll:()=>false,stMapView(){},recentItems:()=>{reads++;return nodes.map(w=>({item:w.key,title:'Title '+w.id}))}});
+ const src=read('app-stage.js');
+ vm.runInContext(src.slice(src.indexOf('const ST_KEEP ='),src.indexOf('// Use the full page as the reference')),c);
+ vm.runInContext(src.slice(src.indexOf('function stTalkOrder('),src.indexOf('const stLastAsk =')),c);
+ vm.runInContext(src.slice(src.indexOf('function stMap()'),src.indexOf('// Use the same vertical projection')),c);
  c.stMap();assert.equal(reads,1);assert.equal(writes,1);assert(html.includes('Title 29'));
  c.stMap();assert.equal(reads,2);assert.equal(writes,1);
  c.ST.focus='1';c.stMap();assert.equal(writes,2);
@@ -64,8 +68,8 @@ test('checkpoint is deferred through a scroll/input burst and stale idle jobs ca
 });
 test('drag pan batches pointer events, preserves end position and cancels pending frame on release',()=>{
  let id=0,writes=0;const frames=new Map(),arena={scrollWidth:10000,clientWidth:1000,_left:500,get scrollLeft(){return this._left},set scrollLeft(v){writes++;this._left=v},scrollTo({left}){this.scrollLeft=left}};
- const c=vm.createContext({ST:{},$:s=>s==='#starena'?arena:{classList:{add(){},remove(){}}},requestAnimationFrame:f=>{frames.set(++id,f);return id},cancelAnimationFrame:i=>frames.delete(i),stMapView(){},stMap(){}});
- const src=read('app-stage.js');vm.runInContext(src.slice(src.indexOf('function stPanStart('),src.indexOf('try { if (window.webkit')),c);
+ const c=vm.createContext({ST:{},$:s=>s==='#starena'?arena:{classList:{add(){},remove(){}}},requestAnimationFrame:f=>{frames.set(++id,f);return id},cancelAnimationFrame:i=>frames.delete(i),stMapView(){},stMap(){},stGrow(){},stRender(){},stSave(){}});
+ const src=read('app-stage.js');vm.runInContext(src.slice(src.indexOf('function stScrollTo('),src.indexOf('try { if (window.webkit')),c);
  c.stPanStart(1000);for(let x=999;x>=900;x--)c.stPanMove(x);assert.equal(frames.size,1);assert.equal(writes,0);
  [...frames.values()][0]();frames.clear();assert.equal(arena.scrollLeft,600);assert.equal(writes,1);
  c.stPanMove(850);c.stPanEnd();assert.equal(arena.scrollLeft,650);assert.equal(frames.size,0);assert.equal(c.ST.pan,null);
@@ -76,4 +80,24 @@ test('activity clock ticks leave historical sections untouched and tool changes 
  const src=read('app-activity.js');vm.runInContext(src.slice(src.indexOf('function activityLiveHtml('),src.indexOf('function renderActivity(')),c);
  c.refreshActivityLive();assert.equal(writes,1);for(clock=1;clock<100;clock++)c.refreshActivityLive();assert.equal(writes,1);
  c.S.live.run.text='b';c.refreshActivityLive();assert.equal(writes,2);
+});
+
+test('IME composition does not reset composer height and committed text grows once',()=>{
+ const frames=[],values=[];
+ const c=vm.createContext({WeakSet,requestAnimationFrame:f=>frames.push(f),autoGrow:t=>values.push(t.value)});
+ const src=read('app-tree.js');vm.runInContext(src.slice(src.indexOf('const growPending'),src.indexOf('function autoGrow(t)')),c);
+ const t={value:'拼音',isConnected:true,_pgaComposing:true};
+ for(let i=0;i<20;i++)c.autoGrowSoon(t);
+ assert.equal(frames.length,0);
+ t._pgaComposing=false;t.value='输入';c.autoGrowSoon(t);frames.shift()();
+ assert.deepEqual(values,['输入']);
+ c.autoGrowSoon(t);t._pgaComposing=true;frames.shift()();assert.equal(values.length,1);
+});
+test('stale prompt lookup cannot reopen suggestions after typing or starting IME',async()=>{
+ let resolve,draws=0,closed=0;
+ const c=vm.createContext({S:{},POP:null,prompts:()=>new Promise(r=>resolve=r),L:a=>a,closePop:()=>closed++,drawPop:()=>draws++});
+ const src=read('app-compose.js');vm.runInContext(src.slice(src.indexOf('async function suggest('),src.indexOf('function drawPop(')),c);
+ const box={value:'/test',selectionStart:5,isConnected:true};
+ const pending=c.suggest(box);box.value='normal';box.selectionStart=6;await c.suggest(box);resolve([]);await pending;assert.equal(draws,0);
+ box.value='/test';box.selectionStart=5;const second=c.suggest(box);box._pgaComposing=true;await c.suggest(box);resolve([]);await second;assert.equal(draws,0);assert(closed>0);
 });

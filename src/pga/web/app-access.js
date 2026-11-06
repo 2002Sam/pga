@@ -7,21 +7,48 @@ S.acc = {};
 const treeKey = () => `tree:${S.aim === "you" ? "you" : S.aim}`;
 function accBtn(key) {
   const a = S.acc[key || "*new"];
-  if (!a) { loadAcc(key); return `<button class="ghost acc" data-acc="${esc(key)}">…</button>`; }
+  if (!a) { loadAcc(key).catch(() => {}); return `<button class="ghost acc" data-acc="${esc(key)}">…</button>`; }
   const fold = a.folder ? a.folder.split("/").filter(Boolean).pop() : "";
   return `<button class="ghost acc ${a.access}" data-acc="${esc(key)}" title="${esc(L(ACC[a.access][2], ACC[a.access][3]) + (a.folder ? " · " + a.folder : "") + (a.mcp ? " · MCP" : ""))}">${L(ACC[a.access][0], ACC[a.access][1])}${fold ? " · " + esc(fold) : ""}${a.mcp ? " · MCP" : ""}</button>`;
 }
-async function loadAcc(key) {
-  if (S.acc["_l" + key]) return; S.acc["_l" + key] = 1;
-  try { const r = await api(`/v1/users/${S.uid}/access?key=${encodeURIComponent(key || "")}`); S.acc[key || "*new"] = r.current; S.mcpServers = r.mcp_servers; }
-  catch { S.acc[key || "*new"] = { access: "auto", folder: "", mcp: false }; }
-  document.querySelectorAll(`[data-acc="${CSS.escape(key)}"]`).forEach((b) => { b.outerHTML = accBtn(key); });
-  const f = S.acc[key || "*new"]?.folder || S.acc[key || "*new"]?.resolved_folder;                       // the folder chip above the composer, now that we know it
-  if (f) document.querySelectorAll(`[data-pickdir="${CSS.escape(key)}"]`).forEach((x) => { x.textContent = "📁 " + (f.split("/").filter(Boolean).pop() || f); x.title = f; });
+const accLoads = new Map();
+async function loadAcc(key, force = false) {
+  key = key || "";
+  if (accLoads.has(key)) return accLoads.get(key);
+  if (!force && S.acc[key || "*new"]) return;
+  const before = S.acc[key || "*new"];
+  const pending = (async () => {
+    const r = await api(`/v1/users/${S.uid}/access?key=${encodeURIComponent(key)}`);
+    // An older GET must not overwrite a permission change saved in the meantime.
+    if (S.acc[key || "*new"] === before) S.acc[key || "*new"] = r.current;
+    S.mcpServers = r.mcp_servers;
+    document.querySelectorAll(`[data-acc="${CSS.escape(key)}"]`).forEach((b) => { b.outerHTML = accBtn(key); });
+    const f = S.acc[key || "*new"]?.folder || S.acc[key || "*new"]?.resolved_folder;
+    if (f) document.querySelectorAll(`[data-pickdir="${CSS.escape(key)}"]`).forEach((x) => { x.textContent = "📁 " + (f.split("/").filter(Boolean).pop() || f); x.title = f; });
+  })();
+  accLoads.set(key, pending);
+  try { await pending; } finally { accLoads.delete(key); }
 }
-function showAcc(key) {
+function accCurrentKey() { return S.lineView ? S.lineTarget || "" : S.imp ? S.imp.key || `c:${S.imp.cid}` : S.chat || ""; }
+function renderAccTop() {
+  const host = document.querySelector('#accTop'); if (!host) return;
+  const key = accCurrentKey();
+  if (host.dataset.key !== key) host.innerHTML = '';
+  host.dataset.key = key;
+  let row = host.querySelector('.acc-top-row');
+  if (!row) { row = document.createElement('div'); row.className = 'acc-top-row'; host.prepend(row); }
+  row.innerHTML = key ? `<span class="acc-winno" title="${esc(L('对话 ID：', 'Conversation ID: ') + key)}">${esc(key)}</span>` : "";
+}
+async function showAcc(key, anchor) {
+  key = key || "";
+  try { await loadAcc(key, true); } catch (err) { toast(err.message); return; }
   const a = S.acc[key || "*new"] || { access: "auto", folder: "", mcp: false };
-  modal(`<h2>${L("这里的 agent 能做什么", "What agents may do here")}</h2>
+  document.querySelector('#accInline')?.remove();
+  const host = anchor ? document.body : document.querySelector('#accTop') || document.querySelector('.cpane') || document.querySelector('#cont');
+  if (!host) return;
+  const panel = document.createElement('div'); panel.id = 'accInline'; panel.className = 'acc-inline' + (anchor ? ' pop' : '');
+  host.appendChild(panel);
+  panel.innerHTML = `<h2>${L("这里的 agent 能做什么", "What agents may do here")}</h2>
     <div class="muted" style="margin-bottom:12px">${key.startsWith("tree:") ? L("对这棵树上你发起的对话生效。", "For the conversations you start on this tree.") : key ? L("只对这段对话生效。", "For this conversation only.") : L("对这段新对话生效。", "For this new conversation.")} ${L("PGA 自己的长期运行不受影响，始终只读。", "PGA's own long-running work is not affected and stays read-only.")}</div>
     ${Object.entries(ACC).map(([k, v]) => `<label class="opt"><input type="radio" name="accLvl" value="${k}" ${a.access === k ? "checked" : ""}><span><b style="font-weight:500">${L(v[0], v[1])}</b><div class="d">${L(v[2], v[3])}</div></span></label>`).join("")}
     <div class="label" style="margin-top:12px">${L("工作文件夹", "Working folder")}</div>
@@ -29,7 +56,12 @@ function showAcc(key) {
     <div class="dimt" style="font-size:12px;margin-bottom:10px">${L("在这个文件夹里，agent 能读到你的 CLAUDE.md 和项目配置。", "In this folder agents read your CLAUDE.md and project settings.")}</div>
     <label class="opt"><input type="checkbox" id="accMcp" ${a.mcp ? "checked" : ""}><span>${L("使用你自己的 MCP 工具", "Use your own MCP tools")}<div class="d">${(S.mcpServers || []).length ? esc(S.mcpServers.join(", ")) : L("你的 Claude Code 里没有配置 MCP 服务器（~/.claude.json）", "No MCP servers in your Claude Code config (~/.claude.json)")}${L(" · 目前对 Claude Code 生效", " · applies to Claude Code for now")}</div></span></label>
     <label class="opt"><input type="checkbox" id="accDef"><span>${L("也设为以后新对话的默认", "Also the default for new conversations")}</span></label>
-    <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-closemodal="1">${L("取消", "Cancel")}</button><button class="primary" id="accSave" data-key="${esc(key)}">${L("保存", "Save")}</button></div></div>`);
+    <div class="form" style="border:0;background:none;padding:0"><div class="row"><button class="ghost" data-acc-close="1">${L("收起", "Collapse")}</button><button class="primary" id="accSave" data-key="${esc(key)}">${L("保存", "Save")}</button></div></div>`;
+  if (anchor) {                                      // opened from the composer: a popover just above the label you clicked
+    const r = anchor.getBoundingClientRect(), h = panel.getBoundingClientRect();
+    panel.style.left = Math.max(8, Math.min(r.left, innerWidth - h.width - 8)) + "px";
+    panel.style.top = (r.top - h.height - 6 >= 8 ? r.top - h.height - 6 : Math.min(r.bottom + 6, innerHeight - h.height - 8)) + "px";
+  }
 }
 /* the folder a conversation works in, straight from the composer: recent ones, browse, or none */
 async function folderMenu(anchor, key) {
@@ -45,7 +77,7 @@ async function folderMenu(anchor, key) {
 }
 async function setFolder(key, path) {
   document.querySelector(".fmenu")?.remove();
-  if (!key && S.view === "chats" && !S.lineView) { S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; key = S.chat; history.replaceState(null, "", qs()); }
+  if (!key && S.view === "chats" && !S.lineView && !S.imp) { S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; key = S.chat; history.replaceState(null, "", qs()); }
   const cur = S.acc[key || "*new"] || { access: "auto", mcp: false };
   try { const r = await api(`/v1/users/${S.uid}/access`, { method: "PUT", body: { key: key || undefined, access: cur.access || "auto", mcp: !!cur.mcp, folder: path } });
     S.acc[key || "*new"] = r; toast(path ? L(`之后在 ${path.split("/").pop()} 里工作`, `Now working in ${path.split("/").pop()}`) : L("不用文件夹了", "No folder now"));
@@ -60,11 +92,11 @@ async function browseDirs(path) {
     ${d.parent ? `<div class="dr" data-dir="${esc(d.parent)}">↑ ${L("上一级", "Up")}</div>` : ""}${d.dirs.map((x) => `<div class="dr" data-dir="${esc(d.path + "/" + x)}">📁 ${esc(x)}</div>`).join("") || `<div class="dimt" style="padding:6px">${L("这里没有子文件夹", "No folders inside")}</div>`}</div>`;
 }
 async function saveAcc(key) {
-  if (!key && S.view === "chats" && !S.lineView) { S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; key = S.chat; }
+  if (!key && S.view === "chats" && !S.lineView && !S.imp) { S.chat = `chat:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`; key = S.chat; }
   const body = { key: key || undefined, access: document.querySelector('input[name=accLvl]:checked')?.value || "auto", folder: $("#accFolder").value.trim(), mcp: $("#accMcp").checked, as_default: $("#accDef").checked };
   try { const r = await api(`/v1/users/${S.uid}/access`, { method: "PUT", body }); S.acc[key || "*new"] = r; if (body.as_default) S.acc["*new"] = r;
-    document.querySelector(".modal")?.remove(); toast(L(`已设为「${ACC[r.access][0]}」`, `Set to “${ACC[r.access][1]}”`));
-    if (S.view === "tree") renderCont(); else renderChat(); }
+    document.querySelector("#accInline")?.remove(); toast(L(`已设为「${ACC[r.access][0]}」，下一次发送生效`, `Set to “${ACC[r.access][1]}”; applies to the next message`));
+    if (S.view === "tree") renderCont(); else { renderAccTop(); renderChat(); } }
   catch (err) { toast(err.message); }
 }
 
@@ -87,7 +119,12 @@ setInterval(async () => {
   } catch (e) { console.warn('approval poll', e); }
   finally { accApprovalPolling = false; }
 }, 1000);
+document.addEventListener('pointerdown', e => {    // a press elsewhere closes the permissions popover
+  const pop = document.querySelector('#accInline.pop');
+  if (pop && !pop.contains(e.target) && !e.target.closest('[data-accedit]')) pop.remove();
+}, true);
 document.addEventListener('click', async e => {
+  if (e.target.closest('[data-acc-close]')) { document.querySelector('#accInline')?.remove(); return; }
   const b = e.target.closest('[data-tool-approval]'); if (!b || b.disabled) return;
   const box = b.closest('.modal'); box?.querySelectorAll('button').forEach(x => x.disabled = true);
   try {

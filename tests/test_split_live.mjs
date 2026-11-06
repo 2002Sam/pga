@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const live=fs.readFileSync('src/pga/web/app-live.js','utf8');
+const more=fs.readFileSync('src/pga/web/app-more.js','utf8');
+const flush=()=>new Promise(r=>setImmediate(r));
+test('each split lane tracks its own run regardless of response order and has an independent clock',async()=>{
+ const lanes=[{key:'chat:left',agent:'codex'},{key:'chat:right',agent:'claude'}];
+ const S={chat:'chat:root',chatSplits:{'chat:root':{lanes}},splitPending:{'chat:left':true,'chat:right':true}};
+ const timers=[],clocks={};const now=Date.now()/1000;
+ let runs=[{id:'l',started:now,tags:{conversation:'u:chat:left'},text:'read left'}, {id:'r',started:now-2,tags:{conversation:'u:chat:right'},text:'read right'}];
+ const c=vm.createContext({S,LIVE:null,TICK:null,liveSnap:async()=>runs,setInterval:f=>(timers.push(f),timers.length),clearInterval(){},document:{getElementById:id=>clocks[id]?{querySelector:()=>clocks[id]}:null}});
+ vm.runInContext(live.slice(live.indexOf('function livePaintFrame('),live.indexOf('function composerBusy(')),c);
+ vm.runInContext(live.slice(live.indexOf('function startLive('),live.indexOf('const TOOLKIND')),c);
+ vm.runInContext(live.slice(live.indexOf('function splitWorkId('),live.indexOf('function splitWorkCard(')),c);
+ c.startLive(()=>true);await flush();
+ assert.equal(S.live.lanes['chat:left'].run.text,'read left');assert.equal(S.live.lanes['chat:right'].run.text,'read right');
+ runs=[{...runs[1],text:'right update'},{...runs[0],text:'left update'}];await timers[0]();
+ assert.equal(S.live.lanes['chat:left'].run.id,'l');assert.equal(S.live.lanes['chat:right'].run.text,'right update');
+ clocks[c.splitWorkId('chat:left')]={};clocks[c.splitWorkId('chat:right')]={};timers[1]();
+ assert.ok(parseFloat(clocks[c.splitWorkId('chat:right')].textContent)>parseFloat(clocks[c.splitWorkId('chat:left')].textContent));
+});
+test('progress cards live inside their own columns and disappear independently when finished',()=>{
+ const S={chat:'root',chatSplits:{root:{lanes:[{key:'left',agent:'codex'},{key:'right',agent:'claude'}]}},chatTurns:{},splitPending:{left:true,right:true}};
+ const c=vm.createContext({S,L:s=>s,esc:s=>s,agentLabel:s=>s,chatTurnsHtml:()=>'',splitWorkCard:key=>`<div data-progress="${key}"></div>`});
+ vm.runInContext(more.slice(more.indexOf('function splitHtml('),more.indexOf("document.addEventListener('change'",more.indexOf('function splitHtml('))),c);
+ let html=c.splitHtml([]);assert.match(html,/<section class="split-lane">[\s\S]*?data-progress="left"[\s\S]*?<\/section>/);assert.equal((html.match(/data-progress=/g)||[]).length,2);
+ S.splitPending.left=false;html=c.splitHtml([]);assert.doesNotMatch(html,/data-progress="left"/);assert.match(html,/data-progress="right"/);
+});

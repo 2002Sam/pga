@@ -10,7 +10,9 @@ function harness() {
     localStorage:{getItem:k=>storage.get(k),setItem:(k,v)=>storage.set(k,v)},
     $:s=>s==='#chatText'?box:null,L:x=>x,esc:String,md:String,toast(){},qs:()=>'',
     takeAtts:()=>{taken++;return {images:[],files:[]};},renderChat(){},rerenderComposer(){},
-    loadChats:async()=>{},loadChat:async()=>{},loadTimeline(){},setInterval,clearInterval,setTimeout,clearTimeout,
+    // App background polling must not keep this isolated test process alive.
+    loadChats:async()=>{},loadChat:async()=>{},loadTimeline(){},
+    setInterval:(fn,ms)=>{const t=setInterval(fn,ms);t.unref();return t;},clearInterval,setTimeout,clearTimeout,
     api:async(url,opt)=>{calls.push([url,opt]);if(url==='/v1/version')return {knowledge_capture:true};if(url.endsWith('/knowledge-notes'))return {id:'note1',conversation:'chat:a'};return {};}});
   for(const file of ['app-live.js','app-knowledge.js'])vm.runInContext(readFileSync(new URL('../src/pga/web/'+file,import.meta.url),'utf8'),c);
   c.startLive=()=>{};c.stopLive=()=>{};c.loadChat=async()=>{};

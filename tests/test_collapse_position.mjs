@@ -6,7 +6,7 @@ const source=fs.readFileSync(new URL('../src/pga/web/app-stage.js',import.meta.u
 for (const par of [undefined,'parent']) test(`collapse preserves geometry, selection and viewport for ${par ? 'branch' : 'root'}`,()=>{
   const n={id:'a',par,bw:650,pre:95,branchWeight:220}, frame={}; n.el=frame;
   const ST={shift:120,focus:'a',nodes:[n]}, calls=[];
-  const c=vm.createContext({ST,stKidKeep:(node,on)=>calls.push(on),stRender(){},stSave(){},stMap(){}});
+  const c=vm.createContext({ST,document:{querySelector:()=>null},stKidKeep:(node,on)=>calls.push(on),stRender(){},stSave(){},stMap(){}});
   vm.runInContext(source.slice(source.indexOf('function stMini(n, on)'),source.indexOf('function stClose(n)')),c);
   const before={...n};
   c.stMini(n,true);

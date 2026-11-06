@@ -150,7 +150,7 @@ function pmSelect(id, center) {
 
 /* ------------------------------------------------ the manager agent */
 function pmAsk(text) {                              // use this conversation's native composer, preserving any draft
-  const t = document.querySelector("#chatText");
+  const t = document.querySelector("#pdDraft") || document.querySelector("#chatText");
   if (!t) { toast(L("管理员还在加载，稍等一下", "The manager is still loading")); return; }
   if (text != null) { t.value = t.value.trim() ? t.value + "\n" + text : text; t.dispatchEvent(new Event("input", { bubbles: true })); }
   t.focus(); t.setSelectionRange(t.value.length, t.value.length);
@@ -164,7 +164,8 @@ const PM_ASK = [[L("总结进展", "Progress"), L("总结这个分类目前的�
 async function pmSearch(query, page=1) {
   const input=document.querySelector("#pmquery"), box=document.querySelector("#pmhits");
   query=String(query ?? input?.value ?? "").trim();
-  if(!query || !box) return;
+  if(!query) { PM.searchQuery=""; pmAll(); return; }
+  if(!box) return;
   const name=PM.name, request=PM.searchRequest=(PM.searchRequest || 0)+1;
   PM.searchQuery=query; PM.hits=[]; if(input) input.value=query;
   box.textContent=L("正在检索项目上下文…", "Searching project context…");
@@ -205,6 +206,21 @@ window.pmProjectFor = function (key) {
   const n = pmHost().ST?.nodes.find(n => n.type === "win" && n.key === key && n.managerProject);
   return n?.managerProject || (typeof Q !== "undefined" && Q.get("c") === key ? Q.get("manager") : null);
 };
+function pmFullOpen(mode) {
+  const host = pmHost(), doc = host.document;
+  doc.querySelector('#pmfullscreen')?._close?.();
+  const overlay = doc.createElement('section'); overlay.id = 'pmfullscreen';
+  overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-label', PM.name + ' · ' + L('项目视图', 'Project view'));
+  const url = new URL(location.href); url.searchParams.set('pmfull', mode); url.searchParams.set('manager', PM.name); url.searchParams.set('c', S.chat);
+  const button = doc.createElement('button'); button.textContent = L('‹ 返回对话', '‹ Back to conversation');
+  const frame = doc.createElement('iframe'); frame.src = url.href; frame.title = overlay.getAttribute('aria-label');
+  const previous = doc.activeElement;
+  const close = () => { overlay.remove(); doc.removeEventListener('keydown', escape); previous?.focus?.(); };
+  const escape = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  overlay._close = close; button.onclick = close; doc.addEventListener('keydown', escape);
+  frame.addEventListener('load', () => { frame.contentDocument?.addEventListener('keydown', escape); });
+  overlay.append(button, frame); doc.body.appendChild(overlay); button.focus();
+}
 window.pmSync = function () {
   const name = !S.imp && !S.lineView && !S.treeItem && window.pmProjectFor(S.chat), pane = document.querySelector(".cpane");
   if (!name || !pane) { pmRemove(); return null; }
@@ -214,14 +230,21 @@ window.pmSync = function () {
   const el = document.createElement("section"); el.id = "pmview";
   el.setAttribute("aria-label", name + " · " + L("对话关系", "Conversation relationships"));
   el.style.setProperty("--pm-c", pmColor(name));
-  el.innerHTML = `<header class="pmhead"><b>${L("项目上下文", "Project context")}</b><span class="pmstats" id="pmstats">${L("读取中…", "Loading…")}</span>
-    <button data-pmsearch title="${L("检索项目中的相关对话与功能", "Search project conversations and features")}">⌕ ${L("上下文搜索", "Context search")}</button><button data-pmcontext title="${L("资料与记忆", "Context")}">◈</button><button data-pmreload title="${L("刷新关系", "Refresh relationships")}">⟳</button><button data-pmtoggle aria-expanded="false" title="${L("收起 / 展开关系", "Collapse / expand relations")}">◈</button></header>
-    <section class="pmresults"><form id="pmsearchform"><input id="pmquery" maxlength="600" placeholder="${L("查找对话、功能或之前的决定…", "Find conversations, features or decisions…")}" aria-label="${L("搜索项目上下文", "Search project context")}"><button type="submit">${L("搜索", "Search")}</button></form><div id="pmhits" aria-live="polite">${L("输入关键词查找；与管理员交流时也会自动检索。", "Search here, or chat with the manager to search automatically.")}</div></section>
-    <div class="pmdetail" hidden><div class="pmbody pmsplit">${["graph"].map(mode=>`<section class="pmcanvas" data-pmcanvas="${mode}"><header><b>${L("知识图谱 · 整个项目", "Knowledge graph · project")}</b></header><div id="pmvp-${mode}" class="pmviewport"><svg id="pmsvg-${mode}" class="pmsvg"></svg><div class="pmtools"><button data-pmz="out">−</button><span id="pmzoom-${mode}">100%</span><button data-pmz="in">+</button><button data-pmfit>${L("适应", "Fit")}</button><button data-pmrelayout>${L("重排", "Re-arrange")}</button></div></div></section>`).join("")}
+  // Two panes: on the left the manager's document (app-pmdoc.js), on the right the category's knowledge graph and every
+  // conversation in it.
+  el.innerHTML = `<nav class="pmviewnav"><button data-pmfull="doc">${L('管理员文档', 'Manager document')} ↗</button><button data-pmfull="graph">${L('知识图谱', 'Knowledge graph')} ↗</button><button data-pmfull="search">${L('对话检索', 'Conversation search')} ↗</button></nav><section class="pmdocpane" id="pmdoc" aria-label="${L("管理员文档", "Manager document")}"></section>
+    <aside class="pmside"><header class="pmhead"><b>${esc(name)} · ${L("知识图谱", "Knowledge graph")}</b><span class="pmstats" id="pmstats">${L("读取中…", "Loading…")}</span>
+    <button data-pmcontext title="${L("资料与记忆", "Context")}">◈</button><button data-pmreload title="${L("刷新关系", "Refresh relationships")}">⟳</button></header>
+    <div class="pmdetail"><div class="pmbody pmsplit">${["graph"].map(mode=>`<section class="pmcanvas" data-pmcanvas="${mode}"><div id="pmvp-${mode}" class="pmviewport"><svg id="pmsvg-${mode}" class="pmsvg"></svg><div class="pmtools"><button data-pmz="out">−</button><span id="pmzoom-${mode}">100%</span><button data-pmz="in">+</button><button data-pmfit>${L("适应", "Fit")}</button><button data-pmrelayout>${L("重排", "Re-arrange")}</button></div></div></section>`).join("")}
     <aside id="pminfo" hidden aria-label="${L("对话详情", "Conversation details")}"></aside></div>
     <div class="pmlegend"><span><i class="lb"></i>${L("派生 / 分支", "Grew from")}</span><span><i class="lr"></i>${L("引用", "Uses")}</span><span><i class="lt"></i>${L("主题", "Topic")}</span></div></div>
-    <div class="pmchips">${PM_ASK.map(([t], i) => `<button data-pmchip="${i}">${esc(t)}</button>`).join("")}</div>`;
+    <section class="pmresults"><form id="pmsearchform"><input id="pmquery" maxlength="600" placeholder="${L("在这个分类里查找对话、功能或之前的决定…", "Find conversations, features or decisions…")}" aria-label="${L("搜索项目上下文", "Search project context")}"><button type="submit">${L("搜索", "Search")}</button></form><div id="pmhits" aria-live="polite">${L("读取中…", "Loading…")}</div></section></aside>`;
   document.documentElement.classList.add("pmworkspace"); pane.classList.add("pmchat"); pane.insertBefore(el, document.querySelector("#cdlg"));
+  const fullMode = new URLSearchParams(location.search).get('pmfull');
+  if (['doc','graph','search'].includes(fullMode)) {
+    document.documentElement.dataset.pmfull = fullMode;
+    el.dataset.fullMode = fullMode;
+  }
   pmWire(el); pmRefresh(true);
   return name;
 };
@@ -232,9 +255,11 @@ function pmGraphShow(fit = false) {
 }
 async function pmRefresh(first) {
   const name = PM.name;
-  try { if (!await pmLoad()) return; } catch (err) {
+  try { if (!await pmLoad()) return; PM.retries = 0; } catch (err) {
     if (PM.name !== name) return;
     const stats = document.querySelector("#pmstats"); if (stats) stats.textContent = L("读取失败，点 ⟳ 重试", "Could not load; retry with ⟳");
+    console.warn("manager map", err);
+    if ((PM.retries = (PM.retries || 0) + 1) <= 4) setTimeout(() => { if (PM.name === name && !PM.data) pmRefresh(); }, 1500 * PM.retries);   // the stage may still be starting
     return;
   }
   if (!document.querySelector("#pmview")) return;
@@ -242,6 +267,15 @@ async function pmRefresh(first) {
   document.querySelector("#pmstats").textContent = L(`${d.conversations.length} 个对话 · ${br} 派生 · ${refs} 引用`, `${d.conversations.length} chats · ${br} derived · ${refs} references`);
   PM.graphReady = false;
   pmBoth(true); pmInfo();
+  if (!PM.searchQuery) pmAll();
+  window.pdRender?.();
+}
+function pmAll() {                                  // by default: every conversation of the category, the latest first
+  const box = document.querySelector("#pmhits"); if (!box || !PM.data) return;
+  const cs = [...PM.data.conversations].sort((a, b) => String(b.last || "").localeCompare(String(a.last || "")));
+  box.innerHTML = `<div class="pmresultbar"><span>${L(`全部相关对话 · ${cs.length}`, `All related conversations · ${cs.length}`)}</span></div>` +
+    cs.map(c => `<article class="pmhit"><b><button data-pmbeside="${esc(c.key)}" title="${L("拉到管理员旁边", "Open beside the manager")}">${esc(c.title)}</button></b><small>${esc(c.last ? ago(c.last) : "")}${c.turns ? " · " + L(`${c.turns} 轮`, `${c.turns} turns`) : ""}</small>${c.summary ? `<p>${esc(c.summary)}</p>` : ""}</article>`).join("") +
+    (cs.length ? "" : `<p>${L("这个分类还没有对话。", "No conversations in this category yet.")}</p>`);
 }
 function pmRemove() {
   clearInterval(PM.timer); PM.resize?.disconnect(); PM.request = (PM.request || 0) + 1;
@@ -252,7 +286,7 @@ function pmRemove() {
 }
 window.mgGo = function (key, text) {                  // leave the manager in place and open the selected conversation
   if (!key) return;
-  const host = pmHost(); if (host !== window) return host.mgGo(key, text);
+  const host = pmHost(); host.document.querySelector("#pmfullscreen")?._close?.(); if (host !== window) return host.mgGo(key, text);
   if (S.view !== "stage" && typeof show === "function") show("stage");
   if (text && typeof pjOpenOn === "function") pjOpenOn(window, key, "", text); else if (typeof stOpen === "function") stOpen(key); else pjGo(key, "", "");
 };
@@ -270,7 +304,7 @@ if (typeof renderChat === "function") {
       if (stats && S.sending) stats.textContent = L("正在处理管理指令…", "Processing instructions…");
       const turns = S.chatTurns[S.chat] || [];
       const question = [...turns].reverse().find(t => t.role === "user")?.text;
-      if (question && PM.autoQuery !== question) { PM.autoQuery = question; pmSearch(question.slice(0,600)); }
+      window.pdRender?.();
       const last = [...turns].reverse().find(t => t.role === "agent");
       if (PM.wasSending && !S.sending) pmRefresh(); PM.wasSending = !!S.sending;
     }
@@ -279,6 +313,10 @@ if (typeof renderChat === "function") {
 }
 
 function pmWire(el) {
+  el.addEventListener('click', e => {
+    const button = e.target.closest('[data-pmfull]');
+    if (button) { e.preventDefault(); pmFullOpen(button.dataset.pmfull); }
+  });
   let g = null, suppress = false;
   for(const type of ["pointerdown","pointerover","click","dblclick","wheel"]) el.addEventListener(type,e=>{const panel=e.target.closest("[data-pmcanvas]");if(panel && PM.mode!==panel.dataset.pmcanvas)pmActivate(panel.dataset.pmcanvas);},true);
   el.querySelector("#pmsearchform").addEventListener("submit", e => { e.preventDefault(); pmSearch(); });
@@ -300,9 +338,10 @@ function pmWire(el) {
     const page=t.closest("[data-pmpage]"); if(page) return pmSearch(PM.searchQuery, +page.dataset.pmpage);
     if(t.closest("[data-pmopenpage]")) { for(const hit of PM.hits || []) if(hit.key) mgGo(hit.key); return; }
     const open = t.closest("[data-pmopen]"); if (open) return mgGo(open.dataset.pmopen, open.dataset.pmtext || "");
+    const beside = t.closest("[data-pmbeside]"); if (beside) return window.pdBeside?.(beside.dataset.pmbeside);
     const assign = t.closest("[data-pmassign]");
     if (assign) {
-      const text = document.querySelector("#chatText")?.value.trim();
+      const text = (document.querySelector("#pdDraft") || document.querySelector("#chatText"))?.value.trim();
       if (!text) { toast(L("先在输入框写下要分配的任务", "Write the task in the input first")); return; }
       const host = pmHost(), n = host.stOpen(assign.dataset.pmassign);
       let tries=0;

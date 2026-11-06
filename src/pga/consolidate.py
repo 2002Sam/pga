@@ -558,6 +558,10 @@ def structure_apply(rt: "Runtime", user: User, merges: list[dict], renames: list
             if st["about"].get(s) and not st["about"].get(to):
                 st["about"][to] = st["about"][s]
             st["merged"] = {**(st.get("merged") or {}), s: to}
+    managers = dict((user.preferences or {}).get("project_managers") or {})
+    renamed = {s: to for src, to in plan_ for s in src if s and to and s != to and s != projectsort.EVERYDAY and to != projectsort.EVERYDAY}
+    if any(v in renamed for v in managers.values()):        # each manager follows its category to the new name
+        user.preferences = {**(user.preferences or {}), "project_managers": {k: renamed.get(v, v) for k, v in managers.items()}}
     projectsort.save(user, st)
     eid = uuid.uuid4().hex[:10]
     _save_log(user, _log(user) + [{"id": eid, "kind": "structure", "at": now.isoformat(), "project": "", "title": f"{len(merges)} 合并 · {len(renames)} 改名",

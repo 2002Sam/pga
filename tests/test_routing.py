@@ -281,3 +281,103 @@ def test_a_follow_up_in_auto_mode_stays_with_the_agent_that_answered(rt, user, p
     assert other["agent"] != "office"                                        # a new conversation is routed afresh
     switch = AgentRouter(rt, AgentPool(rt, cfg)).ask(user, "这段 python 代码报错了怎么办", conversation="chat:sticky")
     assert switch["category"] == "code" and "接着" not in switch["why"]     # a different kind of question is routed by itself
+
+
+@pytest.mark.parametrize('access,project_full,expected', [('full',False,'full'), ('read',True,'read_only'), ('auto',False,'auto')])
+def test_conversation_permission_overrides_project_default(rt, user, cfg, tmp_path, monkeypatch, access, project_full, expected):
+    from types import SimpleNamespace
+    import uuid
+    pool = AgentPool(rt, cfg)
+    original = pool._call
+    seen = []
+    def call(name, task, *args, **kwargs):
+        seen.append(task)
+        return original(name, task, *args, **kwargs)
+    monkeypatch.setattr(pool, '_call', call)
+    project = SimpleNamespace(id=uuid.uuid4(), name='test', path=str(tmp_path), full_access=project_full, notes='', aim=None)
+    result = AgentRouter(rt, pool).ask(user, 'write a file', agent='coder', project=project, access=access)
+    assert result['ok']
+    assert seen[0].permissions == expected
+    assert ('You may read its files but not change them' in seen[0].system) == (access == 'read')
+
+
+def test_native_session_catches_up_across_switches(rt, user, cfg, monkeypatch, tmp_path):
+    from pga.agents import links
+    monkeypatch.setenv('PGA_LINKS_FILE', str(tmp_path / 'links.json'))
+    pool = AgentPool(rt, cfg)
+    call = pool._call
+    heard = []
+    fail = [False]
+
+    def native(name, task, *args, **kwargs):
+        conv = task.meta['conversation']
+        sid = links.session_for(name, conv)
+        heard.append((name, links._resume_text(task, sid) if sid else task.prompt))
+        step = call(name, task, *args, **kwargs)
+        sid = sid or 'session-' + name
+        links._put('sessions', name + '|' + conv, sid)
+        step.result.session_id = sid
+        if fail[0]:
+            step.result.ok = False
+            step.result.status = 'FAILED'
+        return step
+
+    monkeypatch.setattr(pool, '_call', native)
+    def ask(name, text):
+        # A new router represents a later HTTP request; no UI history is supplied.
+        return AgentRouter(rt, pool).ask(user, text, agent=name, conversation='chat:handoff')
+
+    assert ask('coder', 'initial plan')['ok']
+    for i in range(8):
+        assert ask('thinker', f'changed plan {i}')['ok']
+    # Re-reading the persisted link state simulates process restart.
+    links._LOADED.clear()
+    assert ask('coder', 'continue now')['ok']
+    assert all(f'changed plan {i}' in heard[-1][1] for i in range(8))
+    assert 'initial plan' not in heard[-1][1]
+    assert ask('coder', 'same agent')['ok']
+    assert heard[-1][1] == 'same agent'
+    assert ask('thinker', 'back again')['ok']
+    assert 'continue now' in heard[-1][1] and 'same agent' in heard[-1][1]
+    fail[0] = True
+    assert not ask('coder', 'failed attempt')['ok']
+    fail[0] = False
+    assert ask('coder', 'retry')['ok']
+    assert 'back again' in heard[-1][1]  # a failed delivery must not advance the checkpoint
+    assert ask('coder', 'settled')['ok']
+    assert heard[-1][1] == 'settled'
+
+
+def test_legacy_native_session_replays_untruncated_history(rt, user, cfg, monkeypatch, tmp_path):
+    from pga.agents import links
+    monkeypatch.setenv('PGA_LINKS_FILE', str(tmp_path / 'links.json'))
+    router = AgentRouter(rt, AgentPool(rt, cfg))
+    text = 'x' * 4500 + 'important correction'
+    router.ask(user, text, agent='coder', conversation='chat:legacy')
+    conv = f'{user.id}:chat:legacy'
+    links._put('sessions', 'coder|' + conv, 'old-session')
+    catchup = router._resume_context(user, 'chat:legacy', 'coder', conv, 'continue')
+    assert text in catchup['text']
+    assert catchup['text'].endswith('Now the user says:\ncontinue')
+    assert router._resume_context(user, 'chat:other', 'coder', f'{user.id}:chat:other', 'next') == {}
+
+
+def test_native_steer_is_saved_with_answer_and_in_history(rt, user, cfg, monkeypatch):
+    from pga.agents import live
+    from pga.agents.base import AgentResult
+    from pga.chats import history, runs_of, prompt_with_steering
+    pool=AgentPool(rt,cfg)
+    def run(task):
+        lid=task.meta['live_id']
+        live.bind_steering(lid,lambda text:{'turnId':'t'})
+        live.steer(lid,f'{user.id}:chat:steer','supplement','保留这个补充')
+        live.unbind_steering(lid)
+        return AgentResult(ok=True,text='好的',status='SUCCEEDED')
+    monkeypatch.setattr(pool.adapters['coder'],'run',run)
+    result=AgentRouter(rt,pool).ask(user,'最初的问题',agent='coder',conversation='chat:steer')
+    assert result['ok']
+    saved=runs_of(rt,user.id,'chat:steer')[0]
+    assert saved.data['steering'][0]['text']=='保留这个补充'
+    assert saved.prompt=='最初的问题'
+    assert '[运行中补充]\n保留这个补充' in prompt_with_steering(saved)
+    assert '保留这个补充' in history(rt,user,'chat:steer')[0]['text']

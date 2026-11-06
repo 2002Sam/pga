@@ -144,6 +144,12 @@ def branch_reply_title(rt: "Runtime", user: User, parent: str, upto: str) -> str
     return (text[:60] + ("…" if len(text) > 60 else "")) if text else branch_title(rt, user, {"from": parent}) or "新分支"
 
 
+def prompt_with_steering(run: AgentRun) -> str:
+    """Keep accepted supplements visible and in catch-up context, beyond the prompt's storage cap."""
+    return (run.prompt or "") + "".join("\n\n[运行中补充]\n" + x["text"]
+                                      for x in (run.data or {}).get("steering", []))
+
+
 def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, depth: int = 0) -> list[dict]:
     """The turns of a chat (and of the chat it branched from, up to the branch point), oldest first."""
     from pga.tree import _answer
@@ -155,7 +161,7 @@ def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, 
     if upto is not None and not any(r.id == upto for r in turns):
         raise ChatError("continuation point does not belong to this conversation")
     for r in turns:
-        out.append({"role": "user", "text": (("[the user's own note] " if (r.data or {}).get("note") else "") + (r.prompt or "")), "run": str(r.id)})
+        out.append({"role": "user", "text": (("[the user's own note] " if (r.data or {}).get("note") else "") + prompt_with_steering(r)), "run": str(r.id)})
         if not (r.data or {}).get("note"):
             a = current(r, alts)
             out.append({"role": "assistant", "text": _answer(a.output) or "", "agent": (a.data or {}).get("agent") or a.agent, "run": str(r.id)})

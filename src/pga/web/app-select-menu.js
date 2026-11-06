@@ -11,7 +11,7 @@ function styleComposerSelects(root) {
   }
 }
 let closeComposerMenu=()=>{};
-function openComposerMenu(select,trigger) {
+function openComposerMenu(select,trigger,{below=false}={}) {
   closeComposerMenu();
   const menu=document.createElement('div');menu.className='pga-select-menu';menu.setAttribute('role','listbox');menu.setAttribute('aria-label',select.title||'选项');
   const close=(focus=false)=>{menu.remove();trigger.setAttribute('aria-expanded','false');document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',resize);document.removeEventListener('scroll',scroll,true);if(focus&&trigger.isConnected)trigger.focus();};
@@ -24,8 +24,10 @@ function openComposerMenu(select,trigger) {
     item.onclick=()=>{select.value=o.value;close(true);select.dispatchEvent(new Event('change',{bubbles:true}));};menu.append(item);
   }
   document.body.append(menu);trigger.setAttribute('aria-expanded','true');
-  const r=trigger.getBoundingClientRect();menu.style.maxHeight=Math.max(80,Math.max(r.top,innerHeight-r.bottom)-12)+'px';
-  const m=menu.getBoundingClientRect();menu.style.left=Math.max(6,Math.min(innerWidth-m.width-6,r.left))+'px';menu.style.top=Math.max(6,r.top>=m.height+6?r.top-m.height-5:Math.min(innerHeight-m.height-6,r.bottom+5))+'px';
+  const r=trigger.getBoundingClientRect(), down=innerHeight-r.bottom-12;
+  const useBelow=below&&down>=80;
+  menu.style.maxHeight=Math.min(320,Math.max(80,(useBelow?down:Math.max(r.top,innerHeight-r.bottom)-12)))+'px';
+  const m=menu.getBoundingClientRect();menu.style.left=Math.max(6,Math.min(innerWidth-m.width-6,r.left))+'px';menu.style.top=Math.max(6,!useBelow&&r.top>=m.height+6?r.top-m.height-5:Math.min(innerHeight-m.height-6,r.bottom+5))+'px';
   const items=[...menu.querySelectorAll('button:not(:disabled)')];(items.find(x=>x.getAttribute('aria-selected')==='true')||items[0])?.focus();
   menu.onkeydown=e=>{const i=items.indexOf(document.activeElement);if(e.key==='Escape'){e.preventDefault();close(true);}else if(['ArrowDown','ArrowUp','Home','End'].includes(e.key)){e.preventDefault();items[e.key==='Home'?0:e.key==='End'?items.length-1:(i+(e.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();}else if(e.key==='Tab')close();};
   document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',resize);document.addEventListener('scroll',scroll,true);

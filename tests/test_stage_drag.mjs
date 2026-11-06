@@ -16,12 +16,12 @@ function harness(branch=false) {
    for(const [i,n]of wins.entries()){const p={x:u.x,y:8+i*300,w:u.w,h:600/wins.length,...(u.kind==='stack'?{kid:true}:{})};ST.pos.set(n.id,p);Object.assign(n.el.style,{left:p.x+'px',top:p.y+'px',width:p.w+'px'});}
   }
  };
- ctx=vm.createContext({ST,ST_GAP:18,ST_CW:190,ST_PADX:12,ST_MINW:320,ST_WW:660,ST_FORKGAP:34,ST_TAB:150,ST_FIT:320,
+ ctx=vm.createContext({ST,ST_LINE:6,stFoldPick:()=>({folded:new Set()}),stRootOf:n=>n,ST_GAP:18,ST_CW:190,ST_PADX:12,ST_MINW:320,ST_WW:660,ST_FORKGAP:34,ST_TAB:150,ST_FIT:320,
   stArena:()=>({w:1800,h:700}),stSL:()=>0,stDock:()=>false,stKnowledgeUnits(){},stGroupOf:n=>({id:n.group || "one"}),stMap(){},stOver(){},stSave(){},stRender:render,
   stWins:()=>ST.nodes.filter(n=>n.type==='win').sort((a,b)=>a.ord-b.ord),stKids:n=>(n.kids||[]).map(id=>ST.nodes.find(n=>n.id===id)).filter(n=>!n.branchDocked),
   document:{querySelector:s=>ST.nodes.find(n=>s.includes(`"${n.id}"`))?.el,querySelectorAll:()=>[]},
   $:id=>id==='#stwires'?svg:id==='#starena'?arena:{classList:{add(){},toggle(){}}},requestAnimationFrame:()=>1,L:s=>s});
- for(const [start,end]of [['function stLayout()','/* ------------------------------------------------ drawing */'],['function stFreezeWidths()','function stEdgeHold('],['function stGroups(','function stDrop('],['function stBranchLine(','function stFrame('],['function stDetachBranch(','// A tucked branch']])vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),ctx);
+ for(const [start,end]of [['function stBranchUnits(', 'function stToggleLayer('],['function stLayout()','/* ------------------------------------------------ drawing */'],['function stFreezeWidths()','function stEdgeHold('],['function stGroups(','function stDrop('],['function stBranchLine(','function stFrame('],['function stDetachBranch(','// A tucked branch']])vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),ctx);
  vm.runInContext(source.slice(source.indexOf('function stGroupHidden('),source.indexOf("document.addEventListener('click', e =>",source.indexOf('function stGroupHidden('))),ctx);
  render();return {ctx,ST,nodes,svg,render};
 }
@@ -65,9 +65,9 @@ test('manual links stay visible after moving target to the left or overlapping s
 });
 test('expanded pages use stage geometry and restore their original width',()=>{
  const h=harness(),n=h.nodes[1];n.big=true;h.render();
- assert.equal(h.ST.pos.get(n.id).w,1260);
+ assert.equal(h.ST.pos.get(n.id).w,1112);
  assert.equal(h.ST.pos.get('c').w,420);
- assert.ok(h.ST.pos.get('c').x >= h.ST.pos.get(n.id).x+1260);
+ assert.ok(h.ST.pos.get('c').x >= h.ST.pos.get(n.id).x+1112);
  h.ctx.stWires();assert.match(h.svg.innerHTML,/stwire fork/);
  delete n.big;h.render();assert.equal(h.ST.pos.get(n.id).w,500);
  const css=fs.readFileSync('src/pga/web/app.css','utf8');
@@ -78,13 +78,35 @@ test('dragging a title upward does not silently enable enlargement',()=>{
  assert.ok(!h.ST.drag.up);assert.ok(!h.nodes[1].big);
 });
 
-test('category collapse and solo hide whole groups without losing windows or widths',()=>{
- const h=harness(true);h.nodes[0].group=h.nodes[1].group='one';h.nodes[2].group='two';
- const refs=h.nodes.map(n=>n.el), widths=h.nodes.map(n=>n.bw);
- h.ctx.stGroupToggle('one');
- assert.ok(!h.ST.pos.has('a'));assert.ok(!h.ST.pos.has('b'));assert.ok(h.ST.pos.has('c'));
- h.ctx.stGroupToggle('one',true);
- assert.ok(h.ST.pos.has('a'));assert.ok(h.ST.pos.has('b'));assert.ok(!h.ST.pos.has('c'));
- h.ctx.stGroupToggle('one',true);
- assert.equal(h.ST.pos.size,3);assert.deepEqual(h.nodes.map(n=>n.el),refs);assert.deepEqual(h.nodes.map(n=>n.bw),widths);
+test('middle drag holds neighbours and arena fixed even across them and at the edge',()=>{
+ for(const branch of [false,true]) {
+  const h=harness(branch),arena=h.ctx.$('#starena');arena.scrollLeft=300;
+  h.ctx.stSL=()=>arena.scrollLeft;h.ctx.stFocus=()=>{};
+  const n=h.nodes[branch?1:0],others=h.nodes.filter(x=>x!==n);
+  const initial=others.map(x=>({...h.ST.pos.get(x.id)}));
+  const styles=others.map(x=>({...x.el.style}));
+  assert.equal(h.ctx.stMiddleGrab(n,500,100,30),true);
+  for(const x of [490,100,0,1200,2000]) {
+   h.ctx.stDragTo(x,100);
+   assert.equal(h.ST.drag.v,0);assert.equal(arena.scrollLeft,300);
+   assert.deepEqual(others.map(x=>({...h.ST.pos.get(x.id)})),initial);
+   assert.deepEqual(others.map(x=>({...x.el.style})),styles);
+  }
+  if(branch)assert.equal(n.par,'a');
+ }
+});
+
+test('middle release settles roots and detaches branches only after release',()=>{
+ for(const branch of [false,true]) {
+  const h=harness(branch),n=h.nodes[branch?1:0];
+  const v={classList:{add(){},remove(){}}},old=h.ctx.$;
+  h.ctx.$=id=>id==='#vStage'?v:old(id);h.ctx.stWs=()=>false;h.ctx.stContexts=()=>{};
+  vm.runInContext(source.slice(source.indexOf('function stDrop('),source.indexOf('/* ------------------------------------------------ pulling a wire')),h.ctx);
+  h.ctx.stMiddleGrab(n,500,100,30);h.ctx.stDragTo(800,100);
+  if(branch)assert.equal(n.par,'a');
+  h.ctx.stDrop(800);
+  assert.equal(h.ST.drag,null);assert.ok(!n.par);
+  assert.ok(Number.isFinite(h.ST.pos.get(n.id).x));
+  assert.deepEqual(h.nodes.map(x=>x.el.offsetWidth),[450,500,420]);
+ }
 });

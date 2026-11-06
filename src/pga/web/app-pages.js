@@ -37,7 +37,7 @@ function pgSnap() {                                 // the stage as it stands, e
   for (const n of stWins()) if (!n.pad && n.key) { const p = pgProg(n, recent); if (p) n.prog = p; }
   const a = $("#starena");
   return { v: 5, nodes: ST.nodes.map(({ max, sent, run, runAt, done, el, _pgRestoring, ...n }) => JSON.parse(JSON.stringify(n))),
-    ws: JSON.parse(JSON.stringify(ST.ws || {})), view: { groupFold: ST.groupFold || {}, groupSolo: ST.groupSolo || null, sl: Math.round(a?.scrollLeft || 0), focus: ST.focus, list: !!ST.listOpen, listTop: $("#stli")?.scrollTop || 0 } };
+    ws: JSON.parse(JSON.stringify(ST.ws || {})), view: { spaceLeft: ST.spaceLeft || 0, spaceRight: ST.spaceRight || 0, groupFold: ST.groupFold || {}, groupSolo: ST.groupSolo || null, sl: Math.round(a?.scrollLeft || 0), focus: ST.focus, list: !!ST.listOpen, listTop: $("#stli")?.scrollTop || 0 } };
 }
 
 /* A synchronous, tab-local checkpoint survives refresh even if the final PUT is cancelled. */
@@ -94,6 +94,7 @@ addEventListener("pagehide", () => {                // leaving: the last state g
 function pgApply(snap) {
   const was = new Map(stWins().map((n) => [n.id, n.key || (n.pad ? "pad" : "")]));
   ST.drag = ST.rz = ST.pan = ST.wire = null; ST.shift = null; document.querySelector(".stmenu")?.remove();
+  ST.spaceLeft = snap?.view?.spaceLeft || 0; ST.spaceRight = snap?.view?.spaceRight || 0;
   ST.nodes = snap?.nodes || []; ST.ws = snap?.ws || {}; PG.pending.clear();
   for (const n of stWins()) { delete n.done; delete n.run;
     const key = n.key || (n.pad ? "pad" : ""), el = document.querySelector(`.stnode[data-nid="${n.id}"]`);

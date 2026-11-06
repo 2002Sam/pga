@@ -16,6 +16,7 @@ cp Info.plist "$APP/Contents/"
 cp -R ui/dist "$APP/Contents/Resources/ui"
 cp Resources/* "$APP/Contents/Resources/"
 ICON=../src/pga/web/icons/PGA.icns; [[ -f $ICON ]] && cp "$ICON" "$APP/Contents/Resources/PGA.icns"
+cp ../src/pga/web/icons/logo-128.png "$APP/Contents/Resources/PGA-status.png"
 codesign --force --deep -s - "$APP" >/dev/null 2>&1
 echo "built $APP"
 

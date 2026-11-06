@@ -38,7 +38,7 @@ def test_document_paths(tmp_path):
 def test_open_api(session_factory, policy, provider, backend, user, monkeypatch, tmp_path):
     from pga import localfiles
     opened = []
-    monkeypatch.setattr(localfiles, 'open_document', lambda p: opened.append(p))
+    monkeypatch.setattr(localfiles, 'open_document', lambda p, reveal=False: opened.append((p, reveal)))
     app = create_app(session_factory=session_factory,
         runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
     path = tmp_path / '论文 修改.docx'
@@ -48,7 +48,9 @@ def test_open_api(session_factory, policy, provider, backend, user, monkeypatch,
         assert c.put(f'/v1/users/{user.id}/access', json={'key':'chat:files', 'folder':str(tmp_path)}).status_code == 200
         r = c.post(url, json={'key':'chat:files', 'path':quote(path.name)})
         assert r.status_code == 200, r.text
-        assert opened == [path.resolve()]
+        assert opened == [(path.resolve(), False)]
+        assert c.post(url, json={'key':'chat:files', 'path':quote(path.name), 'reveal':True}).status_code == 200
+        assert opened[-1] == (path.resolve(), True)
         assert c.post(url, json={'key':'chat:files','path':'missing.pdf'}).status_code == 404
         assert c.post(url, json={'path':str(path)}, headers={'origin':'https://evil.example'}).status_code == 403
-        assert len(opened) == 1
+        assert len(opened) == 2

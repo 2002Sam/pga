@@ -1,5 +1,23 @@
 # Third-party notices
 
+PGA's original code is licensed under Apache-2.0; see `LICENSE`.
+The components below retain their respective licenses.
+
+## Monaco Editor (microsoft/monaco-editor)
+
+The local editor files in `src/pga/web/vendor/monaco/0.52.2/` are distributed under MIT.
+The upstream `LICENSE`, `ThirdPartyNotices.txt` and `SOURCE.txt` are included in that directory.
+These files are served locally for the embedded code editor.
+
+## UI dependencies
+
+The desktop interface uses Svelte (MIT), Vite (MIT), marked (MIT) and DOMPurify (Apache-2.0 OR MPL-2.0)
+via npm; exact versions are recorded in `desktop/ui/package-lock.json`.
+The web interface also loads libraries from their upstream CDN distributions, including marked (MIT),
+DOMPurify (Apache-2.0 OR MPL-2.0), KaTeX (MIT), highlight.js (BSD-3-Clause), Mermaid (MIT),
+three.js (MIT), d3 (ISC) and Pyodide (MPL-2.0). Their upstream distributions retain their notices.
+The Inter and Cormorant Garamond web fonts use the SIL Open Font License; DM Sans uses the same license.
+
 ## Graphiti (getzep/graphiti)
 
 Copyright 2024, Zep Software, Inc. Licensed under the Apache License, Version 2.0 — the full text is in
@@ -28,10 +46,10 @@ and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), ea
 
 - LLM Council (karpathy/llm-council, no licence published) — the blind review and chairman flow in `src/pga/agents/council.py` is reimplemented.
 
-- RAPTOR (MIT), GraphRAG (MIT), MemTree — the world tree (`src/pga/worldtree.py`); see `notes/world-tree.md`.
-- Open WebUI — interaction designs reimplemented in the web app; no code copied (see `notes/open-webui-study.md`).
+- RAPTOR (MIT), GraphRAG (MIT), MemTree — the world tree (`src/pga/worldtree.py`).
+- Open WebUI — interaction designs reimplemented in the web app; no code copied.
 - DeepSeek's question index (the strip of marks beside a conversation) — the question strip in `src/pga/web/app-worldbranch.js`, reimplemented.
-- VCPToolBox (lioensky/VCPToolBox, CC BY-NC-SA 4.0) — four ideas reimplemented from its published descriptions, no code or prompts copied (see `notes/vcptoolbox-study.md`):
+- VCPToolBox (lioensky/VCPToolBox, CC BY-NC-SA 4.0) — four ideas reimplemented from its published descriptions, no code or prompts copied:
   - the letter a perpetual cycle writes to its next one (`src/pga/perpetual.py`);
   - tag co-occurrence association recall (`src/pga/associate.py`);
   - folding older turns by topic (`src/pga/fold.py`);

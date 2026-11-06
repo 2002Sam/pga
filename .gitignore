@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .venv/
+.pga-install/
 .env
 build/
 dist/
@@ -12,3 +13,13 @@ dist/
 models.yaml
 agents.yaml
 .evolution/
+
+# Local attachments and exploratory artwork are not release assets.
+uploads/
+cute-cat.png
+cute-cat.svg
+docs/media/mio-*.png
+docs/media/v[0-9]-*.svg
+docs/media/s[0-9]-*.svg
+.DS_Store
+node_modules/

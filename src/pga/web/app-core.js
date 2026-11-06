@@ -11,6 +11,32 @@ const S = { uid: AS_UID || store.get("pga_uid"), view: (Q.get("view") === "canva
   mode: store.get("pga_tree_mode") || "thought", dir: store.get("pga_tree_dir") || "down", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
   drawer: false, search: "", seen: new Set(), agents: [], sending: false, op: null, showHidden: false, forest: null, draft: "", proc: null, live: [],
   chats: null, chat: Q.get("c"), chatTurns: {}, chatDraft: "", chatRefs: [], chatAgent: Q.get("agent") || store.get("pga_chat_agent") || "auto", planting: false };
+/* Explicit choices belong to a conversation, never to the other open windows. */
+const conversationDefaultAgent = S.chatAgent;
+function chatChoiceKey() { return S.lineView ? S.lineTarget || '' : S.chat || S.imp?.key || ''; }
+function chatChoiceStorage(key) { return 'pga_chat_choice:' + S.uid + ':' + key; }
+function chatChoiceRead(key) {
+  if (S.chatChoices?.[key]) return S.chatChoices[key];
+  try { const p = JSON.parse(store.get(chatChoiceStorage(key)) || 'null');
+    if (p && ['agent','model','effort'].every(k => typeof p[k] === 'string')) return p;
+  } catch {}
+  return null;
+}
+function chatChoiceSave(key = chatChoiceKey()) {
+  const p = {agent: S.chatAgent || 'auto', model: S.chatModel?.[key] || '', effort: S.chatEffort?.[key] || ''};
+  S.chatChoices = {...(S.chatChoices || {}), [key]: p};
+  if (key) store.set(chatChoiceStorage(key), JSON.stringify(p));
+  return p;
+}
+function chatChoiceRestore(key = chatChoiceKey()) {
+  const p = chatChoiceRead(key) || S.chatLoadedChoices?.[key];
+  if (p) {
+    S.chatAgent = p.agent || 'auto';
+    S.chatModel = {...(S.chatModel || {}), [key]: p.model || ''};
+    S.chatEffort = {...(S.chatEffort || {}), [key]: p.effort || ''};
+  } else if (S.chatChoiceActive !== key) S.chatAgent = conversationDefaultAgent;
+  S.chatChoiceActive = key;
+}
 window.S = S;   // the stage reads each page's state (sending, chat) from outside its frame; a top-level const is not on window
 const YOU = () => S.aim === "you";
 const lq = (q) => (EN ? (q.includes("?") ? "&" : "?") + "lang=en" : "");
@@ -56,15 +82,27 @@ async function api(path, opts = {}) {
 function localFileLink(href) {
   if (!href || href.startsWith("//") || href.startsWith("#")) return false;
   if (/^(file:|sandbox:|\/Users\/|\/tmp\/|\/private\/|\/mnt\/|~\/)/i.test(href)) return true;
-  return !/^[a-z][a-z\d+.-]*:/i.test(href) && /\.(pdf|docx?|xlsx?|pptx?|csv|tsv|txt|md|tex|png|jpe?g|webp|svg|zip|py|js|ts|jsx|tsx|html|css|json|ya?ml|toml|xml|sql|swift|go|rs|cpp|java|sh|mjs|svelte|log)(?:[:#?]|$)/i.test(href);
+  return !/^[a-z][a-z\d+.-]*:/i.test(href) && /\.(pdf|docx?|rtf|odt|ods|odp|xlsx?|xlsm|pptx?|csv|tsv|txt|md|tex|png|jpe?g|gif|webp|svg|zip|py|js|ts|jsx|tsx|html|css|json|ya?ml|toml|xml|sql|swift|go|rs|cpp|java|sh|mjs|svelte|log|cjs|scss|less|vue|kt|rb|php|lua|scala|dart|cs|hpp|cc|c|h|zsh|bash|ini|cfg|conf|jsonl|ipynb|graphql|proto|bib|diff|patch)(?:[:#?]|$)/i.test(href);
 }
 let FILE_LINKS_ON = false;
+function outputImage(href, title, alt = "", caption = "") {
+  const local = localFileLink(href);
+  if (!local && !/^(https?:\/\/|\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(href || "")) return esc(alt);
+  const img = `<img class="pga-output-image" ${local ? `data-local-image="${esc(href)}"` : `src="${esc(href)}"`} alt="${esc(alt)}" loading="lazy" decoding="async">`;
+  return `<a class="pga-image-link" href="${local ? "#" : esc(href)}" ${local ? `data-local-file="${esc(href)}"` : `data-zoom="${esc(href)}"`} title="${esc(title || alt || href)}">${img}<span class="pga-image-caption">${caption || esc(alt || L("查看图片", "View image"))}</span></a>`;
+}
 function fileLinkExtensions() {
   if (FILE_LINKS_ON) return;
   FILE_LINKS_ON = true;
   marked.use({ renderer: { link(href, title, text) {
+    if (/\.(png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(href || "") && !/<img\b/i.test(text || "")) return outputImage(href, title, "", text);
     if (!localFileLink(href)) return false;
     return `<a href="#" data-local-file="${esc(href)}" title="${esc(title || href)}">${text}</a>`;
+  }, image(href, title, text) {
+    // Keep the renderer valid inside a Markdown image link (no nested anchors).
+    if (localFileLink(href)) return `<img class="pga-output-image" data-local-image="${esc(href)}" alt="${esc(text || "")}" title="${esc(title || text || href)}" loading="lazy" decoding="async">`;
+    if (!/^(https?:\/\/|\/|data:image\/(?:png|jpeg|gif|webp);base64,)/i.test(href || "")) return esc(text || "");
+    return `<img class="pga-output-image" src="${esc(href)}" alt="${esc(text || "")}" title="${esc(title || text || "")}" loading="lazy" decoding="async">`;
   } } });
 }
 const md = (t) => (window.marked && window.DOMPurify ? (fileLinkExtensions(), typeof mathExtensions === "function" && mathExtensions(), DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"), { breaks: true, gfm: true }))) : esc(t));

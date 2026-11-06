@@ -4,6 +4,36 @@
    "/" prompts, "@" agents and ↑ history, search across everything you said, rename and export, and keyboard shortcuts.
    Plain script in the app's shared global scope, loaded after app-live.js and before app-events.js. */
 
+/* Keep an in-progress draft usable when an answer or queue update redraws the composer. */
+function paintComposer(html) {
+  const host = $('#ccomp');
+  if (!host) return;
+  const key = String(S.lineView ? S.lineTarget : S.imp?.key || S.chat || '');
+  const box = host.querySelector('#chatText');
+  const focused = box && document.activeElement === box && host.dataset.composerKey === key;
+  if (focused && box._pgaComposing) {
+    if (!box._composerRedrawPending) {
+      box._composerRedrawPending = true;
+      box.addEventListener('compositionend', () => setTimeout(() => {
+        box._composerRedrawPending = false;
+        if (box.isConnected && host.dataset.composerKey === key) renderChat();
+      }, 0), {once:true});
+    }
+    return;
+  }
+  const draft = focused ? {value:box.value, start:box.selectionStart, end:box.selectionEnd,
+    direction:box.selectionDirection, top:box.scrollTop} : null;
+  host.innerHTML = html;
+  host.dataset.composerKey = key;
+  const next = host.querySelector('#chatText');
+  if (draft && next) {
+    next.value = draft.value;
+    next.focus({preventScroll:true});
+    next.setSelectionRange(draft.start, draft.end, draft.direction);
+    next.scrollTop = draft.top;
+  }
+}
+
 /* ------------------------------------------------ rich answers */
 let MATH_ON = false;
 function mathExtensions() {               // $…$, $$…$$, \(…\), \[…\] → KaTeX, inside marked (so markdown does not eat the math)
@@ -178,6 +208,8 @@ async function prompts() { if (S.prompts == null) S.prompts = await api(`/v1/use
 let POP = null;                            // the "/" or "@" list above the composer: {box, kind, items, i, start}
 function closePop() { document.querySelector(".cpop")?.remove(); POP = null; }
 async function suggest(box) {
+  const generation = box._suggestGeneration = (box._suggestGeneration || 0) + 1;
+  if (box._pgaComposing) { closePop(); return; }
   const v = box.value, pos = box.selectionStart, before = v.slice(0, pos);
   let m = before.match(/(^|\s)@([\w.\-一-鿿]*)$/), items, kind;
   if (m) { kind = "@"; const q = m[2].toLowerCase(); items = S.agents.filter((a) => a.name.toLowerCase().includes(q) || agentLabel(a.name).toLowerCase().includes(q)).map((a) => ({ id: a.name, label: agentLabel(a.name), sub: a.role || "" })); }
@@ -188,6 +220,7 @@ async function suggest(box) {
     items = K.filter((k) => (k.title || "").toLowerCase().includes(q)).slice(0, 30).map((k) => ({ id: k.id, label: k.title, sub: sysName(k) + (k.chars ? ` · ${kfmt(k.chars)} ${L("字", "chars")}` : "") }));
     items.push({ id: "__upload", label: L("上传一份文档…", "Upload a document…"), sub: L("读成文字存进知识库，并在这次对话里引用", "kept in the knowledge base and cited here") },
       { id: "__web", label: L("网页…", "A web page…"), sub: L("抓下网页的文字存进知识库，并在这次对话里引用", "fetch a page into the knowledge base and cite it here") }); }
+  if (box._suggestGeneration !== generation || box._pgaComposing || box.value !== v || box.selectionStart !== pos || !box.isConnected) return;
   if (!kind) { closePop(); return; }
   POP = { box, kind, items, i: 0, start: pos - m[0].length + (m[1] && kind !== "/" ? m[1].length : 0) };
   drawPop();
@@ -340,6 +373,16 @@ document.addEventListener("click", async (e) => {
   else if (a === "syssave") { try { const r = await api(`/v1/users/${S.uid}/chat-system`, { method: "PUT", body: { key: b.dataset.key, text: $("#sysText").value } });
       S.chatSys = { ...(S.chatSys || {}), [b.dataset.key]: r.text }; document.querySelector(".modal")?.remove(); toast(r.text ? L("设定已保存", "Instructions saved") : L("设定已清空", "Instructions cleared")); renderChat(); } catch (err) { toast(err.message); } }
   else if (a === "keys") showKeys();
+});
+// IME owns the composer while the user is choosing a character. Avoid layout
+// resets and suggestion rebuilds until the committed text is available.
+for (const type of ["compositionstart", "compositionend"]) document.addEventListener(type, e => {
+  const t = e.target;
+  if (t.id !== "chatText" && t.id !== "tnText") return;
+  t._pgaComposing = type === "compositionstart";
+  t._suggestGeneration = (t._suggestGeneration || 0) + 1;
+  if (t._pgaComposing) closePop();
+  else { autoGrowSoon(t); suggest(t); }
 });
 document.addEventListener("input", (e) => {
   if (e.target.id === "chatText" || e.target.id === "tnText") suggest(e.target);

@@ -54,6 +54,7 @@ function renderLooks() {
     <aside class="lkcfg card">
       <div class="lkh"><b>${L("自由调节", "Adjust")}</b><span class="dimt">${L(`基于「${LKS.SKINS[l.skin]?.zh}」`, `on “${LKS.SKINS[l.skin]?.en}”`)}</span></div>
       <label>${L("明暗", "Light or dark")}</label>${seg("theme", [["dark", L("深色", "Dark")], ["light", L("浅色", "Light")], ["system", L("跟随系统", "System")]], theme)}
+      <label>${L("背景与分类配色", "Background & category palette")}</label>${seg("palette", [["earth", L("敦煌 · 陶土与青绿", "Dunhuang · earth & teal")], ["original", L("原版（无图案）", "Original (no artwork)")]], localStorage.getItem("pga_palette") || "earth")}
       <label>${L("强调色", "Accent")}</label><div class="lksw">${ACCENTS.map(([c, n]) => `<button class="sw ${l.accent === c ? "on" : ""}" data-lkset="accent" data-v="${c}" title="${n}" style="${c ? `--c:${c}` : ""}">${c ? "" : "∅"}</button>`).join("")}
         <input type="color" data-lkcolor value="${l.accent || "#e2b46a"}" title="${L("自己挑", "Pick any")}"></div>
       <label>${L("主按钮", "Main buttons")}</label>${seg("btn", BTNS, l.btn)}
@@ -100,6 +101,7 @@ document.addEventListener("click", async (e) => {
   if (!e.target.closest("#looksBody")) return;
   const b = e.target.closest("[data-lkset], [data-lkuse], [data-lkcode], [data-lkdel], [data-lkact]"); if (!b) return;
   if (b.dataset.lkset === "theme") { localStorage.setItem("pga_theme", b.dataset.v); PGAShell.apply(); window.dispatchEvent(new Event("pga:theme")); renderLooks(); return; }
+  if (b.dataset.lkset === "palette") { localStorage.setItem("pga_palette", b.dataset.v); LKS.applyLook(); window.dispatchEvent(new Event("pga:palette")); renderLooks(); return; }
   if (b.dataset.lkset) { const k = b.dataset.lkset; lkSet({ [k]: b.dataset.v }); return; }
   if (b.dataset.lkuse) { const u = b.dataset.lkuse; LKS.setLook(u[0] === "s" && /^s\d+$/.test(u) ? S.lkSaved[+u.slice(1)].look : { ...LKS.LOOK0, skin: u }); renderLooks(); toast(L("换好了", "Switched")); return; }
   if (b.dataset.lkcode) { const u = b.dataset.lkcode, s = /^s\d+$/.test(u) ? S.lkSaved[+u.slice(1)] : null;
@@ -127,3 +129,16 @@ document.addEventListener("change", (e) => {
   if (localStorage.getItem("pga_look") || !S.uid) return;
   try { const p = (await api(`/v1/users/${S.uid}`)).preferences || {}; if (p.look && LKS.SKINS[p.look.skin]) LKS.setLook(p.look, { mode: false }); S.lkSaved = p.looks_saved || []; } catch {}
 })();
+
+/* 敦煌 on / off in one click, from the menu by the side rail (also under 设置 and here in 外观社区) */
+function earthToggleLabel() {
+  const el = $("#toEarth span"); if (!el) return;
+  el.textContent = (localStorage.getItem("pga_palette") || "earth") === "earth" ? L("敦煌配色 · 开", "Dunhuang · on") : L("敦煌配色 · 关", "Dunhuang · off");
+}
+$("#toEarth")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  localStorage.setItem("pga_palette", (localStorage.getItem("pga_palette") || "earth") === "earth" ? "original" : "earth");
+  LKS.applyLook(); window.dispatchEvent(new Event("pga:palette"));
+});
+window.addEventListener("pga:palette", () => { earthToggleLabel(); if (S.view === "looks") renderLooks(); });
+earthToggleLabel();

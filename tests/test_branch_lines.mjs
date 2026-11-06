@@ -33,7 +33,7 @@ test('a branch moved to the left keeps bottom endpoints',()=>{
 test('every visible sibling gets a wire; a tucked sibling loses only its own wire', () => {
  const parent={id:'p',type:'win',kids:['a','b'],sel:'b'},a={id:'a',type:'win',par:'p'},b={id:'b',type:'win',par:'p'};
  const ST={nodes:[parent,a,b],pos:new Map([['p',{x:0,y:0,w:400,h:600}],['a',{x:434,y:0,w:400,h:295,kid:true}],['b',{x:434,y:305,w:400,h:295,kid:true}]])};
- const svg={};const c=vm.createContext({ST,$:()=>svg,stWins:()=>ST.nodes,stOver(){}});
+ const svg={};const c=vm.createContext({ST,$:()=>svg,stWins:()=>ST.nodes,stOver(){},requestAnimationFrame:()=>1});
  vm.runInContext(stage.slice(stage.indexOf('function stBranchLine('),stage.indexOf('function stFrame(')),c);
  c.stWires();assert.equal((svg.innerHTML.match(/class="stwire fork/g)||[]).length,2);
  ST.pos.delete('a');c.stWires();assert.equal((svg.innerHTML.match(/class="stwire fork/g)||[]).length,1);

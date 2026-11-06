@@ -119,7 +119,7 @@ def test_category_map_and_manager(session_factory, session, user, policy, provid
         assert {x['key'] for x in m['conversations']} == {'chat:root', 'chat:kid', 'chat:wired'}
         assert {'from': 'chat:root', 'to': 'chat:kid', 'kind': 'branch'} in m['edges']
         assert {'from': 'chat:root', 'to': 'chat:wired', 'kind': 'ref'} in m['edges']
-        assert [x['key'] for x in m['outside']] == ['chat:paper']
+        assert m['outside'] == []
         assert m['manager'].startswith(P.MANAGER)
         assert next(x for x in m['conversations'] if x['key'] == 'chat:root')['asked'] == ['缓存设计']
         again = c.post(base + '/project-map', json={'project': 'PGA', 'shown': ['chat:wired'], 'refs': []}).json()
@@ -170,3 +170,15 @@ def test_manager_search_includes_archived_conversation(rt, user, session):
     session.commit()
     assert not P.search(rt, user, 'PGA', '缓存')
     assert P.search_page(rt, user, 'PGA', '缓存')['sources'][0]['key'] == 'chat:archived'
+
+
+def test_manager_map_excludes_other_category_references(rt, user, session):
+    seed(session, user, 'chat:inside', 'PGA', '项目内')
+    seed(session, user, 'chat:outside', '论文思考', '外部秘密')
+    user.preferences = {**(user.preferences or {}),
+        'chat_refs': {'chat:inside': ['chat:outside']},
+        'chat_titles': {'chat:outside': '外部秘密标题'}}
+    result = P.overview(rt, user, 'PGA')
+    assert not result['outside']
+    assert not result['edges']
+    assert '外部秘密' not in P.brief(rt, user, 'PGA')

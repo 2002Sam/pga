@@ -17,3 +17,11 @@ test('many scroll events schedule one map and wire redraw per frame',()=>{
  const start=source.indexOf('let stScrollFrame =');vm.runInNewContext(source.slice(start,source.indexOf('window.addEventListener("resize"',start)),ctx);
  for(let i=0;i<100;i++)ctx.stScheduleScroll();assert.equal(frames.length,1);frames[0]();assert.equal(map,1);assert.equal(wire,1);ctx.stScheduleScroll();assert.equal(frames.length,2);
 });
+test('parent tick restores the starting offset then smoothly reveals the parent even at long distance',()=>{
+ const moves=[],a={clientWidth:1000,scrollLeft:8000,scrollWidth:20000,scrollTo(v){moves.push(v);this.scrollLeft=v.left}};
+ const ctx={ST:{nodes:[{id:'parent'}],pos:new Map([['parent',{x:0,w:800}]]),showAt:950},ST_PADX:0,$:()=>a,stGrow(){},performance:{now:()=>1000},window:{matchMedia:()=>({matches:false})},stOpen(){a.scrollLeft=0;return {id:'parent'}}};
+ vm.runInNewContext(source.slice(source.indexOf('function stShow('),source.indexOf('function stFocus(')),ctx);
+ ctx.stReturnParent('parent-key');
+ assert.equal(moves[0].left,8000);assert.equal(moves[0].behavior,'instant');
+ assert.equal(moves[1].left,0);assert.equal(moves[1].behavior,'smooth');
+});

@@ -263,8 +263,8 @@ const THEME = `
       if (d.proposal) subs.push(L(`提出改进 ${esc(d.proposal)}`, `proposed ${esc(d.proposal)}`));
       if ((d.evidence || []).length) subs.push(d.evidence.slice(0, 4).map((e) => `<code>${esc(e)}</code>`).join(" ") + (d.evidence.length > 4 ? " …" : ""));
       out += `<div class="cmsg ${right ? "right" : "left"} ${me ? "me" : ""} ${x.kind}">
-        <div class="cav" style="--h:${h}" title="${esc(nm)}">${esc(me ? L("你", "Y") : nm.slice(0, 1).toUpperCase())}</div>
-        <div class="cbody"><div class="cwho"><b>${esc(nm)}</b>${!me && x.agent ? `<span>${esc(x.agent)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : ""}<span class="ck">${esc(tag)}</span></div>
+        <div class="cav" style="--h:${h}" title="${esc(nm)}"${!me && x.agent ? ` data-agentp="${esc(x.agent)}"` : ""}>${esc(me ? L("你", "Y") : nm.slice(0, 1).toUpperCase())}</div>
+        <div class="cbody"><div class="cwho"><b${!me && x.agent ? ` data-agentp="${esc(x.agent)}"` : ""}>${esc(nm)}</b>${!me && x.agent ? `<span data-agentp="${esc(x.agent)}">${esc(x.agent)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : ""}<span class="ck">${esc(tag)}</span></div>
           <div class="cb">${quote}<div class="ct md" data-i18n="1">${md(x.text)}</div>${trbtn(x.text)}
             ${subs.length ? `<div class="csub">${subs.join(" · ")}</div>` : ""}${samples(d)}</div></div></div>`;
     }
@@ -371,7 +371,7 @@ const THEME = `
           : `<div class="bt-none">${L("这次运行没有记录到工具动作", "No tool actions recorded for this run")}${r.step === "think" || r.step === "aggregate" ? L("（思考和合成只写文字）", " (thinking and aggregating only write)") : ""}</div>`}</details></li>`;
     };
     const agents = (B.agents || []).map((a) => { const h = hue(a.agent);
-      return `<li class="bt-agent"><div class="bt-ah"><span class="cav" style="--h:${h}">${esc(a.agent.slice(0, 1).toUpperCase())}</span><b>${esc(a.agent)}</b><span>${L(`${a.runs.length} 次运行 · 成功 ${a.ok}${a.failed ? ` · 失败 ${a.failed}` : ""}`, `${a.runs.length} runs · ${a.ok} ok${a.failed ? ` · ${a.failed} failed` : ""}`)} · ${Math.round(a.seconds)}s</span></div><ul>${a.runs.map(run).join("")}</ul></li>`; }).join("");
+      return `<li class="bt-agent"><div class="bt-ah"><span class="cav" style="--h:${h}" data-agentp="${esc(a.agent)}">${esc(a.agent.slice(0, 1).toUpperCase())}</span><b>${esc(a.agent)}</b><span>${L(`${a.runs.length} 次运行 · 成功 ${a.ok}${a.failed ? ` · 失败 ${a.failed}` : ""}`, `${a.runs.length} runs · ${a.ok} ok${a.failed ? ` · ${a.failed} failed` : ""}`)} · ${Math.round(a.seconds)}s</span></div><ul>${a.runs.map(run).join("")}</ul></li>`; }).join("");
     const code = (B.commits || []).length || (B.proposals || []).length ? `<li class="bt-agent"><div class="bt-ah"><span class="cav" style="--h:40">C</span><b>${L("代码", "Code")}</b><span>${L("提案和提交", "Proposals and commits")}</span></div><ul>
         ${(B.proposals || []).map((p) => `<li class="bt-act"><span class="bt-tool" style="color:#d6a75c">${L("提案", "Proposal")}</span><code>${esc(p)}</code></li>`).join("")}
         ${(B.commits || []).map((c) => `<li class="bt-act"><span class="bt-tool" style="color:#f0d38c">${L("提交", "Commit")}</span><a href="${esc(c.url || "#")}" target="_blank" rel="noopener"><code>${esc(c.sha.slice(0, 7))}</code></a><span>${esc(c.subject)}</span></li>`).join("")}</ul></li>` : "";

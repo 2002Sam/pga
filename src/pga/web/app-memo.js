@@ -2,7 +2,7 @@
    - A memo is a Markdown file (pga/memos.py), written as one sheet of text: blank lines are just blank lines. The dot on the
      right (or ⌘↵) opens a conversation from the paragraph the cursor is in.
    - Paste a picture (⌘V) or drop one in: it becomes its own paragraph.
-   - ⌘C on a conversation (hover it in the list, or focus its window) or a document copies a reference to it; ⌘V in a memo
+   - ⌘C on a conversation (hover it in the list, or focus its window) or a document copies a reference to it; paste in another chat or memo
      turns that into a link you can click to open it again. (The reference is also plain text: pga://<kind>/<key>.)
    The page is a node of the stage (app-stage.js, n.memo); closing it keeps the memo. Embedded windows only contribute the ⌘C part. */
 
@@ -53,10 +53,15 @@ function memoShow(id, focus) {                                     // the memo's
   if (S.view !== "stage") show("stage");
   let n = ST.nodes.find((x) => x.memo === id);
   if (!n) { n = { id: "memo-" + id, type: "win", memo: id, ord: stWins().length, bw: 440 }; ST.nodes.push(n); stWins().forEach((o, k) => { o.ord = k; }); }
-  n.mini = false; ST.focus = n.id; stRender(); stSave(); stShow(n.id);
+  n.mini = false; delete n.small; (ST.stageOpen ||= new Set()).add(n.id); ST.focus = n.id; stRender(); stSave(); stShow(n.id);
   if (focus) setTimeout(() => n.el?.querySelector?.("textarea")?.focus() || document.querySelector(`.stnode[data-nid="${n.id}"] textarea`)?.focus(), 80);
 }
-async function memoMount(n, el) {                                  // the page was drawn: load the memo into it
+async function memoMount(n, el) {
+  if (n.memoSource) {
+    const frame=document.createElement("iframe");frame.style.cssText="width:100%;height:100%;border:0;flex:1";
+    frame.src="/?"+new URLSearchParams({embed:"1",memoWorkspace:n.memoSource,...(typeof AS_UID!=="undefined"&&AS_UID?{as:AS_UID}:{})});
+    el.querySelector(".memob").replaceWith(frame);return;
+  }                                  // the page was drawn: load the memo into it
   const id = n.memo;
   let w = MM.wins.find((x) => x.id === id);
   if (w) { w.el = el; memoBody(w); memoHead(w); return; }
@@ -156,7 +161,13 @@ function memoInsert(w, at, ...bs) {                                // after para
 function memoRefs(dt) {
   try { const j = dt.getData("application/x-pga-ref"); if (j) return [JSON.parse(j)]; } catch {}
   const t = dt.getData("text/plain") || "", out = [], re = /([^\n]*?)\s*pga:\/\/(\w+)\/(\S+)/g; let m;
-  while ((m = re.exec(t))) out.push({ kind: m[2], key: decodeURIComponent(m[3]), title: m[1].trim() });
+  while ((m = re.exec(t))) {
+    if (m[2] === "clip") {
+      try { const r = JSON.parse(localStorage.getItem("pga_conversation_clips") || "{}")[m[3]]; if (r) out.push(r); } catch {}
+    } else {
+      try { out.push({ kind: m[2], key: decodeURIComponent(m[3]), title: m[1].trim() }); } catch {}
+    }
+  }
   return out;
 }
 function memoSplitAt(w, i, ta) {                                // a picture or reference pasted mid-text goes where the cursor is: the text splits around it
@@ -192,10 +203,22 @@ function memoCopyRef() {
 }
 document.addEventListener("copy", (e) => {
   const r = memoCopyRef(); if (!r || !e.clipboardData) return;
+  if (r.kind === "conv" && S.chatTurns?.[r.key]) {
+    r.turns = [...(S.chatCtx?.[r.key]?.context || []), ...S.chatTurns[r.key]]
+      .map(t => ({ role: t.role === "user" ? "user" : "assistant", text: String(t.text || "") }));
+  }
+  const clipId = window.crypto.randomUUID();
+  // Plain-text fallback works across iframe/browser clipboard MIME filtering.
+  try {
+    const cache = JSON.parse(localStorage.getItem("pga_conversation_clips") || "{}");
+    cache[clipId] = r;
+    localStorage.setItem("pga_conversation_clips", JSON.stringify(Object.fromEntries(Object.entries(cache).slice(-8))));
+    r.clipId = clipId;
+  } catch {}
   e.preventDefault();
-  e.clipboardData.setData("text/plain", `${r.title} pga://${r.kind}/${encodeURIComponent(r.key)}`);
+  e.clipboardData.setData("text/plain", r.clipId ? `${r.title} pga://clip/${r.clipId}` : `${r.title} pga://${r.kind}/${encodeURIComponent(r.key)}`);
   e.clipboardData.setData("application/x-pga-ref", JSON.stringify(r));
-  try { (MM_EMBED ? window.parent : window).toast(L(`已复制「${String(r.title).slice(0, 20)}」的引用：到备忘里按 ⌘V`, `Copied a reference to “${String(r.title).slice(0, 20)}”: ⌘V in a memo`)); } catch {}
+  try { (MM_EMBED ? window.parent : window).toast(L(`已复制「${String(r.title).slice(0, 20)}」的引用：到另一对话输入框或备忘里粘贴`, `Copied a reference to “${String(r.title).slice(0, 20)}”: paste in another chat or memo`)); } catch {}
 });
 
 function memoOpenRef(b) {
@@ -261,3 +284,45 @@ document.addEventListener("click", async (e) => {
   const rf = t.closest("[data-mref]"); if (rf) { memoOpenRef(w.blocks[Number(rf.dataset.mref)]); return; }
   const im = t.closest(".mb.img img"); if (im) { window.open(im.src, "_blank"); }
 });
+
+/* Paste a copied conversation as an explicit, removable reference in the draft.
+   Saving a snapshot does not send a message or alter the source conversation. */
+document.addEventListener("paste", async e => {
+  const box = e.target;
+  if (!["chatText", "editText"].includes(box.id) || e.defaultPrevented || !e.clipboardData) return;
+  const refs = memoRefs(e.clipboardData).filter(r => r.kind === "conv");
+  if (!refs.length) return;
+  e.preventDefault();
+  if (box._pgaSnapshotPending) return;
+  const key = S.chat, start = box.selectionStart, end = box.selectionEnd, before = box.value;
+  box._pgaSnapshotPending = true;
+  try {
+    const labels = [];
+    for (const ref of refs.slice(0, 4)) {
+      if (!ref.turns?.length) throw Error(L("请先打开原对话，加载完成后再复制", "Open and load the source conversation before copying"));
+      const saved = await api(`/v1/users/${S.uid}/conversation-snapshots`, { method: "POST", body: ref });
+      const mode = saved.mode === "full" ? L("全文上下文", "Full context") : L("知识库 + 最近 3 轮", "Knowledge base + latest 3 exchanges");
+      const title = saved.title.replace(/[\[\]\r\n]/g, " ");
+      labels.push(`[引用对话：${title} · ${mode}](pga://snapshot/${saved.id})`);
+    }
+    if (!box.isConnected || S.chat !== key) { toast(L("目标对话已切换，请在目标输入框重新粘贴", "Chat changed; paste again in the destination")); return; }
+    const value = labels.join("\n") + "\n";
+    if (box.value === before) box.setRangeText(value, start, end, "end");
+    else box.setRangeText(value, box.selectionStart, box.selectionEnd, "end");
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    if (typeof autoGrow === "function") autoGrow(box);
+    toast(L("已附上对话上下文；可以继续输入问题，或删除引用", "Conversation attached; add a question or remove the reference"));
+  } catch (err) { toast(err.message); }
+  finally { box._pgaSnapshotPending = false; }
+});
+// Do not send a question before its pasted context has finished saving.
+for (const type of ["keydown", "click"]) document.addEventListener(type, e => {
+  const sending = type === "keydown" ? e.key === "Enter" && !e.shiftKey && ["chatText", "editText"].includes(e.target.id)
+    : e.target.closest?.('#chatSend, #lineSend, #impSend, [data-act="editsend"]');
+  if (!sending) return;
+  const box = type === "keydown" ? e.target : document.querySelector('#chatText, #editText');
+  if (box?._pgaSnapshotPending) {
+    e.preventDefault(); e.stopImmediatePropagation();
+    toast(L("正在附上对话上下文，请稍等", "Attaching conversation context; please wait"));
+  }
+}, true);

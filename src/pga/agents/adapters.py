@@ -137,7 +137,7 @@ class CLIAdapter(Adapter):
         threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True).start()
         threading.Thread(target=lambda: ([lines.put(x) for x in p.stdout], lines.put(None)), daemon=True).start()
         out: list[str] = []
-        deadline = time.monotonic() + task.timeout_s
+        deadline = task.response_deadline()
         while True:
             left = deadline - time.monotonic()
             if left <= 0:
@@ -206,7 +206,7 @@ class ClaudeLocal(CLIAdapter):
             return cmd + ["--permission-mode", "bypassPermissions", "--allowedTools",
                           "Bash,Read,Edit,Write,MultiEdit,Glob,Grep,LS,WebSearch,WebFetch,NotebookEdit,Task,TodoWrite" + mcp] + self.choice_flags(task)
         if task.permissions == AUTO:                  # reads are allowed; writes/commands ask the PGA host
-            return cmd + ["--permission-mode", "manual", "--permission-prompts", "host", "--allowedTools",
+            return cmd + ["--permission-mode", "default", "--permission-prompt-tool", "stdio", "--allowedTools",
                           "Read,Glob,Grep,LS,WebSearch,WebFetch,TodoWrite"] + self.choice_flags(task)
         if task.permissions == WORKSPACE_WRITE:
             cmd += ["--permission-mode", "acceptEdits", "--allowedTools", "Read,Edit,Write,Glob,Grep" + mcp,

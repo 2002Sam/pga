@@ -13,12 +13,12 @@ function harness() {
  vm.runInContext(src.slice(src.indexOf('function convMap()'),src.indexOf("document.addEventListener('contextmenu'",src.indexOf('function convMap()'))),context);
  return {context,S,box};
 }
-test('markers retain precise fork points and name their branches, with no bar of their own',()=>{
+test('markers retain precise fork points and give each branch its own clickable tick',()=>{
  const h=harness(); h.context.convMap();
  assert.equal(h.box.hidden,false);
  assert.match(h.box.innerHTML,/data-point="r1"[^>]*data-kids="child"/);
  assert.match(h.box.innerHTML,/data-point="r2"[^>]*data-kids="newchild"/);
- assert.doesNotMatch(h.box.innerHTML,/railbranch|data-mchat=/);
+ for(const key of ['child','newchild']) assert.equal((h.box.innerHTML.match(new RegExp(`data-mchat="${key}"`,'g'))||[]).length,1);
  assert.match(h.box.innerHTML,/data-preview-title="&lt;question>" data-preview="answer"/);
  assert.doesNotMatch(h.box.innerHTML,/class="railbranches"/);
  assert.match(h.box.innerHTML,/data-kidtitles="child title"/);
@@ -37,19 +37,20 @@ test('every sibling is named once on the row it grew from, including inherited o
  const named=[...h.box.innerHTML.matchAll(/data-kids="([^"]*)"/g)].flatMap(m=>m[1].split(','));
  for(const key of ['child','newchild','sibling','inherited']) assert.equal(named.filter(k=>k===key).length,1);
 });
-test('an open branch lends its colour to the turn it grew from and to its row in the tree; a closed one does not',()=>{
- const mark={classList:new Set(),style:{props:{},setProperty(k,v){this.props[k]=v},removeProperty(k){delete this.props[k]}}};
- mark.classList.toggle=(c,on)=>on?mark.classList.add(c):mark.classList.delete(c);
- const row={dataset:{kids:'open-kid,closed-kid'},querySelector:()=>mark};
- const tb={dataset:{mchat:'open-kid'},classList:new Set(),style:mark.style};tb.classList.toggle=(c,on)=>on?tb.classList.add(c):tb.classList.delete(c);tb.classList.contains=c=>tb.classList.has(c);
+test('branch ticks and tree rows share their own colour and open state without colouring the question tick',()=>{
+ const element=key=>{const classes=new Set();return {dataset:{mchat:key},classList:{add:c=>classes.add(c),remove:c=>classes.delete(c),contains:c=>classes.has(c),toggle:(c,on)=>on?classes.add(c):classes.delete(c)},style:{props:{},setProperty(k,v){this.props[k]=v},removeProperty(k){delete this.props[k]}}};};
+ const mark=element(''),open=element('open-kid'),closed=element('closed-kid');mark.classList.add('paired');
+ const row={dataset:{kids:'open-kid,closed-kid'},querySelector:()=>mark,querySelectorAll:()=>[open,closed]};
+ const tb=element('open-kid');
  const host={ST:{nodes:[{type:'win',key:'open-kid'},{type:'win',key:'closed-kid',branchDocked:true}]}};
- const ctx=vm.createContext({S:{chat:'me'},window:{parent:host},$:s=>s==='#cbr'?{querySelectorAll:()=>[tb]}:{querySelectorAll:()=>[row]}});
+ const ctx=vm.createContext({S:{chat:'me'},window:{parent:host},$:s=>s==='#cbr'?{querySelector:()=>null,querySelectorAll:()=>[tb]}:{querySelectorAll:()=>[row]}});
  vm.runInContext(src.slice(src.indexOf('function relOpen('),src.indexOf('let relSig')),ctx);
  vm.runInContext(src.slice(src.indexOf('function railPairColor('),src.indexOf('function railParentInfo(')),ctx);
  ctx.relPaint();
- assert.ok(mark.classList.has('paired'));assert.equal(mark.style.props['--pair-color'],ctx.railPairColor('open-kid'));assert.ok(tb.classList.has('open'));
+ assert.ok(!mark.classList.contains('paired'));assert.ok(open.classList.contains('open'));assert.ok(!closed.classList.contains('open'));
+ assert.equal(open.style.props['--pair-color'],ctx.railPairColor('open-kid'));assert.equal(tb.style.props['--pair-color'],open.style.props['--pair-color']);assert.ok(tb.classList.contains('open'));
  host.ST.nodes[0].mini=true;ctx.relPaint();
- assert.ok(!mark.classList.has('paired'));assert.ok(!tb.classList.has('open'));
+ assert.ok(!open.classList.contains('open'));assert.ok(!tb.classList.contains('open'));
 });
 test('each child wire joins its own tick, even at a shared or inherited fork',()=>{
  const tick=(key,y)=>({dataset:{mchat:key},getBoundingClientRect:()=>({right:98,top:y,height:8})});

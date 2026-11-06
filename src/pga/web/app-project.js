@@ -134,7 +134,7 @@ function pjRefreshViews() {
   if (typeof stRender === 'function' && S.view === 'stage') { stRender(); stListItems(); }
   if (typeof renderRecent === 'function') renderRecent();
 }
-async function pjCreate(project) {
+async function pjCreate(project, { manager = false } = {}) {   // manager: the new category opens on its manager, not a blank conversation
   if (PJ.creating) return; PJ.creating = true;
   try {
     const r = await api(`/v1/users/${S.uid}/conversation-projects`, {body:{project,create:true}});
@@ -145,19 +145,41 @@ async function pjCreate(project) {
     if (host.stOpen) {
       if (host !== window) await host.pjCatalog();
       if (host.S.view !== 'stage') host.show('stage');
-      host.stOpen(r.key); host.pjRefreshViews();
+      if (manager && host.mgOpen) await host.mgOpen(r.project); else host.stOpen(r.key);
+      host.pjRefreshViews();
     } else { S.chat = r.key; S.imp = null; await loadChat(r.key); }
     pjRefreshViews(); document.querySelector('.modal')?.remove();
   } catch (err) { toast(err.message); }
   finally { PJ.creating = false; }
 }
-async function pjAssignDialog(key) {
+async function pjAssignDialog(key, trigger) {
   if (!key) { toast(L('请先创建对话','Create a conversation first')); return; }
+  if (!trigger || trigger.disabled) return;
+  if (trigger.getAttribute('aria-expanded') === 'true') { closeComposerMenu(); return; }
+  trigger.disabled = true;
   try {
+    closeComposerMenu();
     const cat = await pjCatalog(), current = cat.of[pjCanonical(key)] || pjName(recentItems().find(x=>pjCanonical(x.item)===pjCanonical(key)));
-    modal(`<h2>${L('归入分类','Move to category')}</h2><select id="pjCategory" style="width:100%">${cat.names.map(name=>`<option value="${esc(name)}" ${name===current?'selected':''}>${esc(name)}</option>`).join('')}</select>
-      <div class="form"><div class="row"><button data-closemodal="1">${L('取消','Cancel')}</button><button class="primary" data-pjassign="${esc(key)}">${L('移入','Move')}</button></div></div>`);
+    if (!trigger.isConnected) return;
+    const select = document.createElement('select');
+    select.title = L('归入分类','Move to category');
+    for (const name of cat.names) {
+      const option = document.createElement('option');
+      option.value = name; option.textContent = name; select.append(option);
+    }
+    select.value = current;
+    select.addEventListener('change', async () => {
+      if (select.value === current) return;
+      trigger.disabled = true;
+      try { await pjAssign(key, select.value); }
+      catch (err) { toast(err.message); }
+      finally { trigger.disabled = false; }
+    }, {once:true});
+    trigger.disabled = false;
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    openComposerMenu(select, trigger, {below:true});
   } catch (err) { toast(err.message); }
+  finally { trigger.disabled = false; }
 }
 async function pjAssign(key, project) {
   const r = await api(`/v1/users/${S.uid}/conversation-projects`, {body:{key,project}});
@@ -173,14 +195,19 @@ async function pjAssign(key, project) {
   toast(L('已移入「' + r.project + '」','Moved to ' + r.project));
 }
 document.addEventListener('click', async e => {
+  const category = e.target.closest('[data-pjcategory]');
+  if (category) {
+    e.preventDefault(); e.stopImmediatePropagation(); window.stMapHideTip?.();
+    if (PJ.creating) return;
+    try { await pjCatalog(); } catch {}
+    const names = new Set(PJ.catalog?.names || []); let i = 1;
+    while (names.has(L('新分区', 'New section ') + i)) i++;
+    await pjCreate(L('新分区', 'New section ') + i, { manager: true });   // no dialog: 新分区1, 2 … with its manager open; rename it later
+    return;
+  }
   const create = e.target.closest('[data-pjnew]');
   if (create) { window.stMapHideTip?.(); e.preventDefault(); e.stopImmediatePropagation(); await pjCreate(create.dataset.pjnew); return; }
-  const move = e.target.closest('[data-pjassign]');
-  if (move) {
-    e.preventDefault(); e.stopImmediatePropagation(); if (move.disabled) return; move.disabled = true;
-    try { await pjAssign(move.dataset.pjassign, $('#pjCategory').value); document.querySelector(".modal")?.remove(); }
-    catch (err) { toast(err.message); move.disabled = false; }
-  }
+
 }, true);
 setTimeout(async () => { if (!S.uid) return; try { await pjCatalog(); pjRefreshViews(); } catch {} }, 1600);
 
@@ -205,8 +232,40 @@ document.addEventListener('click', e => {
 document.addEventListener('dblclick', e => {
   const button = e.target.closest('[data-pjmap]'); if (!button) return;
   e.preventDefault(); e.stopImmediatePropagation(); clearTimeout(PJ.mapClick);
-  window.stMapHideTip?.(); window.mgOpen ? window.mgOpen(button.dataset.pjmap, button) : pjShared(button.dataset.pjmap);   // the category's manager page (its context is a button there)
+  window.stMapHideTip?.(); pjRenameInline(button);   // double-click a category's name: rename it in place (its manager is on the stage)
 }, true);
+function pjRenameInline(button) {
+  const old = button.dataset.pjmap;
+  if (!old || old === '日常对话' || button.parentElement.querySelector('.pjrename')) return;
+  const input = document.createElement('input');
+  input.className = 'pjrename'; input.value = button.textContent; input.maxLength = 40; input.setAttribute('aria-label', L('分类名称', 'Category name'));
+  button.hidden = true; button.after(input); input.focus(); input.select();
+  let done = false;
+  const finish = async (save) => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    input.remove(); button.hidden = false;
+    if (!save || !name || name === old) return;
+    if (name === '日常对话' || PJ.catalog?.names?.includes(name)) { toast(L('已经有这个名字的分类了', 'A category with that name already exists')); return; }
+    try { await pjRename(old, name); toast(L(`已改名为「${name}」`, `Renamed to ${name}`)); }
+    catch (err) { toast(err.message); }
+  };
+  for (const ev of ['pointerdown', 'pointermove', 'click', 'dblclick']) input.addEventListener(ev, x => x.stopPropagation());
+  input.addEventListener('keydown', x => { x.stopPropagation(); if (x.key === 'Enter' && !x.isComposing) { x.preventDefault(); finish(true); } else if (x.key === 'Escape') finish(false); });
+  input.addEventListener('blur', () => finish(true));
+}
+async function pjRename(old, name) {          // the tidy-up's own rename: every conversation filed under it moves, and it can be undone there
+  await api(`/v1/users/${S.uid}/consolidate/structure/apply`, { body: { merges: [], renames: [{ from: old, to: name }] } });
+  const host = window.parent !== window && window.parent.ST ? window.parent : window;
+  for (const n of host.ST?.nodes || []) {
+    if (n.managerProject === old) { n.managerProject = name; n.title = `${name} · ${L('管理员', 'Manager')}`; }
+    if (n.creationGroup?.id === 'pj:' + old) n.creationGroup = { ...n.creationGroup, id: 'pj:' + name, name };
+  }
+  try { const off = JSON.parse(localStorage.getItem('pga_pm_off') || '[]'); if (off.includes(old)) localStorage.setItem('pga_pm_off', JSON.stringify(off.map(x => x === old ? name : x))); } catch {}
+  if (PJ.fold && old in PJ.fold) { PJ.fold[name] = PJ.fold[old]; delete PJ.fold[old]; }
+  await pjCatalog(); if (host !== window) await host.pjCatalog();
+  host.stSave?.(); host.stRender?.(); host.pjRefreshViews?.(); pjRefreshViews();
+}
 document.addEventListener('pointerover', e => {
   if (e.target.closest('[data-pjnew], [data-pjmap]')) window.stMapHideTip?.();
 }, true);

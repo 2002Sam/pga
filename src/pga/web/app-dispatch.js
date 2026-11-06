@@ -150,7 +150,7 @@ function boards() {
       ${done === d.tasks.length && !d.merged ? `<button class="sm primary" data-act="dpmerge" data-did="${esc(d.id)}">${L("把结果汇总回这里", "Merge the results here")}</button>` : d.merged ? `<span class="pill">${L("已汇总", "Merged")}</span>` : ""}</div>
       ${d.tasks.map((t, i) => { const s = states[i], txt = s.last?.text || s.last?.error || "";
         return `<div class="dbt ${s.st}"><span class="dbs">${s.st === "running" ? `<span class="spin"></span>` : s.st === "error" ? "⚠" : "✓"}</span><div class="dbb"><div class="dbh"><b>${esc(t.title)}</b><em>${esc(agentLabel(s.last?.agent || t.agent || "auto"))}</em>
-          <span class="grow"></span><button class="sm ghost" data-dpopen="${esc(t.key)}">${L("打开", "Open")}</button><button class="sm ghost" data-dpsplit="${esc(t.key)}">${L("分屏打开", "Open beside")}</button></div>
+          <span class="grow"></span><a class="pdresultlink" href="?v=chats&c=${encodeURIComponent(t.key)}" data-dpbeside="${esc(t.key)}">${L("查看处理对话", "View task conversation")} ↗</a></div>
           ${txt ? `<div class="dbx">${esc(txt.replace(/\s+/g, " ").slice(0, 260))}${txt.length > 260 ? "…" : ""}</div>` : ""}</div></div>`; }).join("")}</div>`; }).join("");
 }
 async function dispatchMerge(did) {
@@ -181,6 +181,8 @@ renderChat = function () {
 setInterval(() => { const key = S.chat; if (S.view === "chats" && key && (S.chatDispatch?.[key] || []).some((d) => d.tasks.some((t) => taskState(t.key).st === "running"))) boardRefresh(key); }, 6000);
 
 document.addEventListener("click", async (e) => {
+  const beside = e.target.closest('[data-dpbeside]');
+  if (beside) { e.preventDefault(); window.pdBeside(beside.dataset.dpbeside); return; }
   const op = e.target.closest("[data-dpopen]"); if (op) { const k = op.dataset.dpopen; S.lineView = null; S.imp = null; S.treeItem = null; S.chat = k; history.replaceState(null, "", qs()); renderChat(); loadChat(k); return; }
   const sp = e.target.closest("[data-dpsplit]"); if (sp) { splitOpen(sp.dataset.dpsplit); return; }
   const b = e.target.closest("[data-act]"); if (!b) return;

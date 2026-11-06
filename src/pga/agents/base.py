@@ -33,6 +33,12 @@ class AgentTask:
     want_json: bool = False                     # the caller will parse JSON out of the reply
     meta: dict[str, Any] = field(default_factory=dict)
 
+    def response_deadline(self) -> float:
+        """Interactive conversations run until completion or an explicit stop."""
+        if self.meta.get("conversation"):
+            return float("inf")
+        return time.monotonic() + self.timeout_s
+
 
 @dataclass
 class AgentResult:

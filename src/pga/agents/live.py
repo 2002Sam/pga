@@ -59,6 +59,72 @@ def _notify(lid, text, callbacks):
             logging.getLogger(__name__).exception("Live output observer failed")
 
 
+class SteerRejected(ValueError):
+    """The native adapter explicitly rejected this input; it was not delivered."""
+
+
+def bind_steering(lid, callback):
+    if not lid:
+        return
+    with _LOCK:
+        r = _RUNS.get(lid)
+        if r is not None and r["finished"] is None:
+            r["_steer"] = {"callback": callback, "lock": threading.Lock(), "receipts": {}}
+            r["can_steer"] = True
+
+
+def unbind_steering(lid):
+    with _LOCK:
+        state = (_RUNS.get(lid) or {}).get("_steer")
+    if state:
+        # Wait for an in-flight acknowledgement before the answer is recorded.
+        with state["lock"], _LOCK:
+            r = _RUNS.get(lid)
+            if r:
+                state["callback"] = None
+                r["can_steer"] = False
+
+
+def steering_inputs(lid):
+    with _LOCK:
+        return list((_RUNS.get(lid) or {}).get("steering", []))
+
+
+def steer(lid: str, conversation: str, message_id: str, text: str) -> dict:
+    with _LOCK:
+        r = _RUNS.get(lid)
+        if not r:
+            return {"status": "uncertain", "error": "任务记录已过期或服务已重启，无法核实送达，请检查对话记录"}
+        if r.get("tags", {}).get("conversation") != conversation:
+            raise SteerRejected("找不到该对话的运行任务")
+        state = r.get("_steer")
+        if not state:
+            raise SteerRejected("当前连接不支持运行中插入，消息仍保留在队列")
+    with state["lock"]:
+        receipt = state["receipts"].get(message_id)
+        if receipt:
+            if receipt["text"] != text:
+                raise SteerRejected("同一条补充的内容已改变")
+            return dict(receipt)
+        with _LOCK:
+            if r["finished"] is not None or lid in _STOP or not state["callback"]:
+                raise SteerRejected("当前任务已结束或正在停止，消息仍保留在队列")
+        receipt = {"id": message_id, "text": text, "status": "uncertain"}
+        state["receipts"][message_id] = receipt
+        try:
+            result = state["callback"](text)
+        except SteerRejected as exc:
+            receipt.update(status="rejected", error=str(exc))
+        except Exception as exc:
+            # A lost acknowledgement must never trigger a second delivery.
+            receipt["error"] = str(exc)
+        else:
+            receipt.update(status="accepted", turn_id=result.get("turnId"))
+            with _LOCK:
+                r.setdefault("steering", []).append({"id": message_id, "text": text, "at": time.time()})
+        return dict(receipt)
+
+
 def append(lid: str | None, text: str) -> None:
     if not lid or not text:
         return
@@ -97,6 +163,17 @@ def step(lid: str | None, st: dict) -> None:
             del xs[:-MAX_STEPS]
 
 
+def step_output(lid: str | None, call: str, delta: str) -> None:
+    """Keep command output separate from the assistant's answer."""
+    if not lid or not call or not delta:
+        return
+    with _LOCK:
+        r = _RUNS.get(lid)
+        st = next((x for x in reversed((r or {}).get("steps") or []) if x.get("id") == call), None)
+        if st is not None:
+            st["output"] = (st.get("output", "") + delta)[-12000:]
+
+
 def step_done(lid: str | None, call: str, *, error: bool = False, images: list[tuple[bytes, str]] | None = None) -> None:
     """The tool call `call` came back: how long it took, whether it failed, its screenshots."""
     if not lid or not call:
@@ -125,6 +202,7 @@ def image(lid: str, n: int) -> tuple[bytes, str] | None:
 
 
 def finish(lid: str | None, ok: bool, text: str | None = None, error: str | None = None) -> None:
+    unbind_steering(lid)
     from pga.agents import approvals
     approvals.finish(lid)
     if not lid:

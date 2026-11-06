@@ -22,7 +22,7 @@ function harness() {
     L: zh => zh, toast: x => notices.push(x), closeCtx() {}, renderChat() {},
     qs: () => '', loadChats: async () => {}, loadTimeline() {},
     setInterval: (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; },
-    clearInterval: id => timers.delete(id), setTimeout, clearTimeout,
+    clearInterval: id => timers.delete(id), setTimeout, clearTimeout, requestAnimationFrame: fn => fn(),
     api: (url, options) => { calls.push({ url, options }); return Promise.resolve([]); },
   });
   for (const file of ['app-live.js', 'app-compose.js', 'app-dispatch.js', 'app-events.js']) {
@@ -115,7 +115,7 @@ test('late polls cannot replace another run or rewind newer progress', async () 
   pending[0]([{ ...row('old progress'), id: 'old', tags: { conversation: 'u:old' } }]);
   await flush();
   assert.equal(current.run.text, 'new progress');
-  const poll = [...h.timers.values()].find(x => x.ms === 600).fn;
+  const poll = [...h.timers.values()].find(x => x.ms === 100).fn;
   poll(); poll();
   pending[3]([row('latest progress')]);
   await flush();
@@ -186,11 +186,12 @@ test('storage failure retains draft and attachments; restored queues are paused 
 test('unchanged live content preserves the card across clock ticks; changed content and replaced DOM refresh',async()=>{
  const h=harness();let renders=0,replacements=0,box;
  const makeBox=()=>({querySelector:()=>null,querySelectorAll:()=>[],set outerHTML(v){replacements++;box=makeBox();}});
+ h.c.document.createElement=()=>({content:{firstElementChild:{}}});h.c.patchLiveNode=()=>{replacements++;};
  box=makeBox();h.c.document.getElementById=id=>id==='workCard'?box:null;h.c.document.querySelectorAll=()=>[];
  h.c.workCard=()=>{renders++;return '<div class="work">'+renders+'</div>';};
  let run={id:'r',started:Date.now()/1000,running:true,text:'same',tags:{conversation:'u:chat:one'}};
  h.c.liveSnap=async()=>[{...run}];h.c.startLive('chat:one');await flush();
- const poll=[...h.timers.values()].find(t=>t.ms===600).fn;
+ const poll=[...h.timers.values()].find(t=>t.ms===100).fn;
  for(let i=0;i<20;i++)await poll();assert.equal(renders,1);assert.equal(replacements,1);
  run={...run,text:'new output'};await poll();assert.equal(replacements,2);
  box=makeBox();await poll();assert.equal(replacements,3);
@@ -208,4 +209,102 @@ test('queued split follow-up still reaches both independent lanes',async()=>{
   assert.deepEqual(asks.map(x=>x.conversation),['second:left','second:right']);
   assert.deepEqual(asks.map(x=>x.agent),['a','b']);
   assert.ok(asks.every(x=>x.history===undefined));assert.equal(h.c.followups('chat:one').length,0);
+});
+
+test('running composer explains queue timing even before the first follow-up', () => {
+  const {c}=harness();
+  assert.equal(c.followupHtml(),'');
+  c.S.sending=true;
+  assert.match(c.followupHtml(),/Enter 排队/);
+  c.S.sending=false;c.S.regenBusy=true;
+  assert.match(c.followupHtml(),/当前回答结束后自动发送/);
+});
+
+test('composer redraw preserves a focused draft and selection, and waits for IME commit', async () => {
+  const {c}=harness();let current, redraws=0, committed;
+  const makeBox=()=>({value:'draft being edited',selectionStart:2,selectionEnd:7,selectionDirection:'backward',scrollTop:18,isConnected:true,
+    focus(){c.document.activeElement=this;},setSelectionRange(a,b,d){this.selectionStart=a;this.selectionEnd=b;this.selectionDirection=d;},
+    addEventListener(type,fn){assert.equal(type,'compositionend');committed=fn;}});
+  current=makeBox();c.document.activeElement=current;
+  const host={dataset:{composerKey:'chat:one'},querySelector:()=>current,set innerHTML(html){redraws++;current.isConnected=false;current=makeBox();current.value='';}};
+  c.$=s=>s==='#ccomp'?host:current;
+  c.paintComposer('updated markup');
+  assert.equal(current.value,'draft being edited');
+  assert.deepEqual([current.selectionStart,current.selectionEnd,current.selectionDirection,current.scrollTop],[2,7,'backward',18]);
+  assert.equal(c.document.activeElement,current);
+  current._pgaComposing=true;const composing=current;
+  c.renderChat=()=>c.paintComposer('after commit');
+  c.paintComposer('during IME');c.paintComposer('another update');
+  assert.equal(redraws,1);assert.equal(current,composing);
+  current.value='完整的中文';current._pgaComposing=false;committed();
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(redraws,2);assert.equal(current.value,'完整的中文');
+  assert.equal(c.document.activeElement,current);
+});
+
+test('insert queued text targets the exact running conversation and never creates another ask', async () => {
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const item=h.c.followups()[0];
+  h.box.value='new unsent draft';
+  const calls=[];
+  h.c.api=async(url,options)=>{
+    calls.push({url,options});
+    if(url==='/v1/agents/live')return [{id:'unrelated',running:true,can_steer:true,tags:{conversation:'other:chat:one'}},{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}];
+    assert.equal(url,'/v1/users/u/agents/live/active/steer');
+    assert.equal(options.body.message_id,item.id);
+    return {status:'accepted'};
+  };
+  await h.c.steerFollowup('chat:one',item.id);
+  assert.equal(h.c.followups().length,0);
+  assert.equal(h.box.value,'new unsent draft');
+  assert.equal(h.c.S.followupDelivered['chat:one'],'补充说明');
+  assert.equal(calls.length,2);
+  assert.equal(h.c.S.sending,true);
+});
+
+test('uncertain delivery stays paused and checks the same receipt instead of a newer run', async () => {
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const item=h.c.followups()[0];let posts=0,reads=0;
+  h.c.api=async(url)=>{
+    if(url==='/v1/agents/live'){reads++;return [{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}];}
+    assert.equal(url,'/v1/users/u/agents/live/active/steer');
+    posts++;if(posts===1)throw Error('connection lost');
+    return {status:'accepted'};
+  };
+  await h.c.steerFollowup('chat:one',item.id);
+  assert.equal(item.paused,true);assert.equal(item.steerState,'uncertain');
+  h.c.S.sending=false;
+  await h.c.drainFollowups('chat:one');assert.equal(posts,1);
+  await h.c.steerFollowup('chat:one',item.id);
+  assert.equal(reads,1);assert.equal(posts,2);assert.equal(h.c.followups().length,0);
+});
+
+test('unsupported connections retain queued messages and repeated clicks send once', async () => {
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const item=h.c.followups()[0];
+  h.c.api=async()=>[{id:'claude',running:true,tags:{conversation:'u:chat:one'}}];
+  await h.c.steerFollowup('chat:one',item.id);
+  assert.equal(h.c.followups().length,1);assert.equal(item.paused,false);assert.equal(item.steerRun,undefined);
+  let release,posts=0;
+  h.c.api=async(url)=>url==='/v1/agents/live'?[{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}]:(posts++,new Promise(r=>release=r));
+  const first=h.c.steerFollowup('chat:one',item.id);await flush();
+  await h.c.steerFollowup('chat:one',item.id);assert.equal(posts,1);
+  release({status:'rejected',error:'turn ended'});await first;
+  assert.equal(h.c.followups().length,1);assert.equal(item.paused,false);assert.equal(item.steerRun,undefined);
+});
+
+test('refresh recovers pending insertion as an uncertain receipt, never a disabled sending button', () => {
+  const h=harness();h.c.localStorage.getItem=()=>JSON.stringify([{id:'queued',text:'x',paused:true,steerState:'sending',steerRun:'run-a'}]);
+  const item=h.c.followups()[0];
+  assert.equal(item.paused,true);assert.equal(item.steerState,'uncertain');assert.equal(item.steerRun,'run-a');
+});
+
+test('a late rejected insertion cannot restart the queue after the current task was stopped', async () => {
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const item=h.c.followups()[0];let release;
+  h.c.api=async url=>url==='/v1/agents/live'?[{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}]:new Promise(r=>release=r);
+  const inserting=h.c.steerFollowup('chat:one',item.id);await flush();
+  h.c.S.sending=false;await h.c.drainFollowups('chat:one',false);
+  release({status:'rejected',error:'stopped'});await inserting;
+  assert.equal(h.c.followups()[0],item);assert.equal(item.paused,true);assert.equal(h.c.S.sending,false);
 });

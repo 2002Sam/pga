@@ -39,7 +39,7 @@ window.mrApply = async p => {
   S.agentOpts[p.agent]=o; S.chatAgent=p.agent;
   S.chatModel={...(S.chatModel||{}),[key]:p.model};
   S.chatEffort={...(S.chatEffort||{}),[key]:p.effort};
-  store.set('pga_chat_agent',p.agent);
+  if (typeof chatChoiceSave === 'function') chatChoiceSave(key);
   rerenderComposer(); return true;
 };
 function mrTarget() {
@@ -96,27 +96,29 @@ function mrDraw() {
   if(!mrRail) {
     mrRail=document.createElement('aside');mrRail.id='modelRail';mrRail.className='mr-above';mrRail.setAttribute('aria-label','模型快捷档位');
     document.body.appendChild(mrRail);
-    mrRail.addEventListener('click',e=>{const b=e.target.closest('[data-mr]');if(b) mrChoose(Number(b.dataset.mr));if(e.target.closest('[data-mr-settings]')) (window.parent!==window && window.parent.mrSettings ? window.parent.mrSettings() : mrSettings());});
-    mrRail.addEventListener('wheel',e=>{
-      e.preventDefault();e.stopPropagation();if(e.ctrlKey||!e.deltaY)return;
-      const now=performance.now();if(now-mrWheelAt<140)return;mrWheelAt=now;
-      const ps=mrPresets(), current=mrPending>=0?mrPending:mrIndex(ps,mrTarget());
-      mrChoose(Math.max(0,Math.min(ps.length-1,current<0?0:current+(e.deltaY>0?1:-1))));
+    // Only on purpose: a click on a preset, or dragging the chosen one and letting go. Hovering or scrolling never switches.
+    let dragged=false;
+    mrRail.addEventListener('click',e=>{if(dragged){dragged=false;return;}const b=e.target.closest('[data-mr]');if(b) mrChoose(Number(b.dataset.mr));if(e.target.closest('[data-mr-settings]')) (window.parent!==window && window.parent.mrSettings ? window.parent.mrSettings() : mrSettings());});
+    mrRail.addEventListener('wheel',e=>{                  // a row too long for its space scrolls sideways; the choice stays
+      const track=mrRail.querySelector('.mr-track');if(!track||track.scrollWidth<=track.clientWidth||!e.deltaY)return;
+      e.preventDefault();track.scrollLeft+=e.deltaY;
     },{passive:false});
     const showLabel=e=>{const b=e.target.closest('[data-mr]');if(!b)return;const label=mrRail.querySelector('.mr-current');if(label){label.textContent=mrPresets()[Number(b.dataset.mr)]?.label||'';label.style.top=(b.getBoundingClientRect().top-mrRail.getBoundingClientRect().top+b.offsetHeight/2-10)+'px';}};
     mrRail.addEventListener('pointerover',showLabel);mrRail.addEventListener('focusin',showLabel);
-    let dragging=false,last=-1;
-    const move=e=>{const points=mrRail.querySelectorAll('[data-mr]');let best=-1,dist=Infinity;points.forEach((b,i)=>{const r=b.getBoundingClientRect(),d=Math.abs(e.clientX-r.left-r.width/2);if(d<dist){dist=d;best=i;}});if(best!==last){last=best;mrChoose(best);}};
-    mrRail.addEventListener('pointerdown',e=>{if(e.button!==0||!e.target.closest('.mr-track'))return;e.preventDefault();dragging=true;last=-1;mrRail.setPointerCapture(e.pointerId);move(e);});
-    mrRail.addEventListener('pointermove',e=>{if(dragging)move(e);});
-    for(const type of ['pointerup','pointercancel']) mrRail.addEventListener(type,()=>{dragging=false;});
+    let drag=null;                                       // holding the chosen preset: it follows the pointer, and is applied on release
+    const nearest=e=>{const points=[...mrRail.querySelectorAll('[data-mr]')];let best=-1,dist=Infinity;points.forEach((b,i)=>{const r=b.getBoundingClientRect(),d=Math.abs(e.clientX-r.left-r.width/2);if(d<dist){dist=d;best=i;}});return best;};
+    const preview=i=>{mrRail.querySelectorAll('[data-mr]').forEach((b,j)=>b.classList.toggle('mr-over',j===i&&!b.classList.contains('on')));const b=mrRail.querySelector(`[data-mr="${i}"]`);if(b)showLabel({target:b});};
+    mrRail.addEventListener('pointerdown',e=>{const b=e.target.closest('[data-mr].on');if(e.button!==0||!b)return;e.preventDefault();drag={x:e.clientX,at:Number(b.dataset.mr),over:Number(b.dataset.mr)};mrRail.setPointerCapture(e.pointerId);mrRail.classList.add('mr-dragging');});
+    mrRail.addEventListener('pointermove',e=>{if(!drag)return;if(Math.abs(e.clientX-drag.x)<4&&drag.over===drag.at)return;drag.over=nearest(e);preview(drag.over);});
+    const drop=apply=>{if(!drag)return;const d=drag;drag=null;mrRail.classList.remove('mr-dragging');preview(-1);if(d.over!==d.at){dragged=true;if(apply)mrChoose(d.over);}};
+    mrRail.addEventListener('pointerup',()=>drop(true));mrRail.addEventListener('pointercancel',()=>drop(false));
   }
   mrRail.hidden=!target?.mrApply;
   if(!mrRail.hidden) mrPlace();
   if(mrRail.hidden)return;
   const ps=mrPresets(), index=mrPending>=0?mrPending:mrIndex(ps,target), sig=JSON.stringify([ps,index]);
   if(sig===mrSignature)return;mrSignature=sig;
-  mrRail.innerHTML=`<span class="mr-current">${esc(ps[index]?.label || "选择模型")}</span><div class="mr-track" role="group" aria-label="点击或拖动切换模型；滚轮逐档切换">${ps.map((p,i)=>`<button data-mr="${i}" class="${i===index?'on':''}" aria-pressed="${i===index}" aria-label="${esc(p.label)}" title="${esc(p.label)}"><i></i>${mrBadge(p)}</button>`).join('')}</div><button data-mr-settings title="设置快捷档位" aria-label="设置快捷档位">⚙ 设置</button>`;
+  mrRail.innerHTML=`<span class="mr-current">${esc(ps[index]?.label || "选择模型")}</span><div class="mr-track" role="group" aria-label="点击某一档切换模型，或按住当前档拖到别的档后松开">${ps.map((p,i)=>`<button data-mr="${i}" class="${i===index?'on':''}" aria-pressed="${i===index}" aria-label="${esc(p.label)}" title="${esc(p.label)}"><i></i>${mrBadge(p)}</button>`).join('')}</div><button data-mr-settings title="设置快捷档位" aria-label="设置快捷档位">⚙ 设置</button>`;
   const track=mrRail.querySelector('.mr-track'), on=track?.querySelector('button.on');   // a narrow row: the chosen one stays in sight
   if(track&&on&&track.scrollWidth>track.clientWidth) track.scrollLeft=Math.max(0,on.offsetLeft-track.clientWidth/2+on.offsetWidth/2);
 }

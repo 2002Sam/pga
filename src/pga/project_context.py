@@ -210,7 +210,8 @@ def search_page(rt, user, name, query, page=1, page_size=8):
             "coverage": "项目内已保存的成功问答（含归档）、导入对话摘录和公共资料"}
 
 
-def build(rt, user, key, question):
+def build(rt, user, key, question, force=False):
+    """`force`: a conversation held to its category (`scope_of`) gets its category's context even where that is off."""
     name = category(user, key)
     if not name:
         return {"project": None, "text": "", "sources": []}
@@ -218,7 +219,7 @@ def build(rt, user, key, question):
     if branch_of(user, key):
         return {"project": name, "text": f"Project: {name}. This conversation uses a pinned history snapshot; no live project conversation retrieval is included.", "sources": []}
     cfg = settings(user, name)
-    if not cfg["enabled"] and not is_manager(key):
+    if not cfg["enabled"] and not is_manager(key) and not force:
         return {"project": None if name == projectsort.EVERYDAY else name, "text": "", "sources": []}
     hits = search(rt, user, name, question, exclude=key, limit=20 if is_manager(key) else 6, exhaustive=is_manager(key))
     progress = recent(rt, user, name, exclude=key)[:3]
@@ -254,6 +255,39 @@ def view(rt, user, name):
 # ------------------------------------------------------------------ the category's manager
 MANAGER = "chat:pm-"          # one conversation per category; kept out of the timeline, the world tree and the lists
 
+# A category's manager, and every conversation it makes, is held to its category: what it is told about your work is
+# that category's context and nothing from the rest of PGA (no world-tree associations, no other categories'
+# conversations, none of your own MCP servers unless you turn them on there); the web is its one window outside.
+# The memory namespace of LangGraph's store, (user, project), and Claude Projects' per-project knowledge do the same.
+SCOPE_NOTE = """<category_scope name="{name}">
+You are working inside the user's category "{name}". For this conversation it is your whole world:
+- What you know about the user's work comes only from this conversation, the category context given here and the files in your working folder.
+- Do not look for, open or rely on the user's other PGA conversations, notes, memories or folders outside this category, even if you could reach them.
+- When you need information this category does not have, search the public web if you have web tools, and say it came from the web. For anything else outside the category (another project, the user's files elsewhere), ask the user instead of reaching for it.
+</category_scope>"""
+
+
+def scope_of(user, key):
+    """The category this conversation is held to: a manager's own, or the one its manager made it in. None: not held."""
+    if not key:
+        return None
+    if is_manager(key):
+        name = category(user, key)
+    else:
+        name = ((user.preferences or {}).get("scoped_chats") or {}).get(canonical(key))
+    if not name:
+        return None
+    return (projectsort.state(user).get("merged") or {}).get(name, name)   # a renamed category: its new name
+
+
+def hold(user, key, name):
+    """Hold a conversation a manager made to that manager's category, for good (your later messages there too)."""
+    held = dict((user.preferences or {}).get("scoped_chats") or {})
+    if held.get(canonical(key)) == name:
+        return
+    held[canonical(key)] = name
+    user.preferences = {**(user.preferences or {}), "scoped_chats": dict(list(held.items())[-2000:])}
+
 
 def is_manager(key):
     return str(key or "").startswith(MANAGER)
@@ -264,6 +298,8 @@ def manager_key(user, name):
     name = project_name(user, name)
     key = MANAGER + hashlib.sha1(name.encode()).hexdigest()[:20]
     managers = dict((user.preferences or {}).get("project_managers") or {})
+    if key not in managers:                               # a renamed category keeps the manager (and its history) it had
+        key = next((k for k, v in managers.items() if v == name), key)
     if managers.get(key) != name:
         managers[key] = name
         user.preferences = {**(user.preferences or {}), "project_managers": managers}
@@ -354,11 +390,14 @@ def overview(rt, user, name, asked=40):
             if end not in here and end not in outside:
                 outside[end] = {"key": end, "title": titles.get(end) or (leaves[end].title if end in leaves else "") or "其他分类的对话",
                                 "project": category(user, end) or ""}
+    # A manager must not receive cross-category titles, links or shared topic summaries.
+    edges = [e for e in edges if e["from"] in here and e["to"] in here]
+    outside = {}
     topics = {}
     for c in convs:
         t = c["topic"] and parents.get(uuid.UUID(c["topic"]))
         if t is not None:
-            topics[c["topic"]] = {"id": c["topic"], "title": t.title, "summary": excerpt(t.summary, 240)}
+            topics[c["topic"]] = {"id": c["topic"], "title": t.title, "summary": ""}
     return {"project": name, "manager": manager_key(user, name), "conversations": convs, "edges": edges,
             "outside": list(outside.values()), "topics": list(topics.values()), "settings": settings(user, name)}
 

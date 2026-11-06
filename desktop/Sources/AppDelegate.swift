@@ -42,7 +42,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         config = Config.load()
         mainMenu()
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        status.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "PGA")
+        if let iconURL = Bundle.main.url(forResource: "PGA-status", withExtension: "png"),
+           let icon = NSImage(contentsOf: iconURL) {
+            icon.size = NSSize(width: 22, height: 22)
+            icon.isTemplate = false
+            status.button?.image = icon
+        } else {
+            status.button?.image = NSImage(systemSymbolName: "rectangle.on.rectangle", accessibilityDescription: "PGA")
+        }
+        status.button?.toolTip = "PGA · 个人多智能体工作台"
         let menu = NSMenu(); menu.delegate = self; status.menu = menu
         registerHotKey()
         Wires.shared.setup()

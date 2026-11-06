@@ -62,11 +62,14 @@ def save(user: User, st: dict) -> None:
     user.preferences = {**(user.preferences or {}), "projects": st}
 
 
-def assign(user: User, key: str, project: str) -> str:
+def assign(user: User, key: str, project: str, create: bool = False) -> str:
     st = state(user)
     project = (st.get("merged") or {}).get(project, project)
     if project not in st["list"] and project != EVERYDAY:
-        raise ValueError("Unknown conversation category")
+        if not create or not project or len(project) > 60:
+            raise ValueError("Unknown conversation category")
+        st["mine"] = [*st["mine"], project]      # a category you made (＋ on the stage): yours from now on
+        st["list"] = [*st["list"], project]
     key = "c:" + key[4:] if key.startswith("imp:") else key
     if not key or len(key) > 120 or not key.startswith(("chat:", "c:", "agent:", "n:")):
         raise ValueError("Invalid conversation key")

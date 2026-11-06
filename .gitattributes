@@ -1,0 +1,2 @@
+# Keep the unmodified upstream editor distribution out of project language stats.
+src/pga/web/vendor/** linguist-vendored -whitespace

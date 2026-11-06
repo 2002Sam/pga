@@ -14,6 +14,7 @@
     soft: { zh: "柔和浮雕", en: "Soft relief", prefer: "light", zhd: "一种灰色材质，按钮浮起、按下凹陷，输入框压进表面", end: "One grey material: buttons stand up and sink in, fields are pressed into it" },
     classic: { zh: "简洁", en: "Plain", prefer: null, zhd: "最早的样子：平面、细边框、没有特效", end: "The first look: flat, hairlines, no effects" },
     paper: { zh: "纸墨", en: "Paper and ink", prefer: "light", zhd: "暖色纸面、墨色文字、衬线体阅读", end: "Warm paper, ink, serif reading text" },
+    mist: { zh: "山湖晨雾", en: "Misty lake", prefer: "light", zhd: "晨雾山湖做底、毛玻璃卡片，鼠尾草绿、天蓝与雾粉", end: "A mountain lake at dawn behind frosted glass; sage, sky blue and blush" },
     mono: { zh: "终端", en: "Terminal", prefer: "dark", zhd: "等宽字体、直角、荧光绿", end: "Monospace, square corners, phosphor green" },
   };
   const LOOK0 = { skin: "aurora", accent: "", btn: "", rk: 1, sk: 1, fs: 0, density: "normal", sb: "", glow: true, glass: true, motion: true };
@@ -21,6 +22,7 @@
   function applyLook(l = look(), el = document.documentElement) {
     const d = el.dataset, st = el.style, opt = (k, v) => { if (v == null || v === "") delete d[k]; else d[k] = String(v); };
     d.skin = SKINS[l.skin] ? l.skin : "aurora";
+    d.palette = get("pga_palette") || "earth";
     opt("btn", l.btn); opt("sb", l.sb); opt("density", l.density === "normal" ? "" : l.density);
     opt("glow", l.glow ? "" : "off"); opt("glass", l.glass ? "" : "off"); opt("motion", l.motion ? "" : "off");
     const v = (k, on, val) => { if (on) st.setProperty(k, val); else st.removeProperty(k); };
@@ -35,7 +37,15 @@
     set("pga_look", JSON.stringify(x)); applyLook(x); window.dispatchEvent(new Event("pga:look"));
   }
   applyLook();
+  function setConversationArt(key) {
+    const root = document.documentElement;
+    if (!key) { delete root.dataset.earthArt; return; }
+    let h = 2166136261;
+    for (const c of String(key)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+    root.dataset.earthArt = String((h >>> 0) % 6);
+  }
   const Q = new URLSearchParams(location.search);
+  setConversationArt(Q.get('c') || Q.get('item'));
   const LANG = Q.get("lang") || get("pga_lang") || "zh";
   const L = (zh, en) => (LANG === "en" ? en : zh);
   const as = Q.get("as") ? `?as=${encodeURIComponent(Q.get("as"))}` : "";
@@ -63,6 +73,7 @@
       pop.innerHTML = `<div class="sl">${L("外观", "Appearance")}</div><div class="sg">${[["dark", L("深色", "Dark")], ["light", L("浅色", "Light")], ["system", L("跟随系统", "System")]]
         .map(([k, n]) => `<button data-theme-pick="${k}" class="${p === k ? "on" : ""}">${n}</button>`).join("")}</div>
         <div class="sl">${L("风格", "Look")}</div><div class="sg wrap">${Object.entries(SKINS).map(([k, x]) => `<button data-skin-pick="${k}" class="${look().skin === k ? "on" : ""}" title="${L(x.zhd, x.end)}">${L(x.zh, x.en)}</button>`).join("")}</div>
+        <div class="sl">${L("背景与分类风格", "Background & category style")}</div><div class="sg"><button data-palette-pick="earth" class="${(get('pga_palette') || 'earth') === 'earth' ? 'on' : ''}">${L('敦煌 · 陶土与青绿', 'Dunhuang')}</button><button data-palette-pick="original" class="${get('pga_palette') === 'original' ? 'on' : ''}">${L('原版（无图案）', 'Original (no artwork)')}</button></div>
         <div class="sl">${L("语言", "Language")}</div><div class="sg">${[["zh", "中文"], ["en", "English"]].map(([k, n]) => `<button data-lang-pick="${k}" class="${LANG === k ? "on" : ""}">${n}</button>`).join("")}</div>
         <hr><a class="lkgo" href="/${as ? as + "&" : "?"}view=looks">${L("外观社区 · 自由调节…", "Appearance gallery · adjust freely…")}</a><a href="/agents${as}">${L("Agent 与连接", "Agents and connections")}</a><a href="/archive/console${as}">${L("旧的工作台和星空（存档）", "The old workbench and sky (archive)")}</a>`;
     };
@@ -70,6 +81,7 @@
       const b = e.target.closest("button"); if (!b) return;
       if (b.dataset.shell) { pop.hidden = !pop.hidden; if (!pop.hidden) draw(); return; }
       if (b.dataset.themePick) { set("pga_theme", b.dataset.themePick); apply(); draw(); window.dispatchEvent(new Event("pga:theme")); return; }
+      if (b.dataset.palettePick) { set("pga_palette", b.dataset.palettePick); applyLook(); draw(); window.dispatchEvent(new Event("pga:palette")); return; }
       if (b.dataset.skinPick) { setLook({ ...look(), skin: b.dataset.skinPick }); draw(); return; }
       if (b.dataset.langPick) { set("pga_lang", b.dataset.langPick); const q = new URLSearchParams(location.search); q.delete("lang"); location.search = q.toString(); }
     });
@@ -82,6 +94,6 @@
     fetch(`/v1/users/${uid}/activity`, { method: "POST" }).then((r) => r.ok && r.json()).then((r) => { if (r?.paused?.length) window.dispatchEvent(new CustomEvent("pga:back", { detail: r.paused })); }).catch(() => {}); };
   ["keydown", "pointerdown", "wheel", "touchstart"].forEach((ev) => addEventListener(ev, here, { passive: true, capture: true }));
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") here(); });
-  window.addEventListener("storage", (e) => { if (e.key === "pga_look") applyLook(); if (e.key === "pga_theme") apply(); });   // other tabs follow
-  window.PGAShell = { mount, L, LANG, apply, looks: { SKINS, LOOK0, look, applyLook, setLook } };
+  window.addEventListener("storage", (e) => { if (e.key === "pga_look" || e.key === "pga_palette") { applyLook(); if (e.key === "pga_palette") window.dispatchEvent(new Event("pga:palette")); } if (e.key === "pga_theme") apply(); });   // other tabs follow
+  window.PGAShell = { mount, L, LANG, apply, setConversationArt, looks: { SKINS, LOOK0, look, applyLook, setLook } };
 })();

@@ -63,6 +63,23 @@ def rating_table(rt, user_id=None) -> dict:
 
 ACCESS = {"read": READ_ONLY, "auto": AUTO, "full": FULL}     # the levels you can pick per conversation ("write", the old middle one, now means auto)
 from pga.agents.pool import MODES, AgentPool, PoolResult, load
+
+# An answer that is really a failure: what agents print when they are out of usage, logged out or overloaded. Only short
+# answers are read this way, so a reply that merely talks about such errors is never thrown away.
+_FAILED_ANSWER = re.compile(
+    r"(^\s*api error|^\s*error: *(4\d\d|5\d\d|request failed|connection)|usage limit (reached|exceeded)|hit your (usage )?limit|"
+    r"rate[ _-]limit(ed| exceeded| reached|_error)|quota exceeded|credit balance is too low|invalid api key|please run /login|"
+    r"not logged in|overloaded_error|额度已用完|用量已用完|请求过于频繁)", re.I)
+
+
+def bad_answer(text: str) -> str | None:
+    """Why an answer that came back "ok" should still go to the next agent, or None."""
+    t = (text or "").strip()
+    if not t:
+        return "回答是空的"
+    if len(t) < 400 and _FAILED_ANSWER.search(t):
+        return "回答是一条错误信息：" + re.sub(r"\s+", " ", t)[:120]
+    return None
 from pga.db.types import utcnow
 
 if TYPE_CHECKING:
@@ -107,12 +124,12 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
     return out
 
 
-def _project_note(project, adapter_type: str) -> str:
+def _project_note(project, adapter_type: str, permissions=None) -> str:
     if adapter_type == "llm":
         return (f"\n\nThe user is asking about their project \"{project.name}\" ({project.path}). You cannot open its files; "
                 "answer from what they tell you and say what you would need to see."
                 + (f" The project serves their long-range aim: {project.aim.text_en}" if getattr(project, "aim", None) else ""))
-    full = bool(project.full_access)
+    full = permissions != READ_ONLY if permissions is not None else bool(project.full_access)
     return (f"\n\nYou are working in the user's project \"{project.name}\" at {project.path} (your working directory). "
             + ("You may run commands and edit files there. Work carefully, keep changes focused, and say exactly what you changed "
                "and how you checked it." if full else
@@ -264,18 +281,48 @@ class AgentRouter:
 
     # -------------------------------------------------------------- the agent chat
 
+    def _resume_context(self, user, conversation: str, name: str, conv: str, text: str) -> dict:
+        """Catch up a native session from durable chat records, not the UI's short tail.
+
+        The checkpoint lives on the successful run in the same DB transaction as
+        its answer. Unknown/legacy sessions replay history once rather than guess.
+        """
+        sid = links.thread_for(name, conv) or links.session_for(name, conv)
+        if not sid or user is None:
+            return {}
+        from pga.chats import history, runs_of
+        rows = runs_of(self.rt, user.id, str(conversation)[:80])
+        checkpoint = next((str(r.id) for r in reversed(rows)
+                           if r.status == "SUCCEEDED" and (r.data or {}).get("agent") == name
+                           and (r.data or {}).get("native_session") == sid), None)
+        turns = history(self.rt, user, str(conversation)[:80])
+        if checkpoint:
+            positions = [i for i, t in enumerate(turns) if t.get("run") == checkpoint]
+            if positions:
+                turns = turns[positions[-1] + 1:]
+        if turns:
+            missed = "\n".join(f"{'User' if t.get('role') == 'user' else 'Assistant'}: {t.get('text') or ''}" for t in turns)
+            text = ("Chat updates since this session last answered (historical context):\n"
+                    + missed + "\n\nNow the user says:\n" + text)
+        return {"session": sid, "text": text}
+
     def ask(self, user: "User | None", text: str, agent: str = "auto", history: list[dict] | None = None,
             now: datetime | None = None, category: str | None = None, conversation: str | None = None,
             context: str | None = None, model: str | None = None, effort: str | None = None,
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
             project=None, tail: str | None = None, access: str | None = None, folder: str | None = None,
-            mcp: bool = False, web: bool = False, earlier: str | None = None) -> dict:
-        """`conversation` (a card's id) keeps one thread / session per agent: an agent that still has it hears only
-        the new message; one that does not gets the recent history written into the prompt.
+            mcp: bool = False, web: bool = False, earlier: str | None = None,
+            failover: bool = False, fallback: list[str] | None = None) -> dict:
+        """`conversation` keeps one thread/session per agent. Resumed sessions receive missing
+        chat turns before the new message; fresh sessions receive the recent history.
 
         `model` / `effort` are what you picked for a named agent (its own default otherwise); `images` are pictures
         you attached ({name, data: data URL}) — only agents that take images are asked. `files` are documents (PDF, Word,
-        Excel, PowerPoint, text, code): read here and given to the agent as text (an agent that opens files gets the path too)."""
+        Excel, PowerPoint, text, code): read here and given to the agent as text (an agent that opens files gets the path too).
+
+        `failover` (a manager's task): a named agent that fails — an error, or an answer that is only an error message
+        (`bad_answer`) — hands the task on: first to `fallback` (the manager's own next choices), then down your ranking
+        for the task's kind, like a router's fallback chain (LiteLLM's `fallbacks`, OpenRouter's `models` list)."""
         from pga.agents.options import options as agent_options
         if category and category not in (self.cfg.get("categories") or {}):
             raise ValueError(f"unknown category {category!r}")
@@ -286,6 +333,15 @@ class AgentRouter:
             order, why = [agent], f"你指定了 {agent}"
             if images and not agent_options(agent, self.pool.adapters[agent], self.pool.cfg["agents"][agent], self.rt)["images"]:
                 raise ValueError(f"{agent} 不能看图片：换一个能看图的 agent（ChatGPT、Claude、WorkBuddy），或去掉图片")
+            if failover:                                  # the manager's pick first, then its next choices, then your ranking
+                ranked = self.rank(cat, now, user.id if user is not None else None)
+                usable = [x["agent"] for x in ranked if x["usable"]]
+                tools = project is not None or folder or web or access in ("write", "full")
+                nxt = [n for n in [*(fallback or []), *usable] if n in self.pool.adapters and n != agent and (n in usable or n in (fallback or []))
+                       and not (tools and self.pool.adapters[n].type == "llm")
+                       and not (images and not agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"])]
+                order = list(dict.fromkeys([agent, *nxt]))[:4]
+                why = f"管理员指定了 {agent}" + (f"（失败时依次换 {'、'.join(order[1:])}）" if len(order) > 1 else "")
         else:
             ranked = self.rank(cat, now, user.id if user is not None else None)
             order = [x["agent"] for x in ranked if x["usable"]]
@@ -310,7 +366,9 @@ class AgentRouter:
                     why = f"接着这段对话上一轮的 {name}" + (f" · {cwhy}" if signals(text) else "")
                     if not signals(text) and prev.get("category") in (self.cfg.get("categories") or {}):
                         cat = prev["category"]                  # "再短一点" is still the kind of question it follows
-            model = effort = None                        # a model you picked belongs to one agent, not to a whole category
+            model = None                                 # a model belongs to one agent
+            if not failover:
+                effort = None                            # manager tasks retain the question’s explicit effort
         lang = _reader_lang(user)
         asked = text                                       # what you typed (kept for the record and the screen)
         if translate and user is not None:                 # 翻译: the agent hears English, you read your own language
@@ -328,7 +386,7 @@ class AgentRouter:
             earlier = f"{seed}\n\n{earlier}" if earlier else seed
         if earlier:                                        # the older part, folded by topic (pga.fold); a held session has it already
             prompt = f"{earlier}\n\n{prompt}"
-        run_id, t0, steps = uuid.uuid4(), utcnow(), []
+        run_id, t0, steps, rejected = uuid.uuid4(), utcnow(), [], {}
         result_text, used, docs, attached = "", None, files, []
         files = []
         for name in order:
@@ -341,7 +399,8 @@ class AgentRouter:
             if folder or home:                            # …and the folder it works in (a resumed session: the one it was held in)
                 ws = folder or home
             if project is not None:                       # the work happens in your project, whichever agent does it
-                ws, perms = project.path, (FULL if project.full_access else READ_ONLY)
+                ws = folder or project.path
+                perms = ACCESS[access] if access in ACCESS else (FULL if project.full_access else READ_ONLY)
             before = time.time()
             pics = _save_images(images, ws)
             said, prompt_now = text, prompt
@@ -356,7 +415,11 @@ class AgentRouter:
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {}), **({"earlier": earlier} if earlier else {})}
-            system = ASK_SYSTEM + (f"\n\n{context}" if context else "") + (_project_note(project, ad.type) if project is not None else "") + (
+            if conv:
+                meta["resume_context"] = self._resume_context(user, conversation, name, conv, said + said_tail)
+            own = str(self.pool.cfg["agents"][name].get("instructions") or "").strip()   # what you told this agent on its profile
+            system = ASK_SYSTEM + (f"\n\n<your_standing_instructions_for_this_agent>\n{own}\n</your_standing_instructions_for_this_agent>" if own else "") + (
+                f"\n\n{context}" if context else "") + (_project_note(project, ad.type, perms) if project is not None else "") + (
                 "\n\nThe user's message was translated into English for you. Reply in English; it is translated back." if translate else "")
             step = self.pool._call(name, self.pool._task(name, prompt_now, system=system, kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
@@ -364,6 +427,11 @@ class AgentRouter:
             if step.result.status == "STOPPED":            # you stopped it: no other agent takes over
                 result_text, used = step.result.text, name if step.result.ok else None
                 break
+            bad = bad_answer(step.result.text) if step.result.ok and (failover or (len(order) > 1 and name != order[-1])) else None   # a manager's task: never "done" on an error message
+            if bad:                                       # "ok", but only an error message: the next agent takes the task
+                rejected[name] = bad
+                step.result.ok, step.result.status, step.result.error = False, "FAILED", bad
+                continue
             if step.result.ok:
                 result_text, used = step.result.text, name
                 if project is not None or folder or home:    # a real folder: only what changed there, not a full walk
@@ -391,6 +459,11 @@ class AgentRouter:
         res.run_id = run_id
         if seed and res.ok:                                # read once: from now on the conversation's own session holds it
             links._put("seeds", conv, None)
+        if res.ok and steps and steps[-1].result.session_id and not res.data.get("stopped"):
+            res.data["native_session"] = steps[-1].result.session_id
+        steering = [x for step in steps for x in (step.result.data or {}).get("steering", [])]
+        if steering:
+            res.data["steering"] = steering
         self.pool._record(res, asked, user, None, None, t0)
         last = steps[-1].result if steps else None
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,

@@ -409,7 +409,7 @@ class AgentPool:
             if r is not None and trace.strip() and trace.strip() != (r.text or "").strip():
                 r.data = {**(r.data or {}), "trace": trace[-20000:]}     # how it got there: files read, commands, thinking
             if r is not None:
-                r.data = {**(r.data or {}), "live_id": lid}
+                r.data = {**(r.data or {}), "live_id": lid, "steering": live.steering_inputs(lid)}
             live.finish(lid, bool(r and r.ok), text=r.text if r else None, error=r.error if r else "interrupted")
         return Step(step=step, task=task, result=res, attempt=attempt, started=started, finished=utcnow())
 

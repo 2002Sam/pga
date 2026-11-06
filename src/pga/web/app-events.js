@@ -27,7 +27,7 @@ document.addEventListener("click", async (e) => {
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
   const trb = e.target.closest(".trbtn"); if (trb) { toggleTranslate(trb); return; }
-  const t = e.target.closest("[data-usage-days], [data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-setdir], [data-browsedir], [data-bgset], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold, .trbtn");
+  const t = e.target.closest("[data-usage-days], [data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-setdir], [data-browsedir], [data-bgset], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], [data-accedit], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold, .trbtn");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -66,6 +66,7 @@ document.addEventListener("click", async (e) => {
   if (t.id === "lineNote") { lineSend(true); return; }
   if (t.dataset.ltarget) { S.lineTarget = t.dataset.ltarget; renderChat(); $("#chatText")?.focus(); return; }
   if (t.dataset.acc !== undefined) { showAcc(t.dataset.acc); return; }
+  if (t.dataset.accedit !== undefined) { e.preventDefault(); showAcc(t.dataset.accedit, t); return; }
   if (t.id === "accSave") { saveAcc(t.dataset.key); return; }
   if (t.dataset.litem) { const x = (S.tl?.sessions || []).find((y) => y.item === t.dataset.litem); if (x) openSession(x.id); return; }
   if (t.dataset.opentree) { show("tree", { aim: t.dataset.opentree, node: t.dataset.node || null }); return; }
@@ -177,16 +178,25 @@ document.addEventListener("input", (e) => { if (e.target.id === "search") { S.se
 document.addEventListener("change", (e) => {
   if (e.target.id === "crefAdd" && e.target.value) { S.contRefs = [...S.contRefs, e.target.value]; renderCont(); return; }
   if (e.target.id === "chrefAdd" && e.target.value) { S.chatRefs = [...S.chatRefs, e.target.value]; renderChat(); return; }
-  if (e.target.id === "chatAgent") { const k = S.lineView ? S.lineTarget : S.chat || ""; if (S.chatModel) delete S.chatModel[k]; if (S.chatEffort) delete S.chatEffort[k]; S.chatAgent = e.target.value; store.set("pga_chat_agent", S.chatAgent); renderChat(); return; }
+  if (e.target.id === "chatAgent") { const k = chatChoiceKey(); if (S.chatModel) delete S.chatModel[k]; if (S.chatEffort) delete S.chatEffort[k]; S.chatAgent = e.target.value; chatChoiceSave(k); renderChat(); return; }
   if (e.target.id === "branchCount") { const n = e.target.value; e.target.value = ""; if (n) branchCopies(Number(n)); return; }
-  if (e.target.id === "chatModel") { const k = S.chat || S.lineTarget || ""; S.chatModel = { ...(S.chatModel || {}), [k]: e.target.value }; if (!e.target.value) delete S.chatModel[k]; S.chatEffort[k] = ""; renderChat(); return; }
-  if (e.target.id === "chatEffort") { S.chatEffort[S.chat || S.lineTarget || ""] = e.target.value; return; }
+  if (e.target.id === "chatModel") { const k = chatChoiceKey(); S.chatModel = { ...(S.chatModel || {}), [k]: e.target.value }; if (!e.target.value) delete S.chatModel[k]; const efforts = S.agentOpts?.[S.chatAgent]?.models?.find(m => m.id === e.target.value)?.efforts || []; if (!efforts.some(x => x.id === S.chatEffort?.[k])) S.chatEffort[k] = ""; chatChoiceSave(k); renderChat(); return; }
+  if (e.target.id === "chatEffort") { S.chatEffort[chatChoiceKey()] = e.target.value; chatChoiceSave(); return; }
   if (e.target.id === "showHidden") { S.showHidden = e.target.checked; drawTree(false); renderDialog(); }
 });
 document.addEventListener("keydown", (e) => {
   if (e.isComposing || e.keyCode === 229) return;
   if (e.target.id === "tnText" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); return; }
-  if (e.target.id === "chatText" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return; }
+  if (e.target.id === "chatText" && e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    if (e.target.value.trim()) {
+      S.scrollChat = true;
+      const bottom = () => { const box = document.querySelector("#cdlg"); if (box) box.scrollTop = box.scrollHeight; };
+      bottom();
+      requestAnimationFrame(bottom); // include the newly rendered question / queued message
+    }
+    S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return;
+  }
   if (e.key === "Escape") { closeCtx(); document.querySelector(".modal")?.remove(); if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); } return; }
   if (e.target.closest?.("textarea, input, select") || S.view !== "tree") return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);

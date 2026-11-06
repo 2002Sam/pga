@@ -50,12 +50,15 @@ async function multiSend() {
   const key = S.chat, prev = S.chatTurns[key] || [], ctx = S.chatCtx?.[key]?.context || [], names = [...S.multi];
   if (JSON.stringify(S.chatMulti[key] || []) !== JSON.stringify(names)) await multiSave(false);   // set before the conversation had a name: it keeps it now (before the asking: both write your settings)
   if (composerBusy()) return;
+  let access;
+  try { access = (await api(`/v1/users/${S.uid}/access?key=${encodeURIComponent(key)}`)).current; }
+  catch (err) { toast(err.message); return; }
   const hist = [...ctx, ...prev].slice(-12).map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text }));
   const at = takeAtts(), tag = Math.random().toString(36).slice(2, 8);
   S.chatTurns[key] = [...prev, { role: "user", text, at: new Date().toISOString() }];
   S.sentHist = [...S.sentHist.filter((x) => x !== text), text].slice(-50);
   S.sending = true; S.chatDraft = ""; history.replaceState(null, "", qs()); startLive((c) => c.endsWith(":" + key) || c.includes("multi:" + tag + ":")); S.liveMulti = names.slice(1).map((n, i) => multiSame(names) ? `${n}#${i + 2}` : n); renderChat(); $("#chatText").value = "";
-  const body = (agent, conversation) => ({ text, agent, conversation, history: hist, refs: S.chatRefs, images: at.images, files: at.files, web: S.web });
+  const body = (agent, conversation) => ({ ...access, text, agent, conversation, history: hist, refs: S.chatRefs, images: at.images, files: at.files, web: S.web });
   const rs = await Promise.all(names.map((n, i) => api(`/v1/users/${S.uid}/agents/ask`, { body: body(n, i === 0 ? key : `multi:${tag}:${n}:${i}`) }).catch((e) => ({ error: e.message }))));
   S.sending = false; stopLive(); S.liveMulti = null;
   const root = rs[0]?.run_id, others = rs.slice(1).map((r) => r.run_id).filter(Boolean);
@@ -467,7 +470,7 @@ document.addEventListener("click", async (e) => {
     try { const P = window.parent; if (P !== window && P.stOpen) {
       const source = P.ST.nodes.find(n => n.type === 'win' && n.el?.querySelector('iframe')?.contentWindow === window);
       const info = mk.dataset.mchat && convMapKids(S.imp ? 'imp:' + S.imp.cid : S.chat).find(k => k.key === key);
-      if (source && info && P.stToggleChatBranch) { P.stToggleChatBranch(source, key, info); return; }
+      if (source && (info || mk.classList.contains("railbranch")) && P.stToggleChatBranch) { P.stToggleChatBranch(source, key, info || {}); return; }
       const n = P.ST.nodes.find(n=>n.key===key && n.type==='win');
       if (n) { P.stFocus(n.id, true); P.stShow(n.id); } else P.stOpen(key);
       return;
@@ -537,33 +540,25 @@ async function startSplit(run = null, key = S.chat) {
   if (!key || S.imp || S.lineView) { toast(L('请先打开一段普通对话再分屏', 'Open a conversation before splitting')); return; }
   const names = [...new Set(S.agents.map(a => a.name))];
   if (names.length < 2) { toast(L('需要两个不同的可用 Agent', 'Two different agents are required')); return; }
-  const first = names.includes(S.chatAgent) ? S.chatAgent : names[0];
-  const dialog = document.createElement('dialog'); dialog.className = 'split-setup';
-  const options = selected => names.map(n => `<option value="${esc(n)}" ${n===selected?'selected':''}>${esc(agentLabel(n))}</option>`).join('');
-  dialog.innerHTML = `<form method="dialog"><h3>${L('双 Agent 分屏', 'Two-agent split')}</h3><p>${L('同一窗口内各自续聊；下方一次输入可以同时发给两侧。', 'Independent histories in one window; send to both with one input.')}</p><label>${L('左侧', 'Left')} <select name="left">${options(first)}</select></label><label>${L('右侧', 'Right')} <select name="right">${options(names.find(n=>n!==first))}</select></label><p class="split-error" role="alert"></p><button value="cancel">${L('取消', 'Cancel')}</button> <button value="start" class="primary">${L('开启分屏', 'Start split')}</button></form>`;
-  document.body.append(dialog); dialog.showModal();
-  dialog.querySelector('form').addEventListener('submit', async e => {
-    if (e.submitter?.value !== 'start') return;
-    e.preventDefault();
-    const agents = [dialog.querySelector('[name=left]').value, dialog.querySelector('[name=right]').value];
-    if (agents[0] === agents[1]) { dialog.querySelector('.split-error').textContent = L('请选择两个不同的 Agent', 'Choose two different agents'); return; }
-    if (S.splitStarting) return;
-    S.splitStarting = true; e.submitter.disabled = true;
-    try {
-      const split = await api(`/v1/users/${S.uid}/chats/compare-start`, {body:{key,agents,run}});
-      S.chatSplits ||= {}; S.chatSplits[key] = split;
-      dialog.close(); await loadChat(key);
-      if (split.question && key === S.chat) await splitSend(split.question);
-    } catch (err) { dialog.querySelector('.split-error').textContent = err.message; e.submitter.disabled = false; }
-    finally { S.splitStarting = false; }
-  });
-  dialog.addEventListener('close', () => dialog.remove(), {once:true});
+  const original = (S.chatTurns?.[key] || []).find(t => t.run === run)?.agent;
+  const first = names.includes(S.chatAgent) ? S.chatAgent : names.includes(original) ? original : names[0];
+  const agents = [first, names.find(n => n !== first)];
+  S.splitStarting = true;
+  renderChat();
+  try {
+    const split = await api(`/v1/users/${S.uid}/chats/compare-start`, {body:{key,agents,run}});
+    S.chatSplits ||= {}; S.chatSplits[key] = split;
+    await loadChat(key);
+    if (split.question && key === S.chat) await splitSend(split.question);
+  } catch (err) { toast(err.message); }
+  finally { S.splitStarting = false; if (key === S.chat) renderChat(); }
 }
+
 function splitHtml(shared) {
   const key = S.chat, split = S.chatSplits[key], target = S.splitTargets?.[key] || 'both';
   return `<details class="split-shared"><summary>${L('分屏前的共享对话', 'Conversation before splitting')}</summary>${chatTurnsHtml(shared,key)}</details>
     <div class="split-toolbar"><b>${L('双 Agent · 独立上下文', 'Two agents · independent histories')}</b><label>${L('发送给', 'Send to')} <select data-split-target>${[['both',L('两侧同时','Both')],...split.lanes.map(l=>[l.key,agentLabel(l.agent)])].map(([v,t])=>`<option value="${esc(v)}" ${v===target?'selected':''}>${esc(t)}</option>`).join('')}</select></label></div>
-    <div class="split-columns">${split.lanes.map(l=>`<section class="split-lane"><header>${esc(agentLabel(l.agent))}<span>${S.splitPending?.[l.key]?L('回答中…','Answering…'):''}</span></header>${chatTurnsHtml(S.chatTurns[l.key]||[],l.key)}${S.splitErrors?.[l.key]?`<p role="alert">${esc(S.splitErrors[l.key])}</p>`:''}</section>`).join('')}</div>`;
+    <div class="split-columns">${split.lanes.map(l=>`<section class="split-lane"><header>${esc(agentLabel(l.agent))}<span>${S.splitPending?.[l.key]?L('回答中…','Answering…'):''}</span></header><div class="split-lane-body">${chatTurnsHtml(S.chatTurns[l.key]||[],l.key)}${S.splitPending?.[l.key] ? splitWorkCard(l.key) : ""}${S.splitErrors?.[l.key]?`<p role="alert">${esc(S.splitErrors[l.key])}</p>`:''}</div></section>`).join('')}</div>`;
 }
 document.addEventListener('change', e => {
   if (e.target.matches?.('[data-split-target]')) { S.splitTargets ||= {}; S.splitTargets[S.chat] = e.target.value; }
@@ -720,6 +715,7 @@ async function returnToParent(key, point) {
   try {
     const host=window.parent;
     if (host!==window && host.stOpen) {
+      if (host.stReturnParent) { host.stReturnParent(key); return; }
       const node=host.stOpen(key); const frame=node.el?.querySelector('iframe');
       const locate=()=>{const doc=frame?.contentDocument; const target=doc?.getElementById('a-'+point)||doc?.getElementById('t-'+point)||doc?.getElementById('import-turn-'+Math.max(0,Number(point)-1));target?.scrollIntoView({block:'center',behavior:'smooth'});};
       if (frame?.contentWindow?.S?.chat===key) locate();

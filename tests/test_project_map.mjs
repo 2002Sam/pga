@@ -14,8 +14,8 @@ function setup(){
 test('single click navigates without opening shared context',()=>{
  const h=setup();h.handlers.click(h.event('[data-pjmap]'));h.flush();assert.deepEqual(h.jumps,[['PGA',100,20]]);assert.deepEqual(h.opened,[]);
 });
-test('double click opens the category manager and cancels pending navigation',()=>{
- const h=setup();h.ctx.mgOpen=p=>h.opened.push('manager:'+p);h.handlers.click(h.event('[data-pjmap]'));h.handlers.click(h.event('[data-pjmap]',2));h.handlers.dblclick(h.event('[data-pjmap]',2));h.flush();assert.deepEqual(h.opened,['manager:PGA']);assert.deepEqual(h.jumps,[]);
+test('double click starts inline category rename and cancels pending navigation',()=>{
+ const h=setup(),renamed=[];h.ctx.pjRenameInline=b=>renamed.push(b.dataset.pjmap);h.handlers.click(h.event('[data-pjmap]'));h.handlers.click(h.event('[data-pjmap]',2));h.handlers.dblclick(h.event('[data-pjmap]',2));h.flush();assert.deepEqual(renamed,['PGA']);assert.deepEqual(h.opened,[]);assert.deepEqual(h.jumps,[]);
 });
 test('hovering plus hides the stale thumbnail without navigating',()=>{
  const h=setup();h.handlers.pointerover(h.event('[data-pjnew]'));h.flush();assert.equal(h.hidden(),1);assert.deepEqual(h.jumps,[]);

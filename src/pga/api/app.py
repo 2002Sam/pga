@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi import Path as Path_
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
@@ -259,6 +259,14 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from urllib.parse import urlencode
         return RedirectResponse("/?" + urlencode({**({"tree": tree} if tree else {}), **q}))
 
+    @app.get("/ui/vendor/monaco/0.52.2/{asset:path}", include_in_schema=False)
+    def editor_asset(asset: str) -> FileResponse:
+        root = (WEB / "vendor" / "monaco" / "0.52.2").resolve()
+        path = (root / asset).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(404, "no such editor asset")
+        return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
     @app.get("/ui/{name}", include_in_schema=False)
     def web_script(name: str) -> FileResponse:
         f = WEB / name
@@ -287,8 +295,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """So the app installed from the browser (and its Dock icon) gets the real icon, not a letter."""
         return JSONResponse({"name": "PGA 助理", "short_name": "PGA", "start_url": "/", "scope": "/", "display": "standalone",
                              "background_color": "#05070b", "theme_color": "#0b0f16",
-                             "icons": [{"src": "/icons/icon-192.png?v=3", "sizes": "192x192", "type": "image/png"},
-                                       {"src": "/icons/icon-512.png?v=3", "sizes": "512x512", "type": "image/png"}]},
+                             "icons": [{"src": "/icons/icon-192.png?v=witch-cat-1", "sizes": "192x192", "type": "image/png"},
+                                       {"src": "/icons/icon-512.png?v=witch-cat-1", "sizes": "512x512", "type": "image/png"}]},
                             media_type="application/manifest+json")
 
     # ---------------------------------------------------------------- health
@@ -602,13 +610,25 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         create = body.get("create") is True
         key = f"chat:{uuid.uuid4().hex}" if create else str(body.get("key") or "")
         try:
-            key = projectsort.assign(u, key, project)
+            key = projectsort.assign(u, key, project, create=create)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         st = projectsort.state(u)
         if create:
             st["drafts"] = {**st.get("drafts", {}), key: {"at": utcnow().isoformat()}}
             projectsort.save(u, st)
+            # A category is not itself a filesystem workspace. Bind only an
+            # unambiguous registered project, never guess a path from its name.
+            from pga.projects import Projects
+            acc = access_for(u, "")
+            defaults = ((u.preferences or {}).get("agent_access") or {}).get("default") or {}
+            matches = [p for p in Projects(rt.session).list(u.id)
+                       if p.name.casefold() == st["of"][key].casefold() and os.path.isdir(p.path)]
+            if not acc["folder"] and len(matches) == 1:
+                acc = {**acc, "folder": matches[0].path}
+                if not defaults:
+                    acc["access"] = "full" if matches[0].full_access else "read"
+            access_for(u, key, acc)
         return {"key": key, "project": st["of"][key], "created": create}
 
     @app.get("/v1/users/{user_id}/project-context")
@@ -2350,7 +2370,72 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.filepreview import describe
         local_request(request)
         path = resolve_file(user_id, body, rt, editor=True)
-        return describe(path, request.url.netloc)
+        from pga.localfiles import jump
+        out = describe(path, request.url.netloc)
+        if path.suffix.lower() in ('.svg', '.csv', '.tsv') and out.get('kind') in ('image', 'sheet'):   # a drawing or a table: also its source, to read and edit
+            out = {**describe_text(path), **out}
+        return {**out, **jump(str(body.get("path") or ""))}
+
+    def describe_text(path):
+        from pga.localfiles import TEXT
+        st = path.stat()
+        if st.st_size > 5 * 1024 * 1024:
+            return {}
+        try:
+            with path.open(encoding="utf-8-sig", newline="") as f:
+                text = f.read()
+            if "\x00" in text:
+                return {}
+        except (UnicodeError, OSError):
+            return {}
+        return {"text": text, "ext": path.suffix.lower(), "size": st.st_size, "mtime": str(st.st_mtime_ns), "editable": path.suffix.lower() in TEXT,
+                "eol": "CRLF" if "\r\n" in text[:20000] else "LF"}
+
+    @app.post("/v1/users/{user_id}/files/stat")
+    def file_stat(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        """Has the file changed since the viewer read it (the viewer reloads what you have not edited)."""
+        from pga.editor import local_request
+        local_request(request)
+        path = resolve_file(user_id, body, rt, editor=True)
+        st = path.stat()
+        return {"mtime": str(st.st_mtime_ns), "size": st.st_size}
+
+    @app.post("/v1/users/{user_id}/files/save")
+    def file_save(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        """Save a text file edited in the viewer (⌘S). Refused when it changed on disk since it was opened, unless `force`."""
+        from pga.editor import local_request
+        from pga.localfiles import save_text
+        local_request(request)
+        origin = request.headers.get("origin")
+        if origin and urllib.parse.urlsplit(origin).netloc != request.url.netloc:
+            raise HTTPException(403, "不允许跨站保存文件")
+        if not isinstance(body.get("text"), str):
+            raise HTTPException(422, "text is needed")
+        path = resolve_file(user_id, body, rt, editor=True)
+        try:
+            mtime = save_text(path, body["text"], body.get("mtime"), bool(body.get("force")))
+        except PermissionError as exc:
+            raise HTTPException(403, str(exc)) from exc
+        except ValueError as exc:
+            if str(exc) == "changed":
+                raise HTTPException(409, "文件在别处被修改过了") from exc
+            raise HTTPException(422, str(exc)) from exc
+        return {"saved": True, "mtime": mtime, "size": path.stat().st_size}
+
+    @app.post("/v1/users/{user_id}/web/read")
+    def web_read(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        """A link opened in PGA's reader: the article taken out of the page, or the PDF / picture behind it (pga.webread)."""
+        import httpx
+        from pga.editor import local_request
+        from pga import webread
+        local_request(request)
+        user_or_404(rt, user_id)
+        try:
+            return webread.read(str(body.get("url") or "")[:4096])
+        except webread.ReadError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, f"打不开这个网页（{type(exc).__name__}）；可以在浏览器里试试") from exc
 
     @app.post("/v1/users/{user_id}/files/open")
     def file_open(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
@@ -2362,9 +2447,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         origin = request.headers.get("origin")
         if origin and urllib.parse.urlsplit(origin).netloc != request.url.netloc:
             raise HTTPException(403, "不允许跨站打开文件")
-        path = resolve_file(user_id, body, rt)
+        path = resolve_file(user_id, body, rt, editor=bool(body.get("reveal")))
         try:
-            open_document(path)
+            open_document(path, reveal=bool(body.get("reveal")))
         except FileNotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
@@ -2654,6 +2739,154 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(422, str(exc)) from exc
         return _pool_view(rt)
 
+    @app.get("/v1/agents/avatars")
+    def agents_avatars(rt: Runtime = Depends(get_rt)):
+        """The avatars you set, by agent: the page draws them wherever that agent answers."""
+        from pga.agents import avatars, pool as ap
+        out = {}
+        for name, a in ap.load()["agents"].items():
+            v = avatars.view(name, a)
+            if v["image"] or v["text"] or v["color"]:
+                out[name] = v
+        return {"avatars": out}
+
+    @app.get("/v1/agents/{name}/avatar")
+    def agent_avatar_file(name: str):
+        from pga.agents import avatars
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", name) or (p := avatars.path(name)) is None:
+            raise HTTPException(404, "no avatar")
+        return FileResponse(p, headers={"Cache-Control": "public, max-age=31536000, immutable"})   # the URL carries its version
+
+    @app.put("/v1/agents/{name}/avatar")
+    def agent_avatar_put(name: str, body: dict, rt: Runtime = Depends(get_rt)):
+        """Change an agent's avatar: `image` a data URL (null takes the picture away), `text` one or two characters or an
+        emoji, `color` #rrggbb (empty: back to its own)."""
+        from pga.agents import avatars, pool as ap
+        cfg = ap.load()
+        if name not in cfg["agents"]:
+            raise HTTPException(404, "unknown agent")
+        a = dict(cfg["agents"][name])
+        try:
+            if "image" in body:
+                if body["image"]:
+                    avatars.save(name, str(body["image"]))
+                else:
+                    avatars.remove(name)
+        except avatars.AvatarError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if "text" in body:
+            text = avatars.clean_text(body["text"])
+            if str(body["text"] or "").strip() and not text:
+                raise HTTPException(422, "头像文字最多两个字（或一个 emoji）")
+            a["avatar_text"] = text
+            if not text:
+                a.pop("avatar_text")
+        if "color" in body:
+            color = str(body["color"] or "").strip()
+            if color and not avatars.COLOR.match(color):
+                raise HTTPException(422, "颜色要写成 #rrggbb")
+            a["avatar_color"] = color
+            if not color:
+                a.pop("avatar_color")
+        if a != cfg["agents"][name]:
+            cfg["agents"][name] = a
+            try:
+                ap.save(cfg)
+            except ap.PoolError as exc:
+                raise HTTPException(422, str(exc)) from exc
+        return {"name": name, "avatar": avatars.view(name, a)}
+
+    @app.get("/v1/users/{user_id}/agents/{name}/profile")
+    def agent_profile(user_id: uuid.UUID, name: str, rt: Runtime = Depends(get_rt)):
+        """One agent as a profile: who it is, what it is good at and how you set it up (editable), and how it has done
+        for you — its last 30 days of attempts, its usage, where your ranking puts it in each kind of work."""
+        from pga.agents import links, pool as ap
+        from pga.agents.options import options
+        from pga.agents.routing import AgentRouter
+        from pga.db.models import AgentRun
+        u = user_or_404(rt, user_id)
+        p = ap.AgentPool(rt)
+        if name not in p.adapters:
+            raise HTTPException(404, "unknown agent")
+        cfg, router = p.cfg["agents"][name], AgentRouter(rt, p)
+        st = p.status().get(name, {})
+        cats = p.cfg["routing"].get("categories") or {}
+        ranking = []
+        for c, v in cats.items():
+            rows = router.rank(c, user_id=u.id)
+            row = next((x for x in rows if x["agent"] == name), None)
+            ranking.append({"category": c, "label": (v or {}).get("label", c), "of": len(rows),
+                            "position": rows.index(row) + 1 if row else None, "usable": bool(row and row.get("usable")),
+                            "why_not": (row or {}).get("why_not")})
+        try:
+            opts = options(name, p.adapters[name], cfg, rt)
+        except Exception:  # noqa: BLE001 - the profile shows without its model list
+            opts = {"models": []}
+        since = utcnow() - timedelta(days=30)
+        tries = rt.session.execute(select(AgentRun.status, func.count(), func.avg(AgentRun.duration_s), func.max(AgentRun.started_at),
+                                          func.sum(AgentRun.cost_usd))
+                                   .where(AgentRun.user_id == u.id, AgentRun.parent_id.is_not(None), AgentRun.agent == name,
+                                          AgentRun.started_at >= since).group_by(AgentRun.status)).all()
+        by = {s: (n, d, last, cost) for s, n, d, last, cost in tries}
+        total = sum(n for n, *_ in by.values())
+        ok = by.get("SUCCEEDED", (0, None, None, None))
+        last = max((x[2] for x in by.values() if x[2]), default=None)
+        from pga.agents import avatars
+        return {"name": name, "avatar": avatars.view(name, cfg), "adapter": cfg.get("adapter"), "type": p.adapters[name].type, "role": cfg.get("role") or "",
+                "instructions": cfg.get("instructions") or "", "capabilities": list(cfg.get("capabilities") or []),
+                "traits": {k: int((cfg.get("traits") or {}).get(k) or 3) for k in ("quality", "speed", "cost")},
+                "max_concurrent": int(cfg.get("max_concurrent") or 1), "account": cfg.get("account") or "",
+                "enabled": st.get("enabled", True), "available": st.get("available"), "detail": st.get("detail") or "",
+                "link": (links.view() if links.active() else {}).get(name), "about_link": cfg.get("link") or "",
+                "quota": router.quota(name).as_dict(), "ranking": ranking,
+                "categories": {c: (v or {}).get("label", c) for c, v in cats.items()},
+                "models": [{"id": m.get("id"), "label": m.get("label") or m.get("id")} for m in (opts.get("models") or [])][:24],
+                "default_model": opts.get("default_model"), "default_effort": opts.get("default_effort"), "images": bool(opts.get("images")),
+                "stats": {"days": 30, "tries": total, "succeeded": ok[0], "failed": sum(by.get(s, (0,))[0] for s in ("FAILED", "TIMEOUT", "INTERRUPTED")),
+                          "stopped": by.get("STOPPED", (0,))[0], "avg_s": round(ok[1], 1) if ok[1] else None,
+                          "last_at": last.isoformat() if last else None, "cost_usd": round(sum(x[3] or 0 for x in by.values()), 4)}}
+
+    @app.put("/v1/agents/{name}/profile")
+    def agent_profile_put(name: str, body: dict, rt: Runtime = Depends(get_rt)):
+        """What you can change from an agent's profile: its introduction, standing instructions (given to it with every
+        question), the kinds of work it takes, its traits for the ranking, how many tasks it runs at once, its account label."""
+        from pga.agents import pool as ap
+        cfg = ap.load()
+        if name not in cfg["agents"]:
+            raise HTTPException(404, "unknown agent")
+        a = dict(cfg["agents"][name])
+        if "role" in body:
+            a["role"] = str(body["role"] or "").strip()[:120]
+        if "instructions" in body:
+            text = str(body["instructions"] or "").strip()[:2000]
+            a["instructions"] = text
+            if not text:
+                a.pop("instructions")
+        if "capabilities" in body:
+            caps = [c for c in dict.fromkeys(str(x) for x in body["capabilities"] or []) if re.fullmatch(r"[a-z_]{1,24}", c)][:16]
+            if not caps:
+                raise HTTPException(422, "至少保留一种擅长的工作")
+            a["capabilities"] = caps
+        if isinstance(body.get("traits"), dict):
+            a["traits"] = {**(a.get("traits") or {}), **{k: max(1, min(5, int(body["traits"][k]))) for k in ("quality", "speed", "cost")
+                                                        if str(body["traits"].get(k, "")).lstrip("-").isdigit()}}
+        if "max_concurrent" in body:
+            try:
+                a["max_concurrent"] = max(1, min(16, int(body["max_concurrent"])))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(422, "同时运行数要是 1–16 的整数") from exc
+        if "account" in body:
+            label = str(body["account"] or "").strip()[:80]
+            a["account"] = label
+            if not label:
+                a.pop("account")
+        cfg["agents"][name] = a
+        try:
+            ap.save(cfg)
+        except ap.PoolError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"name": name, "saved": True}
+
     @app.put("/v1/agents/{name}/account")
     def agents_account(name: str, body: dict, rt: Runtime = Depends(get_rt)):
         """Which account an agent copy is signed in with (e.g. the e-mail), as a label shown next to its name. A
@@ -2857,6 +3090,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(404, "image not found")
         return Response(content=img[0], media_type=img[1], headers={"Cache-Control": "private, max-age=3600"})
 
+    @app.post("/v1/users/{uid}/agents/live/{lid}/steer")
+    def agents_steer(uid: uuid.UUID, lid: str, body: dict):
+        from pga.agents import live
+        key, mid, text = body.get("conversation"), body.get("message_id"), body.get("text")
+        if not all(isinstance(x, str) and x.strip() for x in (key, mid, text)) or len(key) > 80 or len(mid) > 100 or len(text) > 50000:
+            raise HTTPException(422, "需要对话、消息编号和不超过 50000 字的补充文本")
+        try:
+            return live.steer(lid, f"{uid}:{key}", mid, text)
+        except live.SteerRejected as exc:
+            return {"status": "rejected", "error": str(exc)}
+
     @app.post("/v1/agents/live/{lid}/stop")
     def agents_stop(lid: str):
         """Stop an answer while it is being written: the agent is interrupted, what it said so far is kept."""
@@ -2935,6 +3179,33 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                   created_by=Origin.USER, priority=40)
         return {"job_id": str(job.id), "status": job.status.value}
 
+    @app.websocket("/v1/agents/live-stream")
+    async def agents_live_stream(socket: WebSocket):
+        import asyncio
+        import json
+        from pga.agents import live
+        await socket.accept()
+        previous, heartbeat = None, 0
+        try:
+            while True:
+                rows = live.snapshot()
+                # Elapsed time is drawn locally; don't send unchanged runs every tick.
+                for row in rows:
+                    row.pop("elapsed_s", None)
+                payload = json.dumps(rows, ensure_ascii=False)
+                now = asyncio.get_running_loop().time()
+                if payload != previous or now - heartbeat >= 10:
+                    await socket.send_text(payload)
+                    previous, heartbeat = payload, now
+                try:
+                    message = await asyncio.wait_for(socket.receive(), timeout=0.08)
+                    if message["type"] == "websocket.disconnect":
+                        return
+                except asyncio.TimeoutError:
+                    pass
+        except (WebSocketDisconnect, OSError, RuntimeError):
+            return
+
     @app.get("/v1/agents/live")
     def agents_live():
         """Agents working right now (and just finished): what each has said so far — the constellation polls this."""
@@ -2971,6 +3242,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     def access_for(u, key: str, body: dict | None = None) -> dict:
         """What applies to this conversation: what you just sent with the message (and it is kept for the
         conversation), what you set for it before, or your default."""
+        # Split lanes are implementation details of one visible conversation.
+        # Resolve their permissions live, rather than retaining creation-time copies.
+        for parent, split in ((u.preferences or {}).get("chat_splits") or {}).items():
+            if any(lane.get("key") == key for lane in split.get("lanes", [])):
+                key = parent
+                break
         prefs = dict((u.preferences or {}).get("agent_access") or {})
         if body is not None and "access" in body:
             got = _access_clean(body)
@@ -3081,6 +3358,22 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 from pga.tree import refs_context
                 tail = "\n\n".join(x for x in [tail, refs_context(rt, [str(x) for x in body["refs"]][:8], u.id, text)] if x) or None
             ckey = str(body.get("conversation") or "")
+            from pga import project_context
+            if body.get("scope") and ckey:                         # a conversation a category's manager made: held to that category
+                try:
+                    want = project_context.project_name(u, str(body["scope"])[:80])
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from exc
+                if project_context.category(u, ckey) != want:
+                    raise HTTPException(422, "这段对话不在管理员的分类里")
+                project_context.hold(u, ckey, want)
+                rt.session.commit()
+            scope = project_context.scope_of(u, ckey)
+            if scope and body.get("history_from"):                 # the context of a conversation it continues: only one of the same category
+                src = str(body["history_from"])[:120]
+                if project_context.category(u, src) == scope:
+                    from pga.chats import history as chat_history
+                    body["history"] = [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in chat_history(rt, u, src)[-12:]]
             from pga import projectsort
             pst = projectsort.state(u)
             if ckey in pst.get("drafts", {}):
@@ -3091,6 +3384,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             bounded = branch_of(u, ckey) is not None
             if bounded:
                 body["history"] = chat_history(rt, u, ckey)
+            from pga.conversation_clipboard import context as clipboard_context
+            try:
+                copied = clipboard_context(u.id, text, chat_history(rt, u, ckey) if ckey else [])
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            if copied:
+                tail = "\n\n".join(x for x in (tail, copied) if x)
             if name_branch_question(rt, u, ckey, text):
                 rt.session.commit()
             sysp = ((u.preferences or {}).get("chat_system") or {}).get(ckey) if ckey else None
@@ -3100,8 +3400,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             if wired and not bounded:                              # pinned history cannot be widened by stage context
                 from pga.agent.common import fence
                 context = ((context or "") + "\n\n" + fence("context_wired_in_by_the_user", wired, 40000, note="notes, skills, documents, files and other conversations the user put in front of this conversation")).strip()
-            from pga import project_context
-            shared = project_context.build(rt, u, ckey, text)
+            shared = project_context.build(rt, u, ckey, text, force=bool(scope))
+            if scope:                                              # what it may draw on: this category, the web, and you
+                context = ((context or "") + "\n\n" + project_context.SCOPE_NOTE.format(name=scope)).strip()
             # Include this in the per-message tail: resumed native agents also receive updates.
             if shared["text"]:
                 tail = "\n\n".join(x for x in [tail, shared["text"]] if x)
@@ -3110,7 +3411,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             from pga.worldtree import WorldTree, chat_node
             wn = (chat_node(u, ckey) if ckey else None) or (str(body.get("world")) if body.get("world") else None)
             wt, node = WorldTree(rt), None
-            if wn and not shared["project"] and not bounded:
+            if wn and not shared["project"] and not bounded and not scope:
                 try:
                     node = wt.get(u, uuid.UUID(wn))
                 except ValueError:
@@ -3119,7 +3420,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     context = ((context or "") + "\n\n" + wt.context(node)).strip()
                     rel = wt.related(node, text)
                     tail = "\n\n".join(x for x in [tail, rel] if x) or None
-            if node is None and text.strip() and not shared["project"] and not bounded: # not in the world tree yet: associations from all of it (pga.associate)
+            if node is None and text.strip() and not shared["project"] and not bounded and not scope: # not in the world tree yet: associations from all of it (pga.associate)
                 from pga.associate import block as assoc_block
                 try:
                     rel, wt.last_related = assoc_block(rt, u.id, text)
@@ -3140,6 +3441,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             from pga.segments import used_in_ask
             used = used_in_ask(wt, node, getattr(wt, "last_related", []), [str(x) for x in body.get("refs") or []], rt, u)
             acc = access_for(u, ckey, body)
+            if scope and not (body.get("mcp") is True or (((u.preferences or {}).get("agent_access") or {}).get("keys") or {}).get(ckey[:120], {}).get("mcp") is True):
+                acc = {**acc, "mcp": False}                         # your MCP servers reach outside the category: only where you turned them on
             if ckey and not ckey.startswith(("node:", "exchange:", "second:", "regen:", "multi:", project_context.MANAGER)):
                 place_soon(u.id)
             if body.get("knowledge_id"):
@@ -3160,7 +3463,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            history=body.get("history") if isinstance(body.get("history"), list) else None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None,
-                                           earlier=earlier)
+                                           earlier=earlier, failover=bool(body.get("failover")),
+                                           fallback=[str(x)[:40] for x in body.get("fallback") or [] if isinstance(x, str)][:4])
             if shared["project"]:
                 res["project_context"] = {k: v for k, v in shared.items() if k != "text"}
             if (used or shared["project"]) and res.get("run_id"):                       # what this question was given, for the conversation's data tree
@@ -4115,7 +4419,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 if context and "context" not in u:
                     out["usage"] = {**u, "context": context}
             return out
-        from pga.chats import current, fold
+        from pga.chats import current, fold, prompt_with_steering
         turns, alts = fold(runs)
         out = []
 
@@ -4124,7 +4428,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     "at": (a.finished_at or a.started_at).isoformat(), "model": (a.data or {}).get("model"), "how": how(a),
                     "rating": ((a.data or {}).get("rating") or {}).get("value", 0), **({"multi": True} if (a.data or {}).get("multi") else {})}
         for r in turns:
-            out.append({"role": "user", "text": r.prompt or "", "at": r.started_at.isoformat(), "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
+            out.append({"role": "user", "text": prompt_with_steering(r), "at": r.started_at.isoformat(), "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
             if (r.data or {}).get("note"):                       # your own note: no answer to show
                 continue
             vs = [r, *alts.get(str(r.id), [])]
@@ -4247,6 +4551,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(422, str(exc)) from exc
         return {"ok": True}
 
+    @app.post("/v1/users/{user_id}/chats/manager-plan")
+    async def manager_plan(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """A manager's paragraph → tasks (DeepSeek, ~2 s) → agents (your ranking, load and permissions; pga.manager_dispatch)."""
+        from pga.manager_dispatch import plan
+        u = user_or_404(rt, user_id)
+        text = str(body.get("text") or "").strip()
+        if not text or len(text) > 16000:
+            raise HTTPException(422, "任务需要 1–16000 字")
+        cands = body.get("candidates") if isinstance(body.get("candidates"), list) else None
+        return await plan(text, str(body.get("context") or ""), rt=rt, user=u, project=str(body.get("project") or "")[:80], candidates=cands)
+
     @app.post("/v1/users/{user_id}/chats/split")
     def chats_split(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """分工: the points of one message as tasks that different agents can do at the same time."""
@@ -4254,7 +4569,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         u = user_or_404(rt, user_id)
         try:
             with rt.billing(user_ctx(u)):
-                return {"tasks": split(rt, u, str(body.get("text") or ""), str(body.get("context") or ""))}
+                cands = body.get("candidates") if isinstance(body.get("candidates"), list) else None
+                return {"tasks": split(rt, u, str(body.get("text") or ""), str(body.get("context") or ""), candidates=cands)}
         except DispatchError as exc:
             raise HTTPException(422, str(exc)) from exc
 
@@ -4270,7 +4586,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not key or not e:
             raise HTTPException(422, "key and entry are needed")
         entry = {"id": str(e.get("id") or uuid.uuid4().hex[:8])[:20], "text": str(e.get("text") or "")[:4000], "at": utcnow().isoformat(),
-                 "tasks": [{"title": str(t.get("title") or "")[:60], "key": str(t.get("key") or "")[:120], "agent": str(t.get("agent") or "")[:40]}
+                 "tasks": [{"title": str(t.get("title") or "")[:60], "key": str(t.get("key") or "")[:120], "agent": str(t.get("agent") or "")[:40],
+                            **({"why": str(t["why"])[:200]} if t.get("why") else {}), **({"from": str(t["from"])[:120]} if t.get("from") else {})}
                            for t in (e.get("tasks") or [])[:8] if isinstance(t, dict)], "merged": str(e.get("merged") or "")[:120],
                  "run": str(body.get("run") or e.get("run") or "")[:40]}
         try:
@@ -4355,6 +4672,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not key:
             raise HTTPException(422, "key is needed")
         return {"key": key, "agents": set_multi(u, key, body.get("agents") if isinstance(body.get("agents"), list) else [])}
+
+    @app.post("/v1/users/{user_id}/conversation-snapshots")
+    def conversation_snapshot_create(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        from pga.conversation_clipboard import create
+        u = user_or_404(rt, user_id)
+        try:
+            return create(u.id, body)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @app.put("/v1/users/{user_id}/chat-context")
     def chats_context_put(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

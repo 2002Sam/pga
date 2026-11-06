@@ -22,7 +22,7 @@ test('Branch delegates to the existing conversation frame',async()=>{
 
 test('reloading a branch uses its own identity even when snapshot key is stale', () => {
   const frame = { addEventListener() {} };
-  const context = vm.createContext({URLSearchParams, S:{}, AS_UID:null, Q:new URLSearchParams()});
+  const context = vm.createContext({URLSearchParams, ST:{}, S:{}, AS_UID:null, Q:new URLSearchParams()});
   vm.runInContext(source.slice(source.indexOf('function stFrame('), source.indexOf('function stHold(')), context);
   const n = {key:'chat:source', branchKey:'chat:fork'};
   context.stFrame(n, {querySelector:()=>frame});
@@ -59,7 +59,7 @@ function dockHarness() {
   const b = {id:'b',type:'win',key:'chat:b',par:'p'};
   const c = {id:'c',type:'win',key:'chat:c',par:'a'};
   const state = {nodes:[parent,a,b,c],focus:'c'}, scroll = [];
-  const context = vm.createContext({ST:state,stKidKeep:(n,fold)=>scroll.push([n.id,fold]),stRender(){},stSave(){},stShow(){},stMap(){},stListItems(){},requestAnimationFrame:f=>f(),document:{querySelectorAll:()=>[]}});
+  const context = vm.createContext({ST:state,stRootOf:()=>parent,stKidKeep:(n,fold)=>scroll.push([n.id,fold]),stRender(){},stSave(){},stShow(){},stMap(){},stListItems(){},requestAnimationFrame:f=>f(),document:{querySelectorAll:()=>[]}});
   vm.runInContext(source.slice(source.indexOf('const stKids ='),source.indexOf('async function branchBackendReady')),context);
   vm.runInContext(source.slice(source.indexOf('function stDockBranch('),source.indexOf('function stBranchDockLook(')),context);
   vm.runInContext(source.slice(source.indexOf('function stFocus('),source.indexOf('function stMiniLook(')),context);
@@ -94,6 +94,7 @@ test('opening a nested branch reveals every ancestor without reopening its sibli
 function toggleHarness() {
   const h = dockHarness();
   h.context.window = {};
+  h.context.$ = () => null;
   h.context.stId = () => 'new-child';
   h.context.stTitle = k => k;
   h.state.pos = new Map([['p',{}],['a',{kid:true}],['b',{kid:true}]]);
@@ -133,4 +134,14 @@ test('legacy standalone branch is reattached without replacing its frame', () =>
   assert.equal(old.par,'p');assert.equal(old.el,frame);
   assert.ok(h.parent.kids.includes('old'));
   assert.equal(h.state.nodes.filter(n=>n.key===old.key).length,1);
+});
+
+test('branch tick preserves source screen position and cancels canvas navigation', () => {
+ const h=toggleHarness();let left=100;
+ const arena={scrollLeft:200,scrollTo(v){this.scrollLeft=v.left;assert.equal(v.behavior,'instant')}};
+ h.context.$=()=>arena;
+ h.parent.el={getBoundingClientRect:()=>({left})};
+ h.context.stAttach=()=>{left=140;arena.scrollLeft=240};
+ h.context.stToggleChatBranch(h.parent,'chat:new');
+ assert.equal(arena.scrollLeft,280);
 });

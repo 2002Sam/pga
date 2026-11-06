@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 
 from pga.agents import links
-from pga.agents.adapters import ClaudeLocal, CodexLocal
+from pga.agents.adapters import ClaudeLocal, CodexLocal, Process
 from pga.agents.base import AgentTask
 from pga.agents.pool import AgentPool
 from pga.db.models import Notification
@@ -270,3 +270,95 @@ def test_claude_native_tool_request_waits_for_pga_response(tmp_path):
         approvals.answer(row['approval']['id'],'user','allow')
         assert f.result(timeout=3).ok
     live.finish(lid,True)
+
+
+def test_codex_turn_overrides_sandbox_and_folder_after_permission_changes(tmp_path):
+    import json
+    from pga.agents.base import AUTO, FULL, READ_ONLY
+    peer = FAKE_APP_SERVER.replace(
+        'reply = "turn %d heard: %s" % (threads[tid], p["input"][0]["text"])',
+        'reply = json.dumps({k: p.get(k) for k in ("sandboxPolicy", "cwd", "approvalPolicy")})')
+    ad = CodexLocal("permission-test", {"command": _script(tmp_path, "codex-access", peer)})
+    seen = []
+    for i, perm in enumerate((READ_ONLY, FULL, AUTO, READ_ONLY)):
+        folder = tmp_path / str(i)
+        folder.mkdir()
+        result = ad.run(AgentTask(prompt="check", workspace=str(folder), permissions=perm,
+                                 meta={"conversation": "u:permissions"}))
+        assert result.ok, result.error
+        seen.append(json.loads(result.text))
+        assert seen[-1]["cwd"] == str(folder)
+    assert [r["sandboxPolicy"]["type"] for r in seen] == ["readOnly", "dangerFullAccess", "workspaceWrite", "readOnly"]
+    assert seen[2]["sandboxPolicy"]["writableRoots"] == [str(tmp_path / "2")]
+    assert [r["approvalPolicy"] for r in seen] == ["never", "never", "on-request", "never"]
+
+
+def test_codex_command_output_arrives_before_completion(tmp_path):
+    from pga.agents import live
+    script = FAKE_APP_SERVER.replace('        reply = ', '''        send({"method":"item/started","params":{"threadId":tid,"turnId":turn,"item":{"type":"commandExecution","id":"cmd","command":"echo hello"}}})
+        send({"method":"item/commandExecution/outputDelta","params":{"threadId":tid,"turnId":turn,"itemId":"cmd","delta":"hello\\n"}})
+        send({"method":"item/completed","params":{"threadId":tid,"turnId":turn,"item":{"type":"commandExecution","id":"cmd","command":"echo hello","exitCode":0}}})
+        reply = ''')
+    lid = live.start('stream-test')
+    try:
+        ad = CodexLocal('stream-test', {'command': _script(tmp_path, 'stream-peer', script)})
+        result = ad.run(AgentTask(prompt='test', workspace=str(tmp_path), meta={'conversation':'stream:test','live_id':lid}))
+        assert result.ok, result.error
+        row = next(x for x in live.snapshot() if x['id'] == lid)
+        assert row['steps'][0]['output'] == 'hello\n'
+        assert row['steps'][0]['secs'] is not None
+        assert '\nhello\n' not in row['text']
+    finally:
+        live.finish(lid, True)
+
+
+def test_resume_context_is_bound_to_native_session():
+    task = AgentTask(prompt='fresh history', meta={'new_text': 'question',
+                     'resume_context': {'session': 'old', 'text': 'missed turns plus question'}})
+    assert links._resume_text(task, 'old') == 'missed turns plus question'
+    assert links._resume_text(task, 'new') == 'fresh history'
+
+
+@pytest.mark.parametrize('adapter,script', [(CodexLocal, FAKE_APP_SERVER), (ClaudeLocal, FAKE_STREAM_CLI)])
+def test_native_transport_delivers_catchup_after_restart(tmp_path, adapter, script):
+    ad = adapter('handoff', {'command': _script(tmp_path, 'agent', script)})
+    first = ad.run(AgentTask(prompt='first', workspace=str(tmp_path), meta={'conversation': 'u:handoff'}))
+    assert first.ok
+    links.CodexServer.close_all()
+    links.StreamSession.close_all()
+    task = AgentTask(prompt='recent history', workspace=str(tmp_path), meta={
+        'conversation': 'u:handoff', 'new_text': 'continue',
+        'resume_context': {'session': first.session_id, 'text': 'other agent changed plan\ncontinue'}})
+    reply = ad.run(task)
+    assert reply.ok and reply.session_id == first.session_id
+    assert reply.text.endswith('other agent changed plan\ncontinue')
+
+
+@pytest.mark.parametrize('adapter,script,marker', [
+    (CodexLocal, FAKE_APP_SERVER, '        reply = '),
+    (ClaudeLocal, FAKE_STREAM_CLI, '    out = '),
+    (Process, 'import sys\nreply = sys.stdin.read()\nprint(reply)\n', 'print(reply)'),
+])
+@pytest.mark.parametrize('mode', ['conversation', 'bounded', 'stop'])
+def test_long_conversations_complete_and_remain_stoppable(tmp_path, adapter, script, marker, mode):
+    from pga.agents import live
+
+    # Delay the fake agent beyond a tiny deadline instead of waiting 15 minutes.
+    script = script.replace(marker, marker[:len(marker) - len(marker.lstrip())] +
+                            '__import__("time").sleep(0.15)\n' + marker)
+    ad = adapter('long-reply', {'command': _script(tmp_path, 'slow-agent', script)})
+    lid = live.start('long-reply')
+    meta = {'live_id': lid}
+    if mode != 'bounded':
+        meta['conversation'] = 'u:long-reply'
+    task = AgentTask(prompt='finish naturally', workspace=str(tmp_path), timeout_s=0.01, meta=meta)
+    if mode == 'stop':
+        live.stop(lid)
+    result = ad.run(task)
+    if mode == 'bounded':
+        assert result.status == 'TIMEOUT'
+    elif mode == 'stop':
+        assert result.status == 'STOPPED'
+    else:
+        assert result.ok and 'finish naturally' in result.text
+        assert '秒内没有完成' not in live.text(lid)

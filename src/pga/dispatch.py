@@ -41,11 +41,21 @@ SYSTEM = ("The person sent one message to an AI agent that may hold several sepa
           "person's language; a short title (at most 12 Chinese characters or 8 English words); kind is one of code, "
           "research, write, quick. If the message is really one request, return a single task. Reply with JSON only: "
           "{\"tasks\": [{\"title\": \"...\", \"text\": \"...\", \"kind\": \"code\"}]}. " + UNTRUSTED_NOTE)
+# A category's manager also chooses who does each task: itself, a conversation already in the category, or a new one.
+ROUTE = (" A list of the category's existing conversations is also given (key | title | what it is about). For each task "
+         "add \"target\": \"manager\" when it is a question about the category itself (its progress, decisions, open "
+         "threads, what to do next, how conversations relate) that an overview can answer; the key of an existing "
+         "conversation when the task clearly continues that conversation's work; or \"\" when it is new work that needs "
+         "a fresh conversation. Never invent keys.")
 
 
-def split(rt: "Runtime", user: User, text: str, context: str = "", now: datetime | None = None) -> list[dict]:
+def split(rt: "Runtime", user: User, text: str, context: str = "", now: datetime | None = None,
+          candidates: list[dict] | None = None) -> list[dict]:
     now = now or utcnow()
+    cands = [c for c in (candidates or []) if isinstance(c, dict) and str(c.get("key") or "").strip()][:60]
+    listing = "\n".join(f"{str(c['key'])[:120]} | {str(c.get('title') or '')[:80]} | {str(c.get('summary') or '')[:160]}" for c in cands)
     prompt = (fence("conversation_so_far", context, 6000, kind="the end of the conversation, for context") + "\n\n" if context else "") + \
+        (fence("conversations", listing, 12000, kind="the category's existing conversations") + "\n\n" if cands else "") + \
         fence("message", text, 16000, kind="the person's message to split")
     decision = rt.allocator.allocate(RunRequest(
         user_id=user.id, kind="synthesis",
@@ -57,7 +67,7 @@ def split(rt: "Runtime", user: User, text: str, context: str = "", now: datetime
     if not decision.allowed:
         raise DispatchError("; ".join(decision.reasons))
     with rt.runs.track(decision, now) as guard:
-        res = rt.router.complete(decision.tier, system=SYSTEM, messages=[{"role": "user", "content": prompt}], max_tokens=1500, usage=guard.usage_context())
+        res = rt.router.complete(decision.tier, system=SYSTEM + (ROUTE if cands else ""), messages=[{"role": "user", "content": prompt}], max_tokens=1500, usage=guard.usage_context())
         try:
             d = parse_json(res.text)
         except ModelOutputError:
@@ -65,8 +75,13 @@ def split(rt: "Runtime", user: User, text: str, context: str = "", now: datetime
             raise DispatchError("the model did not answer in the expected form") from None
         guard.stop("split")
     tasks = [t for t in (d.get("tasks") if isinstance(d, dict) else None) or [] if isinstance(t, dict) and str(t.get("text") or "").strip()]
+    keys = {str(c["key"]) for c in cands}
+    def target(t: dict) -> str:
+        x = str(t.get("target") or "")
+        return x if x == "manager" or x in keys else ""
     return [{"title": str(t.get("title") or "")[:40] or str(t["text"])[:24], "text": str(t["text"])[:8000],
-             "kind": str(t.get("kind") or "quick") if str(t.get("kind") or "") in ("code", "research", "write", "quick") else "quick"} for t in tasks[:8]]
+             "kind": str(t.get("kind") or "quick") if str(t.get("kind") or "") in ("code", "research", "write", "quick") else "quick",
+             **({"target": target(t)} if cands else {})} for t in tasks[:8]]
 
 
 def record(user: User, key: str, entry: dict) -> list[dict]:

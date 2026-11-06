@@ -25,7 +25,7 @@ def test_claude_flags_follow_the_level_and_mcp(monkeypatch):
     assert "--strict-mcp-config" not in full and any(x.startswith("Bash,") and "mcp__notes" in x for x in full)
     assert "--strict-mcp-config" in _cmd(FULL, mcp=False)                        # …unless you turned them off
     auto = _cmd(AUTO)                                                            # the default: acts on its own, Claude Code's auto mode
-    assert "manual" in auto and "--permission-prompts" in auto and "--disallowedTools" not in auto
+    assert "default" in auto and "--permission-prompt-tool" in auto and "stdio" in auto and "--disallowedTools" not in auto
     assert "Bash" not in auto[auto.index("--allowedTools") + 1]
     assert "bypassPermissions" not in " ".join(ro + rw + auto) and "bypassPermissions" in " ".join(full)   # only 完全批准 skips the checks
 
@@ -36,7 +36,7 @@ def test_settings_per_conversation_and_default(session_factory, policy, provider
     app = create_app(session_factory=session_factory,
                      runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
     with TestClient(app) as c:
-        assert c.get(f"/v1/users/{user.id}/access", params={"key": "chat:a"}).json()["current"] == {"access": "auto", "folder": "", "mcp": False}
+        assert c.get(f"/v1/users/{user.id}/access", params={"key": "chat:a"}).json()["current"] == {"access": "auto", "folder": "", "mcp": False, "resolved_folder": ""}
         assert c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "nope"}).status_code == 422
         assert c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "full", "folder": "/no/such/dir"}).status_code == 422
         r = c.put(f"/v1/users/{user.id}/access", json={"key": "chat:a", "access": "full", "folder": str(tmp_path), "mcp": True}).json()
@@ -107,3 +107,44 @@ def test_approval_full_persists_only_this_conversation(session_factory, policy, 
         assert c.get(f'/v1/users/{user.id}/access',params={'key':'chat:other'}).json()['current']['access'] == 'auto'
         assert c.post(f'/v1/users/{user.id}/approvals/{aid}', json={'decision':'allow'}).status_code == 404
     live.finish(lid, True)
+
+
+def test_top_bar_create_binds_registered_folder_and_preserves_default(session_factory, policy, provider, backend, user, session, tmp_path):
+    from pga.db.models import Project
+    session.add(Project(user_id=user.id, name="PGA", path=str(tmp_path), full_access=True))
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        def create():
+            r = c.post(f"/v1/users/{user.id}/conversation-projects", json={"project": "PGA", "create": True})
+            assert r.status_code == 200, r.text
+            return r.json()["key"]
+        key = create()
+        current = c.get(f"/v1/users/{user.id}/access", params={"key": key}).json()["current"]
+        assert (current["access"], current["folder"]) == ("full", str(tmp_path))
+        c.put(f"/v1/users/{user.id}/access", json={"access": "read", "as_default": True})
+        second = create()
+        assert c.get(f"/v1/users/{user.id}/access", params={"key": second}).json()["current"]["access"] == "read"
+        assert c.get(f"/v1/users/{user.id}/access", params={"key": key}).json()["current"]["access"] == "full"
+        c.put(f"/v1/users/{user.id}/access", json={"key": second, "access": "auto", "folder": str(tmp_path)})
+        assert c.get(f"/v1/users/{user.id}/access", params={"key": second}).json()["current"]["access"] == "auto"
+
+
+def test_split_agents_use_current_parent_permissions(session_factory, policy, provider, backend, user, session, monkeypatch, tmp_path):
+    user.preferences = {**(user.preferences or {}),
+        "chat_splits": {"chat:main": {"lanes": [{"key": "second:a"}, {"key": "second:b"}]}},
+        "agent_access": {"keys": {"second:a": {"access": "read"}, "second:b": {"access": "read"}}}}
+    session.commit()
+    seen = []
+    monkeypatch.setattr(AgentRouter, 'ask', lambda self, u, text, **kw: seen.append(kw) or {'ok': True, 'text': 'ok'})
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        for mode in ('full', 'read'):
+            assert c.put(f'/v1/users/{user.id}/access', json={'key':'chat:main', 'access':mode, 'folder':str(tmp_path)}).status_code == 200
+            for lane in ('second:a', 'second:b'):
+                assert c.post(f'/v1/users/{user.id}/agents/ask', json={'conversation':lane,'text':'check'}).status_code == 200
+                assert seen[-1]['access'] == mode
+                assert seen[-1]['folder'] == str(tmp_path)
+        assert c.get(f'/v1/users/{user.id}/access',params={'key':'chat:unrelated'}).json()['current']['access'] == 'auto'

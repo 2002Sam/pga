@@ -1,0 +1,20 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const source = fs.readFileSync(new URL('../src/pga/web/app-stage.js',import.meta.url),'utf8');
+test('closing a parent keeps children, frames, drafts and deeper branches',()=>{
+ const parent={id:'p',key:'chat:p',kids:['a','b']};
+ const frame={};const a={id:'a',key:'chat:a',par:'p',kids:['c'],el:frame,run:true,draft:'unfinished',branchDocked:true};
+ const b={id:'b',key:'chat:b',par:'p',small:true};const c={id:'c',key:'chat:c',par:'a'};
+ const ST={nodes:[parent,a,b,c],focus:'p',stageOpen:new Set(['p','a']),pos:new Map([['a',{w:400}]])};
+ let saved;
+ const context=vm.createContext({ST,stWins:()=>ST.nodes,stRender(){},stSave(){saved=JSON.stringify(ST.nodes)},stContexts(){}});
+ vm.runInContext(source.slice(source.indexOf('function stClose('),source.indexOf('function stMax(')),context);
+ context.stClose(parent);
+ assert.deepEqual(ST.nodes,[a,b,c]);assert.equal(a.el,frame);assert.equal(a.run,true);assert.equal(a.draft,'unfinished');
+ assert.equal(a.par,undefined);assert.equal(a.branchDocked,undefined);assert.equal(a.bw,400);assert.equal(a.branchFrom,'chat:p');
+ assert.equal(b.small,true);assert.equal(c.par,'a');assert.equal(ST.focus,'a');assert.equal(ST.stageOpen.has('p'),false);
+ assert.equal(JSON.parse(saved)[0].par,undefined);
+ context.stClose(a);assert.deepEqual(ST.nodes,[b,c]);assert.equal(c.par,undefined);
+});

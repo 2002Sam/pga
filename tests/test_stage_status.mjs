@@ -9,7 +9,7 @@ test('backend live state survives missing iframe state, isolates users, and choo
 });
 test('unread numbers are newest first and renumber after reading',()=>{
  const nodes=[{id:'a',key:'chat:a',done:100},{id:'b',key:'chat:b',done:300},{id:'c',key:'chat:c',done:200},{id:'d',key:'chat:d',run:true,runAt:400}];
- const ctx={stWins:()=>nodes};vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function stStat()'),src.indexOf('const stDraft =')),ctx);
+ const ctx={stWins:()=>nodes};vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function stStat()'),src.indexOf('function stTalkOrder(')),ctx);
  let s=ctx.stStat();assert.equal(s.get('b').num,1);assert.equal(s.get('c').num,2);assert.equal(s.get('a').num,3);assert(s.get('d').run);
  delete nodes[1].done;s=ctx.stStat();assert.equal(s.get('c').num,1);assert.equal(s.get('a').num,2);
 });

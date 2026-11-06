@@ -300,9 +300,9 @@ function renderCont() {
 // Measure only the final value; direct callers still use synchronous autoGrow.
 const growPending = new WeakSet();
 function autoGrowSoon(t) {
-  if (!t || growPending.has(t)) return;
+  if (!t || t._pgaComposing || growPending.has(t)) return;
   growPending.add(t);
-  requestAnimationFrame(() => { growPending.delete(t); if (t.isConnected) autoGrow(t); });
+  requestAnimationFrame(() => { growPending.delete(t); if (t.isConnected && !t._pgaComposing) autoGrow(t); });
 }
 function autoGrow(t) {                               // the composer grows with what you type (up to 240 px) and shrinks back when you delete
   if (!t) return;
