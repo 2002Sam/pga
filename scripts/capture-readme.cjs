@@ -96,7 +96,7 @@ function api(url, req) {
   unhandled.add(method+' '+p.replace(uid,':uid'));
   return {};
 }
-const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.png':'image/png','.svg':'image/svg+xml','.json':'application/json','.ttf':'font/ttf'};
+const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.png':'image/png','.webp':'image/webp','.svg':'image/svg+xml','.json':'application/json','.ttf':'font/ttf'};
 const server=http.createServer((req,res)=>{
   const u=new URL(req.url,'http://localhost');
   const rel=u.pathname==='/'?'app.html':u.pathname==='/agents'?'agents.html':u.pathname.replace(/^\/ui\//,'').replace(/^\//,'');

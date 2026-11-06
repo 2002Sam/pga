@@ -2028,14 +2028,38 @@ html.pmworkspace #pmview [data-pmtoggle] { display:block; }
 #vStage .stcategoryrow { display:block; overflow:visible; height:16px; pointer-events:none; }
 #vStage .stcategoryrow > .stcategory { position:absolute; top:0; pointer-events:auto; }
 
-/* The witch-cat portrait floats as one intact image in either theme. */
-.boot { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 14px; background: var(--bg); transition: opacity .5s ease, transform .5s ease; }
-.boot.out { opacity: 0; transform: scale(1.03); pointer-events: none; }
-.boot-logo { width: 144px; height: 144px; object-fit: contain; animation: bootFloat 2.4s ease-in-out infinite; }
-.boot-t { font-size: 12px; font-weight: 600; letter-spacing: .32em; padding-left: .32em; color: var(--dim); animation: bootT 2.2s ease-in-out infinite; }
-@keyframes bootFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-@keyframes bootT { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .boot-logo, .boot-t { animation: none; } }
+/* A single lightweight character asset, with flight and stardust animated by the compositor. */
+.boot { position: fixed; inset: 0; z-index: 9999; display: grid; place-content: center; justify-items: center; gap: 10px; overflow: hidden; background: var(--bg); transition: opacity .5s ease; }
+.boot.out { opacity: 0; pointer-events: none; }
+.boot-scene { position: relative; isolation: isolate; width: min(380px, 86vw, 62vh); aspect-ratio: 1.4; animation: bootArrive .65s ease-out both; }
+.boot-scene::before { content: ''; position: absolute; inset: 10% 2% 2%; border-radius: 50%; background: radial-gradient(ellipse, rgba(189, 132, 69, .1), rgba(137, 84, 138, .07) 45%, transparent 72%); }
+.boot-rider { position: absolute; top: 3%; left: 4%; width: 92%; transform-origin: 55% 65%; animation: bootFly 3.6s ease-in-out infinite; }
+.boot-cat { position: relative; z-index: 1; display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: contain; filter: drop-shadow(0 12px 16px rgba(33, 16, 40, .12)); }
+.boot-cat.fallback { height: auto; padding: 12% 24%; }
+.boot-wind { position: absolute; inset: 0; overflow: hidden; }
+.boot-wind i { position: absolute; left: 100%; top: 32%; width: 44px; height: 1px; opacity: 0; background: linear-gradient(90deg, transparent, var(--dim), transparent); animation: bootWind 1.8s linear infinite; }
+.boot-wind i:nth-child(2) { top: 57%; width: 24px; animation-delay: -.7s; animation-duration: 2.1s; }
+.boot-wind i:nth-child(3) { top: 82%; width: 60px; animation-delay: -1.2s; animation-duration: 2.5s; }
+.boot-trail { position: absolute; top: 84%; left: 17%; width: 1px; height: 1px; }
+.boot-trail i { --drift: -18px; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #d9ac65; opacity: 0; box-shadow: 0 0 8px rgba(239, 181, 91, .55); animation: bootDust 1.5s ease-out infinite; }
+.boot-trail i:nth-child(2) { --drift: 15px; width: 3px; height: 3px; animation-delay: -.25s; }
+.boot-trail i:nth-child(3) { --drift: -30px; animation-delay: -.5s; }
+.boot-trail i:nth-child(4) { --drift: 28px; width: 3px; height: 3px; animation-delay: -.75s; }
+.boot-trail i:nth-child(5) { --drift: -4px; animation-delay: -1s; }
+.boot-trail i:nth-child(6) { --drift: 8px; width: 2px; height: 2px; animation-delay: -1.25s; }
+.boot-trail i:nth-child(odd)::after { content: ''; position: absolute; inset: -3px; background: #e4bc7c; clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%); }
+.boot-t { font-size: 13px; font-weight: 600; letter-spacing: .36em; padding-left: .36em; color: var(--text); }
+.boot-caption { font-size: 11px; line-height: 1.6; letter-spacing: .06em; color: var(--dim); }
+@keyframes bootArrive { from { opacity: 0; transform: translate(-18px, 12px); } to { opacity: 1; transform: translate(0, 0); } }
+@keyframes bootFly { 0%, 100% { transform: translate3d(-8px, 8px, 0) rotate(-3deg); } 25% { transform: translate3d(3px, -3px, 0) rotate(1deg); } 50% { transform: translate3d(9px, -11px, 0) rotate(2deg); } 75% { transform: translate3d(-3px, 1px, 0) rotate(-1deg); } }
+@keyframes bootWind { 0% { opacity: 0; transform: translateX(0); } 18%, 65% { opacity: .17; } 100% { opacity: 0; transform: translateX(-440px); } }
+@keyframes bootDust { 0% { opacity: 0; transform: translate3d(0, 0, 0) scale(.7); } 15% { opacity: .8; } 100% { opacity: 0; transform: translate3d(-96px, var(--drift), 0) scale(.15); } }
+:root[data-motion=off] .boot-wind, :root[data-motion=off] .boot-trail { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .boot-scene, .boot-rider, .boot-wind i, .boot-trail i { animation: none; }
+  .boot-wind, .boot-trail { display: none; }
+  .boot { transition-duration: .15s; }
+}
 
 /* Collapsible sections share the All conversations panel. */
 #stlist.side { grid-template-rows: auto auto minmax(60px, 1fr) minmax(100px, .45fr) auto; }

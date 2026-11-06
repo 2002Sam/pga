@@ -254,6 +254,7 @@ cd desktop
 PGA 使用魔女猫作为品牌形象：**应用图标采用猫头与魔女帽的大头照，全身形象作为吉祥物。**
 
 - [大头照源图](docs/media/pga-witch-cat-head.png) · [完整角色图](docs/media/pga-witch-cat.png)
+- [魔女猫骑扫帚加载动画](docs/media/pga-loading-preview.gif)：起伏飞行与星光尾迹。应用使用轻量 WebP 素材配合 CSS 动画，并尊重减少动态效果的设置。
 - [网页与桌面图标](src/pga/web/icons) · [截图说明与复现方法](docs/media/README.md)
 - `bash scripts/build-icons.sh` 从头像源图生成 favicon、PWA、Apple Touch 与 macOS ICNS 图标（需要 macOS）。
 

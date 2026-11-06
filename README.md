@@ -254,6 +254,7 @@ Report problems through [Issues](https://github.com/2002Sam/pga/issues) or submi
 PGA's mascot is a witch cat. **Application icons use a close-up of the cat's head and hat; the full character serves as the mascot.**
 
 - [Headshot source](docs/media/pga-witch-cat-head.png) · [Full character](docs/media/pga-witch-cat.png)
+- [Flying witch cat loading animation](docs/media/pga-loading-preview.gif): a broom-riding pose with gentle flight and a stardust trail. The app uses a small WebP asset with CSS animation and respects reduced-motion preferences.
 - [Web and desktop icons](src/pga/web/icons) · [Asset notes and screenshot reproduction (Chinese)](docs/media/README.md)
 - Run `bash scripts/build-icons.sh` to generate favicon, PWA, Apple Touch, and macOS ICNS assets from the headshot source. Requires macOS.
 
