@@ -126,9 +126,26 @@ distro_hint() {
     fi
 }
 
+find_python_ready() {
+    local cand
+    for cand in "${PGA_PYTHON:-}" python3 /usr/bin/python3 python3.13 python3.12 python3.11; do
+        [[ -n "$cand" ]] || continue
+        if command -v "$cand" >/dev/null 2>&1 &&
+            "$cand" -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1; then
+            command -v "$cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
 has_python_ready() {
-    command -v python3 >/dev/null 2>&1 &&
-        python3 -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1
+    local found
+    if found="$(find_python_ready)"; then
+        export PGA_PYTHON="$found"
+        return 0
+    fi
+    return 1
 }
 
 has_docker_compose() {
@@ -143,7 +160,9 @@ need_docker() {
 auto_install_deps() {
     echo "==> 检测到缺失系统依赖，正在自动安装（可能需要输入 sudo 密码）…"
     if command -v apt-get >/dev/null 2>&1; then
-        run_root apt-get update
+        if ! run_root apt-get update; then
+            echo "警告：部分第三方 apt 源更新失败（如缺失公钥），已忽略并继续从可用源安装依赖…" >&2
+        fi
         local pkgs=(git curl ca-certificates libnotify-bin poppler-utils)
         if [[ $USE_DOCKER -eq 0 ]]; then
             pkgs+=(python3 python3-venv python3-pip)
