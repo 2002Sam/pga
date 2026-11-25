@@ -1,3 +1,5 @@
+import "../../../Resources/context-menu.js";
+
 // Talking to the native shell: messages out (open a conversation as a floating window, report what this window
 // shows), calls in (files dropped from Finder, focus). In a plain browser the calls out fall back to navigation.
 export function post(kind, data = {}) {
@@ -14,9 +16,3 @@ export function post(kind, data = {}) {
 const handlers = {};
 window.pgaNative = new Proxy({}, { get: (_, fn) => (...a) => handlers[fn]?.(...a) });
 export function onNative(fn, h) { handlers[fn] = h; }
-
-// Right-click anywhere (but in a text field, which keeps its own menu): the shell's menu of every node there is.
-addEventListener("contextmenu", (e) => {
-  if (!window.webkit?.messageHandlers?.pga || e.target.closest?.("textarea, input")) return;
-  e.preventDefault(); post("menu");
-});

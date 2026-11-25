@@ -74,6 +74,9 @@ class Adapter:
         """Can this agent run here? (Paperclip's "Test environment".) Returns (ok, detail)."""
         return True, ""
 
+    def routable(self) -> tuple[bool, str]:
+        return self.available()
+
     def run(self, task: AgentTask) -> AgentResult:
         t0 = time.monotonic()
         try:

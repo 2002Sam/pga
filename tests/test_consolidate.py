@@ -29,7 +29,7 @@ class Sess:
 @pytest.fixture
 def world(monkeypatch):
     items = [item(f"old{i}", f"resume v{i}", 10 + i) for i in range(12)] + [item("new1", "today", 0), item("new2", "yesterday", 1)]
-    monkeypatch.setattr(consolidate, "_in_project", lambda rt, user, project, now: items)
+    monkeypatch.setattr(consolidate, "_in_project", lambda rt, user, project, now, **kwargs: items)
     monkeypatch.setattr(consolidate, "_turns", lambda *a: [])
     monkeypatch.setattr(consolidate, "_tree", lambda rt, user: ({}, {}))
     monkeypatch.setattr(consolidate, "_place", lambda *a: 0)
@@ -276,3 +276,23 @@ def test_merges_of_says_what_was_folded_into_a_conversation_and_what_it_was_fold
     assert consolidate.merges_of(rt, user, "old1")["into"]["key"] == r["key"]
     consolidate.undo(rt, user, r["id"])
     assert consolidate.merges_of(rt, user, "old1") == {"into": None, "from": []}
+
+
+def test_whole_category_merge_includes_old_turns_and_skips_other_categories(rt, user):
+    from tests.test_chats import _run
+    now = datetime.now(timezone.utc)
+    recent, old, outside = 'chat:recent', 'chat:old', 'chat:elsewhere'
+    rt.session.add_all([_run(user, key, 'answer', at, key) for key, at in [
+        (recent, now), (old, now - timedelta(days=800)), (outside, now)]])
+    st = projectsort.state(user)
+    st['of'].update({old:'PGA', recent:'PGA', outside:'Elsewhere'})
+    projectsort.save(user, st)
+    rt.session.flush()
+    planned = [row['key'] for row in consolidate.category_members(rt, user, 'PGA')]
+    assert planned == [recent, old]
+    merged = consolidate.apply_group(rt, user, 'PGA', '汇总', planned + [outside],
+                                     write=lambda *args: 'summary', all_dates=True)
+    assert [m['key'] for m in consolidate.merges_of(rt, user, merged['key'])['from']] == planned
+    assert set(user.preferences['archived_chats']) == set(planned)
+    consolidate.undo(rt, user, merged['id'])
+    assert user.preferences['archived_chats'] == [merged['key']]

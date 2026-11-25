@@ -1,0 +1,1 @@
+`arxiv-2604.10809.html` is a public HTML snapshot fetched from https://arxiv.org/abs/2604.10809 on 2026-11-18. Used only as an offline regression fixture for selecting title/abstract and excluding arXiv metadata and service UI. Tests block all subresource requests and make no model calls.

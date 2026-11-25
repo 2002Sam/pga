@@ -49,3 +49,52 @@ document.addEventListener("click", async e => {
     } catch (err) { toast(err.message); }
   } else if (img.src) modal(`<img class="zoomimg" src="${esc(img.src)}" alt="">`);
 });
+
+// An attachment in an embedded conversation uses the whole PGA window.
+(() => {
+  const selector = '.att img, .thumbs img, .history-hover img, .pd-gallery img, .mb.img img';
+  let preview;
+  function clear() { preview?.remove(); preview = null; }
+  function imageHost(img) {
+    let host = window, {left,top,right,bottom} = img.getBoundingClientRect();
+    while (host !== host.parent) {
+      const frame = host.frameElement;
+      if (!frame) break;
+      const rect = frame.getBoundingClientRect();
+      left += rect.left; right += rect.left; top += rect.top; bottom += rect.top;
+      host = host.parent;
+    }
+    return {host,left,right,top,bottom};
+  }
+  document.addEventListener('pointerover', e => {
+    const img = e.target.closest?.(selector);
+    if (!img || e.buttons || e.pointerType === 'touch' || !img.src) return;
+    clear();
+    const {host,left,right,top,bottom} = imageHost(img);
+    preview = host.document.createElement('img');
+    preview.className = 'attachment-hover'; preview.alt = ''; preview.src = img.currentSrc || img.src;
+    host.document.body.append(preview);
+    const width = preview.offsetWidth;
+    preview.style.left = Math.max(4,Math.min(left,host.innerWidth-width-4))+'px';
+    if (top >= host.innerHeight-bottom) preview.style.bottom = host.innerHeight-top+4+'px';
+    else preview.style.top = bottom+4+'px';
+  });
+  document.addEventListener('pointerout', e=>{if (e.target.closest?.(selector)) clear();});
+  window.addEventListener('pointerdown', clear, true);
+  document.addEventListener('scroll', clear, true);
+  window.addEventListener('pagehide', clear);
+  document.addEventListener('click', e=>{
+    const img=e.target.closest?.(selector);
+    if (!img?.src) return;
+    e.preventDefault(); e.stopImmediatePropagation(); clear();
+    const doc=imageHost(img).host.document;
+    const dialog=doc.createElement('dialog');
+    dialog.className='attachment-viewer modal';
+    const photo=doc.createElement('img'); photo.src=img.currentSrc || img.src; photo.alt=img.alt;
+    const close=doc.createElement('button'); close.type='button'; close.textContent='×'; close.setAttribute('aria-label',L('关闭大图','Close image'));
+    dialog.append(photo,close); doc.body.append(dialog);
+    dialog.addEventListener('click',()=>dialog.close());
+    dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+    dialog.showModal();
+  },true);
+})();

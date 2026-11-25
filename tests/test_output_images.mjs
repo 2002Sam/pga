@@ -31,7 +31,7 @@ test('generated gallery uses the source of each step, deduplicates and leaves re
 const esc = value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 function setup(api = async () => ({kind: 'image', url: '/v1/file-preview/test'})) {
   let renderer;
-  const ctx = vm.createContext({esc, L: x => x, S: {uid: 'user', chat: 'current'}, api,
+  const ctx = vm.createContext({esc, L: x => x, S: {uid: 'user', chat: 'current'}, api, window: {addEventListener() {}},
     marked: {use: x => {renderer = x.renderer;}},
     MutationObserver: class {observe() {}}, document: {body: {nodeType: 1, matches: () => false, querySelectorAll: () => []}, addEventListener() {}}});
   vm.runInContext(core.slice(core.indexOf('function localFileLink('), core.indexOf('const md =')), ctx);
@@ -60,6 +60,13 @@ test('remote and base64 pictures display; unsafe schemes and attributes cannot e
   assert.match(renderer.image('data:image/png;base64,AA==', '', 'cat'), /src="data:image/);
   assert.equal(renderer.image('javascript:alert(1)', '', 'bad'), 'bad');
   assert.match(renderer.image('/tmp/a.png', '', '" onerror="evil'), /&quot; onerror=&quot;/);
+});
+test('video links from a conversation resolve as files without embedding a player into the message', () => {
+  const {renderer} = setup();
+  for (const path of ['推广片.MP4', './录屏.webm', 'exports/clip.m4v', 'file:///tmp/clip.mov', 'sandbox:/mnt/data/clip.mp4']) {
+    assert.match(renderer.link(path, '', '打开视频'), /<a [^>]*data-local-file=/);
+  }
+  assert.equal(renderer.link('https://media.example/clip.mp4', '', '打开视频'), false);
 });
 test('same conversation shares requests; different source conversations resolve separately', async () => {
   const calls = [];

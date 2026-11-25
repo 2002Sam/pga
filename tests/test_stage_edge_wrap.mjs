@@ -28,11 +28,13 @@ test('map wheel and arrow navigation stop at the first and last window',()=>{
  c.stStep(1);assert.equal(c.ST.focus,'b');c.stStep(10);assert.equal(c.ST.focus,'c');
  c.stStep(1);assert.equal(c.ST.focus,'c');assert.equal(shown.length,2);
 });
-test('dragging extends the canvas and retains blank space when direction reverses',()=>{
- const arena={scrollLeft:5,clientWidth:1000},c={ST:{pan:{sl:5,x:100}},$:()=>arena,stMapView(){},stRender(){},stGrow(){}};
+test('dragging stops at the first page on the left, no blank grows there; past the right end it still extends',()=>{
+ let renders=0;
+ const arena={scrollLeft:5,clientWidth:1000},c={ST:{pan:{sl:5,x:100}},$:()=>arena,stMapView(){},stRender(){renders++;},stGrow(){}};
  vm.runInNewContext(src.slice(src.indexOf('function stScrollTo('),src.indexOf('function stPanStart('))+src.slice(src.indexOf('function stPanApply('),src.indexOf('function stPanEnd(')),c);
- c.stPanApply(150);assert.equal(arena.scrollLeft,955);assert.equal(c.ST.spaceLeft,1000);
- c.stPanApply(140);assert.equal(arena.scrollLeft,965);assert.equal(c.ST.spaceLeft,1000);
+ c.stPanApply(150);assert.equal(arena.scrollLeft,0);assert.equal(c.ST.spaceLeft,undefined);
+ c.stPanApply(4000);assert.equal(arena.scrollLeft,0,'however far you pull');assert.equal(renders,0,'nothing is re-laid out to make room');
+ c.stPanApply(90);assert.equal(arena.scrollLeft,15,'and it comes straight back when you reverse');
  c.ST.pan={sl:9995,x:100};c.stPanApply(50);assert.equal(arena.scrollLeft,10045);assert.equal(c.ST.spaceRight,11045);
  c.stPanApply(60);assert.equal(arena.scrollLeft,10035);assert.equal(c.ST.spaceRight,11045);
 });
@@ -42,4 +44,24 @@ test('trackpad burst accumulates fractional deltas into one frame and yields to 
  assert.equal(h.a.scrollLeft,100);h.flush();assert.equal(h.a.scrollLeft,125);
  h.raw(20);h.a.scrollLeft=700;h.flush();assert.equal(h.a.scrollLeft,700);
  h.raw(-.5);h.flush();assert.equal(h.a.scrollLeft,699.5);
+});
+test('small trackpad deltas carry across paints when the browser rounds scrollLeft',()=>{
+ const h=setup(100);h.a.scrollTo=({left})=>{h.a.scrollLeft=Math.round(left)};
+ for(let i=0;i<8;i++)h.wheel(.25);
+ assert.equal(h.a.scrollLeft,102);h.a.scrollLeft=101;h.wheel(-1);assert.equal(h.a.scrollLeft,100);
+});
+test('dragging within the existing canvas never rewrites its layer widths',()=>{
+ let grows=0;const arena={scrollLeft:0,clientWidth:500,scrollWidth:2000};
+ const c={ST:{},$:()=>arena,stGrow(){grows++}};
+ vm.runInNewContext(src.slice(src.indexOf('function stScrollTo('),src.indexOf('function stPanStart(')),c);
+ for(let x=0;x<=1500;x+=5)c.stScrollTo(x);
+ assert.equal(grows,0);assert.equal(arena.scrollLeft,1500);
+ c.stScrollTo(1510);assert.equal(grows,1);assert.equal(c.ST.spaceRight,2010);
+});
+test('blank once pulled out on the left is gone: not laid out, not saved, and a saved page scrolls to the same pages',()=>{
+ const stage=src.slice(src.indexOf('function stLayout()'),src.indexOf('/* ------------------------------------------------ drawing */'));
+ assert.doesNotMatch(stage,/spaceLeft/);assert.doesNotMatch(src,/spaceLeft:/);
+ const pages=fs.readFileSync(new URL('../src/pga/web/app-pages.js',import.meta.url),'utf8');
+ assert.doesNotMatch(pages,/ST\.spaceLeft/);
+ assert.match(pages,/Math\.max\(0, \(v\.sl \|\| 0\) - \(v\.spaceLeft \|\| 0\)\)/);
 });

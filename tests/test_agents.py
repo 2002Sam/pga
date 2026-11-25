@@ -134,6 +134,151 @@ def test_api_config_status_background_run_and_history(session_factory, policy, p
         assert c.post(f"/v1/users/{uid}/agents/run", json={"workflow": "nope", "prompt": "x"}).status_code == 422
 
 
+def _agent_test_client(monkeypatch, session_factory, policy, provider, backend, adapter, agent="probe"):
+    from pga.agents import pool as ap
+
+    class FakePool:
+        def __init__(self, rt):
+            self.cfg = {"agents": {agent: {"max_concurrent": 1}}}
+            self.adapters = {agent: adapter}
+
+    monkeypatch.setattr(ap, "AgentPool", FakePool)
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    return TestClient(app), agent
+
+
+def test_agent_test_passes_selected_model_and_effort_without_creating_a_chat(monkeypatch, session_factory, policy, provider, backend):
+    from pga.agents import AgentResult
+
+    seen = []
+
+    class Adapter:
+        type = "codex_local"
+        def available(self): return True, "available"
+        def run(self, task):
+            seen.append(task)
+            return AgentResult(ok=True, text="2 + 2 = 4.", model=task.meta["model"], data={"via": "test"})
+
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend, Adapter())
+    with client:
+        result = client.post("/v1/agents/test", json={"agent": name, "model": "model-exact", "effort": "high", "timeout_s": 12}).json()
+    task = seen[0]
+    assert result["ok"] and result["status"] == "SUCCEEDED" and result["reply"] == "2 + 2 = 4."
+    assert result["model"] == "model-exact" and result["model_confirmed"] is True and result["effort"] == "high"
+    assert task.meta == {"model": "model-exact", "effort": "high"}
+    assert abs(task.timeout_s - 12) < 0.01 and task.max_turns == 1 and task.permissions == "read_only"
+    assert task.workspace is None and "conversation" not in task.meta
+
+
+def test_agent_test_treats_empty_model_and_effort_as_default_and_resolves_llm_model(monkeypatch, session_factory, policy, provider, backend):
+    from types import SimpleNamespace
+    from pga.agents.adapters import LLM
+
+    # The frontend represents implicit choices as empty strings. Resolve the actual current tier
+    # model and send it explicitly so the probe cannot route to a different tier/model.
+    rt = SimpleNamespace(provider=provider,
+                         router=SimpleNamespace(provider=provider, model_for=lambda tier: "deepseek-chat"))
+    adapter = LLM("probe", {"tier": 2, "max_concurrent": 1}, rt)
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend, adapter)
+    with client:
+        response = client.post("/v1/agents/test", json={"agent": name, "model": "", "effort": ""})
+    result = response.json()
+    assert response.status_code == 200 and result["ok"]
+    assert result["requested_model"] == "deepseek-chat" and result["model"] == "deepseek-chat"
+    assert result["model_confirmed"] is True and result["effort"] is None
+
+
+def test_agent_test_accepts_provider_reported_llm_alias_without_claiming_confirmation(monkeypatch, session_factory, policy, provider, backend):
+    from pga.agents import AgentResult
+
+    class Adapter:
+        type = "llm"
+        def available(self): return True, "available"
+        def run(self, task):
+            assert task.meta["model"] == "deepseek-chat"
+            return AgentResult(ok=True, text="2 + 2 = 4.", model="deepseek-flash")
+
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend, Adapter())
+    with client:
+        result = client.post("/v1/agents/test", json={"agent": name, "model": "deepseek-chat"}).json()
+    assert result["ok"] and result["status"] == "SUCCEEDED"
+    assert result["model"] == "deepseek-flash" and result["requested_model"] == "deepseek-chat"
+    assert result["model_confirmed"] is False
+
+
+def test_agent_test_provider_uses_request_deadline_without_retries_or_shared_client_mutation():
+    from pga.api.app import _agent_test_provider
+    from pga.llm.router import LLMError, OpenAICompatibleProvider
+
+    class Response:
+        status_code = 503
+        text = "temporary provider failure"
+
+    class Client:
+        def __init__(self): self.calls = []
+        def post(self, path, *, json, timeout):
+            self.calls.append((path, timeout))
+            return Response()
+
+    shared_client = Client()
+    shared = OpenAICompatibleProvider("deepseek", None, "https://example.test", client=shared_client)
+    probe = _agent_test_provider(shared, 3.25)
+    assert probe is not shared and probe._client is not shared_client and probe.RETRIES == 0
+    assert shared.RETRIES == 3 and shared._client is shared_client
+    with pytest.raises(LLMError, match="HTTP 503"):
+        probe.complete(model="deepseek-chat", system="", messages=[{"role": "user", "content": "test"}],
+                       max_tokens=8, temperature=None)
+    assert shared_client.calls == [("/chat/completions", 3.25)]
+
+
+def test_agent_test_reports_wrong_model_and_empty_answers_as_failures(monkeypatch, session_factory, policy, provider, backend):
+    from pga.agents import AgentResult
+
+    class Adapter:
+        type = "codex_local"
+        def __init__(self, result): self.result = result
+        def available(self): return True, "available"
+        def run(self, task): return self.result
+
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend,
+                                      Adapter(AgentResult(ok=True, text="A real answer.", model="other-model")))
+    with client:
+        wrong = client.post("/v1/agents/test", json={"agent": name, "model": "chosen-model"}).json()
+    assert not wrong["ok"] and wrong["status"] == "FAILED" and "other-model" in wrong["error"]
+
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend,
+                                      Adapter(AgentResult(ok=True, text="  ", model="chosen-model")))
+    with client:
+        empty = client.post("/v1/agents/test", json={"agent": name, "model": "chosen-model"}).json()
+    assert not empty["ok"] and empty["status"] == "FAILED" and "empty answer" in empty["error"]
+
+
+def test_agent_test_timeout_is_bounded_and_keeps_capacity_until_worker_exits(monkeypatch, session_factory, policy, provider, backend):
+    import threading
+    from pga.agents import AgentResult
+
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+
+    class Adapter:
+        type = "codex_local"
+        def available(self): return True, "available"
+        def run(self, task):
+            started.set()
+            release.wait(3)
+            finished.set()
+            return AgentResult(ok=True, text="done", model=task.meta.get("model"))
+
+    client, name = _agent_test_client(monkeypatch, session_factory, policy, provider, backend, Adapter())
+    with client:
+        timed_out = client.post("/v1/agents/test", json={"agent": name, "model": "chosen-model", "timeout_s": 1}).json()
+        assert started.is_set() and timed_out["status"] == "TIMEOUT" and not timed_out["ok"]
+        busy = client.post("/v1/agents/test", json={"agent": name, "model": "other-model", "timeout_s": 1}).json()
+        assert busy["busy"] and busy["status"] == "BUSY"
+    release.set()
+    assert finished.wait(2), "timed-out adapter worker should eventually release its bounded slot"
+
+
 def test_the_live_board_shows_output_while_an_agent_works(rt, user, provider, tmp_path):
     """Lines appear on the live board as the agent prints them, before it finishes."""
     import threading

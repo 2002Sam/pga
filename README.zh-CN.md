@@ -36,7 +36,8 @@ PGA 把项目、对话、文件和多个 AI 接到同一张台面上。你可以
 
 - **横向浏览**：`Shift` + 滚轮移动台面；点击小地图定位窗口。
 - **收起与恢复**：折叠单个窗口、整个分类或全部窗口。
-- **引用资料**：把文件、笔记和相关对话接到工作窗口，明确要参考什么。
+- **明日计划**：在工作台点「⋯ → 列明日计划」，用一段话描述明天要做的事，生成包含时间、行动步骤和交付结果的项目安排。补充选项可以跳过。[使用教程](明日计划使用教程.md)
+- **引用资料**：把文件、计划和相关对话接到工作窗口，明确要参考什么。
 - **保存页面**：将当前排布存成页面，切换项目时恢复窗口、阅读位置和草稿。页面快照保存在服务端。
 
 <details>
@@ -52,7 +53,7 @@ PGA 把项目、对话、文件和多个 AI 接到同一张台面上。你可以
 
 ![项目管理员：需求写在正文，任务进度显示在右侧](docs/media/screenshots/07-manager.png)
 
-- 连按两次 `Enter` 发送一个段落，`⌘/Ctrl + Enter` 发送整篇草稿。
+- `Enter` 发送光标所在段落，`Shift + Enter` 换行，`⌘/Ctrl + Enter` 发送整篇草稿；点击输入区下方空白即可进入下一段。
 - 从管理员顶部进入知识图谱、项目对话检索和文档视图。
 - 需要已有背景的任务，可引用本分类相关对话的最近记录。
 - 工具执行或请求明显失败时，按备选顺序尝试其他 Agent；这不等于自动判断每个答案是否正确。
@@ -96,6 +97,8 @@ PGA 把项目、对话、文件和多个 AI 接到同一张台面上。你可以
 </details>
 
 **macOS 浮窗**：用 `⌥ + Space` 打开悬浮对话，`⌥ + ⇧ + Space` 在浮窗和工作台之间切换。支持从 Finder 拖入文件。构建方式见 [desktop/README.md](desktop/README.md)。
+
+**Linux 桌面与全栈部署**：提供 Linux 本机一键安装（`systemd` + 独立桌面窗口 `pga-desktop`）与零依赖 Docker 全栈部署，详见 [deploy/linux/README.md](deploy/linux/README.md) 与 [desktop-linux/README.md](desktop-linux/README.md)。
 
 <a id="quick-start"></a>
 
@@ -191,8 +194,8 @@ PGA 负责组织协作，执行能力来自你连接的 Agent 和模型。账号
 - 数据保存在自己的机器或服务器上；调用远程模型、搜索或 Agent 时，相关内容会交给对应服务。网页还会加载部分 CDN 资源。
 - 项目上下文限定与执行器的文件权限是两层机制。项目范围限制不等同于磁盘沙箱；请按任务选择只读、自动或完全批准权限。
 - 页面恢复的是排布、阅读位置和草稿，不是回滚数据库或已执行的文件操作。
-- 安装器支持 macOS / Linux，日常验证以 macOS 为主。原生浮窗仅支持 macOS；Windows 尚未验证。
-- 当前发布的是源码安装方式。根目录 Compose 只提供基础设施，不是完整应用的一键 Docker 部署；DMG 安装包与访问鉴权仍在计划中。
+- 支持 macOS 与 Linux（提供 `deploy/linux/` 一键本机安装与 Docker 全栈部署，以及 `desktop-linux/` 独立桌面启动器）。原生悬浮窗仅支持 macOS；Windows 尚未验证。
+- 当前支持源码安装及 `deploy/linux/docker-compose.yml` 全栈容器部署；macOS DMG 安装包与访问鉴权仍在计划中。
 
 <a id="development"></a>
 
@@ -210,6 +213,8 @@ src/pga/
 ├── api/                 # HTTP API
 └── web/                 # 网页界面与魔女猫图标
 desktop/                 # macOS 浮窗
+desktop-linux/           # Linux 独立桌面启动器
+deploy/linux/            # Linux 一键安装与 Docker 全栈部署
 migrations/              # 数据库迁移
 tests/                   # Python 与 JavaScript 测试
 scripts/                 # 安装、图标生成和 README 截图

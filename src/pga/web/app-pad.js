@@ -1,4 +1,4 @@
-/* PGA app · 常驻笔记, a notepad that never changes under you — a page of the stage (app-stage.js).
+/* PGA app · 常驻计划, a notepad that never changes under you — a page of the stage (app-stage.js).
 
    - Write freely; a blank line (two Enters) starts a new idea.
    - When an idea is ready, ⌘↵ or the button hands it to an agent: it starts a conversation of its own, which opens in
@@ -44,7 +44,7 @@ function padMount() {
   let hold = $("#padhold"); if (!hold) { document.body.insertAdjacentHTML("beforeend", `<div id="padhold" hidden></div>`); hold = $("#padhold"); }
   const box = document.querySelector(".stpadbox");
   (box || hold).insertAdjacentHTML("afterbegin", `<aside class="pad" id="pad"><i class="padgrip" id="padGrip"></i>
-    <div class="padh"><button class="ghost padrail" id="padRail" title="${L("对话列表和导航（⌘⇧S）", "Conversations and navigation (⌘⇧S)")}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><b>${L("笔记", "Notepad")}</b><span class="padst" id="padSt"></span><button class="ghost padfold" id="padFold" title="${L("收起 / 展开笔记", "Fold / unfold the notepad")}">«</button></div>
+    <div class="padh"><button class="ghost padrail" id="padRail" title="${L("对话列表和导航（⌘⇧S）", "Conversations and navigation (⌘⇧S)")}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button><b>${L("计划", "Plans")}</b><button class="sm" data-act="tomorrowplan">${L("列明日计划", "Plan tomorrow")}</button><span class="padst" id="padSt"></span><button class="ghost padfold" id="padFold" title="${L("收起 / 展开计划", "Fold / unfold the plan page")}">«</button></div>
     <div class="pade"><div class="padbg" id="padBg" aria-hidden="true"></div><textarea id="padText" spellcheck="false" placeholder="${L("随手写。空一行就是一个新想法。\n\n写完一段，按 ⌘↵ 或下面的按钮交给 agent，回答和它做的事出现在左边的画布上。\n\n这一页原样保存成一个文件，PGA 不会改它。", "Write freely. A blank line starts a new idea.\n\nWhen one is ready, ⌘↵ or the button below hands it to an agent; its answer and what it did appear on the canvas on the left.\n\nThis page is kept verbatim as a file; PGA never changes it.")}"></textarea></div>
     <div class="padf"><select id="padAgent"></select><button class="sm primary" id="padSend" title="${L("把光标所在的这个想法交给 agent（⌘↵）", "Hand the idea under the cursor to an agent (⌘↵)")}">${L("交给 agent", "Hand to agent")} ▸</button><button class="sm ghost" id="padAll" title="${L("每个还没交出的想法各交给一个 agent，同时做", "Each idea not yet handed out goes to its own agent, at the same time")}">${L("没交出的都交出去", "Hand out the rest")}</button></div>
     <div class="padl" id="padList"></div></aside>`);
@@ -74,7 +74,7 @@ function padSave() {
   clearTimeout(PAD.saveT); padStatus(L("…", "…"));
   PAD.saveT = setTimeout(async () => {
     try { const r = await api(`/v1/users/${S.uid}/pad`, { method: "PUT", body: { text: PAD.text, rev: PAD.rev } }); PAD.rev = r.rev; PAD.saveT = null; padStatus(L("已保存", "Saved")); }
-    catch (err) { PAD.saveT = null; if (/another window/.test(err.message)) { toast(L("笔记在另一个窗口改过了：已载入那边的版本（这边刚写的在 history/ 里没有，复制一下再刷新）", "The notepad changed in another window: loaded that version")); padLoad(); } else padStatus(err.message); }
+    catch (err) { PAD.saveT = null; if (/another window/.test(err.message)) { toast(L("计划在另一个窗口改过了：已载入那边的版本（这边刚写的在 history/ 里没有，复制一下再刷新）", "The plan page changed in another window: loaded that version")); padLoad(); } else padStatus(err.message); }
   }, 700);
 }
 function padSaveSent() { clearTimeout(PAD.sentT); PAD.sentT = setTimeout(() => api(`/v1/users/${S.uid}/pad`, { method: "PUT", body: { sent: PAD.sent } }).catch(() => {}), 400); }

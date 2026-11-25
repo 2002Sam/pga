@@ -21,11 +21,11 @@ test('Branch delegates to the existing conversation frame',async()=>{
 });
 
 test('reloading a branch uses its own identity even when snapshot key is stale', () => {
-  const frame = { addEventListener() {} };
-  const context = vm.createContext({URLSearchParams, ST:{}, S:{}, AS_UID:null, Q:new URLSearchParams()});
+  const frame = { addEventListener() {}, hasAttribute: () => true };
+  const context = vm.createContext({URLSearchParams, ST:{nodes:[]}, S:{}, AS_UID:null, Q:new URLSearchParams(), clearTimeout(){}, performance:{now:()=>0}});
   vm.runInContext(source.slice(source.indexOf('function stFrame('), source.indexOf('function stHold(')), context);
   const n = {key:'chat:source', branchKey:'chat:fork'};
-  context.stFrame(n, {querySelector:()=>frame});
+  context.stFrame(n, {querySelector:selector=>selector==='iframe'?frame:null});
   assert.equal(new URLSearchParams(frame.src.slice(2)).get('c'), 'chat:fork');
   assert.equal(n.key, 'chat:fork');
 });

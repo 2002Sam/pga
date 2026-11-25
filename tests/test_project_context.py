@@ -109,14 +109,40 @@ def test_category_map_and_manager(session_factory, session, user, policy, provid
                         'chat_titles': {'chat:root': '缓存总设计'}}
     session.commit()
     captured = []
-    monkeypatch.setattr(AgentRouter, 'ask', lambda self, u, text, **kw: captured.append(kw) or {'ok': True, 'text': 'done'})
+    # The manager now dispatches server-owned tasks; inspect the category context
+    # at planning time and avoid starting a background worker after test teardown.
+    from pga import manager_dispatch
+    async def plan(text, *, rt, user, project, reply_target=None):
+        assert reply_target is None
+        captured.append({'tail': P.brief(rt, user, project)})
+        return {'tasks':[{'title':'缓存进展','text':text,'agent':'codex','context':''}]}
+    monkeypatch.setattr(manager_dispatch, 'plan', plan)
+    workers = []
+    class Worker:
+        def __init__(self, target, args, **kwargs): self.request = args[0]
+        def start(self): workers.append(self.request)
+    monkeypatch.setattr('pga.api.app.threading.Thread', Worker)
     app = create_app(session_factory=session_factory, runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
     base = f'/v1/users/{user.id}'
     with TestClient(app) as c:
+        overview = P.overview
+        monkeypatch.setattr(P, 'overview', lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('manager-only must skip overview')))
+        fast = c.post(base + '/project-map', json={'project': 'PGA', 'manager_only': True,
+            'shown': ['chat:wired'], 'refs': [['chat:root', 'chat:wired']]})
+        assert fast.status_code == 200, fast.text
+        manager_only = fast.json()
+        assert set(manager_only) == {'project', 'manager', 'defaults'}
+        assert manager_only['project'] == 'PGA' and manager_only['manager'].startswith(P.MANAGER)
+        session.refresh(user)
+        assert user.preferences['project_managers'][manager_only['manager']] == 'PGA'
+        assert not user.preferences.get('chat_refs'), 'the lookup path must not apply save_refs side effects'
+        assert c.post(base + '/project-map', json={'project': 'nope', 'manager_only': True}).status_code == 422
+        monkeypatch.setattr(P, 'overview', overview)
+
         r = c.post(base + '/project-map', json={'project': 'PGA', 'shown': ['chat:root', 'chat:wired'], 'refs': [['chat:root', 'chat:wired'], ['chat:paper', 'chat:wired']]})
         assert r.status_code == 200, r.text
         m = r.json()
-        assert {x['key'] for x in m['conversations']} == {'chat:root', 'chat:kid', 'chat:wired'}
+        assert {x['key'] for x in m['conversations']} == {'chat:root', 'chat:kid', 'chat:wired'} | {x['key'] for x in m['defaults'].values()}
         assert {'from': 'chat:root', 'to': 'chat:kid', 'kind': 'branch'} in m['edges']
         assert {'from': 'chat:root', 'to': 'chat:wired', 'kind': 'ref'} in m['edges']
         assert m['outside'] == []
@@ -127,6 +153,10 @@ def test_category_map_and_manager(session_factory, session, user, policy, provid
         assert c.post(base + '/project-map', json={'project': 'nope'}).status_code == 422
         response = c.post(base + '/agents/ask', json={'conversation': m['manager'], 'text': '缓存进展如何', 'agent': 'codex'})
         assert response.status_code == 200, response.text
+        assert workers[0]['scope'] == 'PGA'
+        from pga.qa_pool import summary_of
+        assert summary_of(workers[0]['conversation']) == m['defaults']['qa']['key']
+        workers[0]['_execution_slot'][1]()
         tail = captured[0]['tail']
         assert '(#pga-open=chat:root)' in tail and '缓存总设计' in tail and '<category_map>' in tail
         assert '别的分类' not in tail
@@ -182,3 +212,15 @@ def test_manager_map_excludes_other_category_references(rt, user, session):
     assert not result['outside']
     assert not result['edges']
     assert '外部秘密' not in P.brief(rt, user, 'PGA')
+
+
+def test_manager_records_direct_category_exchanges(rt, user, session):
+    row = seed(session, user, 'chat:direct', 'PGA', '直接对话的回复')
+    seed(session, user, 'chat:private', '论文思考', '不可见')
+    session.commit()
+    records = P.activity(rt, user, 'PGA')
+    assert len(records) == 1
+    assert records[0]['id'] == str(row.id)
+    assert records[0]['text'] == '缓存设计'
+    assert records[0]['answer'] == '直接对话的回复'
+    assert P.activity(rt, user, 'PGA') == records

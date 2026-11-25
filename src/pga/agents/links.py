@@ -31,11 +31,13 @@ import json
 import logging
 import os
 import queue
+import signal
 import subprocess
 import tempfile
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -61,6 +63,7 @@ FIX_EN = {
     "claude_local": "Run `claude setup-token` in a terminal and paste the token into the Claude card's settings.",
     "codebuddy_local": "Run the CodeBuddy CLI bundled with WorkBuddy in a terminal and type /login, or set CODEBUDDY_API_KEY.",
     "hermes_local": "Check that Hermes is installed and signed in (`hermes status`).",
+    "gemini_local": "Install official Gemini CLI (`npm install -g @google/gemini-cli`), then set GEMINI_API_KEY in Settings → Models & API or sign in via `gemini`.",
     "llm": "Check the API key in Settings → Models & API.",
 }
 
@@ -75,6 +78,12 @@ class RpcError(LinkDown):
 
 class RpcRejected(RpcError):
     """A JSON-RPC error reply, distinct from a lost transport acknowledgement."""
+
+
+def pump_lines(stream, emit: Callable[[str], None]) -> None:
+    """Forward a stream incrementally without building a throwaway list of results."""
+    for line in stream:
+        emit(line)
 
 
 def _now() -> datetime:
@@ -274,6 +283,8 @@ def probe(name: str, ad: "Adapter", cfg: dict, rt: Any) -> Check:
             return _probe_codebuddy(name, ad)
         if t == "hermes_local":
             return _probe_hermes(ad, cfg)
+        if t == "gemini_local":
+            return _probe_gemini(ad, cfg)
         if t == "http":
             return _probe_http(cfg)
         ok, detail = ad.available()
@@ -360,9 +371,15 @@ def _codex_quota(lim: dict) -> dict | None:
 
 
 def _probe_codex(ad: "Adapter") -> Check:
+    q = None
     try:
-        srv = CodexServer.get(ad)
-        acct = srv.rpc.request("account/read", {"refreshToken": True}, 40)     # also keeps the login fresh
+        srv = CodexServer.get(ad, touch=False)
+        with srv.protected_operation():
+            acct = srv.rpc.request("account/read", {"refreshToken": True}, 40)     # also keeps the login fresh
+            try:
+                q = _codex_quota(srv.rpc.request("account/rateLimits/read", None, 30))
+            except LinkDown:
+                pass
     except LinkDown as exc:
         ok, detail = ad.available()
         if not ok:
@@ -377,13 +394,8 @@ def _probe_codex(ad: "Adapter") -> Check:
     a = acct.get("account")
     if not a:
         return Check("login", "app-server", "ChatGPT 未登录：打开 ChatGPT 应用登录，或在终端运行 codex login")
-    q = None
-    try:
-        q = _codex_quota(srv.rpc.request("account/rateLimits/read", None, 30))
-        if q and (ad.config.get("env") or {}).get("CODEX_HOME"):    # another ChatGPT account: never shared with the first
-            q["source"] = f"codex_live:{ad.name}"
-    except LinkDown:
-        pass
+    if q and (ad.config.get("env") or {}).get("CODEX_HOME"):    # another ChatGPT account: never shared with the first
+        q["source"] = f"codex_live:{ad.name}"
     plan = a.get("planType") or ""
     who = a.get("email") or ""                                     # which account, once there is more than one
     return Check("online", "app-server", f"{'ChatGPT' if a.get('type') == 'chatgpt' else a.get('type', '')}{' · ' + plan if plan else ''}"
@@ -461,6 +473,19 @@ def _probe_hermes(ad: "Adapter", cfg: dict) -> Check:
     return Check("online" if ok else "absent", "cli", f"命令行 · {detail}{note}")
 
 
+def _probe_gemini(ad: "Adapter", cfg: dict) -> Check:
+    ok, detail = ad.available()
+    if not ok:
+        return Check("absent", "cli", detail)
+    env = ad.env()
+    if env.get("GEMINI_API_KEY"):
+        return Check("online", "cli", f"Gemini CLI（{detail}） · GEMINI_API_KEY")
+    gemini_dir = Path.home() / ".gemini"
+    if any((gemini_dir / name).exists() for name in ("oauth_creds.json", "google_accounts.json", "settings.json")):
+        return Check("online", "cli", f"Gemini CLI（{detail}） · 本机 Google 登录")
+    return Check("login", "cli", f"Gemini CLI 已安装（{detail}），需要设置 GEMINI_API_KEY 或在终端运行 gemini 登录")
+
+
 def _probe_http(cfg: dict) -> Check:
     import httpx
     url = str(cfg.get("url") or "")
@@ -481,15 +506,23 @@ class RpcProcess:
                  on_request: Callable[[dict], dict]):
         try:
             self.p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                      text=True, bufsize=1, env=env, cwd=cwd)
+                                      text=True, bufsize=1, env=env, cwd=cwd,
+                                      start_new_session=(os.name == "posix"))
         except OSError as exc:
             raise LinkDown(f"cannot start {argv[0]}: {exc}") from exc
         self.on_notify, self.on_request = on_notify, on_request
         self._id, self._pending = 0, {}
         self._lock, self._wlock = threading.Lock(), threading.Lock()
+        self._close_lock = threading.Lock()
+        self._closed = False
         self.err: collections.deque[str] = collections.deque(maxlen=40)
-        threading.Thread(target=self._read, daemon=True, name="pga-rpc-out").start()
-        threading.Thread(target=lambda: [self.err.append(x) for x in self.p.stderr], daemon=True, name="pga-rpc-err").start()
+        self._readers = [threading.Thread(target=self._read, daemon=True, name="pga-rpc-out"),
+                         threading.Thread(target=self._read_stderr, daemon=True, name="pga-rpc-err")]
+        for thread in self._readers:
+            thread.start()
+
+    def _read_stderr(self) -> None:
+        pump_lines(self.p.stderr, self.err.append)
 
     def _read(self) -> None:
         for line in self.p.stdout:
@@ -553,12 +586,44 @@ class RpcProcess:
         return self.p.poll() is None
 
     def close(self) -> None:
-        if self.p.poll() is None:
-            self.p.terminate()
+        with self._close_lock:
+            if self._closed:
+                return
+            self._closed = True
+            if os.name == "posix":
+                # app-server and its MCP helpers are in a private session created by this Popen.
+                # Terminate only that process group; never match/kill generic node helpers globally.
+                try:
+                    os.killpg(self.p.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            elif self.p.poll() is None:
+                self.p.terminate()
             try:
                 self.p.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.p.kill()
+                if os.name == "posix":
+                    try:
+                        os.killpg(self.p.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                else:
+                    self.p.kill()
+                self.p.wait(timeout=5)
+            # The leader may exit while a helper in the private group ignores SIGTERM.
+            if os.name == "posix":
+                try:
+                    os.killpg(self.p.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            for thread in self._readers:
+                thread.join(timeout=1)
+            for stream in (self.p.stdin, self.p.stdout, self.p.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
 
 
 def _codex_answer(m: dict) -> dict:
@@ -576,27 +641,41 @@ def _codex_answer(m: dict) -> dict:
 class CodexServer:
     _ALL: dict[str, "CodexServer"] = {}
     _ALL_LOCK = threading.Lock()
+    IDLE_S = IDLE_S
 
     def __init__(self, name: str, argv: list[str], env: dict):
         self.name, self.argv, self.env = name, argv, env
         self.rpc: RpcProcess | None = None
         self.loaded: set[str] = set()
+        self.thread_defaults: dict[str, dict] = {}
         self.listeners: dict[str, queue.Queue] = {}
         self.approval_tasks = {}
         self.lock = threading.Lock()
         self.started_at = 0.0
+        self.last_used = time.monotonic()
+        self.active_turns = 0
+        self.active_ops = 0
+        self.closing = False
 
     @classmethod
-    def get(cls, ad: "Adapter", full: bool = False) -> "CodexServer":
+    def get(cls, ad: "Adapter", full: bool = False, touch: bool = True) -> "CodexServer":
         """One app server per agent (and a second one, with commands allowed, for projects you opened up)."""
         argv = ad.server_command(full=full) if full else ad.server_command()
         key = ad.name + (":full" if full else "")
         with cls._ALL_LOCK:
             s = cls._ALL.get(key)
-            if s is None or s.argv != argv:
+            if s and s.argv != argv and (s.active_turns or s.active_ops):
+                # A settings change must not kill a model turn or pending approval.
+                if touch:
+                    s.last_used = time.monotonic()
+                return s
+            if s is None or s.argv != argv or s.closing:
                 if s:
+                    s.closing = True
                     s.close()
                 s = cls._ALL[key] = cls(ad.name, argv, ad.env())
+            if touch:
+                s.last_used = time.monotonic()
         s.ensure()
         return s
 
@@ -613,23 +692,71 @@ class CodexServer:
     @classmethod
     def close_all(cls) -> None:
         with cls._ALL_LOCK:
-            for s in cls._ALL.values():
-                s.close()
+            servers = list(cls._ALL.values())
+            for s in servers:
+                s.closing = True
             cls._ALL.clear()
+        for s in servers:
+            s.close()
+
+    @classmethod
+    def reap(cls, idle_s: float = IDLE_S) -> int:
+        """Close idle app-servers; active turns (including approval/model waits) are never reaped."""
+        now = time.monotonic()
+        with cls._ALL_LOCK:
+            stale = [ (key, s) for key, s in cls._ALL.items()
+                      if not s.active_turns and not s.active_ops and now - s.last_used >= idle_s ]
+            for key, s in stale:
+                s.closing = True
+                cls._ALL.pop(key, None)
+        for _, server in stale:
+            server.close()
+        return len(stale)
+
+    @contextmanager
+    def active_turn(self):
+        with self._ALL_LOCK:
+            if self.closing:
+                raise LinkDown("app-server is closing")
+            self.active_turns += 1
+            self.last_used = time.monotonic()
+        try:
+            yield
+        finally:
+            with self._ALL_LOCK:
+                self.active_turns = max(0, self.active_turns - 1)
+                self.last_used = time.monotonic()
+
+    @contextmanager
+    def protected_operation(self):
+        """Keep an in-flight maintenance RPC alive without counting it as user activity."""
+        with self._ALL_LOCK:
+            if self.closing:
+                raise LinkDown("app-server is closing")
+            self.active_ops += 1
+        try:
+            yield
+        finally:
+            with self._ALL_LOCK:
+                self.active_ops = max(0, self.active_ops - 1)
 
     def ensure(self) -> None:
-        with self.lock:
-            if self.rpc and self.rpc.alive():
-                return
-            self.loaded.clear()
-            self.rpc = RpcProcess(self.argv, self.env, str(Path.home()), self._notify, self._answer)
-            try:
-                self.rpc.request("initialize", {"clientInfo": {"name": "pga", "title": "PGA", "version": "0.1"}}, 30)
-                self.rpc.notify("initialized")
-            except LinkDown:
-                self.rpc.close()
-                raise
-            self.started_at = time.time()
+        # Protect startup/initialization from a concurrent reap, without treating a
+        # health-check restart as fresh user activity.
+        with self.protected_operation():
+            with self.lock:
+                if self.rpc and self.rpc.alive():
+                    return
+                self.loaded.clear()
+                self.thread_defaults.clear()
+                self.rpc = RpcProcess(self.argv, self.env, str(Path.home()), self._notify, self._answer)
+                try:
+                    self.rpc.request("initialize", {"clientInfo": {"name": "pga", "title": "PGA", "version": "0.1"}}, 30)
+                    self.rpc.notify("initialized")
+                except LinkDown:
+                    self.rpc.close()
+                    raise
+                self.started_at = time.time()
 
     def _answer(self, m: dict) -> dict:
         p = m.get("params") or {}
@@ -654,8 +781,48 @@ class CodexServer:
             q.put(m)
 
     def close(self) -> None:
-        if self.rpc:
-            self.rpc.close()
+        with self.lock:
+            if self.rpc:
+                self.rpc.close()
+
+    def _fork_before(self, checkpoint, params):
+        """Fork through the exact predecessor. Some older servers ignore lastTurnId."""
+        source = checkpoint["thread"]
+        try:
+            turns = self.rpc.request("thread/read", {"threadId": source, "includeTurns": True}, 30)["thread"]["turns"]
+            if checkpoint.get("turn"):
+                index = next((i for i, t in enumerate(turns) if t["id"] == checkpoint["turn"]), None)
+            else:
+                # Older PGA records have a thread ID but no native turn ID. Match both sides
+                # of the exchange uniquely; a repeated exchange stays on the snapshot path.
+                matches = []
+                for i, turn in enumerate(turns):
+                    items = turn.get("items", [])
+                    first = next((item for item in items if item.get("type") == "userMessage"), {})
+                    text = "\n".join(c.get("text", "") for c in first.get("content", []) if c.get("type") == "text")
+                    answer = next((item.get("text") for item in reversed(items) if item.get("type") == "agentMessage"), "")
+                    if answer and answer == checkpoint["answer"] and (text in (checkpoint["prompt"], checkpoint["question"])
+                            or text.startswith(checkpoint["question"] + "\n\n")):
+                        matches.append(i)
+                index = matches[0] if len(matches) == 1 else None
+            if index is None:
+                return None
+            user_input = next((item.get("content") for item in turns[index].get("items", [])
+                               if item.get("type") == "userMessage"), None)
+            if not user_input:
+                return None
+            if index == 0:
+                return None, user_input  # a fresh thread gets the original first input verbatim
+            fork = self.rpc.request("thread/fork", {**params, "threadId": source, "lastTurnId": turns[index-1]["id"]}, 60)
+            child = fork["thread"]
+            if child["id"] == source:
+                return None
+            history = child.get("turns") or self.rpc.request("thread/read", {"threadId": child["id"], "includeTurns": True}, 30)["thread"]["turns"]
+            if [t["id"] for t in history] == [t["id"] for t in turns[:index]]:
+                return child["id"], user_input
+        except (RpcError, KeyError, TypeError) as exc:
+            log.info("Codex historical fork unavailable: %s", exc)
+        return None
 
     def turn(self, ad: "Adapter", task: AgentTask) -> AgentResult:
         """One turn on a thread: the conversation's own thread (kept, resumable) or a fresh ephemeral one."""
@@ -667,12 +834,16 @@ class CodexServer:
         effort = task.meta.get("effort") or ad.config.get("reasoning")
         used_model = None
         tid, fresh = (thread_for(self.name, conv) if conv else None), True
+        fork_input = None
+        defaults = self.thread_defaults.get(tid, {})
         if tid and tid in self.loaded and _SEEN_PERMS.get(f"{self.name}|{conv}") == task.permissions:
             fresh = False
         elif tid:
             try:
-                self.rpc.request("thread/resume", {"threadId": tid, "cwd": cwd, "sandbox": sandbox, "approvalPolicy": "on-request" if task.permissions == AUTO else "never",
+                resumed = self.rpc.request("thread/resume", {"threadId": tid, "cwd": cwd, "sandbox": sandbox, "approvalPolicy": "on-request" if task.permissions == AUTO else "never",
                                                    "excludeTurns": True}, 60)
+                defaults = {k: resumed.get(k) for k in ("reasoningEffort", "model")}
+                self.thread_defaults[tid] = defaults
                 self.loaded.add(tid)
                 fresh = False
             except RpcError as exc:
@@ -685,8 +856,15 @@ class CodexServer:
                 params["developerInstructions"] = task.system.strip()
             if model:
                 params["model"] = str(model)
-            started = self.rpc.request("thread/start", params, 60)
-            tid, used_model = started["thread"]["id"], started.get("model")
+            if conv and task.meta.get("fork_before"):
+                fork_params = {k: v for k, v in params.items() if k != "serviceName"}
+                tid, fork_input = self._fork_before(task.meta["fork_before"], fork_params) or (None, None)
+            if not tid:
+                started = self.rpc.request("thread/start", params, 60)
+                tid, used_model = started["thread"]["id"], started.get("model")
+                defaults = {k: started.get(k) for k in ("reasoningEffort", "model")}
+                if conv:
+                    self.thread_defaults[tid] = defaults
             self.loaded.add(tid)
             if conv:
                 _put("threads", f"{self.name}|{conv}", tid)
@@ -707,12 +885,22 @@ class CodexServer:
                 {"type": "workspaceWrite", "writableRoots": [os.path.abspath(cwd)]}
                 if task.permissions in (AUTO, WORKSPACE_WRITE) else {"type": "readOnly"})
             params = {"threadId": tid, "cwd": cwd, "sandboxPolicy": policy,
-                      "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "input": [{"type": "text", "text": text}]
-                      + [{"type": "localImage", "path": str(p)} for p in task.meta.get("images") or []]}
+                      "approvalPolicy": "on-request" if task.permissions == AUTO else "never", "input": fork_input or (
+                          [{"type": "text", "text": text}] + [{"type": "localImage", "path": str(p)} for p in task.meta.get("images") or []])}
             if model:
                 params["model"] = str(model)
             if effort:
                 params["effort"] = str(effort)
+            recorded_effort = effort or defaults.get("reasoningEffort")
+            if not recorded_effort:
+                from pga.agents.options import codex_defaults
+                _, recorded_effort = codex_defaults()
+            if not recorded_effort and (model or defaults.get("model")):
+                from pga.agents.options import options
+                models = options(self.name, ad, ad.config)["models"]
+                recorded_effort = next((m.get("default_effort") for m in models
+                                        if m["id"] == (model or defaults.get("model"))), None)
+            live.set_extra(lid, "effort", recorded_effort or "default")
             turn_id = self.rpc.request("turn/start", params, 60)["turn"]["id"]
             rpc = self.rpc
             def steer_input(text):
@@ -759,6 +947,8 @@ class CodexServer:
                     item = p["item"]
                     live.step(lid, {"t": "tool", "tool": "Bash", "id": item.get("id"),
                                     "title": " ".join(str(item.get("command") or "").split())[:200]})
+                elif meth == "item/started" and (p.get("item") or {}).get("type") == "fileChange":
+                    live.file_change(lid, p["item"], completed=False)
                 elif meth == "item/commandExecution/outputDelta":
                     live.step_output(lid, str(p.get("itemId") or ""), str(p.get("delta") or ""))
                 elif meth == "item/started" and (p.get("item") or {}).get("type") == "contextCompaction":
@@ -774,9 +964,8 @@ class CodexServer:
                         finals.append(str(item.get("text") or ""))
                         live.append(lid, "\n")
                     elif kind == "fileChange":
-                        live.step(lid, {"t": "tool", "tool": "Edit", "id": item.get("id"), "secs": 0,
-                                        "title": ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200]})
-                        live.append(lid, "→ Edit " + ", ".join(str(c.get("path") or "") for c in item.get("changes") or [] if isinstance(c, dict))[:200] + "\n")
+                        title = live.file_change(lid, item, completed=True)
+                        live.append(lid, "→ Edit " + title + "\n")
                     elif kind == "commandExecution":
                         live.step_done(lid, str(item.get("id") or ""), error=bool(item.get("exitCode")))
                         live.append(lid, f"$ {' '.join(str(item.get('command') or '').split())[:200]}\n")
@@ -784,6 +973,8 @@ class CodexServer:
                         live.step(lid, {"t": "tool", "tool": "WebSearch", "id": item.get("id"), "secs": 0,
                                         "title": str(item.get("query") or "")[:200]})
                         live.append(lid, f"（搜索）{str(item.get('query') or '')[:200]}\n")
+                elif meth == "turn/diff/updated":
+                    live.code_diff(lid, p.get("diff"))
                 elif meth == "thread/tokenUsage/updated":
                     usage = p.get("tokenUsage")
                     live.set_extra(lid, "usage", usage)
@@ -807,7 +998,7 @@ class CodexServer:
         ok = bool(out) and not err
         return AgentResult(ok=ok, text=out, error=None if ok else (err or "no answer"), status="SUCCEEDED" if ok else "FAILED",
                            session_id=tid, model=str(model or used_model or "") or None,
-                           data={"via": "app-server", "thread": tid, **({"effort": effort} if effort else {}), **({"usage": usage} if usage else {}),
+                           data={"via": "app-server", "thread": tid, "turn_id": turn_id, "effort": recorded_effort or "default", **({"usage": usage} if usage else {}),
                                  **({"compaction": compaction} if compaction else {})})
 
 
@@ -850,10 +1041,19 @@ class StreamSession:
             raise LinkDown(str(exc)) from exc
         self.lines: queue.Queue = queue.Queue()
         self.err: collections.deque[str] = collections.deque(maxlen=40)
-        threading.Thread(target=lambda: ([self.lines.put(x) for x in self.p.stdout], self.lines.put(None)), daemon=True).start()
-        threading.Thread(target=lambda: [self.err.append(x) for x in self.p.stderr], daemon=True).start()
+        threading.Thread(target=self._read_stdout, daemon=True, name="pga-session-out").start()
+        threading.Thread(target=self._read_stderr, daemon=True, name="pga-session-err").start()
         self.used = time.monotonic()
         self.busy = threading.Lock()
+
+    def _read_stdout(self) -> None:
+        try:
+            pump_lines(self.p.stdout, self.lines.put)
+        finally:
+            self.lines.put(None)
+
+    def _read_stderr(self) -> None:
+        pump_lines(self.p.stderr, self.err.append)
 
     @classmethod
     def ask(cls, ad: "Adapter", task: AgentTask) -> AgentResult:
@@ -930,10 +1130,12 @@ class StreamSession:
     def close(self) -> None:
         if self.p.poll() is None:
             try:
-                self.p.stdin.close()
+                # Closing stdin can wait on a blocked writer's buffer lock.
+                self.p.terminate()
                 self.p.wait(timeout=5)
             except (OSError, subprocess.TimeoutExpired):
                 self.p.kill()
+                self.p.wait(timeout=5)
 
     def send(self, ad: "Adapter", task: AgentTask, text: str | None) -> AgentResult:
         from pga.agents import live
@@ -952,11 +1154,17 @@ class StreamSession:
                 if self.lines.get_nowait() is None:
                     self.lines.put(None)
                     break
-            try:
-                self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": content}}, ensure_ascii=False) + "\n")
-                self.p.stdin.flush()
-            except (BrokenPipeError, OSError, ValueError) as exc:
-                raise LinkDown(f"session closed: {exc}") from exc
+            # A disconnected CLI may stop consuming stdin. Keep the stop loop
+            # independent of pipe writes, including large prompts/attachments.
+            write_errors = []
+            def feed(payload):
+                try:
+                    self.p.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                    self.p.stdin.flush()
+                except (BrokenPipeError, OSError, ValueError) as exc:
+                    write_errors.append(exc)
+                    self.lines.put(None)
+            threading.Thread(target=feed, args=({"type": "user", "message": {"role": "user", "content": content}},), daemon=True).start()
             out: list[str] = []
             deadline = task.response_deadline()
             done = False
@@ -968,6 +1176,7 @@ class StreamSession:
                     return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
                 if live.stopped(lid):                          # stop: end this process; the next message resumes the session
                     self.p.kill()
+                    self.p.wait(timeout=5)
                     said = live.text(lid).strip()
                     return AgentResult(ok=bool(said), text=said, status="STOPPED", error=None if said else "你停止了生成",
                                        session_id=self.session_id, data={"stopped": True, "via": "session"})
@@ -976,6 +1185,10 @@ class StreamSession:
                 except queue.Empty:
                     continue
                 if line is None:
+                    if live.stopped(lid):
+                        said = live.text(lid).strip()
+                        return AgentResult(ok=bool(said), text=said, status="STOPPED", error=None if said else "你停止了生成",
+                                           session_id=self.session_id, data={"stopped": True, "via": "session"})
                     break
                 out.append(line)
                 try:
@@ -988,10 +1201,11 @@ class StreamSession:
                         from pga.agents import approvals
                         allowed = task.permissions == FULL or (task.permissions == AUTO and approvals.request(
                             task, {"tool": req.get("tool_name"), "input": req.get("input")}))
+                        if live.stopped(lid):
+                            continue
                         response = {"behavior": "allow", "updatedInput": req.get("input") or {}} if allowed else {"behavior": "deny", "message": "User did not approve this operation"}
-                        self.p.stdin.write(json.dumps({"type": "control_response", "response": {
-                            "subtype": "success", "request_id": ev.get("request_id"), "response": response}}) + "\n")
-                        self.p.stdin.flush()
+                        threading.Thread(target=feed, args=({"type": "control_response", "response": {
+                            "subtype": "success", "request_id": ev.get("request_id"), "response": response}},), daemon=True).start()
                     continue
                 if isinstance(ev, dict):
                     if ev.get("session_id") and ev.get("session_id") != self.session_id:
@@ -1001,10 +1215,25 @@ class StreamSession:
                 shown = ad.progress(line, task)
                 if shown:
                     live.append(lid, shown[1:] if shown.startswith("\x00") else shown if shown.endswith("\n") else shown + "\n")
+                if isinstance(ev, dict) and (ev.get("type") == "error" or (ev.get("type") == "assistant" and ev.get("error"))):
+                    # Explicit provider errors are terminal, even when the CLI
+                    # keeps its process alive without sending a result event.
+                    self.p.kill()
+                    self.p.wait(timeout=5)
+                    detail = "\n".join(str(b.get("text") or "") for b in (ev.get("message") or {}).get("content", []) if isinstance(b, dict)) if isinstance(ev.get("message"), dict) else str(ev.get("message") or "")
+                    return AgentResult(ok=False, text=live.text(lid).strip(), status="FAILED",
+                                       error=(detail or str(ev.get("error") or "Claude connection failed"))[:1000],
+                                       session_id=self.session_id, data={"via": "session"})
             self.used = time.monotonic()
+        if write_errors:
+            raise LinkDown(f"session closed: {write_errors[0]}")
         if not out:
             raise LinkDown("session ended without an answer: " + "".join(list(self.err)[-3:]).strip()[-300:])
         res = ad.parse("".join(out), "".join(self.err), task)
+        if not done:
+            res.ok, res.status = False, "FAILED"
+            res.text = res.text or live.text(lid).strip()
+            res.error = "Claude 连接已中断，未收到完成确认；已保留输出，请重试"
         res.data = {**(res.data or {}), "via": "session", "session": self.session_id, "continued": bool(text)}
         res.session_id = self.session_id
         return res
@@ -1122,6 +1351,13 @@ class HermesApi:
                                 + ("\n\nReply with JSON only." if task.want_json else ""), "session_id": sid}
         if task.system.strip():
             body["instructions"] = task.system.strip()
+        from pga.agents.hermes import selection, clean_output, progress_event
+        chosen = selection(ad.config, task.meta)
+        for key in ("model", "provider"):
+            if chosen[key]:
+                body[key] = chosen[key]
+        if chosen["effort"]:
+            body["model_options"] = {"reasoning_effort": chosen["effort"]}
         try:
             r = httpx.post(self.base + "/v1/runs", json=body, headers=self._h(), timeout=30)
         except httpx.HTTPError as exc:
@@ -1148,10 +1384,17 @@ class HermesApi:
                         out, err = "".join(parts), None
                         break
                     if name == "message.delta":
-                        parts.append(ev.get("delta") or "")
-                        live.append(lid, ev.get("delta") or "")
+                        delta = clean_output(ev.get("delta"))
+                        parts.append(delta)
+                        live.append(lid, delta)
                     elif name == "tool.started":
-                        live.append(lid, f"\n→ {ev.get('tool')} {str(ev.get('preview') or '')[:120]}\n")
+                        progress_event({"type": "tool_use", "id": ev.get("tool_call_id"), "name": ev.get("tool"),
+                                        "input": ev.get("kwargs") or ev.get("preview")}, task)
+                    elif name == "tool.completed":
+                        progress_event({"type": "tool_result", "tool_call_id": ev.get("tool_call_id"), "name": ev.get("tool"),
+                                        "output": ev.get("preview"), "is_error": ev.get("error")}, task)
+                    elif name == "reasoning.available":
+                        progress_event({"type": "reasoning", "text": ev.get("text")}, task)
                     elif name == "approval.request":
                         httpx.post(f"{self.base}/v1/runs/{run_id}/approval", headers=self._h(), timeout=10,
                                    json={"choice": "deny", **({"request_id": ev["request_id"]} if ev.get("request_id") else {})})
@@ -1168,7 +1411,7 @@ class HermesApi:
             except httpx.HTTPError:
                 pass
             return AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {task.timeout_s:.0f}s")
-        text = str(out if out is not None else "".join(parts)).strip()
+        text = clean_output(out if out is not None else "".join(parts)).strip()
         ok = bool(text) and not err
         return AgentResult(ok=ok, text=text, error=None if ok else (err or "no answer"), status="SUCCEEDED" if ok else "FAILED",
                            session_id=sid, data={"via": "api", "run": run_id, **({"usage": usage} if usage else {})})
@@ -1208,6 +1451,7 @@ class Keeper:
         while not self.stop_ev.is_set():
             try:
                 StreamSession.reap()
+                CodexServer.reap()
                 self.check_all(due_only=True)
             except Exception:  # noqa: BLE001 - the keeper must outlive any one bad check
                 log.exception("link heartbeat")

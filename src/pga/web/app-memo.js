@@ -37,11 +37,11 @@ const mmHash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h
 const mmSentKey = (w, b) => w.id + ":" + mmHash(b.t === "ref" ? b.kind + b.key : b.v);
 
 /* ------------------------------------------------ pages of the stage (a memo is a full-height page, like a conversation) */
-const memoNodeTitle = (n) => "📝 " + (MM.titles[n.memo] || L("备忘", "Memo"));
+const memoNodeTitle = (n) => "📝 " + ((n.planId && n.title) || MM.titles[n.memo] || L("备忘", "Memo"));
 function memoWinHtml(n) {
   return `<div class="stwin stmemowin">${["e", "w", "n", "s", "ne", "nw", "se", "sw"].map((d) => `<i class="rz rz-${d}" data-rz="${d}"></i>`).join("")}
-    <div class="stwh" data-stfocus="${n.id}"><b class="stwt">📝 <span class="memot">${L("备忘", "Memo")}</span></b><span class="memost"></span><span class="grow"></span>
-      <button class="stb stwsb" data-stw="ws">●</button><button class="stb" data-stw="min" title="${L("缩成小页面", "Make it a small page")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${L("关掉这一页（备忘已保存，可从 📝 再打开）", "Close the page (the memo is kept; reopen it from 📝)")}">×</button></div>
+    <div class="stwh" data-stfocus="${n.id}"><b class="stwt">📝 <span class="memot">${n.planId ? esc(n.title) : L("备忘", "Memo")}</span></b><span class="memost"></span><span class="grow"></span>
+      <button class="stb stwsb" data-stw="ws">●</button><button class="stb" data-stw="min" title="${L("缩成小页面", "Make it a small page")}">–</button><button class="stb" data-stw="max" title="${L("最大化（Esc 还原）", "Maximise (Esc restores)")}">▢</button><button class="stb" data-stw="close" title="${n.planId ? L("关闭计划页", "Close plan page") : L("关掉这一页（备忘已保存，可从 📝 再打开）", "Close the page (the memo is kept; reopen it from 📝)")}">×</button></div>
     <div class="memob"></div></div>`;
 }
 MM.titles = {};
@@ -57,8 +57,10 @@ function memoShow(id, focus) {                                     // the memo's
   if (focus) setTimeout(() => n.el?.querySelector?.("textarea")?.focus() || document.querySelector(`.stnode[data-nid="${n.id}"] textarea`)?.focus(), 80);
 }
 async function memoMount(n, el) {
+  if (n.planId) return mountStagePlan(n, el);
   if (n.memoSource) {
     const frame=document.createElement("iframe");frame.style.cssText="width:100%;height:100%;border:0;flex:1";
+    frame.addEventListener("load", () => stHold(frame, n));
     frame.src="/?"+new URLSearchParams({embed:"1",memoWorkspace:n.memoSource,...(typeof AS_UID!=="undefined"&&AS_UID?{as:AS_UID}:{})});
     el.querySelector(".memob").replaceWith(frame);return;
   }                                  // the page was drawn: load the memo into it
@@ -178,6 +180,7 @@ function memoSplitAt(w, i, ta) {                                // a picture or 
 }
 function memoPaste(w, i, e) {
   const dt = e.clipboardData; if (!dt) return;
+  if (dt.getData('text/plain') && !memoRefs(dt).length) return;
   const imgs = [...dt.files].filter((f) => f.type.startsWith("image/"));
   if (imgs.length || memoRefs(dt).length) i = memoSplitAt(w, i, e.target);
   if (imgs.length) { e.preventDefault(); memoImages(w, imgs, i); return; }
@@ -257,8 +260,10 @@ function memoDotMenu(w, i, btn) {
   });
 }
 async function memoList(btn) {
+  const rect0 = btn.getBoundingClientRect(), trigger = document.querySelector("#stmore summary");
+  const rect = rect0.width ? rect0 : trigger?.getBoundingClientRect() || rect0;
+  window.stMoreClose?.(true);
   let r; try { r = await api(`/v1/users/${S.uid}/memos`); } catch (e) { toast(e.message); return; }
-  const rect = btn.getBoundingClientRect();
   const rows = r.memos.length ? r.memos.map((x) => `<div class="mrow"><button data-mopen="${x.id}">${esc(x.title || L("（空白备忘）", "(empty memo)"))}<em>${esc(ago ? ago(x.updated || x.ts * 1000) : "")}</em></button><button class="ghost" data-mdel="${x.id}" title="${L("删除（放进回收目录）", "Delete (moved to .trash)")}">✕</button></div>`).join("")
     : `<div class="muted" style="padding:8px 10px">${L("还没有备忘", "No memos yet")}</div>`;
   memoMenu(Math.max(8, rect.right - 280), rect.bottom + 6, rows);

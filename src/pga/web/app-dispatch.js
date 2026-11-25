@@ -27,11 +27,11 @@ S.dispatchOn = (() => { try { return localStorage.getItem("pga_dispatch") !== "0
 S.dispatchLive = {};              // task key → running | done | error
 S.dispatchPlan = null;            // the tasks proposed for the message you are about to send
 const looksMulti = (t) => (t.match(/^\s*(?:\d{1,2}[.、)）]|[-*•·]|[a-zA-Z][.、)）]|[一二三四五六七八九十][、.])\s*\S/gm) || []).length >= 2 || (t.match(/(?:^|[\s：:，,；;。])\d{1,2}[.、)）]\s*\S/g) || []).length >= 2;
-const dispatchTool = () => `<button class="ghost ctool ${S.dispatchOn ? "on2" : ""}" data-act="dispatchtoggle" title="${L("分工：一条消息里有好几个点时，拆给几个 agent 同时做", "Share out: a message with several points goes to several agents at once")}">${ICO('<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M12 15.5V12M12 12 7.5 8M12 12l4.5-4"/>')}</button>`;
+const dispatchTool = () => `<button type="button" class="ghost ctool ${S.dispatchOn ? "on2" : ""}" data-act="dispatchtoggle" aria-label="${L('任务分工','Task delegation')}" aria-pressed="${!!S.dispatchOn}" title="${L("任务分工：把一条消息里的多个任务分给不同 Agent", "Delegate the tasks in one message to different agents")}">${ICO('<circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="12" cy="18" r="2.5"/><path d="M12 15.5V12M12 12 7.5 8M12 12l4.5-4"/>')}</button>`;
 
 const _chatSendD = chatSend;
 chatSend = async function () {
-  if (S.sending || S.regenBusy) return queueFollowup();
+  if (S.sending || S.regenBusy) return queueFollowup(true);
   if (composerBusy() || S.dispatchPlan?.busy) return;
   const text = ($("#chatText")?.value || "").trim();
   if (S.chatSplits?.[S.chat]) return _chatSendD();
@@ -123,7 +123,7 @@ async function dispatchGo() {
     api(`/v1/users/${S.uid}/agents/ask`, { body: { text, agent: t.agent || "auto", conversation: tk, history: hist, access: acc.access || "auto", folder: acc.folder || "", mcp: !!acc.mcp } })
       .then((r) => { S.dispatchLive[tk] = r?.error && !r?.text ? "error" : "done"; })
       .catch(() => { S.dispatchLive[tk] = "error"; })
-      .finally(() => { dispatchWindowRefresh(tk, S.dispatchLive[tk]); boardRefresh(key); loadTimeline(); });
+      .finally(() => { dispatchWindowRefresh(tk, S.dispatchLive[tk]); boardRefresh(key, { keys: [tk] }); loadTimeline(); });
   }
   try { await api(`/v1/users/${S.uid}/chats/dispatch`, { method: "PUT", body: { key, entry, run: note.run } }); } catch {}
   history.replaceState(null, "", qs()); await loadChat(key); loadTimeline();
@@ -132,15 +132,49 @@ async function dispatchGo() {
 
 /* the board: each task's branch, its agent, how far it is, what it said */
 S.taskTurns = {};
-async function boardRefresh(key) {
-  const ds = S.chatDispatch?.[key] || []; const keys = ds.flatMap((d) => d.tasks.map((t) => t.key));
-  await Promise.all(keys.map(async (k) => { try { const r = await api(`/v1/users/${S.uid}/chats/${encodeURIComponent(k)}`); S.taskTurns[k] = r.turns || []; } catch {} }));
+const BOARD_FETCH_LIMIT = 4, boardRequests = new Map(), boardQueue = [];
+let boardActive = 0;
+function boardPump() {
+  while (boardActive < BOARD_FETCH_LIMIT && boardQueue.length) {
+    const job = boardQueue.shift(); boardActive++;
+    Promise.resolve().then(() => api(`/v1/users/${job.uid}/chats/${encodeURIComponent(job.key)}`))
+      .then((r) => { if (S.uid === job.uid) S.taskTurns[job.key] = boardLastTurns(r.turns); })
+      .catch(() => {})
+      .finally(() => {
+        if (boardRequests.get(job.id) === job.promise) boardRequests.delete(job.id);
+        boardActive--; job.resolve(); boardPump();
+      });
+  }
+}
+function boardLastTurns(turns) {               // the board and merge only need the latest agent answer, not its full transcript
+  if (Array.isArray(turns)) for (let i = turns.length - 1; i >= 0; i--) if (turns[i]?.role === "agent") return [turns[i]];
+  return [];
+}
+function boardFetch(key, uid) {
+  const id = uid + ":" + key, pending = boardRequests.get(id);
+  if (pending) return pending;
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  const job = { id, key, uid, promise, resolve };
+  boardRequests.set(id, promise); boardQueue.push(job); boardPump();
+  return promise;
+}
+async function boardFetchFresh(key, uid) {
+  const id = uid + ":" + key, pending = boardRequests.get(id);
+  if (pending) await pending;                 // a completion must not inherit a poll started before the answer was saved
+  return boardFetch(key, uid);
+}
+async function boardRefresh(key, options = {}) {
+  const ds = S.chatDispatch?.[key] || [], keys = [...new Set(ds.flatMap((d) => d.tasks.map((t) => t.key)))];
+  const requested = options.keys ? [...new Set(options.keys)].filter((k) => keys.includes(k)) : keys;
+  const uid = S.uid, wanted = options.runningOnly ? requested.filter((k) => taskState(k).st === "running") : requested;
+  await Promise.all(wanted.map((k) => options.keys ? boardFetchFresh(k, uid) : boardFetch(k, uid)));
   if (S.chat === key) renderChat();
 }
 function taskState(k) {
-  const ts = S.taskTurns[k] || [], a = ts.filter((t) => t.role === "agent");
-  const last = a[a.length - 1];
-  if (S.dispatchLive[k] === "running" || (!a.length && S.dispatchLive[k] !== "error")) return { st: "running", last };
+  const ts = S.taskTurns[k] || [], last = boardLastTurns(ts)[0];
+  if (ts.length > (last ? 1 : 0)) S.taskTurns[k] = last ? [last] : [];
+  if (S.dispatchLive[k] === "running" || (!last && S.dispatchLive[k] !== "error")) return { st: "running", last };
   return { st: last?.error && !last?.text ? "error" : "done", last };
 }
 function boards() {
@@ -178,7 +212,7 @@ renderChat = function () {
   const head = $("#chead"); if (head && !head.querySelector('[data-act="splitopen"]') && !document.documentElement.classList.contains("embed"))
     head.insertAdjacentHTML("beforeend", `<button class="sm ghost" data-act="splitopen" title="${L("在旁边再开一个对话，可以用另一个 agent", "Open another conversation beside this one, with another agent if you like")}">${L("分屏", "Split")}</button>`);
 };
-setInterval(() => { const key = S.chat; if (S.view === "chats" && key && (S.chatDispatch?.[key] || []).some((d) => d.tasks.some((t) => taskState(t.key).st === "running"))) boardRefresh(key); }, 6000);
+setInterval(() => { const key = S.chat, visible = !key?.startsWith("chat:pm-") || typeof pdVisible !== "function" || pdVisible(); if (S.view === "chats" && key && visible && (S.chatDispatch?.[key] || []).some((d) => d.tasks.some((t) => taskState(t.key).st === "running"))) boardRefresh(key, { runningOnly: true }); }, 6000);
 
 document.addEventListener("click", async (e) => {
   const beside = e.target.closest('[data-dpbeside]');

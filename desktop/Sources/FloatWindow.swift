@@ -7,6 +7,26 @@ import WebKit
 /// Each has a dot on either side: pull a wire from one to another window. Right-click it for every node there is.
 /// In the workbench (the other way of seeing PGA) the same window is a card inside one ordinary window.
 final class FloatPanel: NSPanel {
+    var rightDragMovesWindow = false
+    private var dragOffset: NSPoint?
+    override func sendEvent(_ event: NSEvent) {
+        if rightDragMovesWindow {
+            let mouse = NSEvent.mouseLocation
+            switch event.type {
+            case .rightMouseDown:
+                dragOffset = NSPoint(x: mouse.x - frame.minX, y: mouse.y - frame.minY)
+                return
+            case .rightMouseDragged:
+                if let offset = dragOffset { setFrameOrigin(NSPoint(x: mouse.x - offset.x, y: mouse.y - offset.y)) }
+                return
+            case .rightMouseUp:
+                dragOffset = nil
+                return
+            default: break
+            }
+        }
+        super.sendEvent(event)
+    }
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
@@ -45,17 +65,29 @@ final class Header: NSView {
         }
         AppDelegate.shared.saveFloats()
     }
-    override func rightMouseDown(with e: NSEvent) { if let o = owner { AppDelegate.shared.showMenu(for: o) } }
+    private var rightDown: NSEvent?
+    override func rightMouseDown(with e: NSEvent) { rightDown = e }
+    override func rightMouseDragged(with e: NSEvent) {
+        guard let down = rightDown else { return }
+        let start = down.locationInWindow, point = e.locationInWindow
+        if hypot(point.x - start.x, point.y - start.y) >= 6 { rightDown = nil }
+    }
+    override func rightMouseUp(with e: NSEvent) {
+        defer { rightDown = nil }
+        guard let down = rightDown, BrowserRightGesture.isShortClick(from: down.timestamp, to: e.timestamp),
+              let o = owner else { return }
+        AppDelegate.shared.showMenu(for: o)
+    }
 
     init() {
         super.init(frame: .zero)
         title.font = .systemFont(ofSize: 12, weight: .medium); title.textColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail; title.cell?.truncatesLastVisibleLine = true
-        for (b, sym, tip) in [(pin, "pin.fill", "置顶：在所有窗口之上（点一下取消）"), (close, "xmark", "关掉这个窗口"), (bench, "rectangle.3.group", "收回工作台：所有浮窗回到一个窗口里（⌥⇧Space）")] {
+        for (b, sym, tip) in [(pin, "pin.fill", "置顶：在所有窗口之上（点一下取消）"), (close, "xmark", "关掉这个窗口")] {
             b.bezelStyle = .inline; b.isBordered = false; b.toolTip = tip
             b.image = NSImage(systemSymbolName: sym, accessibilityDescription: tip); b.contentTintColor = .tertiaryLabelColor
         }
-        bench.target = AppDelegate.shared; bench.action = #selector(AppDelegate.toggleMode)
+        bench.isHidden = true
         for v in [close, title, bench, pin] { v.translatesAutoresizingMaskIntoConstraints = false; addSubview(v) }
         NSLayoutConstraint.activate([
             close.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
@@ -179,7 +211,7 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
 
         var page: [String: Any] = ["mode": self.kind == .conv ? "float" : "node", "type": self.kind.rawValue, "data": self.data]
         if let k = self.key { page["key"] = k }
-        let full = self.kind == .conv && AppDelegate.shared.config.chat != "light"     // a conversation: the browser version's full page
+        let full = self.kind == .conv     // a conversation: the browser version's full page
         web = full ? Web.makeFull(owner: self, float: true) : Web.make(owner: self, page: page)
         web.navigationDelegate = self; web.uiDelegate = self
         header.frame = NSRect(x: 0, y: rect.height - FloatWindow.headerH, width: rect.width, height: FloatWindow.headerH)
@@ -258,7 +290,16 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
     }
 
     @objc func closeIt(_ sender: Any?) {
-        if docked { content.removeFromSuperview(); AppDelegate.shared.closed(self) } else { panel.performClose(nil) }
+        if docked { content.removeFromSuperview(); AppDelegate.shared.closed(self); releasePageResources() } else { panel.performClose(nil) }
+    }
+
+    /// Called only after the app has persisted removal of this window. This also
+    /// covers cards closed inside the workbench, which do not close an NSWindow.
+    func releasePageResources() {
+        guard let page = web else { return }
+        web = nil
+        page.releasePageResources()
+        panel.contentView = nil
     }
 
     @objc func togglePin(_ sender: Any?) { pinned.toggle(); applyPin(); AppDelegate.shared.saveFloats() }
@@ -315,9 +356,16 @@ final class FloatWindow: WebChrome, NSWindowDelegate, WebOwner {
 
     func webView(_ w: WKWebView, didFail n: WKNavigation!, withError e: Error) { Log.write("float load failed: \(e.localizedDescription)") }
     func webView(_ w: WKWebView, didFailProvisionalNavigation n: WKNavigation!, withError e: Error) { Log.write("float load failed: \(e.localizedDescription)") }
-    func webView(_ w: WKWebView, didFinish n: WKNavigation!) { if focusOnLoad { focusOnLoad = false; Web.call(web, "focus", true) } }
+    func webView(_ w: WKWebView, didFinish n: WKNavigation!) {
+        loaded = true
+        if focusOnLoad { focusOnLoad = false; Web.call(web, "focus", true) }
+        if let j = pendingJump { pendingJump = nil; Web.call(web, "jump", j) }
+    }
+    /// Scrolls the conversation to one of your inputs (its run, else its first words) — once its page is there.
+    private var loaded = false, pendingJump: [String: String]?
+    func jump(_ j: [String: String]) { if loaded { Web.call(web, "jump", j) } else { pendingJump = j } }
 
     func windowDidMove(_ n: Notification) { AppDelegate.shared.saveFloats() }
     func windowDidEndLiveResize(_ n: Notification) { AppDelegate.shared.saveFloats() }
-    func windowWillClose(_ n: Notification) { AppDelegate.shared.closed(self) }
+    func windowWillClose(_ n: Notification) { AppDelegate.shared.closed(self); releasePageResources() }
 }

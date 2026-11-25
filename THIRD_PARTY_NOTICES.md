@@ -3,6 +3,11 @@
 PGA's original code is licensed under Apache-2.0; see `LICENSE`.
 The components below retain their respective licenses.
 
+## Google OR-Tools
+
+The daily planner uses the Python OR-Tools knapsack solver to fit tasks into the user's available minutes.
+The package is installed through the Python dependencies and is distributed under Apache-2.0. [Source and license](https://github.com/google/or-tools)
+
 ## Monaco Editor (microsoft/monaco-editor)
 
 The local editor files in `src/pga/web/vendor/monaco/0.52.2/` are distributed under MIT.
@@ -14,9 +19,13 @@ These files are served locally for the embedded code editor.
 The desktop interface uses Svelte (MIT), Vite (MIT), marked (MIT) and DOMPurify (Apache-2.0 OR MPL-2.0)
 via npm; exact versions are recorded in `desktop/ui/package-lock.json`.
 The web interface also loads libraries from their upstream CDN distributions, including marked (MIT),
-DOMPurify (Apache-2.0 OR MPL-2.0), KaTeX (MIT), highlight.js (BSD-3-Clause), Mermaid (MIT),
+KaTeX (MIT), highlight.js (BSD-3-Clause), Mermaid (MIT),
 three.js (MIT), d3 (ISC) and Pyodide (MPL-2.0). Their upstream distributions retain their notices.
 The Inter and Cormorant Garamond web fonts use the SIL Open Font License; DM Sans uses the same license.
+
+DOMPurify 3.4.17 is vendored in `src/pga/web/vendor/dompurify/3.4.17/` under Apache-2.0 (license included).
+Source: https://github.com/cure53/DOMPurify/tree/3.4.17. The main web app uses it to sanitize extracted articles
+and Markdown without a CDN dependency. Legacy standalone pages may still use their CDN distribution.
 
 ## Graphiti (getzep/graphiti)
 
@@ -54,3 +63,25 @@ and FastChat's `compute_elo` (from `fastchat/serve/monitor/elo_analysis.py`), ea
   - tag co-occurrence association recall (`src/pga/associate.py`);
   - folding older turns by topic (`src/pga/fold.py`);
   - dreaming with approval (`src/pga/dream.py`).
+
+## Marked
+
+Marked 12.0.2 is bundled for offline Markdown rendering under the MIT License.
+Source: https://github.com/markedjs/marked. License: `src/pga/web/vendor/marked/12.0.2/LICENSE.md`.
+
+## PDF.js
+
+Mozilla PDF.js / pdfjs-dist 6.5.438 is bundled under the Apache License 2.0 for original PDF rendering and selectable text layers.
+Source: https://github.com/mozilla/pdf.js. Distribution: https://www.npmjs.com/package/pdfjs-dist/v/6.5.438.
+License: `src/pga/web/vendor/pdfjs/LICENSE`. Standard fonts and WASM components retain their license files in that directory.
+`src/pga/web/reading.css` adapts the distribution's TextLayer styles, scoped to the PGA PDF reader.
+
+## Reader translation models
+
+The reader uses the English–Chinese and Chinese–English version 1.9 packages from the
+[Argos Translate model index](https://github.com/argosopentech/argospm-index). Each download retains
+the package README and its attribution to Jörg Tiedemann and Santhosh Thottingal,
+*OPUS-MT — Building open translation services for the World* (EAMT 2020).
+The original OPUS models are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+PGA uses the model weights as distributed and runs inference with
+[CTranslate2](https://github.com/OpenNMT/CTranslate2) and [SentencePiece](https://github.com/google/sentencepiece).

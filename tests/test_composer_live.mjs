@@ -162,7 +162,7 @@ test('queued messages run in order with fresh history, captured options and an u
 });
 
 test('uncertain request failure pauses the queue without replaying or losing messages', async()=>{
-  const h=harness();h.c.S.sending=true;h.box.value='one';h.key('Enter');h.box.value='two';h.key('Enter');
+  const h=harness();h.c.S.sending=true;h.box.value='one';h.c.queueFollowup();h.box.value='two';h.c.queueFollowup();
   h.c.S.sending=false;let asked=0;
   h.c.startLive=()=>{};h.c.stopLive=()=>{};
   h.c.api=async(url)=>{if(url.endsWith('/ask')){asked++;throw Error('network disconnected');}return {turns:[]};};
@@ -211,13 +211,30 @@ test('queued split follow-up still reaches both independent lanes',async()=>{
   assert.ok(asks.every(x=>x.history===undefined));assert.equal(h.c.followups('chat:one').length,0);
 });
 
-test('running composer explains queue timing even before the first follow-up', () => {
+test('running composer explains queue timing in its placeholder, without a line that pushes it up', () => {
   const {c}=harness();
-  assert.equal(c.followupHtml(),'');
+  let next;const host={dataset:{},querySelector:()=>next,set innerHTML(html){next={placeholder:'写点什么…'};}};
+  c.$=s=>s==='#ccomp'?host:null;
+  c.paintComposer('idle');
+  assert.equal(next.placeholder,'写点什么…');
   c.S.sending=true;
-  assert.match(c.followupHtml(),/Enter 排队/);
+  assert.equal(c.followupHtml(),'');
+  c.paintComposer('running');
+  assert.match(next.placeholder,/发送时插入当前任务/);
   c.S.sending=false;c.S.regenBusy=true;
-  assert.match(c.followupHtml(),/当前回答结束后自动发送/);
+  assert.equal(c.followupHtml(),'');
+  c.paintComposer('regenerating');
+  assert.match(next.placeholder,/不支持时排队/);
+});
+
+test('sending empties the composer before the redraw, so it shrinks back at once', async () => {
+  const h=harness();h.c.S.uid='u';h.c.S.sentHist=[];h.c.S.chatCtx={};h.c.takeAtts=()=>({images:[],files:[]});
+  h.box.value='第一行\n第二行\n第三行';
+  let seen;h.c.renderChat=()=>{seen??=h.box.value;};
+  h.c.api=()=>new Promise(()=>{});
+  h.c.chatSend();await flush();
+  assert.equal(seen,'');
+  assert.equal(h.c.S.chatTurns['chat:one'].at(-1).text,'第一行\n第二行\n第三行');
 });
 
 test('composer redraw preserves a focused draft and selection, and waits for IME commit', async () => {
@@ -243,8 +260,9 @@ test('composer redraw preserves a focused draft and selection, and waits for IME
 });
 
 test('insert queued text targets the exact running conversation and never creates another ask', async () => {
-  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.c.queueFollowup();
   const item=h.c.followups()[0];
+  h.c.S.chatTurns['chat:one']=[{role:'user',text:'原提问',at:'2026-11-16T00:00:00Z'}];
   h.box.value='new unsent draft';
   const calls=[];
   h.c.api=async(url,options)=>{
@@ -257,13 +275,14 @@ test('insert queued text targets the exact running conversation and never create
   await h.c.steerFollowup('chat:one',item.id);
   assert.equal(h.c.followups().length,0);
   assert.equal(h.box.value,'new unsent draft');
-  assert.equal(h.c.S.followupDelivered['chat:one'],'补充说明');
+  assert.equal(h.c.S.chatTurns['chat:one'][0].text,'原提问\n\n[运行中补充]\n补充说明');
+  assert.equal(h.c.followupHtml(),'');
   assert.equal(calls.length,2);
   assert.equal(h.c.S.sending,true);
 });
 
 test('uncertain delivery stays paused and checks the same receipt instead of a newer run', async () => {
-  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.c.queueFollowup();
   const item=h.c.followups()[0];let posts=0,reads=0;
   h.c.api=async(url)=>{
     if(url==='/v1/agents/live'){reads++;return [{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}];}
@@ -280,7 +299,7 @@ test('uncertain delivery stays paused and checks the same receipt instead of a n
 });
 
 test('unsupported connections retain queued messages and repeated clicks send once', async () => {
-  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.c.queueFollowup();
   const item=h.c.followups()[0];
   h.c.api=async()=>[{id:'claude',running:true,tags:{conversation:'u:chat:one'}}];
   await h.c.steerFollowup('chat:one',item.id);
@@ -300,11 +319,101 @@ test('refresh recovers pending insertion as an uncertain receipt, never a disabl
 });
 
 test('a late rejected insertion cannot restart the queue after the current task was stopped', async () => {
-  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.key('Enter');
+  const h=harness();h.c.S.uid='u';h.c.S.sending=true;h.c.queueFollowup();
   const item=h.c.followups()[0];let release;
   h.c.api=async url=>url==='/v1/agents/live'?[{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}]:new Promise(r=>release=r);
   const inserting=h.c.steerFollowup('chat:one',item.id);await flush();
   h.c.S.sending=false;await h.c.drainFollowups('chat:one',false);
   release({status:'rejected',error:'stopped'});await inserting;
   assert.equal(h.c.followups()[0],item);assert.equal(item.paused,true);assert.equal(h.c.S.sending,false);
+});
+
+ test('send during a running task inserts text directly without an extra click', async()=>{
+ const h=harness();h.c.S.uid='u';h.c.S.sending=true;
+ const calls=[];h.c.api=async(url,options)=>{calls.push(url);if(url==='/v1/agents/live')return [{id:'active',running:true,can_steer:true,tags:{conversation:'u:chat:one'}}];assert.equal(options.body.text,'补充说明');return {status:'accepted'};};
+ await h.c.chatSend();assert.equal(h.c.followups().length,0);assert.equal(h.box.value,'');
+ assert.deepEqual(calls,['/v1/agents/live','/v1/users/u/agents/live/active/steer']);
+ });
+
+test('stop on an expired run releases a lost ask response and pauses follow-ups', async () => {
+  const h = harness(); h.c.S.uid = 'u';
+  h.c.liveSnap = async () => [];
+  h.c.api = async url => url.endsWith('/ask') ? new Promise(() => {}) : url.endsWith('/stop') ? {running:false} : [];
+  const sending = h.c.chatSend(); await flush();
+  h.c.S.live.run = {id:'expired', tags:{conversation:'u:chat:one'}, finished:Date.now()/1000};
+  h.box.value='keep this follow-up'; h.c.queueFollowup();
+  await h.c.requestLiveStop('expired'); await sending;
+  assert.equal(h.c.S.sending,false);
+  assert.equal(h.c.S.live,null);
+  assert.equal(h.c.followups()[0].paused,true);
+});
+
+test('recovery will not release a new running attempt or a different watcher', async () => {
+  const h=harness(); let released=0;
+  const watch={key:'chat:one',run:{id:'old',tags:{conversation:'u:chat:one'}},release:()=>released++};
+  h.c.S.live=watch;
+  h.c.api=async()=>[{id:'new-attempt',tags:{conversation:'u:chat:one'}}];
+  await h.c.recoverLive(watch); assert.equal(released,0);
+  h.c.S.live={key:'chat:two'}; h.c.api=async()=>[];
+  await h.c.recoverLive(watch); assert.equal(released,0);
+});
+
+test('a failed history refresh cannot leave the composer permanently busy', async () => {
+  const h=harness(); h.c.liveSnap=async()=>[];
+  h.c.api=async()=>({ok:false,error:'account disabled'});
+  h.c.loadChats=async()=>{throw Error('network down');};
+  await h.c.chatSend();
+  assert.equal(h.c.S.sending,false); assert.equal(h.c.S.live,null);
+});
+
+test('finished run from polling recovers a lost response without another click', async () => {
+  const h=harness(); h.c.liveSnap=async()=>[];
+  h.c.api=async url=>url.endsWith('/ask')?new Promise(()=>{}):[];
+  const sending=h.c.chatSend(); await flush();
+  h.c.S.live.run={id:'done',finished:Date.now()/1000,ok:false};
+  h.c.S.live.endedAt=Date.now()-6000;
+  const poll=[...h.timers.values()].find(t=>t.ms===100).fn;
+  await poll(); await sending;
+  assert.equal(h.c.S.sending,false); assert.equal(h.c.S.live,null);
+});
+
+test('finished error card labels failure instead of writing', () => {
+  const h=harness(); h.c.esc=s=>s; h.c.md=s=>s; h.c.generatedPictures=()=>'';
+  const html=h.c.workCard({run:{id:'denied',text:'API Error: account disabled',started:1,finished:8,ok:false}});
+  assert.match(html,/运行失败/); assert.match(html,/同步对话/);
+  assert.doesNotMatch(html,/正在写回答/);
+});
+
+test('a recently finished previous turn cannot cancel a new request still preparing context', async () => {
+  const h=harness(); let released=0;
+  const watch={key:'chat:one',t0:Date.now(),run:{id:'previous',started:(Date.now()-2000)/1000,finished:Date.now()/1000},release:()=>released++};
+  h.c.S.live=watch; h.c.api=async()=>[];
+  await h.c.recoverLive(watch); assert.equal(released,0);
+});
+
+
+test('accepted supplements accumulate by ID and snapshots do not duplicate reloaded history', () => {
+  const h=harness(), q={role:'user',text:'original'};
+  assert.equal(h.c.attachSteering(q,[{id:'1',text:'same'}]),true);
+  assert.equal(h.c.attachSteering(q,[{id:'2',text:'same'}]),true);
+  const inputs=[{id:'1',text:'same'},{id:'2',text:'same'},{id:'3',text:'last'}];
+  assert.equal(h.c.attachSteering(q,inputs,true),true);
+  assert.equal(h.c.attachSteering(q,inputs,true),false);
+  const loaded={role:'user',text:q.text};
+  assert.equal(h.c.attachSteering(loaded,inputs,true),false);
+  assert.equal(loaded.text.split('[运行中补充]').length,4);
+});
+
+test('supplements render below their own question and before its answer, including saved history', () => {
+  const h=harness();
+  const src=readFileSync(new URL('../src/pga/web/app-chats.js',import.meta.url),'utf8');
+  const start=src.indexOf('function chatTurnsHtml('), end=src.indexOf('\n}',start)+2;
+  Object.assign(h.c,{esc:String,md:x=>`<p>${x}</p>`,PGATree:{chat:xs=>`<article>${xs[0].text}</article>`},userActs:()=>'<nav>actions</nav>',agentLabel:x=>x,procBlock:()=>'<aside>work</aside>',replyMeta:()=>'',replyActs:()=>''});
+  vm.runInContext(src.slice(start,end),h.c);
+  const html=h.c.chatTurnsHtml([{role:'user',text:'question\n\n[运行中补充]\nextra one\n\n[运行中补充]\nextra two',run:'r'},{role:'agent',text:'answer',agent:'test',run:'r'},{role:'user',text:'next question'}]);
+  assert.ok(html.indexOf('question</article>') < html.indexOf('extra one'));
+  assert.ok(html.indexOf('extra one') < html.indexOf('extra two'));
+  assert.ok(html.indexOf('extra two') < html.indexOf('<aside>work'));
+  assert.ok(html.indexOf('extra two') < html.indexOf('next question'));
+  assert.equal((html.match(/question-supplement"/g)||[]).length,2);
 });

@@ -26,6 +26,7 @@ function paintComposer(html) {
   host.innerHTML = html;
   host.dataset.composerKey = key;
   const next = host.querySelector('#chatText');
+  if (next && (S.sending || S.regenBusy)) next.placeholder = L('可以继续输入 · 发送时插入当前任务，不支持时排队', 'Keep typing · Send inserts into the current task, or queues if unavailable');
   if (draft && next) {
     next.value = draft.value;
     next.focus({preventScroll:true});
@@ -107,7 +108,7 @@ function preview(code) {
 }
 
 /* ------------------------------------------------ the action bar on each message */
-const ICO = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+const ICO = (d) => `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${d}</svg>`;
 const I = { copy: ICO('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>'), regen: ICO('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
   speak: ICO('<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'),
   up: ICO('<path d="M7 11v9H4v-9z"/><path d="M7 11l4-8a2 2 0 0 1 3 2l-1 5h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>'),
@@ -115,11 +116,27 @@ const I = { copy: ICO('<rect x="9" y="9" width="11" height="11" rx="2"/><path d=
   edit: ICO('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>'), clip: ICO('<path d="m21 11-8.5 8.5a5 5 0 0 1-7-7L14 4a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 7"/>'),
   mic: ICO('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/>'), search: ICO('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>') };
 
+const CI = {
+  model: ICO('<rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 9h6v6H9zM9 2v3m6-3v3M9 19v3m6-3v3M2 9h3m-3 6h3M19 9h3m-3 6h3"/>'),
+  effort: ICO('<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2" fill="var(--panel)"/><circle cx="15" cy="17" r="2" fill="var(--panel)"/>'),
+  reference: ICO('<path d="M12 6c-3-2-6-2-9-1v14c3-1 6-1 9 1 3-2 6-2 9-1V5c-3-1-6-1-9 1v14"/><path d="M6 9h3m6 0h3"/>'),
+  split: ICO('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M6 8h3m6 0h3M6 12h3m6 0h3"/>'),
+  knowledge: ICO('<path d="M4 3h11l4 4v14H4zM14 3v5h5M8 12h7M8 16h5"/>'),
+  library: ICO('<path d="M4 4v16M9 4v16M14 4v16M18 4l3 16M3 8h2m3 0h2m3 0h2"/>'),
+  polish: ICO('<path d="m4 20 12-12 4 4L8 24" transform="translate(0 -3)"/><path d="m5 3 1 3 3 1-3 1-1 3-1-3-3-1 3-1zM19 2v4m-2-2h4"/>'),
+  note: ICO('<path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M15 3l6 6M12 16l-4 1 1-4L19 3l3 3z"/>')
+};
 const plain = (t) => String(t || "").replace(/```[\s\S]*?```/g, " ").replace(/[#*_`>|-]+/g, " ").replace(/\s+/g, " ").trim();
+function questionBranchButton(point, key) {
+  return `<button class="txt" data-cbranch="question:${esc(point)}" data-ckey="${esc(key)}" title="${L("在新页面用当时的上下文重新回答这一问", "Answer this question again in a new page with its original context")}">${L("从这里继续", "Carry on here")}</button>`;
+}
+function continueTaskButton(t) {
+  return `<button type="button" class="txt" data-source-chat="${esc(t.thread)}" title="${L('打开这项任务的原对话', 'Open the original task conversation')}">${L('从这里继续', 'Carry on here')}</button>`;
+}
 function userActs(t, key, prevRun) {
   if (!t.run) return "";
   return `<div class="macts right"><button data-act="copy" data-text="${esc(t.text)}" title="${L("复制", "Copy")}">${I.copy}</button>
-    ${prevRun ? `<button class="txt" data-cbranch="${esc(prevRun)}" data-ckey="${esc(key)}" title="${L("从这一问之前分出一段新对话，接着从这里聊", "Branch just before this question and carry on from here")}">${L("从这里继续", "Carry on here")}</button>` : ""}
+    ${t.thread && S.chat?.endsWith("-execute") ? continueTaskButton(t) : questionBranchButton(t.run, key)}
     <button data-act="edit" data-run="${t.run}" data-key="${esc(key)}" data-prev="${esc(prevRun || "")}" title="${L("改一改再问：长成一条新分支，原来的不动", "Edit and ask again: grows a new branch, the original stays")}">${I.edit}</button></div>`;
 }
 function replyActs(t, key) {
@@ -132,11 +149,11 @@ function replyActs(t, key) {
     <button data-act="speak" data-text="${esc(plain(t.text).slice(0, 4000))}" title="${L("朗读", "Read aloud")}">${I.speak}</button>
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === 1 ? 0 : 1}" class="${t.rating === 1 ? "on" : ""}" title="${L("好回答", "Good answer")}">${I.up}</button>
     <button data-act="rate" data-run="${esc(t.version || t.run)}" data-to="${t.rating === -1 ? 0 : -1}" class="${t.rating === -1 ? "on bad" : ""}" title="${L("不好的回答", "Bad answer")}">${I.down}</button>
-    <button data-act="tonote" data-text="${esc(t.text)}" title="${L("存进笔记", "Save into a note")}">${typeof MI === "object" ? MI.note : "✎"}</button>
+    <button data-act="tonote" data-text="${esc(t.text)}" title="${L("存进计划", "Save to a plan")}">${typeof MI === "object" ? MI.note : "✎"}</button>
     ${vs.length > 1 ? `<button class="txt ${typeof sideOn === "function" && sideOn(t) ? "on" : ""}" data-act="sideby" data-run="${t.run}" title="${L("几个版本并排看", "Read the versions side by side")}">${L("并排", "Side by side")}</button>` : ""}
     <span class="sep"></span>
     <button class="txt" data-second="${t.run}" data-ckey="${esc(key)}" ${sb ? "disabled" : ""} title="${L("在当前窗口内开启双 Agent 分屏，分别回答并继续对话", "Compare two agents in this window and keep talking to both")}">${sb ? L("正在准备分屏…", "Opening…") : L("第二意见", "Second opinion")}</button>
-    <button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}" title="${L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
+    ${t.thread && S.chat?.endsWith("-execute") ? continueTaskButton(t) : `<button class="txt" data-cbranch="${t.run}" data-ckey="${esc(key)}" title="${L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button>`}</div>`;
 }
 function editBox(t) {
   return `<div class="editbox"><textarea id="editText">${esc(t.text)}</textarea><div class="row2"><span class="dimt" style="font-size:12px">${L("改过的问题会长成一条新分支，原来那段保留在旁边。", "The edited question grows a new branch; the original stays beside it.")}</span><span class="grow"></span>
@@ -145,8 +162,8 @@ function editBox(t) {
 async function regen(run, key) {
   if (composerBusy()) return;
   let continueQueue = false;
-  S.regenBusy = run; renderChat(); startLive((c) => c.includes(":regen:" + run));
-  try { const r = await api(`/v1/users/${S.uid}/chats/regen`, { body: { run, agent: $("#chatAgent")?.value || "auto" } }); continueQueue = !r.error && r.ok !== false && !r.stopped; if (r.error && !r.text) toast(r.error); }
+  S.regenBusy = run; renderChat(); startLive((c) => c.includes(":regen:" + run)); S.live.key = key;
+  try { const r = await liveRequest(`/v1/users/${S.uid}/chats/regen`, { body: { run, agent: $("#chatAgent")?.value || "auto" } }); continueQueue = !r.error && r.ok !== false && !r.stopped; if (r.error && !r.text) toast(r.error); }
   catch (err) { toast(err.message); }
   finally { S.regenBusy = null; stopLive(); await loadChat(key); await drainFollowups(key, continueQueue); }
 }
@@ -174,8 +191,8 @@ function speak(text, btn) {
 
 /* ------------------------------------------------ the composer: attachments, voice, "/" prompts, "@" agents, ↑ history */
 S.att = []; S.sentHist = []; S.prompts = null;
-const composeTools = () => `<button class="ghost ctool" data-act="attach" title="${L("附件：图片和文档（也可以粘贴或拖进来）", "Attach images and documents (or paste / drop them)")}">${I.clip}</button>
-  <button class="ghost ctool ${S.listening ? "on" : ""}" data-act="mic" title="${L("语音输入", "Voice input")}">${I.mic}</button>${typeof moreTools === "function" ? moreTools() : ""}`;
+const composeTools = () => `<button type="button" class="ghost ctool" data-act="attach" aria-label="${L('添加附件','Attach files')}" title="${L("添加附件：图片和文档，也可以粘贴或拖入", "Attach images and documents, or paste / drop them")}">${I.clip}</button>
+  <button type="button" class="ghost ctool ${S.listening ? "on" : ""}" data-act="mic" aria-label="${L('语音输入','Voice input')}" aria-pressed="${!!S.listening}" title="${L("语音输入", "Voice input")}">${I.mic}</button>${typeof moreTools === "function" ? moreTools() : ""}`;
 const attsHtml = () => (S.att.length ? `<div class="atts">${S.att.map((a, i) => `<span class="att">${a.type.startsWith("image/") ? `<img src="${a.data}" alt="">` : "📄"}<span>${esc(a.name)}</span><button data-act="unattach" data-i="${i}">×</button></span>`).join("")}</div>` : "");
 function rerenderComposer() { const t = $("#chatText")?.value; if (S.view === "chats") renderChat(); const n = $("#chatText"); if (n && t != null) { n.value = t; autoGrow(n); } }
 async function addFiles(list) {
@@ -265,18 +282,22 @@ function citeRef(id, tree) {
   const t = (tree ? $("#tnText") : $("#chatText"))?.value; if (tree) renderCont(); else renderChat();
   const n = tree ? $("#tnText") : $("#chatText"); if (n && t != null) { n.value = t; autoGrow(n); n.focus(); }
 }
-function uploadDoc(cite = null) {
+function uploadDoc(cite = null, onUploaded = null, notify = toast) {
   const i = document.createElement("input"); i.type = "file"; i.multiple = true;
   i.accept = ".pdf,.docx,.doc,.rtf,.odt,.xlsx,.pptx,.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.html,.htm,.tex,.py,.js,.ts,.java,.c,.cpp,.go,.rs,.sql,.log";
   i.onchange = async () => {
     for (const f of i.files) {
-      if (f.size > 30e6) { toast(L(`${f.name} 超过 30 MB`, `${f.name} is over 30 MB`)); continue; }
-      toast(L(`正在读 ${f.name}…`, `Reading ${f.name}…`));
-      const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
-      try { const r = await api(`/v1/users/${S.uid}/knowledge/upload`, { body: { name: f.name, data } });
-        toast(L(`「${r.title}」进了知识库：${kfmt(r.chars)} 字，${r.passages} 段`, `“${r.title}” is in the knowledge base: ${kfmt(r.chars)} chars, ${r.passages} passages`));
-        S.forest = null; await loadForest(); if (cite !== null) citeRef(r.id, cite); }
-      catch (err) { toast(err.message); }
+      if (f.size > 30e6) { notify(L(`${f.name} 超过 30 MB`, `${f.name} is over 30 MB`)); continue; }
+      notify(L(`正在读 ${f.name}…`, `Reading ${f.name}…`));
+      try {
+        const data = await new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => fail(r.error); r.readAsDataURL(f); });
+        const r = await api(`/v1/users/${S.uid}/knowledge/upload`, { body: { name: f.name, data } });
+        notify(L(`「${r.title}」进了知识库：${kfmt(r.chars)} 字，${r.passages} 段`, `“${r.title}” is in the knowledge base: ${kfmt(r.chars)} chars, ${r.passages} passages`));
+        S.forest = null;
+        await loadForest();
+        if (cite !== null) citeRef(r.id, cite);
+        onUploaded?.(S.forest);
+      } catch (err) { notify(err.message); }
     }
   };
   i.click();
@@ -313,7 +334,7 @@ function openFound(key, cid) {
 }
 async function renameChat(key) {
   const cur = (S.allChats || []).find((c) => c.key === key)?.title || "";
-  const t = prompt(L("这段对话叫什么？（留空恢复成第一句话）", "Name this conversation (empty: back to its first message)"), cur); if (t === null) return;
+  const t = prompt(L("这段对话叫什么？手动命名后会固定标题，留空恢复自动更新。", "Name this conversation. Manual names stay fixed; leave empty for automatic titles."), cur); if (t === null) return;
   try { await api(`/v1/users/${S.uid}/chats/title`, { method: "PUT", body: { key, title: t } }); toast(L("改好了", "Renamed")); await loadChats(); await loadTimeline(); renderChat(); } catch (err) { toast(err.message); }
 }
 function exportChat(fmt) {
@@ -333,7 +354,8 @@ function exportChat(fmt) {
 /* ------------------------------------------------ keyboard shortcuts */
 const MOD = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘" : "Ctrl";
 const KEYS = [[`${MOD} ⇧ O`, L("新对话", "New chat")], [`${MOD} K`, L("搜索所有对话", "Search everything")], ["⇧ Esc", L("回到输入框", "Focus the composer")],
-  [`${MOD} ⇧ S`, L("收起 / 展开左栏", "Toggle the sidebar")], [`${MOD} /`, L("这张快捷键表", "These shortcuts")], ["Esc", L("关掉弹窗", "Close a dialog")], [`${MOD} Esc`, L("停止正在写的回答", "Stop the answer being written")],
+  ["Ctrl ⇧", L("进入或离开当前对话输入框", "Enter or leave the current chat input")],
+  [`${MOD} ⇧ S`, L("收起 / 展开左栏", "Toggle the sidebar")], [`${MOD} /`, L("这张快捷键表", "These shortcuts")], ["Esc", L("关闭弹窗或退出输入模式", "Close a dialog or leave the composer")], [`${MOD} Esc`, L("停止正在写的回答", "Stop the answer being written")],
   [`${MOD} ⇧ ;`, L("复制最后一个代码块", "Copy the last code block")], ["Enter / ⇧ Enter", L("发送 / 换行", "Send / new line")], ["/", L("（输入框开头）提示词库", "(at the start) prompt library")],
   ["@", L("交给某个 agent", "Hand it to an agent")], ["↑", L("（输入框为空时）上一条你发的话", "(empty composer) your last message")]];
 function showKeys() { modal(`<h2>${L("快捷键", "Keyboard shortcuts")}</h2><div class="keys">${KEYS.map(([k, d]) => `<div><kbd>${esc(k)}</kbd><span>${esc(d)}</span></div>`).join("")}</div>`); }
@@ -365,8 +387,8 @@ document.addEventListener("click", async (e) => {
   else if (a === "psave") { try { S.prompts = await api(`/v1/users/${S.uid}/prompts`, { method: "PUT", body: { prompts: readPrompts() } }); document.querySelector(".modal")?.remove(); toast(L("提示词库已保存", "Prompts saved")); } catch (err) { toast(err.message); } }
   else if (a === "rename") renameChat(b.dataset.key);
   else if (a === "export") { const m = b.nextElementSibling; if (m) m.hidden = !m.hidden; }
-  else if (a === "exportmd") { b.parentElement.hidden = true; exportChat("md"); }
-  else if (a === "exportjson") { b.parentElement.hidden = true; exportChat("json"); }
+  else if (a === "exportmd") { b.closest(".expmenu")?.setAttribute("hidden", ""); exportChat("md"); }
+  else if (a === "exportjson") { b.closest(".expmenu")?.setAttribute("hidden", ""); exportChat("json"); }
   else if (a === "search") searchBox();
   else if (a === "upload") uploadDoc(null);
   else if (a === "sysp") sysPrompt(b.dataset.key);
@@ -390,6 +412,7 @@ document.addEventListener("input", (e) => {
 });
 document.addEventListener("paste", (e) => {
   if (!["chatText", "editText"].includes(e.target.id)) return;
+  if (e.clipboardData?.getData('text/plain')) return;
   const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); }
 });
 document.addEventListener("dragover", (e) => { if (S.view === "chats" && [...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); document.body.classList.add("dropping"); } });
@@ -418,5 +441,5 @@ document.addEventListener("keydown", (e) => {
   if (mod && (k === "/" || e.code === "Slash")) { e.preventDefault(); showKeys(); return; }
   if (mod && e.shiftKey && (k === ";" || e.code === "Semicolon")) { e.preventDefault(); const cs = document.querySelectorAll("#cdlgIn pre code, #dlgIn pre code"); if (cs.length) copyText(cs[cs.length - 1].textContent); return; }
   if (e.shiftKey && e.key === "Escape") { e.preventDefault(); ($("#chatText") || $("#tnText"))?.focus(); return; }
-  if (mod && e.key === "Escape" && !document.querySelector(".modal") && S.live?.run && !S.live.run.finished) { e.preventDefault(); e.stopImmediatePropagation(); api(`/v1/agents/live/${S.live.run.id}/stop`, { method: "POST" }).then(() => toast(L("已让它停下", "Stopping"))).catch(() => {}); }
+  if (mod && e.key === "Escape" && !document.querySelector(".modal") && S.live?.run && !S.live.run.finished) { e.preventDefault(); e.stopImmediatePropagation(); requestLiveStop(S.live.run.id); }
 }, true);

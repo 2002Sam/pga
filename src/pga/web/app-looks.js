@@ -54,13 +54,12 @@ function renderLooks() {
     <aside class="lkcfg card">
       <div class="lkh"><b>${L("自由调节", "Adjust")}</b><span class="dimt">${L(`基于「${LKS.SKINS[l.skin]?.zh}」`, `on “${LKS.SKINS[l.skin]?.en}”`)}</span></div>
       <label>${L("明暗", "Light or dark")}</label>${seg("theme", [["dark", L("深色", "Dark")], ["light", L("浅色", "Light")], ["system", L("跟随系统", "System")]], theme)}
-      <label>${L("背景与分类配色", "Background & category palette")}</label>${seg("palette", [["earth", L("敦煌 · 陶土与青绿", "Dunhuang · earth & teal")], ["original", L("原版（无图案）", "Original (no artwork)")]], localStorage.getItem("pga_palette") || "earth")}
       <label>${L("强调色", "Accent")}</label><div class="lksw">${ACCENTS.map(([c, n]) => `<button class="sw ${l.accent === c ? "on" : ""}" data-lkset="accent" data-v="${c}" title="${n}" style="${c ? `--c:${c}` : ""}">${c ? "" : "∅"}</button>`).join("")}
         <input type="color" data-lkcolor value="${l.accent || "#e2b46a"}" title="${L("自己挑", "Pick any")}"></div>
       <label>${L("主按钮", "Main buttons")}</label>${seg("btn", BTNS, l.btn)}
       <label>${L("圆角", "Corners")}</label>${range("rk", 0, 2.5, 0.1, l.rk, (+l.rk).toFixed(1) + "×")}
       <label>${L("立体感（阴影）", "Depth (shadows)")}</label>${range("sk", 0, 2, 0.25, l.sk, +l.sk === 0 ? L("无", "none") : (+l.sk).toFixed(2) + "×")}
-      <label>${L("对话文字大小", "Conversation text")}</label>${range("fs", 12, 19, 0.5, l.fs || 14.5, l.fs ? l.fs + "px" : L("跟随风格", "the look's"))}
+      <label>${L("对话文字大小", "Conversation text")}</label>${range("fs", 12, 24, 0.5, l.fs || 14.5, l.fs ? l.fs + "px" : L("跟随风格", "the look's"))}
       <label>${L("滚动条", "Scrollbars")}</label>${seg("sb", SBS, l.sb)}
       <label>${L("疏密", "Spacing")}</label>${seg("density", DENS, l.density)}
       <label>${L("效果", "Effects")}</label><div class="lkfx">
@@ -75,7 +74,7 @@ function lkSheet() {
     <div class="lks-btns"><button class="primary">${L("主按钮", "Primary")}</button><button>${L("普通", "Default")}</button><button class="on">${L("按下", "Pressed")}</button><button disabled>${L("不可用", "Disabled")}</button><button class="ghost">${L("文字按钮", "Ghost")}</button><button class="sm">${L("小按钮", "Small")}</button></div>
     <div class="lks-ctl"><select><option>${L("下拉选择", "A dropdown")}</option></select><span class="seg"><button class="on">${L("一", "One")}</button><button>${L("二", "Two")}</button><button>${L("三", "Three")}</button></span>
       <label class="lktog"><input type="checkbox" checked><i></i>${L("开关", "Toggle")}</label><input type="range" value="40"></div>
-    <div class="card lks-toast"><b>${L("提示", "A notice")}</b><span>${L("存进笔记了", "Saved into the note")}</span><span class="pill">✓</span></div>
+    <div class="card lks-toast"><b>${L("提示", "A notice")}</b><span>${L("存进计划了", "Saved to the plan")}</span><span class="pill">✓</span></div>
     <div class="card lks-rows">${[["⌂", L("表格行", "Table row")], ["◎", L("悬停", "Hover")], ["✓", L("选中", "Selected")]].map(([i, n], k) => `<div class="lks-r ${k === 2 ? "on" : ""}"><span>${i}</span>${n}<label class="lktog"><input type="checkbox" ${k === 2 ? "checked" : ""}><i></i></label></div>`).join("")}</div></div>`;
 }
 const lkCode = (l) => "PGA-LOOK:" + btoa(unescape(encodeURIComponent(JSON.stringify(l))));
@@ -129,16 +128,3 @@ document.addEventListener("change", (e) => {
   if (localStorage.getItem("pga_look") || !S.uid) return;
   try { const p = (await api(`/v1/users/${S.uid}`)).preferences || {}; if (p.look && LKS.SKINS[p.look.skin]) LKS.setLook(p.look, { mode: false }); S.lkSaved = p.looks_saved || []; } catch {}
 })();
-
-/* 敦煌 on / off in one click, from the menu by the side rail (also under 设置 and here in 外观社区) */
-function earthToggleLabel() {
-  const el = $("#toEarth span"); if (!el) return;
-  el.textContent = (localStorage.getItem("pga_palette") || "earth") === "earth" ? L("敦煌配色 · 开", "Dunhuang · on") : L("敦煌配色 · 关", "Dunhuang · off");
-}
-$("#toEarth")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  localStorage.setItem("pga_palette", (localStorage.getItem("pga_palette") || "earth") === "earth" ? "original" : "earth");
-  LKS.applyLook(); window.dispatchEvent(new Event("pga:palette"));
-});
-window.addEventListener("pga:palette", () => { earthToggleLabel(); if (S.view === "looks") renderLooks(); });
-earthToggleLabel();

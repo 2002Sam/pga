@@ -16,7 +16,7 @@ function harness(branch=false) {
    for(const [i,n]of wins.entries()){const p={x:u.x,y:8+i*300,w:u.w,h:600/wins.length,...(u.kind==='stack'?{kid:true}:{})};ST.pos.set(n.id,p);Object.assign(n.el.style,{left:p.x+'px',top:p.y+'px',width:p.w+'px'});}
   }
  };
- ctx=vm.createContext({ST,ST_LINE:6,stFoldPick:()=>({folded:new Set()}),stRootOf:n=>n,ST_GAP:18,ST_CW:190,ST_PADX:12,ST_MINW:320,ST_WW:660,ST_FORKGAP:34,ST_TAB:150,ST_FIT:320,
+ ctx=vm.createContext({railPairColor:()=>"red",ST,ST_LINE:6,stFoldPick:()=>({folded:new Set()}),stRootOf:n=>n,ST_GAP:18,ST_CW:190,ST_PADX:12,ST_MINW:320,ST_WW:660,ST_FORKGAP:34,ST_TAB:150,ST_FIT:320,
   stArena:()=>({w:1800,h:700}),stSL:()=>0,stDock:()=>false,stKnowledgeUnits(){},stGroupOf:n=>({id:n.group || "one"}),stMap(){},stOver(){},stSave(){},stRender:render,
   stWins:()=>ST.nodes.filter(n=>n.type==='win').sort((a,b)=>a.ord-b.ord),stKids:n=>(n.kids||[]).map(id=>ST.nodes.find(n=>n.id===id)).filter(n=>!n.branchDocked),
   document:{querySelector:s=>ST.nodes.find(n=>s.includes(`"${n.id}"`))?.el,querySelectorAll:()=>[]},
@@ -65,9 +65,9 @@ test('manual links stay visible after moving target to the left or overlapping s
 });
 test('expanded pages use stage geometry and restore their original width',()=>{
  const h=harness(),n=h.nodes[1];n.big=true;h.render();
- assert.equal(h.ST.pos.get(n.id).w,1112);
+ assert.equal(h.ST.pos.get(n.id).w,900);
  assert.equal(h.ST.pos.get('c').w,420);
- assert.ok(h.ST.pos.get('c').x >= h.ST.pos.get(n.id).x+1112);
+ assert.ok(h.ST.pos.get('c').x >= h.ST.pos.get(n.id).x+900);
  h.ctx.stWires();assert.match(h.svg.innerHTML,/stwire fork/);
  delete n.big;h.render();assert.equal(h.ST.pos.get(n.id).w,500);
  const css=fs.readFileSync('src/pga/web/app.css','utf8');
@@ -109,4 +109,34 @@ test('middle release settles roots and detaches branches only after release',()=
   assert.ok(Number.isFinite(h.ST.pos.get(n.id).x));
   assert.deepEqual(h.nodes.map(x=>x.el.offsetWidth),[450,500,420]);
  }
+});
+
+
+test('middle drag starts on enlarged and full-width conversations without changing their size',()=>{
+ for(const fullscreen of [false,true]) {
+  const h=harness(),n=h.nodes[0];n.big=true;n.fullscreen=fullscreen;n.bigWidth=1260;h.render();
+  const width=n.el.offsetWidth;
+  assert.equal(h.ctx.stMiddleGrab(n,500,100,30),true);
+  h.ctx.stDragTo(800,100);
+  assert.equal(h.ST.drag.middle,true);
+  assert.equal(n.el.offsetWidth,width);
+  assert.equal(n.big,true);
+  assert.equal(n.fullscreen,fullscreen);
+ }
+});
+
+test('folded branch width is not saved as its expanded width during dragging',()=>{
+ const h=harness(true),parent=h.nodes[0],child=h.nodes[1];
+ child.small=true;h.render();
+ assert.equal(h.ST.units.find(u=>u.kind==='stack').w,6);
+ h.ctx.stFreezeWidths();assert.equal(parent.kw,500);
+ delete child.small;h.render();assert.equal(h.ST.pos.get(child.id).w,500);
+});
+test('old saved line widths recover to usable windows and detached branches',()=>{
+ const h=harness(true),parent=h.nodes[0],child=h.nodes[1];
+ parent.kw=6;parent.bw=6;h.render();
+ assert.ok(h.ST.pos.get(parent.id).w>=320);
+ assert.ok(h.ST.pos.get(child.id).w>=320);
+ parent.kw=500;child.small=true;h.render();h.ctx.stDetachBranch(child);h.render();
+ assert.equal(child.bw,500);assert.ok(h.ST.pos.get(child.id).w>=320);
 });

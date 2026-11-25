@@ -237,7 +237,7 @@ const THEME = `
         for (const t of turns) {
           if (t.gap) { out += `<div class="ctime">${esc(t.gap)}</div>`; continue; }
           const you = t.who === "user";
-          out += `<div class="cmsg ${you ? "right me" : "left"} conv"><div class="cav" style="--h:${h}">${you ? L("你", "Y") : esc(nm.slice(0, 1).toUpperCase())}</div><div class="cbody">
+          out += `<div class="cmsg ${you ? "right me" : "left"} conv" role="group" aria-label="${you ? L("你的提问", "Your question") : esc(nm)}">${you ? (window.pgaUserAvatarButton?.() || "") : `<div class="cav" style="--h:${h}">${esc(nm.slice(0, 1).toUpperCase())}</div>`}<div class="cbody">
             <div class="cb"><div class="ct md" data-i18n="1">${md(t.text)}</div>${trbtn(t.text)}</div></div></div>`;
         }
         continue;
@@ -253,7 +253,9 @@ const THEME = `
       // who hands out the task (asks) sits on the right; who takes it on (answers) on the left
       const right = me || x.kind === "question";
       const nm = me ? L("你", "You") : name(x), h = hue(nm);
-      const tag = `${kindName(x.kind)}${d.code ? " " + d.code : ""}`;
+      const model = String(d.model || x.model || '').trim();
+      const identity = x.kind === "answer" ? (model || L("模型未记录", "Model not recorded")) : x.agent;
+      const tag = [x.kind === "answer" || (me && x.kind === "question") ? "" : kindName(x.kind), d.code].filter(Boolean).join(" ");
       const quote = x.kind === "answer" && d.question && lastQ !== d.code ? `<div class="cq" data-i18n="1">${esc(d.question)}</div>` : "";
       if (x.kind === "question") lastQ = d.code;
       const subs = [];
@@ -262,9 +264,13 @@ const THEME = `
       if (x.kind === "answer" && d.confidence != null) subs.push(L(`把握 ${Math.round(d.confidence * 100)}%`, `confidence ${Math.round(d.confidence * 100)}%`));
       if (d.proposal) subs.push(L(`提出改进 ${esc(d.proposal)}`, `proposed ${esc(d.proposal)}`));
       if ((d.evidence || []).length) subs.push(d.evidence.slice(0, 4).map((e) => `<code>${esc(e)}</code>`).join(" ") + (d.evidence.length > 4 ? " …" : ""));
-      out += `<div class="cmsg ${right ? "right" : "left"} ${me ? "me" : ""} ${x.kind}">
-        <div class="cav" style="--h:${h}" title="${esc(nm)}"${!me && x.agent ? ` data-agentp="${esc(x.agent)}"` : ""}>${esc(me ? L("你", "Y") : nm.slice(0, 1).toUpperCase())}</div>
-        <div class="cbody"><div class="cwho"><b${!me && x.agent ? ` data-agentp="${esc(x.agent)}"` : ""}>${esc(nm)}</b>${!me && x.agent ? `<span data-agentp="${esc(x.agent)}">${esc(x.agent)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : ""}<span class="ck">${esc(tag)}</span></div>
+      const profile = !me && x.agent ? ` data-agentp="${esc(x.agent)}"` : "";
+      const byline = (me ? "" : `<b${profile}>${esc(nm)}</b>`)
+        + (profile ? `<span${profile}>${esc(identity)}${x.role ? " · " + esc(roleName(x.role)) : ""}</span>` : "")
+        + (tag ? `<span class="ck">${esc(tag)}</span>` : "");
+      out += `<div class="cmsg ${right ? "right" : "left"} ${me ? "me" : ""} ${x.kind}" role="group" aria-label="${esc(nm + " · " + kindName(x.kind))}">
+        ${me ? (window.pgaUserAvatarButton?.() || "") : `<div class="cav" style="--h:${h}" title="${esc(nm)}"${profile}>${esc(nm.slice(0, 1).toUpperCase())}</div>`}
+        <div class="cbody">${byline ? `<div class="cwho">${byline}</div>` : ""}
           <div class="cb">${quote}<div class="ct md" data-i18n="1">${md(x.text)}</div>${trbtn(x.text)}
             ${subs.length ? `<div class="csub">${subs.join(" · ")}</div>` : ""}${samples(d)}</div></div></div>`;
     }

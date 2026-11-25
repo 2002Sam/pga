@@ -7,10 +7,10 @@ for (const par of [undefined,'parent']) test(`collapse preserves geometry, selec
   const n={id:'a',par,bw:650,pre:95,branchWeight:220}, frame={}; n.el=frame;
   const ST={shift:120,focus:'a',nodes:[n]}, calls=[];
   const c=vm.createContext({ST,document:{querySelector:()=>null},stKidKeep:(node,on)=>calls.push(on),stRender(){},stSave(){},stMap(){}});
-  vm.runInContext(source.slice(source.indexOf('function stMini(n, on)'),source.indexOf('function stClose(n)')),c);
+  vm.runInContext(source.slice(source.indexOf('function stMini(n, on)'),source.indexOf('function stClose(')),c);
   const before={...n};
   c.stMini(n,true);
   assert.equal(n.small,true);assert.deepEqual({...n,small:undefined},{...before,small:undefined});
   assert.equal(ST.shift,120);assert.equal(ST.focus,'a');assert.equal(n.el,frame);
-  c.stMini(n,false);assert.deepEqual(n,before);assert.deepEqual(calls,[true,false]);
+  c.stMini(n,false);assert.ok(n.lastUsedAt > 0); const {lastUsedAt,...restored}=n;assert.deepEqual(restored,before);assert.deepEqual(calls,[true,false]);
 });

@@ -116,7 +116,29 @@ def test_everyday_tasks_are_held_too_though_everyday_chats_are_not(session_facto
 
 @pytest.mark.parametrize('effort', ['low', 'medium', 'high', 'xhigh'])
 def test_manager_auto_routing_keeps_question_effort(rt, user, provider, cfg, effort):
+    cfg['agents']['codex'] = cfg['agents']['good']
     router = AgentRouter(rt, AgentPool(rt, cfg))
     result = router.ask(user, '修一下这个函数', agent='auto', category='code', failover=True, effort=effort)
     assert result['ok']
     assert result['effort'] == effort
+
+
+def test_manager_uses_codex_across_categories_with_low_quota(rt, user, cfg, monkeypatch):
+    from pga.agents.quota import Quota
+    cfg['agents']['chatgpt'] = cfg['agents']['good']
+    cfg['agents']['codex'] = cfg['agents']['spare']
+    cfg['routing']['categories']['serious'] = {'prefer': ['chatgpt']}
+    router = AgentRouter(rt, AgentPool(rt, cfg))
+    monkeypatch.setattr(router, 'quota', lambda name: Quota(0.03 if name == 'codex' else 1.0))
+    assert [row['agent'] for row in router.rank('serious')] == ['chatgpt']
+    result = router.ask(user, '分析这个问题', category='serious', agent='auto', failover=True)
+    assert result['ok'] and result['agent'] == 'codex'
+    assert router.ask(user, '修改这个函数', category='code', failover=True)['agent'] == 'codex'
+    cfg['agents']['codex'] = cfg['agents']['broken']
+    router = AgentRouter(rt, AgentPool(rt, cfg))
+    failed = router.ask(user, '修改这个函数', agent='codex', failover=True, fallback=['good'])
+    assert not failed['ok'] and [row['agent'] for row in failed['tried']] == ['codex']
+    cfg['agents']['codex'] = cfg['agents']['spare']
+    router = AgentRouter(rt, AgentPool(rt, cfg))
+    result = router.ask(user, '修改这个函数', agent='broken', category='code', failover=True, fallback=['good'])
+    assert [row['agent'] for row in result['tried']] == ['broken', 'codex']

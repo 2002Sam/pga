@@ -47,7 +47,7 @@ extension AppDelegate {
         chats.submenu = cm; m.addItem(chats)
         if from == nil {                                  // what a conversation can read: notes, files, skills, documents, topics
             m.addItem(.separator())
-            m.addItem(ActionItem("笔记", symbol: "note.text") { let f = self.openNode(.note, data: [:], frame: place(.note)); if let into { self.link(f, into: into) }; f.show(focus: true) })
+            m.addItem(ActionItem("计划", symbol: "note.text") { let f = self.openNode(.note, data: [:], frame: place(.note)); if let into { self.link(f, into: into) }; f.show(focus: true) })
             m.addItem(ActionItem("文件…", symbol: "doc") {
                 let o = NSOpenPanel(); o.allowsMultipleSelection = true; o.canChooseDirectories = true
                 guard o.runModal() == .OK else { return }
@@ -77,8 +77,7 @@ extension AppDelegate {
             }
         }
         m.addItem(.separator())
-        m.addItem(ActionItem(inBench ? "分开到桌面（⌥⇧Space）" : "收进工作台（⌥⇧Space）", symbol: "rectangle.3.group") { self.toggleMode() })
-        m.addItem(ActionItem("所有对话…", symbol: "list.bullet") { self.showHome() })
+        m.addItem(ActionItem("简略界面（管理员）", symbol: "list.bullet") { self.showHome() })
         if let w = into { m.addItem(ActionItem("关闭这个窗口", symbol: "xmark") { w.panel.performClose(nil) }) }
         m.popUp(positioning: nil, at: point, in: nil)
     }
@@ -86,15 +85,11 @@ extension AppDelegate {
     /// Where a new window goes: an input to the left of the window it feeds (stacked), anything else where you pointed.
     /// In the coordinates of where windows live now: the screen, or the workbench.
     func frameFor(_ k: Kind, near w: FloatWindow?, at point: NSPoint?, left: Bool) -> NSRect {
-        var sz = k.size, space: NSRect
-        if inBench, let b = bench { space = b.area.bounds; sz.height = Swift.min(sz.height, space.height - 40) }
-        else {
-            let at: NSPoint = point ?? NSEvent.mouseLocation
-            let screen: NSScreen = w?.panel.screen ?? NSScreen.screens.first(where: { NSMouseInRect(at, $0.frame, false) }) ?? NSScreen.main!
-            space = screen.visibleFrame
-        }
-        if var p = point {
-            if inBench, let b = bench { p = b.area.convert(b.window.convertPoint(fromScreen: p), from: nil) }
+        let sz = k.size
+        let at = point ?? NSEvent.mouseLocation
+        let screen = w?.panel.screen ?? NSScreen.screens.first(where: { NSMouseInRect(at, $0.frame, false) }) ?? NSScreen.main!
+        let space = screen.visibleFrame
+        if let p = point {
             return NSRect(x: p.x - (left ? sz.width : 0), y: p.y - sz.height / 2, width: sz.width, height: sz.height)
         }
         guard let w else { return defaultFrame(k) }

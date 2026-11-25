@@ -35,16 +35,74 @@ test('open page keeps only its own category expanded',()=>{
   const cats=c.stLayout().units.filter(u=>u.kind==='cat');
   assert.deepEqual(Array.from(cats,u=>u.g.id),['pj:B']);
 });
-test('automatic managers are folded, unique, and do not evict ordinary conversations',async()=>{
+test('visiting categories does not automatically create manager windows',async()=>{
   const nodes=Array.from({length:12},(_,i)=>({...win('a'+i,'A',false),key:'chat:'+i}));
   const c=setup(nodes);
   Object.assign(c,{AS_UID:null,$:()=>({dataset:{ready:'1'}}),localStorage:{getItem:()=>null},
-    pmRequest:async()=>({project:'A',manager:'chat:pm-A'}),stId:()=> 'manager',L:s=>s,stRender(){},stSave(){}});
+    pmRequest:async()=>assert.fail('must open managers only on request'),stId:()=> 'manager',L:s=>s,stRender(){},stSave(){}});
   vm.runInContext(source.slice(source.indexOf('function stLimitPages('),source.indexOf('function stRender()')),c);
   c.stEnsureManagers(); await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(c.ST.nodes.length,13);
-  assert.equal(c.ST.nodes.at(-1).small,true);
+  assert.equal(c.ST.nodes.length,12);
   assert.equal(c.stLimitPages(),false);
   c.stEnsureManagers(); await new Promise(resolve=>setImmediate(resolve));
-  assert.equal(c.ST.nodes.length,13);
+  assert.equal(c.ST.nodes.length,12);
+});
+
+function restoreContext(nodes) {
+  const c = setup(nodes);
+  Object.assign(c, {document:{querySelector:()=>null}, stKidKeep(){}, stSave(){}, stMap(){},
+    stRender(){ c.stLimitPages(); c.stLayout(); }});
+  vm.runInContext(source.slice(source.indexOf('function stLimitPages('),source.indexOf('function stRender()')),c);
+  vm.runInContext(source.slice(source.indexOf('function stFoldSet('),source.indexOf('function stMini(n, on)')),c);
+  vm.runInContext(source.slice(source.indexOf('function stMapOpenCategory('),source.indexOf('// Use the full page as the reference')),c);
+  return c;
+}
+test('opening a category after global fold restores its previous windows and widths only',()=>{
+  const a={...win('a','A',false),bw:650}, old=win('old','A'), b=win('b','B',false);
+  const c=restoreContext([a,old,b]);
+  c.stFoldAll();
+  assert.ok(c.ST.nodes.every(w=>w.small));
+  c.stMapOpenCategory('pj:A');
+  assert.equal(!!a.small,false); assert.equal(a.bw,650);
+  assert.equal(old.small,true); assert.equal(b.small,true);
+  assert.ok(c.stLayout().units.some(u=>u.kind==='win'&&u.win===a&&!u.hide&&u.w===650));
+  c.stMapOpenCategory('pj:B'); assert.equal(!!b.small,false);
+  assert.equal(c.ST.foldAllIds,undefined);
+  a.small=true; old.small=false;
+  c.stFoldCat('pj:A'); c.stMapOpenCategory('pj:A');
+  assert.equal(a.small,true); assert.equal(!!old.small,false);
+});
+test('category fold and reopen keeps an already folded conversation folded',()=>{
+  const a=win('a','A',false), old=win('old','A');
+  const c=restoreContext([a,old]);
+  c.stFoldCat('pj:A'); c.stMapOpenCategory('pj:A');
+  assert.equal(!!a.small,false); assert.equal(old.small,true);
+});
+test('category marker restores full windows even without a saved fold list',()=>{
+  const c=restoreContext([win('a','A'),win('b','A')]);
+  c.stMapOpenCategory('pj:A');
+  assert.ok(c.ST.nodes.every(w=>!w.small));
+  assert.ok(c.stLayout().units.filter(u=>u.kind==='win'&&!u.hide).every(u=>u.w>=300));
+});
+for (const byCategory of [false,true]) test(`batch folding retains more than ten windows for ${byCategory?'category':'global'} restore`,()=>{
+  const nodes=Array.from({length:15},(_,i)=>({...win('a'+i,byCategory?'A':'G'+i,false),bw:500+i}));
+  const c=restoreContext(nodes);
+  if(byCategory)c.stFoldCat('pj:A'); else c.stFoldAll();
+  assert.equal(c.ST.nodes.length,15);
+  for(const group of new Set(nodes.map(w=>w.group)))c.stMapOpenCategory('pj:'+group);
+  assert.equal(c.ST.nodes.length,15);
+  assert.ok(c.ST.nodes.every((w,i)=>!w.small&&w.bw===500+i));
+});
+
+test('time layout preserves global order instead of stacking branches or merging folded categories',()=>{
+ const child={...win('child','A',false),par:'a',bw:450};
+ const b={...win('b','B',false),bw:450};
+ const a={...win('a','A'),kids:['child'],kidsCollapsed:true};
+ const a2=win('a2','A'),c=setup([child,b,a,a2]);c.ST.mapMode='time';
+ const units=c.stLayout().units.filter(u=>!u.hide);
+ assert.deepEqual(Array.from(units,u=>u.win?.id),['child','b','a','a2']);
+ assert.equal(units[2].w,6);assert.equal(units[3].w,6);
+ assert(units[0].x<units[1].x&&units[1].x<units[2].x);
+ assert.equal(child.par,'a');assert.deepEqual(a.kids,['child']);assert.equal(a.kidsCollapsed,true);
+ c.ST.mapMode='cat';assert(!c.stLayout().units.some(u=>u.win===child));
 });

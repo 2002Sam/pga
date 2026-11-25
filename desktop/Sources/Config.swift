@@ -3,6 +3,8 @@ import AppKit
 /// Where the desktop app keeps its own things: ~/Library/Application Support/PGA Desktop
 /// - config.json: the PGA server, the account the windows open as (and, while developing, where the interface is)
 /// - floats.json: the floating windows that are open, so they come back where they were
+/// - alerts.json: the conversations with news you have not looked at yet (the Dock badge); managers.json: where each
+///   category's 管理员小窗 was, and whether it was pinned
 enum Store {
     static let dir: URL = {
         let d = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("PGA Desktop")
@@ -26,7 +28,8 @@ struct Config: Codable {
     var uid = ""
     var ui: String? = nil          // while developing: serve the interface from this folder (e.g. desktop/ui/dist) instead of the app
     var mode: String? = nil        // "bench": every window in one workbench window; "desk" (default): each on its own over the desktop
-    var chat: String? = nil        // "light": conversations in the desktop app's own small page; else (default) the browser version's full page
+    var chat: String? = nil        // "light": start in the category manager window; else (default) the browser version's full page
+    var alerts: Bool? = nil        // false: no reminders when an agent has finished (nor a badge); else (default) on
 
     /// The account: the one in config.json, else the installation's owner (asked of the database once and kept).
     /// A WebKit window keeps its own storage, apart from Chrome's; without this it would start a new, empty account.

@@ -133,6 +133,37 @@ def test_asking_inside_a_category_routes_by_that_category(rt, user, provider, cf
         r.ask(user, "x", category="nope")
 
 
+def test_completed_task_results_are_read_per_run(rt, user, provider, cfg):
+    import uuid
+
+    from fastapi import HTTPException
+
+    from pga import project_context, projectsort
+    from pga.api.app import create_app
+
+    key = "chat:shared-tasks"
+    projectsort.assign(user, key, "PGA")
+    provider.handler = lambda s, m: "完成"
+    router = AgentRouter(rt, AgentPool(rt, cfg))
+    runs = [router.ask(user, text, agent="fast", conversation=key)["run_id"] for text in ("第一项", "第二项")]
+    endpoints = {r.name: r.endpoint for r in create_app().routes if hasattr(r, "endpoint")}
+
+    def unread():
+        return {r["id"] for r in project_context.activity(rt, user, "PGA") if r.get("result_unread")}
+
+    assert unread() == set(runs)
+    turns = endpoints["chats_one"](user.id, key, rt)["turns"]
+    assert [t["run"] for t in turns if t.get("result_unread")] == runs
+    seen = endpoints["task_result_seen"]
+    with pytest.raises(HTTPException, match="404"):
+        seen(uuid.uuid4(), uuid.UUID(runs[0]), rt)
+    for _ in range(2):
+        seen(user.id, uuid.UUID(runs[0]), rt)
+        assert unread() == {runs[1]}
+    turns = endpoints["chats_one"](user.id, key, rt)["turns"]
+    assert [t["run"] for t in turns if t.get("result_unread")] == [runs[1]]
+
+
 def test_past_conversations_are_rebuilt_per_card_from_the_ledger(rt, user, provider, cfg):
     from pga.agents import history
     provider.handler = lambda s, m: "fast answered"
@@ -381,3 +412,23 @@ def test_native_steer_is_saved_with_answer_and_in_history(rt, user, cfg, monkeyp
     assert saved.prompt=='最初的问题'
     assert '[运行中补充]\n保留这个补充' in prompt_with_steering(saved)
     assert '保留这个补充' in history(rt,user,'chat:steer')[0]['text']
+
+
+def test_router_commits_pending_preferences_before_entering_native_agent(rt, user, cfg, monkeypatch):
+    """Shared routing must release writes even when the caller is not /agents/ask."""
+    from sqlalchemy import event
+    pool = AgentPool(rt, cfg)
+    commits = []
+    event.listen(rt.session, 'after_commit', lambda session: commits.append(True))
+    user.preferences = {**(user.preferences or {}), 'approval_regression': True}
+    original = pool._call
+    checked = []
+    def call(*args, **kwargs):
+        assert commits, 'native tool must not start inside the caller write transaction'
+        assert user not in rt.session.dirty
+        checked.append(True)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(pool, '_call', call)
+    result = AgentRouter(rt, pool).ask(user, 'hello', agent='coder', access='auto', conversation='chat:approval-router')
+    assert result['ok']
+    assert checked

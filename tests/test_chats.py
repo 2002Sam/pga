@@ -280,3 +280,55 @@ def test_branch_first_new_question_names_it_once_and_preserves_manual_titles(ses
     C.set_title(user, 'chat:manual', '我自己起的标题')
     assert not C.name_branch_question(rt, user, 'chat:manual', '新的问题')
     assert user.preferences['chat_titles']['chat:manual'] == '我自己起的标题'
+
+
+def test_history_images_belong_to_the_question(session_factory, policy, provider, backend, user, session, tmp_path):
+    import uuid
+    now = datetime.now(timezone.utc)
+    question = _run(user, "原文" * 800, "回答", now, "chat:preview")
+    session.add(question)
+    session.flush()
+    picture = tmp_path.resolve() / "uploads" / "photo.png"
+    picture.parent.mkdir()
+    picture.write_bytes(b"saved image")
+    step = _run(user, "step", "ok", now, "chat:preview")
+    step.parent_id = question.id
+    step.data = {"question_input": {"images": [str(picture)]}}
+    session.add(step)
+    session.commit()
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as client:
+        turn = client.get(f"/v1/users/{user.id}/chats/chat:preview").json()["turns"][0]
+        assert turn["text"] == question.prompt
+        url, = turn["question_images"]
+        assert client.get(url).content == picture.read_bytes()
+        assert client.get(url.replace(str(user.id), str(uuid.uuid4()))).status_code == 404
+        picture.unlink()
+        assert client.get(url).status_code == 404
+
+
+def test_legacy_paste_is_scoped_to_user_message_and_run(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from pga.hub import steps
+
+    now = datetime.now(timezone.utc)
+    question = SimpleNamespace(prompt="这张图", data={"images": 1})
+    step = SimpleNamespace(adapter="codex_local", data={"thread": "thread123"},
+                           started_at=now, finished_at=now + timedelta(seconds=1))
+    path = tmp_path / "thread.jsonl"
+    monkeypatch.setattr(steps, "transcript", lambda sid, kind: path)
+
+    def record(prompt, at=now, role="user"):
+        return json.dumps({"timestamp": at.isoformat(), "type": "response_item",
+                           "payload": {"type": "message", "role": role, "content": [
+                               {"type": "input_text", "text": prompt},
+                               {"type": "input_image", "image_url": "data:image/png;base64,aW1hZ2U="}]}})
+
+    path.write_text("\n".join([record("这张图", now - timedelta(seconds=1)),
+                               record("另一张图"), record("这张图", role="assistant")]) + "\n")
+    assert steps.legacy_question_picture(step, question, 0) is None
+    with path.open("a") as f:
+        f.write(record("这张图\n\nProject: PGA. Shared project context snapshot") + "\n")
+    assert steps.legacy_question_picture(step, question, 0) == (b"image", "image/png")
+    assert steps.legacy_question_picture(step, question, 1) is None

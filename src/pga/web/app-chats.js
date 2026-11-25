@@ -251,7 +251,7 @@ function renderLineDialog() {
   autoGrow($("#chatText")); compactComposer();
 }
 async function lineSend(noteOnly) {
-  if (!noteOnly && (S.sending || S.regenBusy)) return queueFollowup();
+  if (!noteOnly && (S.sending || S.regenBusy)) return queueFollowup(true);
   if (composerBusy()) return;
   const d = S.lineD?.[S.lineView]; if (!d) return;
   const tg = d.items.find((x) => x.key === S.lineTarget) || d.items[d.items.length - 1], text = ($("#chatText")?.value || "").trim();
@@ -375,7 +375,7 @@ function renderImported() {
    there — every tool call, its commentary and thinking, screenshots — folded like Claude Code's; time and tokens below */
 function impTurnsHtml(d) {
   let out = "", aside = [], k = 0;                  // k: turns so far (yours and its answers): where 从这里继续 branches
-  const carry = (n, before) => `<div class="macts${before ? " right" : ""}"><button class="txt" data-cbranch="${n}" data-ckey="imp:${esc(d.id)}" title="${before ? L("从这一问之前分出一段新对话，接着从这里聊", "Branch just before this question and carry on from here") : L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
+  const carry = n => `<div class="macts"><button class="txt" data-cbranch="${n}" data-ckey="imp:${esc(d.id)}" title="${L("从这个回答之后分出一段新对话", "Branch after this answer")}">${L("从这里继续", "Carry on here")}</button></div>`;
   const src = { session: d.session, kind: d.source || "claude" };
   const flush = () => {
     if (!aside.length) return;
@@ -388,9 +388,9 @@ function impTurnsHtml(d) {
     flush();
     if (!(t.text || "").trim()) continue;            // as the branch counts them (pga.chats.imported_turns)
     k += 1;
-    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + (d.session ? thumbs(src, t.images) : "") + (k > 1 ? carry(k - 1, true) : "")
+    out += t.role === "user" ? PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + (d.session ? thumbs(src, t.images) : "") + `<div class="macts right">${questionBranchButton(k, "imp:" + d.id)}</div>`
       : (t.how && d.session ? howBlock(t.how, src) : "") + PGATree.chat([{ agent: d.agent, kind: "answer", text: t.text, at: t.at, data: {} }], { md, name: (x) => x.agent })
-        + (t.how ? howMeta(t.how) : "") + carry(k);
+        + howMeta(t.how || t) + carry(k);
   }
   flush();
   return `<div style="display:contents" data-file-key="imp:${esc(d.id)}">${out}</div>`;
@@ -432,12 +432,107 @@ async function impSend() {
   if (typeof chatChoiceSave === "function") chatChoiceSave(key);
   renderChat(); $("#chatText").value = text; await chatSend(); S.chatTurns[key] = (S.chatTurns[key] || []);
 }
+function isQaFeed(key) { return /^chat:summary-[0-9a-f]{20}-(?:qa|execute)$/.test(key || ""); }
+
+// A feed and its workers are different views of the same stored turns.
+function executionFeedOf(key) {
+  const worker = /^chat:mt-([0-9a-f]{20})-execute-[0-9a-f]{32}$/.exec(key || '');
+  return worker ? 'chat:summary-' + worker[1] + '-execute' : null;
+}
+
+async function openSourceChat(key) {
+  const stage = stageNodeOf(), uid = S.uid, task = !!executionFeedOf(key);
+  let node;
+  if (stage) {
+    const taskTitle = task ? S.chatTurns?.[S.chat]?.find(t => t.thread === key && t.role === 'user')?.text?.slice(0, 60) : '';
+    node = stage.P.stOpen(key, {win:stage.n.id, taskTitle});
+    if (node) stage.P.stShow(node.id);
+  } else openFound(key, key.startsWith('c:') ? key.slice(2) : null);
+  if (!task || (stage && !node)) return;
+  try {
+    await pdWaitFor(() => {
+      if (uid !== S.uid || (node ? stage.P.ST.focus !== node.id : S.chat !== key)) return true;
+      return pdFocusComposer(node ? node.el?.querySelector('iframe')?.contentWindow : window, key, uid);
+    });
+  } catch (err) { toast(err.message); }
+}
+document.addEventListener('click', e => {
+  const button = e.target.closest?.('[data-source-chat]');
+  if (button) openSourceChat(button.dataset.sourceChat);
+});
+
+function executionWorkers(key, runs) {
+  const match = /^chat:summary-([0-9a-f]{20})-(execute|qa)$/.exec(key);
+  if (!match) return [];
+  const prefix = S.uid + ":chat:mt-" + match[1] + "-" + match[2] + "-";
+  const active = new Map();
+  for (const r of runs) {
+    const tag = r.tags?.conversation || "";
+    if (!r.finished && (tag.startsWith(prefix) || tag === S.uid + ":" + key)) active.set(tag, r);
+  }
+  return Array.from(active.values());
+}
+function executionChatButton(feed, run) {
+  const thread = run.tags.conversation.slice(S.uid.length + 1);
+  if (executionFeedOf(thread) !== feed) return '';
+  return `<button type="button" class="sm" data-source-chat="${esc(thread)}">${L('打开处理对话', 'Open task chat')}</button>`;
+}
+function executionBars(key, runs) {
+  return executionWorkers(key, runs).map(r => {
+    const title = r.tags.task_title || r.prompt || L("执行中", "Running");
+    return `<div class="exec-run" title="${esc(title)}"><span class="spin"></span><span>${esc(title)}</span><small>${esc(r.agent || "")}</small>${executionChatButton(key, r)}</div>`;
+  }).join("");
+}
+function paintExecutionMessages(key, runs) {
+  const list = document.getElementById('execMessages');
+  if (!list || list.dataset.feed !== key) return;
+  const dialog = document.getElementById('cdlg');
+  const follow = dialog.scrollHeight - dialog.clientHeight - dialog.scrollTop < 80;
+  const active = new Set();
+  for (const run of executionWorkers(key, runs)) {
+    active.add(run.id);
+    let item = Array.from(list.children).find(el => el.dataset.run === run.id);
+    if (!item) {
+      item = document.createElement('section');
+      item.dataset.run = run.id;
+      item.innerHTML = `<div class="mine-q">${esc(run.tags.task_title || run.prompt || '')}</div>${executionChatButton(key, run)}<div class="work" id="exec-work-${esc(run.id)}"></div>`;
+      list.append(item);
+      item._watch = {t0:run.started * 1000};
+    }
+    item._watch.run = run;
+    const card = item.lastElementChild;
+    paintLiveCard(item._watch, card.id, card);
+  }
+  for (const item of Array.from(list.children)) if (!active.has(item.dataset.run)) item.remove();
+  if (follow) dialog.scrollTop = dialog.scrollHeight;
+}
+function qaComposer(key) {
+  const reply = S.qaReply?.[key];
+  return `<div class="inner">${key.endsWith("-execute") ? `<div id="execRuns">${executionBars(key, S.executionRuns || [])}</div>` : ""}${reply ? `<div class="atts"><span class="att">${L("追问", "Follow up")} · ${esc(reply.title)} <button data-qa-clear>×</button></span></div>` : ""}
+    ${attsHtml()}<div class="cbar">${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("交给管理员分配…", "Ask the manager to assign a task…")}">${esc(S.chatDraft || "")}</textarea>
+    ${effortSel(key)}<button class="primary" id="chatSend">${L("发送", "Send")}</button></div></div>`;
+}
+document.addEventListener("click", e => {
+  const target = e.target.closest?.("[data-qa-reply], [data-qa-clear]");
+  if (!target || !isQaFeed(S.chat)) return;
+  S.qaReply ||= {};
+  const run = target.dataset.qaReply;
+  if (run) {
+    const question = S.chatTurns[S.chat]?.find(t => t.role === "user" && t.run === run);
+    S.qaReply[S.chat] = {run, title:(question?.text || "").slice(0, 60)};
+  } else delete S.qaReply[S.chat];
+  renderChat();
+  $("#chatText")?.focus();
+});
+
 function renderChat() {
   if (typeof chatChoiceRestore === "function") chatChoiceRestore();
   queueMicrotask(() => { if (typeof renderAccTop === "function") renderAccTop(); });
   window.PGAShell?.setConversationArt(S.chat || S.imp?.key || S.treeItem?.item || S.lineView || Q.get('c') || Q.get('item'));
   const readingBox = $("#cdlg"), readingTop = readingBox?.scrollTop || 0;
   const following = !readingBox || readingBox.scrollHeight - readingTop - readingBox.clientHeight < 80;
+  if (typeof readingLeave === 'function') readingLeave(S.imp || S.lineView || S.treeItem ? null : S.chat);
+  if (!S.imp && !S.lineView && !S.treeItem && S.readings?.[S.chat] && typeof readingRender === 'function') { readingRender(S.readings[S.chat]); return; }
   if (S.lineView) { renderLineDialog(); return; }
   if (S.imp) { renderImported(); return; }
   if (S.treeItem) {
@@ -448,42 +543,125 @@ function renderChat() {
   }
   const c = chatOf(S.chat), turns = S.chatTurns[S.chat] || [];
   const cc = (S.allChats || []).find((x) => x.key === S.chat);
-  $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || S.chatCtx?.[S.chat]?.title || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
+  const taskTitle = executionFeedOf(S.chat) ? turns.find(t => t.role === 'user')?.text?.slice(0, 60) : '';
+  $("#chead").innerHTML = `<span class="kind">${L("日常对话", "Everyday chat")}</span><h1>${esc(cc?.title || S.chatCtx?.[S.chat]?.title || taskTitle || (S.chat ? L("新对话", "New chat") : L("和 agent 随便聊", "Talk to an agent")))}</h1>
 `;
   $("#chead").innerHTML += headActs();
   const notes = turns;
   $("#cdlgIn").innerHTML = (S.chat ? lineCard() : "") + branchCtx(S.chat) + (!S.chat && !notes.length ? `<div class="chello"><h2>${L("问点什么", "Ask anything")}</h2><div>${L("一次性的、日常的问题在这里问：不会长成树。哪天它变成了一个长期的方向，再把它种成一棵树。", "Everyday, one-off questions go here and do not grow a tree. If one turns into a long-range direction, plant it as a tree.")}</div></div>`
-    : (S.chatSplits?.[S.chat] ? splitHtml(turns) : chatTurnsHtml(turns)) + (S.sending && S.view === "chats" && !S.chatSplits?.[S.chat] ? workCard() : ""));
+    : (S.chatSplits?.[S.chat] ? splitHtml(turns) : chatTurnsHtml(turns)) + consolidatedSourcesHtml(S.chat) + (S.sending && S.view === "chats" && !S.chatSplits?.[S.chat] ? (S.multiWork?.key === S.chat ? multiWorkHtml() : workCard()) : ""));
+  if (isQaFeed(S.chat)) {
+    $("#cdlgIn").insertAdjacentHTML('beforeend', `<div id="execMessages" data-feed="${esc(S.chat)}"></div>`);
+    paintExecutionMessages(S.chat, S.executionRuns || []);
+  }
   const K = S.forest?.knowledge || [], box = $("#chatText"); if (box) S.chatDraft = box.value;
-  paintComposer(`<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
+  paintComposer(isQaFeed(S.chat) ? qaComposer(S.chat) : `<div class="inner">${envBar(S.chat || "", turns)}<div class="refs">${S.chatRefs.map((id) => { const k = K.find((x) => x.id === id); return k ? `<span class="chip on">${esc(k.title.slice(0, 18))}&nbsp;<a href="#" data-chrefdel="${id}" style="color:inherit">×</a></span>` : ""; }).join("")}</div>
     ${followupHtml()}${attsHtml()}<div class="cbar"><select id="chrefAdd" class="kpick" title="${L("引用知识", "Use knowledge")}"><option value="">＋</option>${K.filter((k) => !S.chatRefs.includes(k.id)).map((k) => `<option value="${k.id}">${esc(sysName(k) + " · " + k.title)}</option>`).join("")}</select>
       ${composeTools()}<textarea id="chatText" rows="1" placeholder="${L("写点什么…（Enter 发送，Shift+Enter 换行）", "Write something… (Enter sends, Shift+Enter for a new line)")}">${esc(S.chatDraft || "")}</textarea>
       <select id="chatAgent"><option value="auto">${L("自动", "Auto")}</option>${S.agents.map((a) => `<option value="${esc(a.name)}" ${a.name === S.chatAgent ? "selected" : ""}>${esc(agentLabel(a.name))}</option>`).join("")}</select>${effortSel(S.chat || "")}${branchCountTool()}${typeof knowledgeTool === "function" ? knowledgeTool() : ""}
       <span class="sendg"><button class="ghost polishb" id="polishBtn" title="${L("润色：按你的用户画像改写成几个版本，挑一个再发", "Polish: rewritten a few ways with what PGA knows about you; pick one, then send")}">✨</button><button class="primary" id="chatSend">${S.sending || S.regenBusy ? L("排队发送", "Queue") : L("发送", "Send")}</button></span></div></div>`);
   autoGrow($("#chatText")); compactComposer();
-  const box2 = $("#cdlg"); if (S.scrollChat || (S.sending && following)) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); } else if (box2) box2.scrollTop = readingTop;
+  // A branch not talked in yet opens at the point it grew from, once; after that you read where you like.
+  const forkView = !!S.chatCtx?.[S.chat]?.branch && !turns.length && !(S.forkSeen ||= {})[S.chat];
+  if (forkView) S.forkSeen[S.chat] = true;
+  const box2 = $("#cdlg"); if (S.scrollChat || forkView || (S.sending && following)) { S.scrollChat = false; requestAnimationFrame(() => { box2.scrollTop = box2.scrollHeight; }); } else if (box2) box2.scrollTop = readingTop;
+}
+// A result can appear in its worker window and in a shared feed. Acknowledge
+// the same durable run in either place, only while its result is being viewed.
+const chatVisibleResults = new Set(), chatReadingResults = new Set();
+function chatReadResult(el) {
+  const {uid, run} = el.dataset;
+  if (!chatVisibleResults.has(el) || uid !== S.uid || document.hidden || S.stageDormant || S.stageMotion || S.view !== 'chats') return;
+  const stage = stageNodeOf();
+  if (stage ? stage.n.mini || stage.n.small || stage.P.ST.focus !== stage.n.id || !stage.P.document.hasFocus() : !document.hasFocus()) return;
+  if (chatReadingResults.has(run)) return;
+  chatReadingResults.add(run);
+  api(`/v1/users/${uid}/task-results/${run}/seen`, {method:'POST'}).then(() => {
+    if (S.uid !== uid) return;
+    for (const turns of Object.values(S.chatTurns || {})) {
+      for (const t of turns) if (t.run === run) delete t.result_unread;
+    }
+    for (const item of chatVisibleResults) {
+      if (item.dataset.run === run) item.stopObserving();
+    }
+  }).catch(() => {
+    if (el.isConnected) setTimeout(() => { if (chatVisibleResults.has(el)) chatReadResult(el); }, 3000);
+  }).finally(() => chatReadingResults.delete(run));
+}
+if (window.customElements && window.IntersectionObserver) {
+  const observer = new IntersectionObserver(entries => {
+    for (const {target, isIntersecting, intersectionRect} of entries) {
+      if (!target.isConnected) continue;
+      if (isIntersecting && intersectionRect.width && intersectionRect.height) {
+        chatVisibleResults.add(target);
+        // Let a newly opened feed jump to the requested task before recording a view.
+        target.scheduleRead();
+      } else {
+        clearTimeout(target.readTimer);
+        chatVisibleResults.delete(target);
+      }
+    }
+  });
+  customElements.define('pga-task-result', class extends HTMLElement {
+    connectedCallback() { observer.observe(this); }
+    disconnectedCallback() { this.stopObserving(); }
+    scheduleRead() {
+      clearTimeout(this.readTimer);
+      this.readTimer = setTimeout(() => chatReadResult(this), 700);
+    }
+    stopObserving() {
+      clearTimeout(this.readTimer);
+      observer.unobserve(this);
+      chatVisibleResults.delete(this);
+    }
+  });
+  const readVisible = window.chatReadVisibleResults = () => chatVisibleResults.forEach(el => el.scheduleRead());
+  window.addEventListener('focus', readVisible);
+  document.addEventListener('visibilitychange', readVisible);
+  document.addEventListener('pointerup', readVisible);
 }
 /* one turn at a time: the question, the answer (and who gave it, marked when the agent changes), then what you can do
    with the answer: a second opinion from another agent, or a branch from here */
+function consolidatedSourcesHtml(key) {
+  const sources = S.chatSources?.[key] || [];
+  if (!sources.length) return "";
+  return sources.map(source => `<div class="consolidated-source" id="source-${esc(source.key)}"><button class="ghost" data-source-chat="${esc(source.key)}">${esc(source.title || source.key)} ↗</button></div>`).join("");
+}
 function chatTurnsHtml(turns, key = S.chat) {
   let out = "", prevAgent = null;
   for (let i = 0; i < turns.length; i += 1) {
-    const t = turns[i];
+    const t = turns[i], actionKey = t.thread || key;
+    if (t.inherited) {
+      out += `<a class="tanchor" id="${t.role === 'user' ? 't' : 'a'}-${esc(t.branchPoint)}"></a>`;
+      out += PGATree.chat([{agent:t.role === 'user' ? 'you' : agentLabel(t.agent || 'AI'),
+        kind:t.role === 'user' ? 'question' : 'answer', text:t.text || '', data:{model:t.model}}], {md, name:x=>x.agent});
+      if (t.role !== 'user') out += replyMeta(t) + `<div class="macts"><button class="txt" data-cbranch="${esc(t.branchPoint)}" data-ckey="${esc(key)}" title="${L('从这个回答之后分出一段新对话','Branch after this answer')}">${L('从这里继续','Carry on here')}</button></div>`;
+      else if (!t.note) out += `<div class="macts right">${questionBranchButton(t.branchPoint, key)}</div>`;
+      continue;
+    }
     if (t.role === "user") {
       if (t.note) { out += `<div class="mynote"><span>${L("你记下的", "Your note")}</span><div class="md">${md(t.text)}</div></div>`; continue; }
       if (S.editing && S.editing.run === t.run && S.editing.key === key) { out += editBox(t); continue; }
-      out += (t.run ? `<a class="tanchor" id="t-${t.run}"></a>` : "") + PGATree.chat([{ agent: "you", kind: "question", text: t.text, at: t.at, data: {} }], { md }) + userActs(t, key, turns[i - 1]?.role === "agent" ? turns[i - 1].run : "");
+      out += (t.run ? `<a class="tanchor" id="t-${t.run}"></a>` : "") + PGATree.chat([{ agent: "you", kind: "question", text: String(t.text || "").split("\n\n[运行中补充]\n")[0], at: t.at, data: {} }], { md }) + (t.question_images?.length ? `<div class="thumbs">${t.question_images.map(url=>`<img loading="lazy" src="${esc(url)}" alt="${L("附图","Attached image")}">`).join("")}</div>` : "") + userActs(t, actionKey, turns[i - 1]?.thread === t.thread && turns[i - 1]?.role === "agent" ? turns[i - 1].run : "");
+      const supplements = String(t.text || '').split('\n\n[运行中补充]\n').slice(1);
+      if (supplements.length) out += `<div class="question-supplements">${supplements.map(text => `<div class="question-supplement"><span>${L('运行中补充', 'Added during task')}</span><div class="md">${md(text)}</div></div>`).join('')}</div>`;
       continue;
     }
     const who = t.agent && t.agent !== "-" ? agentLabel(t.agent) : "AI";
-    if (prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
+    if (!t.thread && prevAgent && who !== prevAgent) out += `<div class="swap">${L(`换成 ${esc(who)}：它看得到前面的全部对话`, `Now ${esc(who)}: it sees the whole conversation so far`)}</div>`;
     prevAgent = who;
     if (t.run) out += `<a class="tanchor" id="a-${esc(t.run)}"></a>`;
-    out += t.second || (t.run && S.secondBusy === t.run) ? secondPairHtml(t)
-      : typeof sideOn === "function" && sideOn(t) ? sideBySide(t)
-      : procBlock(t) + PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {} }], { md, name: (x) => x.agent });
+    const paired = t.second || (t.run && S.secondBusy === t.run);
+    const side = !paired && typeof sideOn === "function" && sideOn(t);
+    if (!paired && !side) out += procBlock(t);
+    const result = paired ? secondPairHtml(t)
+      : side ? sideBySide(t)
+      : PGATree.chat([{ agent: who, kind: "answer", text: t.text || (t.error ? "⚠ " + t.error : ""), at: t.at, data: {model: t.model} }], { md, name: (x) => x.agent });
+    out += t.result_unread ? `<pga-task-result style="display:block" data-uid="${esc(S.uid)}" data-run="${esc(t.run)}">${result}</pga-task-result>` : result;
+    out += replyMeta(t);
     if (!t.run) continue;
-    out += replyMeta(t) + replyActs(t, key);
+    out += replyActs(t, actionKey);
+    if (t.thread) out += `<button class="txt" data-qa-reply="${esc(t.run)}">${L("追问这条回答", "Follow up on this answer")}</button>`;
     if (S.regenBusy === t.run) out += workCard();
 
   }
@@ -496,29 +674,30 @@ function secondHtml(first, x) {
     ${(x.differ || []).length ? `<div class="sx"><div class="label">${L("不一样的地方", "Where they differ")}</div><table><tr><th></th><th>${esc(first)}</th><th>${esc(x.agent)}</th></tr>${x.differ.map((d) => `<tr><td>${esc(d.point)}</td><td>${esc(d.a)}</td><td>${esc(d.b)}</td></tr>`).join("")}</table></div>` : ""}
     <details><summary>${L(`${esc(x.agent)} 的原话`, `${esc(x.agent)}'s own answer`)}</summary><div class="ct md" data-i18n="1">${md(x.text)}</div><button type="button" class="trbtn" data-trsrc="${esc(x.text)}" title="${L("翻译", "Translate")}">译</button></details></div>`;
 }
+// What a branch grew from is shown as the conversation it is, not in a box to open: its turns, then a line where this
+// one starts. The agent reads all of them; a very long past shows its latest turns.
+const BRANCH_SHOWN = 40;
 function branchCtx(key) {
   const c = S.chatCtx?.[key]; if (!c?.branch) return "";
   const parent = (S.allChats || []).find((x) => x.key === c.branch.from) || (c.parent_title ? { title: c.parent_title } : null);   // an imported one: its name from the server
-  if (c.branch.copy) return `<details class="bctx"><summary>${L(`复制自「${esc(parent?.title || "另一段对话")}」：下面 ${Math.floor(c.context.length / 2)} 轮是原对话的内容，agent 都会读到；你在这里接着聊，原来那段不动`, `A copy of “${esc(parent?.title || "another chat")}”: its ${Math.floor(c.context.length / 2)} turns below, which the agent reads; carry on here, the original stays`)}</summary>
-    <div class="bctxbody">${PGATree.chat(c.context.map((t) => ({ agent: t.role === "user" ? "you" : t.agent || "AI", kind: t.role === "user" ? "question" : "answer", text: t.text, at: null, data: {} })), { md, name: (x) => x.agent })}</div></details>`;
-  return `<details class="bctx"><summary>${L(`从「${esc(parent?.title || "另一段对话")}」分出来的：前面 ${Math.floor(c.context.length / 2)} 轮是它的（点开看），agent 都会读到`, `Branched from “${esc(parent?.title || "another chat")}”: the ${Math.floor(c.context.length / 2)} turns before are its own (open to read); the agent reads them`)}</summary>
-    <div class="bctxbody">${PGATree.chat(c.context.map((t) => ({ agent: t.role === "user" ? "you" : t.agent || "AI", kind: t.role === "user" ? "question" : "answer", text: t.text, at: null, data: {} })), { md, name: (x) => x.agent })}</div></details>`;
+  const name = esc(parent?.title || L("另一段对话", "another chat")), all = c.context || [], n = Math.floor(all.length / 2);
+  const shown = all.slice(-BRANCH_SHOWN), earlier = Math.floor((all.length - shown.length) / 2);
+  const turns = shown.map((t, i) => ({ role: t.role === "user" ? "user" : "agent", text: t.text, agent: t.agent, effort: t.effort,
+    inherited:true, note: t.note ?? t.text?.startsWith("[the user's own note] "), branchPoint:`context:${all.length - shown.length + i + 1}` }));
+  const line = c.branch.copy ? L(`以上 ${n} 轮复制自「${name}」 · 在这里接着聊，原来那段不动`, `Above: ${n} turns copied from “${name}” · carry on here; the original stays`)
+    : L(`以上 ${n} 轮来自「${name}」 · 从这里接着聊`, `Above: ${n} turns from “${name}” · carry on from here`);
+  return `<div class="bctxflat" style="display:contents">${earlier ? `<div class="bctxsep top"><span>${L(`更早的 ${earlier} 轮在「${name}」里，agent 也会读到`, `${earlier} earlier turns are in “${name}”; the agent reads them too`)}</span></div>` : ""}${chatTurnsHtml(turns, key)}<div class="bctxsep"><span>${line}</span></div></div>`;
 }
-document.addEventListener('toggle', e => {
-  if (!e.target.matches?.('details.bctx') || !e.target.open) return;
-  const body = e.target.querySelector('.bctxbody');
-  if (body) requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
-}, true);
 function stageNodeOf() {                            // the stage page this conversation is shown in, when it is in one
   try { const P = window.parent; if (P === window) return null;
     const n = P.ST.nodes.find((w) => w.type === "win" && w.el?.querySelector("iframe")?.contentWindow === window); return n ? { P, n } : null; } catch { return null; }
 }
-/* Second opinion opens a persistent split in this conversation, without a setup dialog. */
-async function secondOpinion(run, key) { return startSplit(run, key); }
+/* Second opinion opens the agent chooser before creating a persistent split. */
+async function secondOpinion(run, key, anchor) { return startSplit(run, key, null, anchor); }
 function secondPairHtml(t) {
   const x = t.second;
-  const column = (agent, model, text) => `<section class="sbc"><div class="sbh"><b>${esc(agentLabel(agent || "AI"))}</b>${model ? `<span>${esc(model)}</span>` : ""}</div><div class="ct md">${md(text || "")}</div></section>`;
-  return `<div class="sbs second-pair" style="--n:2">${column(t.agent, t.model, t.text || t.error)}${x ? column(x.agent, x.model, x.text) : `<section class="sbc" aria-live="polite"><div class="sbh"><b>${L("第二意见", "Second opinion")}</b></div><span class="spin"></span> ${L("另一个 agent 正在回答…", "Another agent is answering…")}</section>`}</div>`;
+  const column = (agent, model, text, effort) => `<section class="sbc"><div class="sbh"><b>${esc(agentLabel(agent || "AI"))}</b><span>${esc(runEffortLabel(effort))}</span>${model ? `<span>${esc(model)}</span>` : ""}</div><div class="ct md">${md(text || "")}</div></section>`;
+  return `<div class="sbs second-pair" style="--n:2">${column(t.agent, t.model, t.text || t.error, t.how?.effort || t.effort)}${x ? column(x.agent, x.model, x.text, x.effort) : `<section class="sbc" aria-live="polite"><div class="sbh"><b>${L("第二意见", "Second opinion")}</b></div><span class="spin"></span> ${L("另一个 agent 正在回答…", "Another agent is answering…")}</section>`}</div>`;
 }
 /* translate one piece of output in place: toggles between the original and a cached translation; direction is
    picked from the text itself (has CJK → English, else → Chinese), independent of the page's own language */
@@ -544,9 +723,10 @@ async function toggleTranslate(btn) {
 /* on the stage, 从这里继续 grows a branch window to the right of this one, in its tree (the stage makes it); elsewhere the
    page turns to the new branch */
 function branchCountTool() {
-  return `<select id="branchCount" aria-label="Branch"><option value="">${L('分屏 / 第二意见', 'Split / second opinion')}</option><option value="2">${L('双 Agent 分屏', 'Two agents')}</option></select>`;
+  const active = !!S.chatSplits?.[S.chat];
+  return `<button type="button" id="branchCount" class="ghost" aria-haspopup="dialog" ${active || S.splitStarting ? 'disabled' : ''} title="${L('选择两侧 Agent，开启分屏对话', 'Choose two agents and start a split conversation')}">${active ? L('已开启分屏', 'Split active') : L('分屏 / 第二意见', 'Split / second opinion')}</button>`;
 }
-async function branchCopies() { return startSplit(); }
+async function branchCopies() { return startSplit(null, S.chat, null, $('#branchCount')); }
 function stageBranch(from, upto) {
   try { const P = window.parent; if (P === window || typeof P.stBranchAt !== "function") return false;
     const n = P.ST.nodes.find((w) => w.type === "win" && w.el?.querySelector("iframe")?.contentWindow === window); if (!n) return false;
@@ -571,15 +751,17 @@ async function chatBranch(run, from, tree = true) {
   try {
     const options = typeof branchOptions === 'function' ? branchOptions(window) : null;   // carry on with the agent, model and effort used here
     const r = await api(`/v1/users/${S.uid}/chats/branch`, {body:{from:source,upto:run,...(options ? {options} : {})}});
-    if (options) store.set(chatChoiceStorage(r.key), JSON.stringify(options));
+    const choice = r.replay?.options || options;
+    if (choice) store.set(chatChoiceStorage(r.key), JSON.stringify(choice));
+    if (r.replay) tab.sessionStorage.setItem(questionReplayKey(r.key), r.replay.text);
     chatBranchCreated(source, r, run);
     const url = new URL(location.href); url.searchParams.set('view','chats'); url.searchParams.set('c',r.key);
-    for (const p of ['embed','manager','tree','node','imp']) url.searchParams.delete(p);
+    for (const p of ['embed','manager','tree','node','imp','item','line']) url.searchParams.delete(p);
     tab.location.replace(url.href);
   } catch (err) { tab.close(); toast(err.message); }
 }
 
-// Keep actions visible in a single compact row; model selection lives on the rail.
+// Group the existing controls without replacing their handlers or the draft textarea.
 function compactComposer() {
   const bar=document.querySelector('#ccomp .cbar');
   if(!bar || bar.classList.contains('compact-composer'))return;
@@ -590,13 +772,23 @@ function compactComposer() {
   for(const child of [...bar.children])if(child!==text&&child!==send)panel.append(child);
   bar.classList.add('compact-composer');bar.append(send,panel);
   const agent=panel.querySelector('#chatAgent');if(agent)agent.hidden=true;
-  const model=panel.querySelector('#chatModel'), effort=panel.querySelector('#chatEffort'), usage=panel.querySelector('[data-inline-usage]');
-  if(usage) {
-    const pair=document.createElement('span');pair.className='composer-model-pair';panel.insertBefore(pair,usage);
-    if(model)pair.append(model);
-    else {const label=document.createElement('span');label.textContent=usage.dataset.model||'';pair.append(label);}
-    if(effort)pair.append(effort);
-    if(usage.dataset.model){usage.dataset.omitModel='1';const prefix=usage.dataset.model+' · ';if(usage.textContent.startsWith(prefix))usage.textContent=usage.textContent.slice(prefix.length);}
+  const iconize=(selector,icon,label)=>{const b=panel.querySelector(selector);if(!b)return;b.innerHTML=icon;b.classList.add('ctool');b.setAttribute('aria-label',label);b.title=label+(b.title?' · '+b.title:'');};
+  iconize('#branchCount',CI.split,L('分屏对话 / 第二意见','Split conversation / second opinion'));
+  const split=panel.querySelector('#branchCount');if(split)split.classList.toggle('on',!!S.chatSplits?.[S.chat]);
+  iconize('[data-knowledge-toggle]',CI.knowledge,L('自动保存知识汇总','Capture knowledge automatically'));
+  iconize('[data-knowledge-list]',CI.library,L('已保存的知识汇总','Saved knowledge notes'));
+  iconize('#polishBtn',CI.polish,L('润色输入','Polish draft'));
+  iconize('#lineNote',CI.note,L('只记下来','Save as a note'));
+  const groups=[['composer-input-tools',L('输入工具','Input tools')],['composer-model-pair',L('模型与用量','Model and usage')],['composer-assist-tools',L('对话工具','Conversation tools')]].map(([name,label])=>{
+    const el=document.createElement('div');el.className='composer-tool-group '+name;el.setAttribute('role','group');el.setAttribute('aria-label',label);return el;
+  });
+  for(const child of [...panel.children]) {
+    if(child===agent)continue;
+    if(child.matches('[data-manager-panel]')) { groups[0].prepend(child); continue; }
+    const at=child.matches('#chrefAdd,[data-act="attach"],[data-act="mic"],[data-act="web"]')?0:child.matches('[data-model-picker],#chatModel,#chatEffort,[data-inline-usage],.composer-usage-wrap')?1:2;
+    groups[at].append(child);
   }
+  const usage=groups[1].querySelector('.composer-usage-wrap,[data-inline-usage]');if(usage)groups[1].append(usage);
+  for(const group of groups)if(group.children.length)panel.append(group);
   styleComposerSelects(panel);
 }

@@ -22,7 +22,7 @@ test('hovering plus hides the stale thumbnail without navigating',()=>{
 });
 test('project navigation chooses the hit conversation and never an adjacent project',()=>{
  const one={id:'one'},two={id:'two'},foreign={id:'foreign'},calls=[],tip={hidden:false};
- const ctx={ST:{mapHover:'one'},$:()=>tip,stMapHit:()=>({w:two}),stWins:()=>[one,two],stGroupOf:w=>({id:w===foreign?'pj:Other':'pj:PGA'}),stFocus:id=>calls.push(id),stShow:()=>{}};
+ const ctx={ST:{mapHover:'one'},$:()=>tip,stMapHit:()=>({w:two}),stWins:()=>[one,two],stGroupOf:w=>({id:w===foreign?'pj:Other':'pj:PGA'}),stMapNavigate:id=>calls.push(id)};
  vm.runInNewContext(stage.slice(stage.indexOf('function stMapHideTip('),stage.indexOf('function stMapTip(')),ctx);
  ctx.stProjectJump('PGA',100,20);assert.deepEqual(calls,['two']);assert.equal(tip.hidden,true);assert.equal(ctx.ST.mapHover,null);
  ctx.stMapHit=()=>({w:foreign});ctx.stProjectJump('PGA',100,20);assert.deepEqual(calls,['two','one']);

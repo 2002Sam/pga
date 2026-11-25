@@ -12,6 +12,7 @@ import math
 import os
 import re
 import threading
+import time
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -24,10 +25,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi import Path as Path_
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
-from pga import permissions
+from pga import permissions, qa_pool
 from pga.aims import AimError, AimService
 from pga.bodies import BodyError, BodyService
 from pga.evolution import EvolutionError, EvolutionService, r0_state, r0_tick
@@ -53,6 +55,8 @@ from pga.tension import IncomingEvidence, Signals
 from pga.translation import GlossaryService
 from pga.vault import VaultExportError, build_vault, export_vault, vault_zip
 from pga.workflow import WorkflowError
+
+_AGENT_TEST_LIMIT = threading.BoundedSemaphore(4)
 from pga.workflow.scheduler import heartbeat
 
 log = logging.getLogger("pga.api")
@@ -65,6 +69,35 @@ VENDOR_ADAPTER = {"claude_code": "claude_local", "chatgpt": "codex_local", "code
 
 
 CONV_GAP = timedelta(hours=2)            # a pause longer than this starts a new conversation
+
+
+def _agent_test_provider(provider, timeout_s: float):
+    """Give an LLM probe a private deadline without changing the shared chat provider."""
+    import copy
+    from pga.llm.router import AnthropicProvider, ClaudeCLIProvider, GeminiCLIProvider, OpenAICompatibleProvider
+
+    if isinstance(provider, OpenAICompatibleProvider):
+        class DeadlineClient:
+            def __init__(self, client, timeout):
+                self._client, self._timeout = client, timeout
+
+            def post(self, *args, **kwargs):
+                kwargs["timeout"] = self._timeout
+                return self._client.post(*args, **kwargs)
+
+        probe = copy.copy(provider)
+        probe.RETRIES = 0
+        probe._client = DeadlineClient(provider._client, timeout_s)
+        return probe
+    if isinstance(provider, AnthropicProvider):
+        probe = copy.copy(provider)
+        probe._client = provider._client.with_options(timeout=timeout_s, max_retries=0)
+        return probe
+    if isinstance(provider, (ClaudeCLIProvider, GeminiCLIProvider)):
+        probe = copy.copy(provider)
+        probe.timeout_s = timeout_s
+        return probe
+    return provider
 
 
 def _conversation_planets(rt, u, add, links, nodes, aim_ids, now) -> None:
@@ -139,7 +172,7 @@ def run_steps(run) -> dict | None:
     from pga.hub.connectors import redact_how
     from pga.hub.steps import run_how
     h = run_how(run)
-    return redact_how(h) if h and h.get("steps") else None
+    return redact_how(h) if h and (h.get("steps") or h.get("effort")) else None
 
 
 def create_app(session_factory: sessionmaker[Session] | None = None,
@@ -266,6 +299,20 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not path.is_relative_to(root) or not path.is_file():
             raise HTTPException(404, "no such editor asset")
         return FileResponse(path, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+    @app.get("/ui/vendor/pdfjs/6.5.438/{asset:path}", include_in_schema=False)
+    def pdf_asset(asset: str) -> FileResponse:
+        root = (WEB / "vendor" / "pdfjs").resolve()
+        path = (root / asset).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            raise HTTPException(404, "no such PDF asset")
+        return FileResponse(path, media_type="text/javascript" if path.suffix == ".mjs" else None,
+                            headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+    @app.get("/ui/file-page.html", include_in_schema=False)
+    def web_file_page() -> FileResponse:
+        """The stage's embedded file reader must be served before the script-only route."""
+        return FileResponse(WEB / "file-page.html", media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/ui/{name}", include_in_schema=False)
     def web_script(name: str) -> FileResponse:
@@ -600,7 +647,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         st = projectsort.state(user_or_404(rt, user_id))
         merged = st.get("merged") or {}
         return {"names": list(dict.fromkeys([merged.get(p, p) for p in st["list"]] + [projectsort.EVERYDAY])),
-                "of": {k: merged.get(v, v) for k, v in st["of"].items()}, "drafts": st.get("drafts", {})}
+                "of": {k: merged.get(v, v) for k, v in st["of"].items()},
+                "drafts": {k: v for k, v in st.get("drafts", {}).items() if not k.startswith("chat:mt-")}}
 
     @app.post("/v1/users/{user_id}/conversation-projects")
     def conversation_project_set(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -608,7 +656,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         u = user_or_404(rt, user_id)
         project = str(body.get("project") or "").strip()
         create = body.get("create") is True
-        key = f"chat:{uuid.uuid4().hex}" if create else str(body.get("key") or "")
+        prefix = "chat:mt-" if body.get("manager") is True and body.get("internal_only") is True else "chat:"
+        key = f"{prefix}{uuid.uuid4().hex}" if create else str(body.get("key") or "")
         try:
             key = projectsort.assign(u, key, project, create=create)
         except ValueError as exc:
@@ -624,10 +673,13 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             defaults = ((u.preferences or {}).get("agent_access") or {}).get("default") or {}
             matches = [p for p in Projects(rt.session).list(u.id)
                        if p.name.casefold() == st["of"][key].casefold() and os.path.isdir(p.path)]
-            if not acc["folder"] and len(matches) == 1:
+            manager_created = body.get("manager") is True
+            if (manager_created or not acc["folder"]) and len(matches) == 1:
                 acc = {**acc, "folder": matches[0].path}
                 if not defaults:
                     acc["access"] = "full" if matches[0].full_access else "read"
+            if manager_created:
+                acc = {**acc, "access": "full"}
             access_for(u, key, acc)
         return {"key": key, "project": st["of"][key], "created": create}
 
@@ -649,6 +701,24 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
 
+    @app.get("/v1/users/{user_id}/project-activity")
+    def project_activity(user_id: uuid.UUID, project: str, rt: Runtime = Depends(get_rt)):
+        from pga import project_context
+        return project_context.activity(rt, user_or_404(rt, user_id), project)
+
+    @app.post("/v1/users/{user_id}/task-results/{run_id}/seen")
+    def task_result_seen(user_id: uuid.UUID, run_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import AgentRun
+        run = rt.session.scalar(select(AgentRun).where(
+            AgentRun.id == run_id, AgentRun.user_id == user_id, AgentRun.workflow == "ask",
+            AgentRun.parent_id.is_(None), AgentRun.status == "SUCCEEDED").with_for_update())
+        if run is None:
+            raise HTTPException(404, "task result not found")
+        if (run.data or {}).get("result_unread"):
+            run.data = {**run.data, "result_unread": False}
+        rt.session.commit()
+        return {"seen": True}
+
     @app.post("/v1/users/{user_id}/project-map")
     def project_map(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """A category's manager page: its conversations as a tree of what grew from what and what was wired into what
@@ -656,8 +726,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga import project_context
         u = user_or_404(rt, user_id)
         try:
+            project = str(body.get("project") or "")
+            if body.get("manager_only") is True:
+                # Opening a manager needs its stable conversation key; building the
+                # full graph and timeline overview can happen after its page appears.
+                project = project_context.project_name(u, project)
+                manager = project_context.manager_key(u, project)
+                defaults = project_context.manager_defaults(u, project)
+                rt.session.commit()
+                return {"project": project, "manager": manager, "defaults": defaults}
             project_context.save_refs(u, body.get("shown"), body.get("refs"))
-            out = project_context.overview(rt, u, str(body.get("project") or ""))
+            out = project_context.overview(rt, u, project)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         rt.session.commit()
@@ -897,6 +976,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """What tidying one folder would do: the conversations that stay, and the groups the older ones fall into. Changes nothing."""
         from pga import consolidate
         u = user_or_404(rt, user_id)
+        if body.get("together"):
+            return {"members": consolidate.category_members(rt, u, str(body.get("project") or "")[:80])}
         return _tidy(lambda: consolidate.plan(rt, u, str(body.get("project") or "")[:80], [str(k) for k in (body.get("protect") or [])][:200]))
 
     @app.post("/v1/users/{user_id}/consolidate/apply")
@@ -904,8 +985,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         """One group of a plan: written up as a new conversation; its originals archived."""
         from pga import consolidate
         u = user_or_404(rt, user_id)
+        members = [str(k) for k in (body.get("members") or [])]
         return _tidy(lambda: consolidate.apply_group(rt, u, str(body.get("project") or "")[:80], str(body.get("title") or "归档")[:60],
-                                                     [str(k) for k in (body.get("members") or [])][:200]))
+                                                     members if body.get("together") else members[:200], all_dates=bool(body.get("together"))))
 
     @app.post("/v1/users/{user_id}/consolidate/undo")
     def consolidate_undo(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -2372,6 +2454,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         path = resolve_file(user_id, body, rt, editor=True)
         from pga.localfiles import jump
         out = describe(path, request.url.netloc)
+        if path.suffix.lower() == '.xlsx':
+            out.update(sheet_editable=True, editable=True)
         if path.suffix.lower() in ('.svg', '.csv', '.tsv') and out.get('kind') in ('image', 'sheet'):   # a drawing or a table: also its source, to read and edit
             out = {**describe_text(path), **out}
         return {**out, **jump(str(body.get("path") or ""))}
@@ -2421,6 +2505,177 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 raise HTTPException(409, "文件在别处被修改过了") from exc
             raise HTTPException(422, str(exc)) from exc
         return {"saved": True, "mtime": mtime, "size": path.stat().st_size}
+
+    @app.post("/v1/users/{user_id}/files/sheet")
+    def file_sheet(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga.sheetedit import snapshot
+        import zipfile
+        from xml.etree.ElementTree import ParseError
+        local_request(request)
+        path = resolve_file(user_id, body, rt, editor=True)
+        try:
+            return snapshot(path)
+        except (ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile, ParseError) as exc:
+            raise HTTPException(422, str(exc) if isinstance(exc, ValueError) else "无法读取此表格") from exc
+
+    @app.post("/v1/users/{user_id}/files/sheet/save")
+    def file_sheet_save(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga.sheetedit import save_cells
+        import zipfile
+        from xml.etree.ElementTree import ParseError
+        local_request(request)
+        path = resolve_file(user_id, body, rt, editor=True)
+        try:
+            return save_cells(path, body.get("version"), body.get("changes"))
+        except PermissionError as exc:
+            raise HTTPException(403, "文件不可写，请检查系统权限") from exc
+        except (ValueError, KeyError, TypeError, OSError, zipfile.BadZipFile, ParseError) as exc:
+            if str(exc) == "changed":
+                raise HTTPException(409, "文件在别处被修改过了，请重新载入后再编辑") from exc
+            raise HTTPException(422, str(exc) if isinstance(exc, ValueError) else "无法保存此表格") from exc
+
+    def reading_body(cls, body):
+        from pydantic import ValidationError
+        try:
+            return cls.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(422, "阅读请求无效，请检查字段与长度") from exc
+
+    def reading_row(rt, user, key, *, lock=False):
+        from pga import reading
+        row = reading.get(rt, user, key, lock=lock)
+        if row is None:
+            raise HTTPException(404, "没有找到这份资料会话")
+        return row
+
+    @app.post("/v1/users/{user_id}/reading/open")
+    def reading_open(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga import reading
+        local_request(request)
+        u = user_or_404(rt, user_id)
+        doc = reading_body(reading.OpenReading, body)
+        if not doc.web:
+            doc.source = str(resolve_file(user_id, {"path": doc.source, "key": doc.parent}, rt, editor=True))
+        try:
+            return reading.open_reading(rt, u, doc)
+        except ValueError as exc:
+            raise HTTPException(422, "请输入有效的网页地址") from exc
+
+    @app.patch("/v1/users/{user_id}/reading/{key}/state")
+    def reading_state(user_id: uuid.UUID, key: str, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga import reading
+        local_request(request)
+        u = user_or_404(rt, user_id)
+        state = reading_body(reading.ReadingState, body)
+        row = reading_row(rt, u, key, lock=True)
+        previous_title = (row.data or {}).get("title")
+        result = reading.update_state(row, state)
+        if state.title and result["title"] == state.title:
+            rt.session.refresh(u, with_for_update=True)
+            if ((u.preferences or {}).get("chat_titles") or {}).get(key) == previous_title:
+                from pga.chats import set_title
+                set_title(u, key, state.title)
+        return result
+
+    @app.get("/v1/users/{user_id}/reading/{key}/content")
+    def reading_content(user_id: uuid.UUID, key: str, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga import webread
+        import httpx
+        local_request(request)
+        row = reading_row(rt, user_or_404(rt, user_id), key)
+        data = row.data or {}
+        if not data["web"]:
+            from pga.filepreview import describe
+            path = resolve_file(user_id, {"path": data["source"], "key": data["parent"]}, rt, editor=True)
+            return describe(path, request.url.netloc)
+        try:
+            return webread.read(data["source"])
+        except webread.ReadError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, "网页载入失败，可以重试或在原站打开") from exc
+
+    @app.get("/v1/users/{user_id}/reading/{key}/file-actions")
+    def reading_file_actions(user_id: uuid.UUID, key: str, request: Request, rt: Runtime = Depends(get_rt)):
+        """A local document's original download ticket and local path for the Finder action."""
+        import httpx
+        from pga.editor import local_request
+        from pga import webread
+        from pga.filepreview import describe
+        local_request(request)
+        user = user_or_404(rt, user_id)
+        row = reading_row(rt, user, key)
+        data = row.data or {}
+        if not data.get("web"):
+            path = resolve_file(user_id, {"path": data.get("source"), "key": data.get("parent")}, rt, editor=True)
+            return describe(path, request.url.netloc)
+        try:
+            return webread.document_for_actions(str(data.get("source") or ""))
+        except webread.ReadError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise HTTPException(502, f"下载文件失败（{type(exc).__name__}）；请在原站打开") from exc
+
+    @app.post("/v1/users/{user_id}/reading/{key}/ask")
+    def reading_ask(user_id: uuid.UUID, key: str, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pga.editor import local_request
+        from pga.reader_ai import ReaderModelError
+        from pga import reading
+        local_request(request)
+        u = user_or_404(rt, user_id)
+        question = reading_body(reading.ReadingAsk, body)
+        row = reading_row(rt, u, key, lock=True)
+        try:
+            with rt.billing(user_ctx(u)):
+                return reading.answer(rt, u, row, question)
+        except ReaderModelError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, "暂时无法回答，请检查问题或模型预算后重试") from exc
+
+    @app.post("/v1/users/{user_id}/web/ask")
+    def web_ask(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        """A stateless, tool-free question about the article currently in the reader."""
+        from pydantic import ValidationError
+        from pga.editor import local_request
+        from pga.reader_ai import ReaderQuestion, ReaderModelError, ask
+        local_request(request)
+        u = user_or_404(rt, user_id)
+        try:
+            question = ReaderQuestion.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(422, "Invalid reader question: check field types and length limits") from exc
+        try:
+            with rt.billing(user_ctx(u)):
+                return {"answer": ask(rt, u, question)}
+        except ReaderModelError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/web/translate")
+    def web_translate(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pydantic import ValidationError
+        from pga.editor import local_request
+        from pga.reader_translation import ReaderTranslation, ReaderTranslationError, translate
+        local_request(request)
+        u = user_or_404(rt, user_id)
+        try:
+            batch = ReaderTranslation.model_validate(body)
+        except ValidationError as exc:
+            raise HTTPException(422, "请检查内置翻译服务、语言和段落，每批最多 6 段、6000 字符") from exc
+        # Older readers stored an Easydict preference. It did not opt the user into a paid cloud API.
+        if "engine" not in body and batch.service != "Local":
+            batch = batch.model_copy(update={"service": "Local"})
+        try:
+            return {"blocks": translate(rt, u, batch)}
+        except ReaderTranslationError as exc:
+            raise HTTPException(503, str(exc)) from exc
 
     @app.post("/v1/users/{user_id}/web/read")
     def web_read(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
@@ -2611,12 +2866,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     def _models_view() -> dict:
         data = catalog.load()
-        for p in data["providers"].values():
+        for pid, p in data["providers"].items():
             p.update(catalog.key_hint(p.get("key_env")))
             if isinstance(p.get("models"), dict):
                 p["models"] = list(p["models"].keys())
+            if p.get("type") in catalog.HARNESS_TYPES:
+                p["pipeline"] = catalog.probe_harness(pid, p)
         return {**data, "configured": catalog.CONFIG.exists(), "file": str(catalog.CONFIG),
-                "presets": catalog.PRESETS, "types": list(catalog.TYPES)}
+                "presets": catalog.PRESETS, "types": list(catalog.TYPES),
+                "harness_types": list(catalog.HARNESS_TYPES)}
 
     def _models_call(fn, *a, **kw):
         try:
@@ -2666,6 +2924,39 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             raise HTTPException(502, f"could not list models: {str(exc)[:200]}") from exc
         finally:
             os.environ.pop("PGA_UNSAVED_TEST_KEY", None)
+
+    @app.post("/v1/models/pipeline/probe")
+    def models_pipeline_probe(body: dict):
+        """Probe CLI/harness binary, auth readiness, and agent pool sync status."""
+        pid, p = _provider_from(body)
+        try:
+            return catalog.probe_harness(pid, p)
+        finally:
+            os.environ.pop("PGA_UNSAVED_TEST_KEY", None)
+
+    @app.post("/v1/models/pipeline/sync")
+    def models_pipeline_sync(body: dict):
+        """Standardized onboarding pipeline: save models.yaml + .env keys and sync the CLI harness into agents.yaml."""
+        pid = str(body.get("id") or "").strip()
+        if not pid:
+            raise HTTPException(422, "id is required")
+        for env, value in (body.get("keys") or {}).items():
+            if value is not None:
+                _models_call(catalog.set_key, env, value)
+        if body.get("providers"):
+            _models_call(catalog.save, {"model": body.get("model") or {}, "providers": body.get("providers") or {}})
+        saved = catalog.load()
+        p = saved["providers"].get(pid)
+        if not p:
+            raise HTTPException(404, f"unknown provider {pid!r}")
+        sync = _models_call(catalog.sync_harness_to_pool, pid, p)
+        try:
+            from pga.agents import links
+            if links.KEEPER and sync.get("agent_id"):
+                links.KEEPER[0].check(sync["agent_id"])
+        except Exception:  # noqa: BLE001 - best-effort immediate link refresh
+            pass
+        return {**_models_view(), "sync": sync}
 
     @app.get("/v1/models/hermes")
     def models_hermes():
@@ -3102,11 +3393,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             return {"status": "rejected", "error": str(exc)}
 
     @app.post("/v1/agents/live/{lid}/stop")
-    def agents_stop(lid: str):
+    async def agents_stop(lid: str):
         """Stop an answer while it is being written: the agent is interrupted, what it said so far is kept."""
         from pga.agents import live
         if not live.stop(lid):
-            raise HTTPException(409, "that answer is not running")
+            return {"stopping": None, "running": False, "id": lid}
         return {"stopping": lid}
 
     @app.get("/v1/agents/{name}/options")
@@ -3138,28 +3429,127 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     @app.post("/v1/agents/test")
     def agents_test(body: dict, rt: Runtime = Depends(get_rt)):
-        """Paperclip's "test environment": is it installed, and does it answer a one-word prompt?"""
-        from pga.agents import AgentTask
+        """Test one agent with a short isolated prompt; optional model/effort are passed as explicit choices."""
+        from pga.agents import AgentResult, AgentTask
         from pga.agents import pool as ap
         p = ap.AgentPool(rt)
-        name = str(body.get("agent") or "")
+        raw_name = body.get("agent")
+        if not isinstance(raw_name, str) or not raw_name.strip() or len(raw_name) > 80:
+            raise HTTPException(422, "agent must be a non-empty agent name")
+        name = raw_name.strip()
         if name not in p.adapters:
             raise HTTPException(404, "unknown agent")
-        ok, detail = p.adapters[name].available()
-        if not ok:
-            return {"ok": False, "available": False, "detail": detail}
-        r = p.adapters[name].run(AgentTask(prompt="Reply with the single word OK.", timeout_s=float(body.get("timeout_s") or 120), max_turns=2))
-        from pga.db.models import AgentRun
-        rt.session.add(AgentRun(workflow="test", pattern="single", step="run", agent=name, adapter=r.adapter, status=r.status,
-                                prompt="Reply with the single word OK.", output=r.text[:500], error=r.error, cost_usd=r.cost_usd,
-                                duration_s=r.duration_s, finished_at=utcnow()))      # a passing test clears a "needs login" mark
-        from pga.agents import links
-        from pga.agents import quota as aq
-        aq.clear()
-        if links.KEEPER:                                   # the link state follows what the test just found
-            threading.Thread(target=links.KEEPER[0].check, args=(name,), daemon=True).start()
-        return {"ok": r.ok, "available": True, "detail": detail, "reply": r.text[:200], "error": r.error, "duration_s": r.duration_s,
-                "cost_usd": r.cost_usd, "via": (r.data or {}).get("via", "cli")}
+        ad, cfg = p.adapters[name], p.cfg["agents"][name]
+        model, effort = body.get("model"), body.get("effort")
+        # The model rail sends empty strings for its implicit/default choice.
+        if model is not None and (not isinstance(model, str) or len(model) > 200):
+            raise HTTPException(422, "model must be a model id up to 200 characters")
+        if effort is not None and (not isinstance(effort, str) or len(effort) > 40):
+            raise HTTPException(422, "effort must be a value up to 40 characters")
+        model, effort = model.strip() if isinstance(model, str) else None, effort.strip() if isinstance(effort, str) else None
+        model, effort = model or None, effort or None
+        supports_model = ad.type in {"codex_local", "claude_local", "codebuddy_local", "gemini_local", "llm"}
+        supports_effort = ad.type in {"codex_local", "claude_local", "codebuddy_local"}
+        if model and not supports_model:
+            raise HTTPException(422, f"{name} does not accept a model override")
+        if effort and not supports_effort:
+            raise HTTPException(422, f"{name} does not accept a reasoning effort override")
+        raw_timeout = body.get("timeout_s", 25)
+        if isinstance(raw_timeout, bool) or not isinstance(raw_timeout, (int, float)) or not math.isfinite(raw_timeout):
+            raise HTTPException(422, "timeout_s must be a finite number")
+        timeout_s = max(1.0, min(float(raw_timeout), 45.0))
+        task_prompt = "In one short sentence, say what 2 + 2 equals. Keep the answer under 20 words."
+        started_at = time.monotonic()
+        deadline = started_at + timeout_s
+
+        # Share the regular per-agent capacity slots and limit all such probes together. Slots remain
+        # occupied until an adapter really exits, even if the HTTP request has already timed out.
+        if not _AGENT_TEST_LIMIT.acquire(blocking=False):
+            return {"ok": False, "available": True, "busy": True, "status": "BUSY",
+                    "detail": "model test capacity is full", "error": "测试较忙，请稍后重试", "duration_s": 0.0}
+        agent_slot = ap._slot(name, int(cfg.get("max_concurrent", 1)))
+        if not agent_slot.acquire(blocking=False):
+            _AGENT_TEST_LIMIT.release()
+            return {"ok": False, "available": True, "busy": True, "status": "BUSY",
+                    "detail": "agent is at its concurrency limit", "error": "该模型正忙，请稍后重试", "duration_s": 0.0}
+        worker_owns_slots = False
+        try:
+            ok, detail = ad.available()
+            if not ok:
+                return {"ok": False, "available": False, "detail": detail, "status": "UNAVAILABLE",
+                        "duration_s": round(time.monotonic() - started_at, 2)}
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {"ok": False, "available": True, "status": "TIMEOUT", "detail": detail,
+                        "error": f"no answer within {timeout_s:.0f}s", "duration_s": round(time.monotonic() - started_at, 2)}
+            worker_adapter = ad
+            if isinstance(ad, ap.LLM):
+                # Do not let a timed-out worker retain or use the request-scoped ORM session.
+                # It gets a private provider configuration with a per-probe deadline and no retries.
+                from types import SimpleNamespace
+                model = model or ad.rt.router.model_for(int(cfg.get("tier", 2)))
+                probe_provider = _agent_test_provider(ad.rt.router.provider, max(0.1, deadline - time.monotonic()))
+                worker_adapter = ap.LLM(name, cfg, SimpleNamespace(
+                    router=SimpleNamespace(provider=probe_provider)))
+            task = AgentTask(prompt=task_prompt, kind="general", permissions="read_only", workspace=None,
+                             timeout_s=remaining, max_turns=1,
+                             meta={**({"model": model} if model else {}), **({"effort": effort} if effort else {})})
+            result_box: dict[str, Any] = {}
+
+            def execute_test() -> None:
+                try:
+                    result_box["result"] = worker_adapter.run(task)
+                except Exception as exc:  # a broken adapter must become a test result, not a 500
+                    result_box["result"] = AgentResult(ok=False, status="FAILED", error=f"{type(exc).__name__}: {exc}"[:500])
+                finally:
+                    agent_slot.release()
+                    _AGENT_TEST_LIMIT.release()
+
+            worker = threading.Thread(target=execute_test, name=f"pga-agent-test-{name}", daemon=True)
+            worker.start()
+            worker_owns_slots = True
+            worker.join(remaining)
+            elapsed = round(time.monotonic() - started_at, 2)
+            if worker.is_alive():
+                r = AgentResult(ok=False, status="TIMEOUT", error=f"no answer within {timeout_s:.0f}s")
+            else:
+                r = result_box.get("result") or AgentResult(ok=False, status="FAILED", error="agent returned no result")
+            actual_model = r.model or (r.data or {}).get("model")
+            model_match = None
+            if model and actual_model:
+                requested, reported = model.casefold(), str(actual_model).casefold()
+                model_match = requested in ("auto", "default") or requested == reported
+                if not model_match and ad.type == "claude_local" and requested in {"opus", "sonnet", "haiku", "fable"}:
+                    model_match = requested in reported
+                if not model_match and ad.type != "llm":
+                    r.ok, r.status = False, "FAILED"
+                    r.error = f"所选模型 {model} 未被使用；agent 实际报告 {actual_model}"[:500]
+            elif model:
+                # Some CLIs accept an explicit model flag but do not report the effective id.
+                # Return the requested id as the tested choice, while making that limitation visible.
+                actual_model = model
+            if r.ok and not str(r.text or "").strip():
+                r.ok, r.status, r.error = False, "FAILED", r.error or "agent returned an empty answer"
+            from pga.db.models import AgentRun
+            rt.session.add(AgentRun(workflow="test", pattern="single", step="run", agent=name, adapter=ad.type,
+                                    status=r.status, prompt=task_prompt, output=str(r.text or "")[:500], error=r.error,
+                                    cost_usd=r.cost_usd, duration_s=elapsed, finished_at=utcnow()))
+            if not worker.is_alive():
+                from pga.agents import links
+                from pga.agents import quota as aq
+                aq.clear()
+                if links.KEEPER:
+                    threading.Thread(target=links.KEEPER[0].check, args=(name,), daemon=True).start()
+            return {"ok": bool(r.ok), "available": True, "busy": False, "status": r.status,
+                    "detail": detail, "reply": str(r.text or "")[:200], "error": r.error,
+                    "duration_s": elapsed, "cost_usd": r.cost_usd, "via": (r.data or {}).get("via", "cli"),
+                    "model": str(actual_model) if actual_model else None, "requested_model": model,
+                    "model_confirmed": model_match,
+                    "effort": effort or (r.data or {}).get("effort")}
+        finally:
+            if not worker_owns_slots:
+                agent_slot.release()
+                _AGENT_TEST_LIMIT.release()
 
     @app.post("/v1/users/{user_id}/agents/run", status_code=202)
     def agents_run(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -3182,21 +3572,37 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.websocket("/v1/agents/live-stream")
     async def agents_live_stream(socket: WebSocket):
         import asyncio
-        import json
         from pga.agents import live
+        use_delta = socket.query_params.get("delta") == "1"
         await socket.accept()
-        previous, heartbeat = None, 0
+        previous_payload, previous_revisions, heartbeat = None, None, 0
         try:
             while True:
-                rows = live.snapshot()
-                # Elapsed time is drawn locally; don't send unchanged runs every tick.
-                for row in rows:
-                    row.pop("elapsed_s", None)
-                payload = json.dumps(rows, ensure_ascii=False)
+                if use_delta:
+                    if previous_revisions is None:
+                        payload, revisions = live.snapshot_full_delta()
+                        has_changes = True
+                    else:
+                        revisions = live.snapshot_revisions()
+                        has_changes = revisions != previous_revisions
+                        if has_changes:
+                            payload, revisions = live.snapshot_delta_payload(previous_revisions)
+                        else:
+                            payload = '{"type":"live_delta","runs":[],"removed":[]}'
+                else:
+                    # Both rows and encoded JSON are shared with other stream clients.
+                    # Elapsed time is rendered locally by clients and omitted on the wire.
+                    payload = live.snapshot_payload()
+                    has_changes = payload != previous_payload
                 now = asyncio.get_running_loop().time()
-                if payload != previous or now - heartbeat >= 10:
-                    await socket.send_text(payload)
-                    previous, heartbeat = payload, now
+                if has_changes or now - heartbeat >= 10:
+                    if use_delta:
+                        await socket.send_text(payload)
+                        previous_revisions = revisions
+                    else:
+                        await socket.send_text(payload)
+                        previous_payload = payload
+                    heartbeat = now
                 try:
                     message = await asyncio.wait_for(socket.receive(), timeout=0.08)
                     if message["type"] == "websocket.disconnect":
@@ -3223,8 +3629,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     # Per conversation (the button by the composer) and a default for new ones: the access level (read: read and search;
     # auto: acts on its own, only what is risky is held back; full: everything approved), the folder it works in, and
     # whether your own MCP servers are on. New conversations start on auto. PGA's own long-running work is not affected.
-    ACCESS_DEFAULT = {"access": "auto", "folder": "", "mcp": False}
-    _ACCESS_OLD = {"write": "auto"}                     # the old middle level, now folded into auto
+    from pga.agents.access import DEFAULT as ACCESS_DEFAULT, OLD_LEVELS as _ACCESS_OLD, access_key, effective_access
 
     def _access_clean(d: dict) -> dict:
         from pga.agents.routing import ACCESS
@@ -3244,21 +3649,17 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         conversation), what you set for it before, or your default."""
         # Split lanes are implementation details of one visible conversation.
         # Resolve their permissions live, rather than retaining creation-time copies.
-        for parent, split in ((u.preferences or {}).get("chat_splits") or {}).items():
-            if any(lane.get("key") == key for lane in split.get("lanes", [])):
-                key = parent
-                break
+        key = access_key(u, qa_pool.public_key(key))
         prefs = dict((u.preferences or {}).get("agent_access") or {})
         if body is not None and "access" in body:
             got = _access_clean(body)
-            if key:
+            if key and (prefs.get("keys") or {}).get(key) != got:
                 keys = dict(prefs.get("keys") or {})
                 keys[key[:120]] = got
                 prefs["keys"] = dict(list(keys.items())[-500:])
                 u.preferences = {**(u.preferences or {}), "agent_access": prefs}
             return got
-        got = {**ACCESS_DEFAULT, **(prefs.get("default") or {}), **((prefs.get("keys") or {}).get(key[:120]) or {})}
-        return {**got, "access": _ACCESS_OLD.get(got["access"], got["access"])}
+        return effective_access(u, key)
 
     @app.get("/v1/users/{user_id}/access")
     def access_get(user_id: uuid.UUID, key: str = Query("", max_length=120), rt: Runtime = Depends(get_rt)):
@@ -3310,9 +3711,20 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         key = row["conversation"][len(str(user_id)) + 1:]
         access = None
         if decision == "full":
-            access = {**access_for(u, key), "access": "full"}
-            access_for(u, key, access)
-            rt.session.commit()  # persist before releasing the waiting tool
+            from sqlalchemy import text as sql_text
+            from sqlalchemy.exc import OperationalError
+            try:
+                if rt.session.get_bind().dialect.name == "postgresql":
+                    rt.session.execute(sql_text("SET LOCAL lock_timeout = '2500ms'"))
+                # Read fresh preferences under the lock: simultaneous approvals
+                # must not overwrite another conversation's permission change.
+                rt.session.refresh(u, with_for_update=True)
+                access = {**access_for(u, key), "access": "full"}
+                access_for(u, key, access)
+                rt.session.commit()  # persist before releasing the waiting tool
+            except OperationalError as exc:
+                rt.session.rollback()
+                raise HTTPException(503, "权限保存暂时被其他任务占用，尚未批准操作。请重试，或先点‘允许这次’继续当前操作。") from exc
         try:
             approvals.answer(approval_id, user_id, decision)
         except KeyError:
@@ -3327,6 +3739,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         text = str(body.get("text") or "").strip()
         if not text:
             raise HTTPException(422, "text is needed")
+        from pga import project_context
+        manager_key = str(body.get("conversation") or "")
+        if project_context.is_manager(manager_key):
+            return manager_submit(user_id, body, rt)
+        if qa_pool.worker_prefix(manager_key):
+            name = project_context.category(u, manager_key)
+            if not name:
+                raise HTTPException(404, "找不到这个问答汇总")
+            return manager_submit(user_id, {**body, "conversation": project_context.manager_key(u, name), "source_feed": manager_key}, rt)
         context, project = None, None
         if body.get("project_id"):                          # your project, whichever agent works in it
             from pga.projects import ProjectError, Projects
@@ -3358,7 +3779,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 from pga.tree import refs_context
                 tail = "\n\n".join(x for x in [tail, refs_context(rt, [str(x) for x in body["refs"]][:8], u.id, text)] if x) or None
             ckey = str(body.get("conversation") or "")
-            from pga import project_context
+            from pga import project_context, recycle
+            if ckey:
+                recycle.touched(u, ckey)                           # a new message in a conversation the rules archived: it comes back
             if body.get("scope") and ckey:                         # a conversation a category's manager made: held to that category
                 try:
                     want = project_context.project_name(u, str(body["scope"])[:80])
@@ -3381,9 +3804,35 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 projectsort.save(u, pst)
                 rt.session.commit()
             from pga.chats import name_branch_question, branch_of, history as chat_history
-            bounded = branch_of(u, ckey) is not None
+            branch = branch_of(u, ckey)
+            bounded = branch is not None
+            if qa_pool.summary_of(ckey):
+                # Only server-owned turns of this worker, even when a client sent feed history.
+                body["history"] = chat_history(rt, u, ckey)
             if bounded:
                 body["history"] = chat_history(rt, u, ckey)
+            replay_run = None
+            if body.get("replay_question") and branch and branch.get("question_run"):
+                from pga.db.models import AgentRun
+                replay_run = rt.session.get(AgentRun, uuid.UUID(branch["question_run"]))
+                if not replay_run or replay_run.user_id != u.id or replay_run.prompt != text or body["history"] != branch["snapshot"]:
+                    raise HTTPException(409, "分支或原始提问已改变，请重新打开分支")
+            if body.get("replay_question") and branch and branch.get("question_images"):
+                import base64
+                from pga.db.models import AgentConversation
+                from pga.hub import steps
+                src = branch["question_images"]
+                record = rt.session.get(AgentConversation, uuid.UUID(src["import"]))
+                linked = rt.session.get(LinkedAgent, record.linked_agent_id) if record else None
+                kind = SOURCE.get(linked.connector) if linked and linked.user_id == u.id else None
+                transcript = steps.transcript(record.external_id, kind) if kind else None
+                body["images"] = []
+                for ref in src["refs"][:6]:
+                    image = steps.image(transcript, ref, kind) if transcript else None
+                    if not image:
+                        raise HTTPException(422, "找不到导入提问的原图，请重新附上后发送")
+                    raw, mime = image
+                    body["images"].append({"data": f"data:{mime};base64," + base64.b64encode(raw).decode("ascii")})
             from pga.conversation_clipboard import context as clipboard_context
             try:
                 copied = clipboard_context(u.id, text, chat_history(rt, u, ckey) if ckey else [])
@@ -3443,7 +3892,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             acc = access_for(u, ckey, body)
             if scope and not (body.get("mcp") is True or (((u.preferences or {}).get("agent_access") or {}).get("keys") or {}).get(ckey[:120], {}).get("mcp") is True):
                 acc = {**acc, "mcp": False}                         # your MCP servers reach outside the category: only where you turned them on
-            if ckey and not ckey.startswith(("node:", "exchange:", "second:", "regen:", "multi:", project_context.MANAGER)):
+            if ckey and not ckey.startswith(("node:", "exchange:", "second:", "regen:", "multi:", "chat:mt-", project_context.MANAGER)):
                 place_soon(u.id)
             if body.get("knowledge_id"):
                 from pga.knowledge import distill
@@ -3452,6 +3901,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 # Put the command after the user's message too: resumed native agents receive the new-text tail.
                 tail = "\n\n".join(x for x in [tail, distill.instruction(capture)] if x)
             from pga.knowledge import distill
+            # Native tools can pause this request for approval. Release preference writes
+            # before running the agent so a concurrent "full" approval can save its decision.
+            rt.session.commit()
             with rt.billing(user_ctx(u)), distill.stream(u.id, capture if capture_kid else None):
                 res = AgentRouter(rt).ask(u, text[:20000], agent=str(body.get("agent") or "auto"), context=context, tail=tail,
                                            access=acc["access"], folder=acc["folder"] or None, mcp=acc["mcp"], web=bool(body.get("web")),
@@ -3464,6 +3916,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                                            category=str(body["category"]) if body.get("category") else None,
                                            conversation=str(body["conversation"]) if body.get("conversation") else None,
                                            earlier=earlier, failover=bool(body.get("failover")),
+                                           needs_code=body.get("needs_code") if isinstance(body.get("needs_code"), bool) else None,
+                                           **({"replay_run": replay_run} if replay_run is not None else {}),
+                                           manager_task_id=str(body.get("manager_task_id") or "")[:40],
                                            fallback=[str(x)[:40] for x in body.get("fallback") or [] if isinstance(x, str)][:4])
             if shared["project"]:
                 res["project_context"] = {k: v for k, v in shared.items() if k != "text"}
@@ -3485,6 +3940,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                     log.exception("knowledge capture finalization failed")
                     rt.session.rollback()
                     res["knowledge"] = distill.fail(u.id, capture_kid, "回答已保留，但知识归档失败，请重试。")
+            if res.get("ok") and not res.get("stopped"):
+                from pga import chat_titles
+                title_key = ckey or (f"run:{res['run_id']}" if res.get("run_id") else "")
+                rt.session.commit()  # publish the answer before its title worker reads it
+                if getattr(rt.provider, "name", "") != "fake" and chat_titles.eligible(u, title_key):
+                    chat_titles.schedule(factory(), make_runtime, u.id, title_key)
             return res
         except ValueError as exc:
             if capture_kid:
@@ -4349,8 +4810,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         for r in rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None),
                                                            AgentRun.workflow == "ask").order_by(AgentRun.started_at.desc()).limit(2000)):
             d = r.data or {}
-            key = str(d.get("conversation") or f"run:{r.id}")
-            if key.startswith(("node:", "exchange:", "second:", "regen:", "multi:", "chat:pm-")) or d.get("node") or d.get("regen_of"):
+            key = qa_pool.public_key(str(d.get("conversation") or f"run:{r.id}"))
+            if key.startswith(("node:", "exchange:", "second:", "regen:", "multi:", "chat:pm-", "chat:mt-")) or d.get("node") or d.get("regen_of"):
                 continue
             c = convs.setdefault(key, {"key": key, "agent": d.get("agent") or r.agent, "turns": 0, "last_at": r.started_at.isoformat(),
                                        "title": "", "last": ""})
@@ -4358,9 +4819,20 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             c["title"] = " ".join((r.prompt or "").split())[:80] or c["title"]          # the first thing you said (oldest wins)
             if not c["last"]:
                 c["last"] = " ".join(_answer(r.output).split())[:120]
+        for r in rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user_id,
+                AgentRun.workflow == "reading").order_by(AgentRun.started_at.desc()).limit(2000)):
+            key = f"chat:{r.id}"
+            c = convs.setdefault(key, {"key": key, "agent": "reader", "turns": 0,
+                                      "last_at": r.started_at.isoformat(), "last": ""})
+            c["title"] = (r.data or {}).get("title") or "阅读资料"
+            c["reading"] = True
+            c["reading_info"] = {"key": key, **{name: (r.data or {}).get(name)
+                                              for name in ("parent", "source", "title")}}
         titles = (u.preferences or {}).get("chat_titles") or {}
+        from pga.chat_titles import pending as title_pending
         for c in convs.values():
             c["archived"] = c["key"] in gone
+            c["title_pending"] = title_pending(u.id, c["key"])
             if titles.get(c["key"]):
                 c["title"] = titles[c["key"]]
         return [c for c in sorted(convs.values(), key=lambda c: c["last_at"], reverse=True) if archived or not c["archived"]][:limit]
@@ -4368,18 +4840,93 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.post("/v1/users/{user_id}/chats/archive")
     def chats_archive(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         """Archive an everyday chat (it leaves the list; nothing is deleted), or bring it back."""
+        from pga import recycle
         u = user_or_404(rt, user_id)
         key = str(body.get("key") or "")[:120]
         if not key:
             raise HTTPException(422, "key is needed")
-        keys = [k for k in ((u.preferences or {}).get("archived_chats") or []) if k != key]
         if body.get("archived", True):
-            keys.append(key)
+            recycle.set_archived(u, key, True)
         else:
             from pga import consolidate
             consolidate.restored(rt, u, key)                 # put back after a tidy: it shows on the world tree again
-        u.preferences = {**(u.preferences or {}), "archived_chats": keys[-2000:]}
-        return {"key": key, "archived": key in keys}
+            recycle.set_archived(u, key, False)              # put back after the rules archived it: they leave it alone
+        return {"key": key, "archived": key in set(recycle.archived(u))}
+
+    @app.post("/v1/users/{user_id}/chats/seen")
+    def chats_seen(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """The stage saw these conversations' latest answers (finished, in front of you): their one-off tasks may go."""
+        from pga import recycle
+        u = user_or_404(rt, user_id)
+        keys = [str(k)[:120] for k in (body.get("keys") or [])[:50] if isinstance(k, str)]
+        if keys:
+            recycle.seen(u, keys)
+        return {"seen": keys}
+
+    @app.post("/v1/users/{user_id}/chats/recycle")
+    def chats_recycle(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """对话回收 (pga.recycle): archive the one-off conversations managers dispatched that are done and seen.
+        `unread` / `visible`: what the stage shows as not looked at yet / in front of you. `dry`: only say what would go."""
+        from pga import recycle
+        u = user_or_404(rt, user_id)
+        pick = lambda name: [str(k)[:120] for k in (body.get(name) or [])[:400] if isinstance(k, str)]
+        xs = recycle.sweep(rt, u, unread=pick("unread"), visible=pick("visible"), dry=bool(body.get("dry")))
+        return {"archived": [] if body.get("dry") else xs, "would": xs if body.get("dry") else [], "settings": recycle.cfg(u)}
+
+    @app.post("/v1/users/{user_id}/chats/recycle/undo")
+    def chats_recycle_undo(user_id: uuid.UUID, rt: Runtime = Depends(get_rt)):
+        """Put back the last batch the rules archived."""
+        from pga import recycle
+        return {"restored": recycle.undo(user_or_404(rt, user_id))}
+
+    @app.put("/v1/users/{user_id}/chats/recycle")
+    def chats_recycle_settings(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Turn the rules on or off, or change their waits (grace_min, idle_h, backlog_d)."""
+        from pga import recycle
+        u = user_or_404(rt, user_id)
+        c = recycle.cfg(u)
+        if "enabled" in body:
+            c["enabled"] = bool(body["enabled"])
+        for k, lo, hi in (("grace_min", 0, 1440), ("idle_h", 1, 24 * 90), ("backlog_d", 1, 365)):
+            if k in body:
+                try:
+                    c[k] = max(lo, min(hi, int(body[k])))
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(422, f"{k} must be a number") from exc
+        u.preferences = {**(u.preferences or {}), "recycle": c}
+        return c
+
+    @app.get("/v1/users/{user_id}/chats/{key}/qa-count")
+    def qa_count(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import AgentRun
+        if not qa_pool.worker_prefix(key):
+            raise HTTPException(404, "找不到这个问答汇总")
+        return rt.session.scalar(select(func.count()).select_from(AgentRun).where(
+            AgentRun.user_id == user_id, AgentRun.workflow == "ask",
+            AgentRun.parent_id.is_(None), qa_pool.feed_filter(key)))
+
+    @app.get("/v1/users/{user_id}/question-images/{step_id}/{index}")
+    def question_image(user_id: uuid.UUID, step_id: uuid.UUID, index: int, rt: Runtime = Depends(get_rt)):
+        from pga.db.models import AgentRun
+        step = rt.session.get(AgentRun, step_id)
+        if not step or step.user_id != user_id:
+            raise HTTPException(404, "image not found")
+        paths = ((step.data or {}).get("question_input") or {}).get("images", [])
+        if not paths and step.parent_id:
+            from pga.hub.steps import legacy_question_picture
+            question = rt.session.get(AgentRun, step.parent_id)
+            if question and question.user_id == user_id and question.workflow == "ask":
+                picture = legacy_question_picture(step, question, index)
+                if picture:
+                    content, mime = picture
+                    return Response(content, media_type=mime, headers={"Cache-Control": "private", "X-Content-Type-Options": "nosniff"})
+        if not 0 <= index < len(paths):
+            raise HTTPException(404, "image not found")
+        path = Path(paths[index])
+        if (path.parent.name != "uploads" or path.resolve() != path.absolute()
+                or path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp", ".gif"} or not path.is_file()):
+            raise HTTPException(404, "image not found")
+        return FileResponse(path, headers={"Cache-Control": "private", "X-Content-Type-Options": "nosniff"})
 
     @app.get("/v1/users/{user_id}/chats/{key:path}")
     def chats_one(user_id: uuid.UUID, key: str, rt: Runtime = Depends(get_rt)):
@@ -4389,7 +4936,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.tree import _answer
         u = user_or_404(rt, user_id)
         try:
-            runs = runs_of(rt, user_id, key)
+            runs = runs_of(rt, user_id, key, aggregate=True)
         except ChatError as exc:
             raise HTTPException(404, str(exc)) from exc
         from pga.db.models import AgentRun
@@ -4410,10 +4957,11 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             win = ((kd.get("usage") or {}).get("modelContextWindow") if isinstance(kd.get("usage"), dict) else None)
             out = {"seconds": round(float(k.duration_s or 0), 1) if k is not None else None, "usage": u or None, "window": win,
                    "via": kd.get("via"), "continued": kd.get("continued"), "model": (r.data or {}).get("model"),
-                   "compaction": kd.get("compaction"),
+                   "effort": kd.get("effort") or (r.data or {}).get("effort"), "compaction": kd.get("compaction"),
                    "actions": parse_actions(kd.get("trace") or "")[:80]}
             full = run_steps(k) if k is not None else None                  # the agent kept its session: every step
             if full:
+                out["effort"] = full.get("effort") or out.get("effort")
                 out.update(steps=full["steps"], src=full["src"], calls=(full.get("usage") or {}).get("calls"))
                 context = (full.get("usage") or {}).get("context")
                 if context and "context" not in u:
@@ -4426,14 +4974,27 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         def answer(a) -> dict:
             return {"agent": (a.data or {}).get("agent") or a.agent, "text": _answer(a.output) or "", "error": a.error, "run": str(a.id),
                     "at": (a.finished_at or a.started_at).isoformat(), "model": (a.data or {}).get("model"), "how": how(a),
-                    "rating": ((a.data or {}).get("rating") or {}).get("value", 0), **({"multi": True} if (a.data or {}).get("multi") else {})}
+                    "rating": ((a.data or {}).get("rating") or {}).get("value", 0), **({"multi": True} if (a.data or {}).get("multi") else {}),
+                    **({"split_alt": True} if (a.data or {}).get("split_alt") else {})}
+        from pga.hub.steps import legacy_picture_count
+        pool_prefix = qa_pool.worker_prefix(key)
         for r in turns:
-            out.append({"role": "user", "text": prompt_with_steering(r), "at": r.started_at.isoformat(), "run": str(r.id), **({"note": True} if (r.data or {}).get("note") else {})})
+            source = {"thread": qa_pool.turn_thread(r.data["conversation"], r.id)} if pool_prefix else {}
+            step = kids.get(r.id)
+            images = ((step.data or {}).get("question_input") or {}).get("images") if step else None
+            image_count = len(images) if images else legacy_picture_count(step, r)
+            out.append({**source, **({"manager_pictures": r.data["manager_pictures"]} if (r.data or {}).get("manager_pictures") else {}),
+                        **({"question_images": [f"/v1/users/{user_id}/question-images/{step.id}/{i}"
+                                                          for i in range(image_count)]} if image_count else {}),
+                        **({"missing_images": True} if not image_count and (r.data or {}).get("images") else {}), "role": "user", "text": prompt_with_steering(r), "at": r.started_at.isoformat(), "run": str(r.id),
+                        **({"reader_reference": r.data["reader_reference"], "reader_question": r.data.get("reader_question")} if (r.data or {}).get("reader_reference") else {}),
+                        **({"note": True} if (r.data or {}).get("note") else {})})
             if (r.data or {}).get("note"):                       # your own note: no answer to show
                 continue
             vs = [r, *alts.get(str(r.id), [])]
             cur = current(r, alts)
-            out.append({"role": "agent", **answer(cur), "run": str(r.id), "version": str(cur.id),
+            out.append({**source, "role": "agent", **answer(cur), "run": str(r.id), "version": str(cur.id),
+                        **({"result_unread": True} if (r.data or {}).get("result_unread") else {}),
                         "versions": [answer(v) for v in vs] if len(vs) > 1 else [],
                         **({"second": r.data["second"]} if (r.data or {}).get("second") else {}),
                         **({"council": {k: r.data["council"].get(k) for k in ("ranking", "review", "merged", "labels")}} if (r.data or {}).get("council") else {})})
@@ -4442,6 +5003,15 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         ctx = branch_context(rt, u, b) if b else []                  # a chat of PGA's, or a conversation imported from another app
         from pga.chats import children
         kids = [k for k in children(u, key) if not k["key"].startswith("second:")]
+        # Older versions forked the worker from a feed action. Keep these existing
+        # conversations discoverable at the original question on the execution rail.
+        if pool_prefix and key.endswith("-execute"):
+            threads = {t["run"]: t["thread"] for t in out if t["role"] == "user"}
+            titles = (u.preferences or {}).get("chat_titles") or {}
+            for child, fork in ((u.preferences or {}).get("chat_branches") or {}).items():
+                point = fork.get("question_run") or fork.get("upto")
+                if point in threads and threads[point] == fork.get("from") and not fork.get("split_lane"):
+                    kids.append({"key": child, "upto": point, "title": titles.get(child), "source_thread": fork["from"]})
         if kids:                                                   # their first message, as a name
             firsts = {}
             for k in kids:
@@ -4449,7 +5019,8 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                 firsts[k["key"]] = k["title"] or (" ".join((r0.prompt or "").split())[:40] if r0 else "")
             kids = [{**k, "title": firsts[k["key"]]} for k in kids]
         from pga.consolidate import merges_of
-        merges = merges_of(rt, u, key)
+        stored_members = next((r.data["consolidated"] for r in turns if (r.data or {}).get("consolidated")), [])
+        merges = merges_of(rt, u, key, stored_members)
         from pga.worldtree import WorldTree, chat_node
         wt = WorldTree(rt)
         leaf = wt.leaf_of(u, key)
@@ -4460,7 +5031,9 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
                  "path": [{"id": str(x.id), "title": x.title, "kind": x.kind} for x in wt.path(anchor_n)] if anchor_n else []}
         from pga.dispatch import of as dispatch_of
         dispatches = [r.data["dispatch"] for r in runs if (r.data or {}).get("dispatch")] or dispatch_of(u, key)
-        return {"key": key, "turns": out, "branch": b, "context": ctx, **({"parent_title": branch_title(rt, u, b)} if b else {}), "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids, "merges": merges, "world": world,
+        from pga import reading
+        return {"key": key, "turns": out, **({"qa_count": len(runs)} if pool_prefix else {}), "branch": b, "context": ctx, **({"parent_title": branch_title(rt, u, b)} if b else {}), "title": ((u.preferences or {}).get("chat_titles") or {}).get(key), "children": kids, "merges": merges, "world": world,
+                "reading": reading.public(reading.get(rt, u, key)),
                 "dispatch": dispatches,
                 "split": ((u.preferences or {}).get("chat_splits") or {}).get(key),
                 "options": ((u.preferences or {}).get("chat_options") or {}).get(key),
@@ -4506,7 +5079,74 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.db.models import Body
         user_or_404(rt, user_id)
         xs = rt.session.scalars(select(Body).where(Body.user_id == user_id, Body.kind == "note").order_by(Body.compiled_at.desc().nulls_last()))
-        return [{"id": str(b.id), "title": b.title, "text": b.description, "at": (b.compiled_at or b.created_at).isoformat(), "chars": len(b.description or "")} for b in xs]
+        return [{"id": str(b.id), "title": b.title, "text": b.description, "at": (b.compiled_at or b.created_at).isoformat(), "chars": len(b.description or ""),
+                 **({k: (b.data or {}).get(k) for k in ("date", "project", "plan", "plan_template", "has_agenda")} if (b.data or {}).get("plan") else {})} for b in xs]
+
+    @app.post("/v1/users/{user_id}/plans/draft")
+    def plan_draft(user_id: uuid.UUID, body: dict, request: Request, rt: Runtime = Depends(get_rt)):
+        from pydantic import ValidationError
+        from pga import daily_planner
+        from pga.editor import local_request
+        local_request(request)
+        user = user_or_404(rt, user_id)
+        try:
+            with rt.billing(user_ctx(user)):
+                if "description" in body:
+                    return daily_planner.arrange(rt, user, daily_planner.AgendaRequest.model_validate(body))
+                return {"markdown": daily_planner.draft(rt, user, daily_planner.DraftRequest.model_validate(body))}
+        except ValidationError as exc:
+            raise HTTPException(422, "请检查明日安排描述或补充选项。" if "description" in body
+                                else "Check task lines, start time, and available minutes") from exc
+        except daily_planner.DraftError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/plans/tomorrow", status_code=200)
+    def plan_tomorrow(user_id: uuid.UUID, body: dict | None = None, rt: Runtime = Depends(get_rt)):
+        """Get or create the user's plan for a date, optionally scoped to a project. Repeated calls return one note."""
+        from datetime import date
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+        from pga.db.models import Body
+        from pga.db.types import Origin
+        u = user_or_404(rt, user_id)
+        payload = body or {}
+        try:
+            if "date" in payload:
+                plan_date = date.fromisoformat(payload["date"])
+                if payload["date"] != plan_date.isoformat():
+                    raise ValueError("use calendar date")
+            else:
+                try:
+                    zone = ZoneInfo(u.timezone)
+                except (ValueError, ZoneInfoNotFoundError):
+                    zone = timezone.utc
+                plan_date = utcnow().astimezone(zone).date() + timedelta(days=1)
+        except (ValueError, TypeError) as exc:
+            raise HTTPException(422, "date must be YYYY-MM-DD") from exc
+        project = payload.get("project", "")
+        if not isinstance(project, str) or len(project) > 500:
+            raise HTTPException(422, "invalid project")
+        project = project.strip()
+        language = payload.get("lang", "zh")
+        if language not in ("zh", "en"):
+            raise HTTPException(422, "lang must be zh or en")
+        tag = {"plan": True, "date": plan_date.isoformat(), "project": project}
+        note_id = uuid.uuid5(uuid.NAMESPACE_URL, f"pga-plan:{u.id}:{plan_date.isoformat()}:{project}")
+        if language == "en":
+            title = f"{plan_date.isoformat()} Plan" + (f" · {project}" if project else "")
+            template = "## Top priority\n- [ ] \n\n## Other tasks\n- [ ] "
+        else:
+            title = f"{plan_date.isoformat()} 计划" + (f" · {project}" if project else "")
+            template = "## 最重要的一项\n- [ ] \n\n## 其他待办\n- [ ] "
+        rt.session.execute(pg_insert(Body).values(id=note_id, user_id=u.id, kind="note", title=title, title_en=title,
+            description=template, description_en=template, origin=Origin.USER, compiled_at=utcnow(), data={**tag, "plan_template": True, "source": "note", "chars": len(template), "passages": 1}).on_conflict_do_nothing(index_elements=[Body.id]))
+        b = rt.session.get(Body, note_id)
+        if b is None:
+            raise HTTPException(500, "could not create plan")
+        return {"id": str(b.id), "title": b.title, "text": b.description, "at": (b.compiled_at or b.created_at).isoformat(),
+                "chars": len(b.description or ""), **tag, "lang": language,
+                "plan_template": bool(b.data.get("plan_template")), "has_agenda": bool(b.data.get("has_agenda"))}
 
     @app.post("/v1/users/{user_id}/notes", status_code=201)
     def notes_create(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -4514,7 +5154,7 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.db.types import Origin
         u = user_or_404(rt, user_id)
         text = str(body.get("text") or "")[:400000]
-        title = str(body.get("title") or "").strip()[:200] or (text.strip().split("\n", 1)[0].lstrip("# ").strip()[:60] if text.strip() else "") or "未命名笔记"
+        title = str(body.get("title") or "").strip()[:200] or (text.strip().split("\n", 1)[0].lstrip("# ").strip()[:60] if text.strip() else "") or "未命名计划"
         b = Body(user_id=u.id, kind="note", title=title, title_en=title, description=text, description_en=text, origin=Origin.USER,
                  compiled_at=utcnow(), data={"source": "note", "chars": len(text), "passages": max(1, len(text) // 1200 + 1)})
         rt.session.add(b)
@@ -4524,19 +5164,45 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
     @app.put("/v1/notes/{note_id}")
     def notes_update(note_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
         from pga.db.models import Body
-        b = rt.session.get(Body, note_id)
+        b = rt.session.get(Body, note_id, with_for_update=True)
         if b is None or b.kind != "note":
             raise HTTPException(404, "no such note")
+        saved = {"id": str(b.id), "title": b.title, "text": b.description, "plan_template": bool((b.data or {}).get("plan_template")),
+                 "has_agenda": bool((b.data or {}).get("has_agenda")), "at": (b.compiled_at or b.created_at).isoformat()}
+        metadata = dict(b.data or {})
+        application = body.get("draft_id")
+        if application is not None:
+            try:
+                application = str(uuid.UUID(application))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise HTTPException(422, "invalid draft id") from exc
+            if not body.get("append") or not body.get("text"):
+                raise HTTPException(422, "a draft must append text")
+            previous = metadata.get("applied_drafts", [])
+            if application in previous:
+                return saved
+            metadata["applied_drafts"] = [*previous, application][-32:]
+            metadata["has_agenda"] = True
+        if body.get("expected_at") and body["expected_at"] != saved["at"]:
+            if body.get("text") == b.description and body.get("title") == b.title:
+                return saved
+            raise HTTPException(409, "计划已在另一窗口更新，请保留当前编辑并刷新。")
         if "text" in body:
-            t = str(body.get("text") or "")[:400000]
-            if body.get("append"):
-                t = (b.description or "").rstrip() + "\n\n" + t
+            t = str(body.get("text") or "")
+            if body.get("append") and not (application and metadata.get("plan_template")):
+                existing = (b.description or "").rstrip()
+                t = existing + "\n\n" + t if existing else t
+            if len(t) > 400000:
+                raise HTTPException(422, "计划内容超过 400000 字")
+            if t != b.description:
+                metadata.pop("plan_template", None)
             b.description = b.description_en = t
-            b.data = {**(b.data or {}), "chars": len(t), "passages": max(1, len(t) // 1200 + 1)}
+            b.data = {**metadata, "chars": len(t), "passages": max(1, len(t) // 1200 + 1)}
         if str(body.get("title") or "").strip():
             b.title = b.title_en = str(body["title"]).strip()[:200]
         b.compiled_at = utcnow()
-        return {"id": str(b.id), "title": b.title, "text": b.description, "at": b.compiled_at.isoformat()}
+        return {"id": str(b.id), "title": b.title, "text": b.description, "plan_template": bool((b.data or {}).get("plan_template")),
+                 "has_agenda": bool((b.data or {}).get("has_agenda")), "at": b.compiled_at.isoformat()}
 
     @app.post("/v1/users/{user_id}/chats/pick")
     def chats_pick(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -4550,6 +5216,141 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         return {"ok": True}
+
+    @app.post("/v1/users/{user_id}/chats/manager-submit")
+    def manager_submit(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Persist the manager's task map before starting server-owned workers."""
+        import asyncio
+        from pga import project_context
+        from pga.manager_dispatch import plan, destination, execution_slot, workspace
+        u = user_or_404(rt, user_id)
+        key = str(body.get("conversation") or "")
+        text = str(body.get("text") or "").strip()
+        project = project_context.category(u, key)
+        if not project_context.is_manager(key) or not project:
+            raise HTTPException(422, "需要有效的分类管理员对话")
+        if not text or len(text) > 16000:
+            raise HTTPException(422, "任务需要 1–16000 字")
+        reply_target = None
+        if body.get("reply_to"):
+            from pga.db.models import AgentRun
+            try:
+                parent = rt.session.get(AgentRun, uuid.UUID(str(body["reply_to"])))
+            except ValueError:
+                parent = None
+            source = (parent.data or {}).get("conversation") if parent and parent.user_id == u.id else None
+            feeds = project_context.manager_feeds(key)
+            qa = body.get("source_feed") or feeds["qa"]["key"]
+            if qa not in {item["key"] for item in feeds.values()}:
+                raise HTTPException(422, "无效的对话汇总")
+            if not source or qa_pool.public_key(source) != qa or parent.workflow != "ask" or parent.parent_id:
+                raise HTTPException(422, "追问的回答不属于这个分类的问答汇总")
+            worker = qa_pool.turn_thread(source, parent.id)
+            from pga.tree import _answer
+            reply_target = {"key": worker, "title": (parent.prompt or "")[:60],
+                            "detail": (_answer(parent.output) or "")[:220]}
+        planned = asyncio.run(plan(text, rt=rt, user=u, project=project, reply_target=reply_target))
+        for task in planned["tasks"]:
+            if not task.get("agent") or task["agent"] == "auto":
+                raise HTTPException(503, task.get("why") or "当前没有可分配的 agent，请重试")
+        rt.session.flush()
+        rt.session.refresh(u, with_for_update=True)
+        defaults = project_context.manager_defaults(u, project)
+        members = project_context.members(u, project, include_archived=True)
+        create_conversations = True
+        note = chats_note(user_id, {"conversation": key, "text": text}, rt)
+        if body.get("images"):
+            from pga import memos
+            from pga.db.models import AgentRun
+            pictures = []
+            try:
+                for image in body["images"][:6]:
+                    paragraph = image.get("paragraph", 0)
+                    if type(paragraph) is not int or not 0 <= paragraph < len(re.split(r"\n(?:[^\S\n]*\n)+", text)):
+                        raise ValueError("图片段落位置无效")
+                    name = memos.save_image(u.id, image.get("data", ""))
+                    pictures.append({"paragraph": paragraph, "url": f"/v1/users/{u.id}/memo-images/{name}"})
+            except (ValueError, AttributeError, TypeError) as exc:
+                for pic in pictures:
+                    memos.image_path(u.id, pic["url"].rsplit("/", 1)[-1]).unlink(missing_ok=True)
+                raise HTTPException(422, "无法保存附图：" + str(exc)) from exc
+            record = rt.session.get(AgentRun, uuid.UUID(note["run"]))
+            record.data = {**record.data, "manager_pictures": pictures}
+        entry = {"id": uuid.uuid4().hex[:16], "text": text, "run": note["run"],
+                 "create_conversations": create_conversations, "effort": body.get("effort"), "tasks": []}
+        requests = []
+        task_workspace = planned["workspace"] if "workspace" in planned else workspace(rt, u, project)
+        for task in planned["tasks"][:8]:
+            context_key = project_context.canonical(task.get('context') or '')
+            feeds = {item['key'] for item in defaults.values()}
+            related = (context_key in members and context_key not in feeds and not project_context.is_manager(context_key)
+                       or qa_pool.summary_of(context_key) in feeds)
+            bucket = task.get('destination') if task.get('destination') in defaults else destination(task['text'], task.get('kind', ''))
+            task_id = uuid.uuid4().hex
+            if body.get('source_feed') == defaults['execute']['key'] and not related:
+                bucket = 'execute'
+            made = context_key if related else defaults[bucket]['key']
+            if made in feeds:
+                made = qa_pool.worker_prefix(made) + task_id
+            shown = qa_pool.public_key(made)
+            # Reuse the actual conversation, preserving its title and existing settings.
+            acc = access_for(u, shown)
+            if shown.startswith('chat:summary-'):
+                acc = {**acc, **task_workspace, 'access': 'full'}
+                access_for(u, shown, acc)
+            from pga import recycle
+            recycle.touched(u, shown)
+            request = {"conversation": made, "scope": project, "agent": task["agent"],
+                       "text": task["text"] if task["text"] == text or shown != made else task["text"] + "\n\n原始需求（仅作为背景与约束，只执行上面分配的任务）：\n" + text,
+                       "failover": True, "fallback": task.get("fallback", []), "access": "full",
+                       "manager_task_id": task_id, "category": task.get("kind"), "needs_code": task.get("needs_code"),
+                       "folder": acc.get("folder", ""), "mcp": bool(acc.get("mcp")),
+                       **{k: body[k] for k in ("images", "files", "effort") if k in body}}
+            entry["tasks"].append({**task, "task_id": task_id, "destination": bucket, "text": task["text"], "key": shown, "worker": made, "agent": request["agent"],
+                                   "from": context_key, "create_conversations": create_conversations,
+                                   "effort": body.get("effort")})
+            requests.append(request)
+        saved = chats_dispatch(user_id, {"key": key, "entry": entry, "run": note["run"]}, rt)
+        entry["at"] = saved["dispatch"][0]["at"]
+        for request in requests:
+            request["_execution_slot"] = execution_slot(user_id, request["conversation"])
+        try:
+            rt.session.commit()
+        except Exception:
+            for request in requests:
+                request["_execution_slot"][1]()
+            raise
+
+        def execute(request):
+            previous, release = request.pop("_execution_slot")
+            if previous is not None:
+                previous.wait()
+            session = factory()()
+            try:
+                agents_ask(user_id, request, make_runtime(session))
+                session.commit()
+            except Exception as exc:
+                session.rollback()
+                logging.getLogger(__name__).exception("Manager task failed: %s", request["conversation"])
+                # An exception before the router writes its run must still settle the
+                # manager paragraph. Keep it in the task's own durable ledger.
+                from pga.db.models import AgentRun
+                session.add(AgentRun(user_id=user_id, workflow="ask", pattern="single", step="workflow",
+                    agent=request.get("agent") or "auto", adapter="manager", status="FAILED",
+                    prompt=request["text"], output="", error=str(exc)[:1000],
+                    data={"conversation": request["conversation"], "agent": request.get("agent"),
+                          "requested_effort": request.get("effort") or "",
+                          "manager_task_id": request.get("manager_task_id", "")},
+                    started_at=utcnow(), finished_at=utcnow()))
+                session.commit()
+            finally:
+                session.close()
+                release()
+
+        for request in requests:
+            threading.Thread(target=execute, args=(request,), daemon=True, name="manager-task").start()
+        return {"ok": True, "entry": entry, "defaults": defaults, "output": "",
+                "manager_pictures": pictures if body.get("images") else []}
 
     @app.post("/v1/users/{user_id}/chats/manager-plan")
     async def manager_plan(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
@@ -4586,7 +5387,12 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not key or not e:
             raise HTTPException(422, "key and entry are needed")
         entry = {"id": str(e.get("id") or uuid.uuid4().hex[:8])[:20], "text": str(e.get("text") or "")[:4000], "at": utcnow().isoformat(),
-                 "tasks": [{"title": str(t.get("title") or "")[:60], "key": str(t.get("key") or "")[:120], "agent": str(t.get("agent") or "")[:40],
+                 "create_conversations": bool(e.get("create_conversations", False)), "effort": str(e.get("effort") or "")[:20],
+                 "tasks": [{"task_id": str(t.get("task_id") or "")[:40], "destination": str(t.get("destination") or "")[:20], "title": str(t.get("title") or "")[:60], "text": str(t.get("text") or "")[:8000],
+                            **({"worker": str(t["worker"])[:120]} if t.get("worker") else {}),
+                            "key": str(t.get("key") or "")[:120], "agent": str(t.get("agent") or "")[:40],
+                            "effort": str(t.get("effort") or "")[:20],
+                            "create_conversations": bool(t.get("create_conversations", e.get("create_conversations", False))),
                             **({"why": str(t["why"])[:200]} if t.get("why") else {}), **({"from": str(t["from"])[:120]} if t.get("from") else {})}
                            for t in (e.get("tasks") or [])[:8] if isinstance(t, dict)], "merged": str(e.get("merged") or "")[:120],
                  "run": str(body.get("run") or e.get("run") or "")[:40]}
@@ -4658,8 +5464,29 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         if not key or key.startswith("second:"):
             raise HTTPException(422, "a visible conversation is required")
         try:
-            return start_split(rt, u, key, body.get("agents") or [], body.get("run"))
+            return start_split(rt, u, key, body.get("agents") or [], body.get("run"), body.get("options"))
         except (ChatError, ValueError) as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.put("/v1/users/{user_id}/chats/compare-side")
+    def chats_compare_side(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Change who answers on one side of a split: pga.chats.set_split_side."""
+        from pga.chats import set_split_side, ChatError
+        u = user_or_404(rt, user_id)
+        try:
+            return set_split_side(rt, u, str(body.get("key") or ""), str(body.get("lane") or ""), body.get("agent"),
+                                  body.get("model") or "", body.get("effort") or "")
+        except ChatError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    @app.post("/v1/users/{user_id}/chats/compare-adopt")
+    def chats_compare_adopt(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
+        """Carry on with one side of a split (采用): pga.chats.adopt_split."""
+        from pga.chats import adopt_split, ChatError
+        u = user_or_404(rt, user_id)
+        try:
+            return adopt_split(rt, u, str(body.get("key") or ""), str(body.get("lane") or ""))
+        except ChatError as exc:
             raise HTTPException(422, str(exc)) from exc
 
     @app.put("/v1/users/{user_id}/chat-multi")
@@ -4707,17 +5534,23 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
 
     @app.put("/v1/users/{user_id}/chats/title")
     def chats_title(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):
-        """Rename a chat (empty: back to its first message)."""
+        """Manually name a chat (empty: resume automatic titles)."""
         from pga.chats import set_title
         key = str(body.get("key") or "")[:120]
         if not key:
             raise HTTPException(422, "key is needed")
         u = user_or_404(rt, user_id)
+        rt.session.refresh(u, with_for_update=True)
+        title = str(body.get("title") or "")
         branches = dict((u.preferences or {}).get("chat_branches") or {})
         if key in branches:
-            branches[key] = {**branches[key], "manual_title": True}
+            branches[key] = {**branches[key], "manual_title": bool(title.strip())}
             u.preferences = {**(u.preferences or {}), "chat_branches": branches}
-        set_title(u, key, str(body.get("title") or ""))
+        set_title(u, key, title, source="manual")
+        rt.session.commit()
+        if not title.strip() and getattr(rt.provider, "name", "") != "fake":
+            from pga.chat_titles import schedule
+            schedule(factory(), make_runtime, u.id, key)
         return {"key": key, "title": str(body.get("title") or "").strip()[:80] or None}
 
     PROMPTS_MAX = 200
@@ -4787,21 +5620,34 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
             from pga.chats import imported_turns
             turns, _ = imported_turns(rt, u, parent[4:])
             upto = str(len(turns))
-        from pga.chats import branch_context, ChatError
+        from pga.chats import branch_context, question_fork, ChatError
+        question = None
+        source = None
+        image_source = None
         try:
-            snapshot = branch_context(rt, u, {"from": parent, "upto": upto})
+            if upto.startswith("question:"):
+                snapshot, upto, question, source, image_source = question_fork(rt, u, parent, upto.removeprefix("question:"))
+            else:
+                snapshot = branch_context(rt, u, {"from": parent, "upto": upto})
         except (ChatError, ValueError) as exc:
             raise HTTPException(422, str(exc)) from exc
         # A fork always owns a new identity, even if a caller sends the source key.
         key = f"chat:{uuid.uuid4().hex}"
         b = copy_chat(rt, u, key, parent, upto) if body.get("copy") else set_branch(u, key, parent, upto)   # copy: the whole chat, its name and settings
         b = {**b, "snapshot": snapshot}
+        if source is not None:
+            b["question_run"] = str(source.id)
+        if image_source:
+            b["question_images"] = image_source
         branches = dict((u.preferences or {}).get("chat_branches") or {})
         branches[key] = b
         u.preferences = {**(u.preferences or {}), "chat_branches": branches}
         if body.get("title"):                                     # named in the same write
             from pga.chats import set_title
-            set_title(u, key, str(body["title"]))
+            set_title(u, key, str(body["title"]), source="manual")
+        elif question is not None:
+            from pga.chats import set_title
+            set_title(u, key, " ".join(question.split())[:60])
         elif body.get("title_from_reply") or not body.get("copy"):
             from pga.chats import branch_reply_title, set_title
             title = branch_reply_title(rt, u, parent, upto)
@@ -4810,6 +5656,10 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         from pga.chats import inherit
         line = inherit(rt, u, key, parent)["line"]                  # the same line, project folder and world-tree topic as what it grew from
         inherit_settings(u, key, parent)
+        from pga import project_context
+        scope = project_context.scope_of(u, parent)
+        if scope:
+            project_context.hold(u, key, scope)
         # Keep the source's actual working folder, including automatically allocated or imported workspaces.
         import copy as _copy
         source_access = _copy.deepcopy(access_for(u, parent))
@@ -4835,12 +5685,24 @@ def create_app(session_factory: sessionmaker[Session] | None = None,
         access = _copy.deepcopy((u.preferences or {}).get("agent_access") or {})
         access["keys"] = {**(access.get("keys") or {}), key: source_access}
         u.preferences = {**(u.preferences or {}), "agent_access": access}
+        options = {}
         if isinstance(body.get("options"), dict):
-            options = {k: str(v)[:200] for k, v in body["options"].items() if k in ("agent", "model", "effort") and isinstance(v, str)}
+            options = {k: v[:200] for k, v in body["options"].items() if k in ("agent", "model", "effort") and isinstance(v, str)}
+        if source is not None:
+            saved = source.data or {}
+            agent = saved.get("agent") or source.agent
+            if agent and agent != "-":
+                options = {"agent": agent, "model": saved.get("requested_model") or saved.get("model") or "",
+                           "effort": saved.get("requested_effort") or saved.get("effort") or ""}
+        if options:
             all_options = dict((u.preferences or {}).get("chat_options") or {})
             all_options[key] = options
             u.preferences = {**(u.preferences or {}), "chat_options": all_options}
-        return {"key": key, **b, "line": line, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key)}
+        result = {"key": key, **b, "line": line, "title": ((u.preferences or {}).get("chat_titles") or {}).get(key)}
+        if question is not None:
+            result["replay"] = {"text": question, "options": options}
+            rt.session.commit()  # the new page can fetch the snapshot immediately upon receiving its key
+        return result
 
     @app.post("/v1/users/{user_id}/i18n")
     def i18n_texts(user_id: uuid.UUID, body: dict, rt: Runtime = Depends(get_rt)):

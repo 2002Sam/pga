@@ -27,7 +27,7 @@ document.addEventListener("click", async (e) => {
   const tx = e.target.closest(".ctx button[data-tx]"); if (tx) { tlDo(tx.dataset.tx, tx.closest(".ctx").dataset.ts); return; }
   if (!e.target.closest(".ctx")) closeCtx();
   const trb = e.target.closest(".trbtn"); if (trb) { toggleTranslate(trb); return; }
-  const t = e.target.closest("[data-usage-days], [data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-setdir], [data-browsedir], [data-bgset], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], [data-accedit], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #plant, #seedGo, #seedCancel, #unfold, .trbtn");
+  const t = e.target.closest("[data-usage-days], [data-bar], [data-view], [data-tnode], [data-tbud], [data-go], [data-goaim], [data-tab], [data-bud], [data-focus], [data-op], [data-do], [data-trnode], [data-doc], [data-compile], [data-ref], [data-unref], [data-mode], [data-refadd], [data-unrefnode], [data-move], [data-crefdel], [data-chrefdel], [data-answer], [data-drop], [data-cp], [data-closemodal], [data-chat], [data-arch], [data-plus], [data-ts], [data-setdir], [data-browsedir], [data-bgset], #accBrowse, [data-dir], [data-usedir], [data-pickdir], [data-stoplive], #usageBtn, #looseToggle, [data-second], [data-cbranch], [data-pin], [data-moveto], [data-archall], [data-acc], [data-accedit], #accSave, [data-tline], [data-tlmode], #lineSend, #lineNote, [data-ltarget], #moveGo, [data-litem], [data-opentree], #lineClear, #lineSteps, #lineSum, #lineOut, #tlImport, #archList, #impSend, #hubSync, #tidyGo, #joinGo, #unhideAll, #unbranch, #archToggle, #fold, #send, #curate, #rewrite, #dirBtn, #ctxBtn, #runBtn, #waitBtn, #setBtn, #saveSettings, #drawerBtn, #drawerClose, #newChat, #chatSend, #branchCount, #plant, #seedGo, #seedCancel, #unfold, .trbtn");
   if (!t && e.target.closest?.("#tlSvg") && S.tlLine) { S.tlLine = null; S.tlSel = null; renderTimeline(); renderChat(); return; }
   if (!t) return;
   if (t.tagName === "A" || t.dataset.tab || t.dataset.go || t.dataset.goaim || t.dataset.bar || t.dataset.view) e.preventDefault();
@@ -53,10 +53,11 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.pickdir !== undefined) { e.preventDefault(); folderMenu(t, t.dataset.pickdir); return; }
   if (t.dataset.setdir !== undefined) { e.preventDefault(); setFolder(t.closest(".fmenu").dataset.key, t.dataset.setdir); return; }
   if (t.dataset.browsedir !== undefined) { e.preventDefault(); const k = t.closest(".fmenu").dataset.key; document.querySelector(".fmenu")?.remove(); await loadAcc(k); showAcc(k); setTimeout(() => browseDirs($("#accFolder")?.value || ""), 50); return; }
-  if (t.dataset.stoplive) { api(`/v1/agents/live/${t.dataset.stoplive}/stop`, { method: "POST" }).then(() => toast(L("已让它停下，已经写出的内容会保留", "Stopping; what it wrote so far is kept"))).catch((err) => toast(err.message)); return; }
+  if (t.dataset.stoplive) { requestLiveStop(t.dataset.stoplive); return; }
   if (t.hasAttribute("data-usage-days")) { showUsage(Number(t.dataset.usageDays)); return; }
   if (t.id === "usageBtn") { showUsage(); return; }
-  if (t.dataset.second) { secondOpinion(t.dataset.second, t.dataset.ckey); return; }
+  if (t.id === "branchCount") { await branchCopies(); return; }
+  if (t.dataset.second) { secondOpinion(t.dataset.second, t.dataset.ckey, t); return; }
   if (t.dataset.cbranch) { chatBranch(t.dataset.cbranch, t.dataset.ckey, !t.closest(".bigctx")); return; }   // 从这里继续 (not "start fresh"): on the stage it grows in the tree
   if (t.dataset.pin) { try { const r = await api(`/v1/users/${S.uid}/timeline/pin`, { method: "PUT", body: { line: t.dataset.pin, pinned: t.dataset.to === "1" } }); S.tl.pinned = r.pinned; renderTimeline(); renderChat(); toast(t.dataset.to === "1" ? L("已置顶", "Pinned") : L("已取消置顶", "Unpinned")); } catch (err) { toast(err.message); } return; }
   if (t.dataset.moveto !== undefined) { moveDialog(t.dataset.moveto, t.dataset.line); return; }
@@ -179,9 +180,8 @@ document.addEventListener("change", (e) => {
   if (e.target.id === "crefAdd" && e.target.value) { S.contRefs = [...S.contRefs, e.target.value]; renderCont(); return; }
   if (e.target.id === "chrefAdd" && e.target.value) { S.chatRefs = [...S.chatRefs, e.target.value]; renderChat(); return; }
   if (e.target.id === "chatAgent") { const k = chatChoiceKey(); if (S.chatModel) delete S.chatModel[k]; if (S.chatEffort) delete S.chatEffort[k]; S.chatAgent = e.target.value; chatChoiceSave(k); renderChat(); return; }
-  if (e.target.id === "branchCount") { const n = e.target.value; e.target.value = ""; if (n) branchCopies(Number(n)); return; }
   if (e.target.id === "chatModel") { const k = chatChoiceKey(); S.chatModel = { ...(S.chatModel || {}), [k]: e.target.value }; if (!e.target.value) delete S.chatModel[k]; const efforts = S.agentOpts?.[S.chatAgent]?.models?.find(m => m.id === e.target.value)?.efforts || []; if (!efforts.some(x => x.id === S.chatEffort?.[k])) S.chatEffort[k] = ""; chatChoiceSave(k); renderChat(); return; }
-  if (e.target.id === "chatEffort") { S.chatEffort[chatChoiceKey()] = e.target.value; chatChoiceSave(); return; }
+  if (e.target.id === "chatEffort") { S.chatEffort[chatChoiceKey()] = e.target.value; chatChoiceSave(); window.mrDraw?.(); return; }
   if (e.target.id === "showHidden") { S.showHidden = e.target.checked; drawTree(false); renderDialog(); }
 });
 document.addEventListener("keydown", (e) => {
@@ -197,7 +197,17 @@ document.addEventListener("keydown", (e) => {
     }
     S.lineView ? lineSend() : S.imp ? impSend() : chatSend(); return;
   }
-  if (e.key === "Escape") { closeCtx(); document.querySelector(".modal")?.remove(); if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); } return; }
+  if (e.key === "Escape") {
+    const overlay = document.querySelector(".modal, dialog[open], .ctx") || S.drawer;
+    closeCtx(); document.querySelector(".modal")?.remove();
+    if (S.drawer) { S.drawer = false; S.op = null; renderDrawer(); renderHead(); }
+    if (!overlay && !e.defaultPrevented && !e.repeat && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey &&
+        S.view === 'chats' && (e.target === document.body || e.target.closest?.('#cdlg, #ccomp'))) {
+      const host = typeof stageNodeOf === 'function' && stageNodeOf();
+      (host?.P || window).stToggleComposerFocus?.(true);
+    }
+    return;
+  }
   if (e.target.closest?.("textarea, input, select") || S.view !== "tree") return;
   const list = S.layout?.list || [], i = list.findIndex((x) => x.id === S.node);
   if (e.key === "ArrowUp" && i < list.length - 1) { e.preventDefault(); select(list[i + 1].id); }

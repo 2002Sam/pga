@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Callable
 from pga.agent.common import UNTRUSTED_NOTE, fence, parse_json
 from pga.db.models import AgentRun, User, WorldNode
 from pga.db.types import utcnow
+from pga.recycle import ARCHIVE_CAP
 
 if TYPE_CHECKING:
     from pga.runtime import Runtime
@@ -62,32 +63,48 @@ def _archived(user: User) -> list[str]:
 
 
 def _set_archived(user: User, keys: list[str]) -> None:
-    user.preferences = {**(user.preferences or {}), "archived_chats": keys[-2000:]}
+    user.preferences = {**(user.preferences or {}), "archived_chats": keys[-ARCHIVE_CAP:]}
 
 
 def history(user: User) -> list[dict]:
     return [{k: e.get(k) for k in ("id", "kind", "at", "project", "title", "key", "n", "undone")} for e in reversed(_log(user))]
 
 
-def merges_of(rt: "Runtime", user: User, key: str) -> dict:
+def merges_of(rt: "Runtime", user: User, key: str, stored_members=()) -> dict:
     """The merges this conversation took part in (for its branch tree): what was folded into it, and what it was folded into."""
     titles = (user.preferences or {}).get("chat_titles") or {}
-    live = [e for e in _log(user) if e.get("kind") == "group" and not e.get("undone")]
+    groups = [e for e in _log(user) if e.get("kind") == "group"]
+    live = [e for e in groups if not e.get("undone")]
 
     def name(k: str) -> str:
         return titles.get(k) or ""
     into = next(({"key": e["key"], "title": name(e["key"]) or e.get("title") or ""} for e in reversed(live) if key in (e.get("members") or [])), None)
-    mine = next((e for e in reversed(live) if e.get("key") == key), None)
-    return {"into": into, "from": [{"key": k, "title": name(k)} for k in (mine.get("members") or [])] if mine else []}
+    mine = next((e for e in reversed(groups) if e.get("key") == key), None)
+    members = stored_members if mine is None else [] if mine.get("undone") else mine.get("members") or []
+    return {"into": into, "from": [{"key": k, "title": name(k)} for k in members]}
 
 
 # ------------------------------------------------------------------------------------------------ one folder
-def _in_project(rt: "Runtime", user: User, project: str, now: datetime) -> list:
+def _in_project(rt: "Runtime", user: User, project: str, now: datetime, *, all_dates=False) -> list:
     from pga import projectsort
     from pga.timeline import Timeline
     st = projectsort.state(user)
-    items = Timeline(rt).items(user, now - timedelta(days=730))
+    items = Timeline(rt).items(user, datetime.min.replace(tzinfo=now.tzinfo) if all_dates else now - timedelta(days=730))
     return [it for it in items if it.kind in ("chat", "import") and it.times and projectsort.project_of(st, it.key, it.project) == project]
+
+
+def category_members(rt: "Runtime", user: User, project: str) -> list[dict]:
+    items = _in_project(rt, user, project, utcnow(), all_dates=True)
+    leaves, topics = _tree(rt, user)
+    rows = []
+    for it in sorted(items, key=lambda it: max(it.times), reverse=True):
+        chain = _chain(leaves.get(it.key), topics)
+        # Series often share a title prefix, e.g. “PDF 阅读器 · 批注”.
+        prefix = re.split(r"[：:｜|·]|\s[-—]\s", it.title or "", maxsplit=1)[0].strip()
+        prefix = re.sub(r"(?:\s+|[-_])(?:v?\d+(?:\.\d+)*)$", "", prefix, flags=re.I).strip()
+        rows.append({**_row(it), "topic": _path(chain[0], topics) if chain else prefix,
+                     "topic_id": str(chain[0].id) if chain else "title:" + prefix.casefold()})
+    return rows
 
 
 def _tree(rt: "Runtime", user: User) -> tuple[dict, dict]:
@@ -306,11 +323,14 @@ def _facts(rt: "Runtime", user: User, keys: list[str]) -> str:
 
 
 def apply_group(rt: "Runtime", user: User, project: str, title: str, keys: list[str], now: datetime | None = None,
-                write: Callable | None = None) -> dict:
+                write: Callable | None = None, *, all_dates=False) -> dict:
     """Write the group up as one new conversation in the folder and archive the originals."""
     now = now or utcnow()
-    mine = {it.key: it for it in _in_project(rt, user, project, now)}
+    items = _in_project(rt, user, project, now, all_dates=all_dates)
+    mine = {it.key: it for it in items}
     keys = [k for k in dict.fromkeys(keys) if k in mine]
+    if all_dates and not 2 <= len(keys) <= 6:
+        raise ValueError("每组请选择 2 至 6 段当前分类中的对话")
     if not keys:
         raise ValueError("none of those conversations is in this folder any more")
     leaves, topics = _tree(rt, user)

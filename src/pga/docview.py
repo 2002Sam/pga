@@ -34,7 +34,15 @@ _soffice_lock = threading.Lock()          # one LibreOffice at a time: two insta
 
 
 def soffice() -> str | None:
-    for p in (shutil.which("soffice"), "/opt/homebrew/bin/soffice", "/Applications/LibreOffice.app/Contents/MacOS/soffice"):
+    for p in (
+        shutil.which("soffice"),
+        shutil.which("libreoffice"),
+        "/usr/bin/soffice",
+        "/usr/bin/libreoffice",
+        "/snap/bin/libreoffice",
+        "/opt/homebrew/bin/soffice",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    ):
         if p and os.access(p, os.X_OK):
             return p
     return None
@@ -66,6 +74,9 @@ RENDER = "fonts2"                         # in the cache key: previews made befo
 
 
 def _fonts_env() -> dict:
+    import sys
+    if sys.platform != "darwin":
+        return dict(os.environ)
     conf = CACHE / "fontconfig" / "fonts.conf"
     text = FONTS_CONF.format(cache=CACHE / "fontconfig" / "cache")
     if not conf.exists() or conf.read_text(encoding="utf-8") != text:

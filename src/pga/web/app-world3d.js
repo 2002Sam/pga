@@ -44,8 +44,8 @@ async function w3Build() {
     el.addEventListener("pointerleave", () => { W3.hover = null; tip(null); });
     el.addEventListener("click", (e) => { if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return; const n = hit(e);
       if (!n) { G.sel = null; drawWorldSide(); return; }
+      if (n.kind === "leaf") { openLeaf(n); return; }
       G.sel = n.id; drawWorldSide(); w3FlyTo(n); });                    // what you click becomes the centre it turns round
-    el.addEventListener("dblclick", (e) => { const n = hit(e); if (n?.kind === "leaf") openLeaf(n); });   // a conversation: double-click opens it   // a conversation: double-click opens it
     new ResizeObserver(() => w3Size()).observe(box);
   }
   w3Scene(); w3Size();

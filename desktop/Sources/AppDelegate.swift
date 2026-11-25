@@ -2,39 +2,15 @@ import AppKit
 import Carbon
 import WebKit
 
-/// The home window: every conversation, newest first; open one as a floating window, or start a new one.
-final class HomeWindow: WebChrome, NSWindowDelegate, WebOwner {
-    let window: NSWindow
-    var web: DropWebView!
-
-    override init() {
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 620), styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
-                          backing: .buffered, defer: false)
-        super.init()
-        window.title = "PGA"; window.titlebarAppearsTransparent = true; window.titleVisibility = .hidden
-        window.isReleasedWhenClosed = false; window.center(); window.setFrameAutosaveName("PGAHome"); window.delegate = self
-        window.minSize = NSSize(width: 420, height: 360)
-        web = Web.make(owner: self, page: ["mode": "home"])
-        web.navigationDelegate = self; web.uiDelegate = self
-        window.contentView = web
-        web.load(URLRequest(url: Web.page(["mode": "home"])))
-    }
-
-    func show() { NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil) }
-    func message(_ body: [String: Any]) { AppDelegate.shared.message(body) }
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     static var shared: AppDelegate!
     var config = Config()
     var floats: [FloatWindow] = []
-    var home: HomeWindow?
     var status: NSStatusItem!
     var serviceUp = false, starting = false
-    var hotKey: EventHotKeyRef?, hotKey2: EventHotKeyRef?
-    var bench: Bench?                                    // the workbench window, while PGA is seen that way
+    var hotKey: EventHotKeyRef?
     var fullApp: FullWindow?                             // 完整版: the whole browser version in a window
-    var inBench: Bool { config.mode == "bench" }
+    var managers: [String: ManagerWindow] = [:]          // 管理员小窗: a category's manager on its own, by category
     private var pushT: [String: DispatchWorkItem] = [:]
 
     func applicationDidFinishLaunching(_ n: Notification) {
@@ -54,24 +30,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu(); menu.delegate = self; status.menu = menu
         registerHotKey()
         Wires.shared.setup()
+        Alerts.shared.start()
         check { up in
-            let go = { self.restore(); if CommandLine.arguments.count <= 1 { self.showFull() }; self.launchArgs(); Catalog.shared.refresh(force: true) }   // opened from the Dock: 完整版
+            let go = {
+                let args = CommandLine.arguments
+                let compact = self.config.chat == "light"
+                Store.write("floats.json", [SavedFloat]())
+                if args.count <= 1 {
+                    if compact { self.showHome() } else { self.showFull() }
+                }
+                self.launchArgs()
+                Catalog.shared.refresh(force: true)
+            }
             if up { go() } else { self.startService(go) }
         }
     }
 
     // ------------------------------------------------ floating windows
-    func restore() {
+    func restore(visible: Bool) {
         for s in Store.read("floats.json", as: [SavedFloat].self) ?? [] { floats.append(FloatWindow(saved: s)) }
-        if inBench { enterBench(show: false) } else { floats.forEach { $0.show(focus: false) } }
+        if visible { floats.forEach { $0.show(focus: false) } }
     }
 
-    /// open -a "PGA 浮窗" --args --home | --new | --bench | --desk | --full | --open <conversation key>
+    /// open -a "PGA 浮窗" --args --home | --new | --full | --open <conversation key>
     func launchArgs() {
         let a = CommandLine.arguments
         if a.contains("--home") { showHome() }
-        if a.contains("--bench") && !inBench { toggleMode() }
-        if a.contains("--desk") && inBench { toggleMode() }
         if a.contains("--full") { showFull() }
         if a.contains("--new") { openFloat(key: nil) }
         if let i = a.firstIndex(of: "--open"), i + 1 < a.count { openFloat(key: a[i + 1]) }
@@ -81,15 +65,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ n: Notification) { saveFloats(); quitting = true }         // windows closing as the app quits stay open next time
     func saveFloats() { if !quitting { Store.write("floats.json", floats.map(\.saved)) } }
 
-    /// A conversation as a window (the one already open is brought forward); nil: a new conversation.
-    func openFloat(key: String?, title: String = "", focus: Bool = true) {
-        if let k = key, let f = floats.first(where: { $0.key == k }) { f.show(focus: focus); if inBench { bench?.show() }; return }
-        if key == nil, let f = floats.first(where: { $0.key == nil && $0.kind == .conv }) { f.show(focus: true); if inBench { bench?.show() }; return }   // one blank one is enough
+    /// A conversation as a window (the one already open is brought forward); nil: a new conversation. `near`: beside that
+    /// window (a 管理员小窗); `jump`: at that input of yours ({run, find}).
+    func openFloat(key: String?, title: String = "", focus: Bool = true, near: NSRect? = nil, jump: [String: String]? = nil) {
+        if let key { Alerts.shared.markRead(key: key) }
+        if let k = key, let f = floats.first(where: { $0.key == k }) {
+            f.show(focus: focus); if let jump { f.jump(jump) }; return
+        }
+        if key == nil, let f = floats.first(where: { $0.key == nil && $0.kind == .conv }) { f.show(focus: true); return }   // one blank one is enough
         var d = ["title": title]; if let key { d["key"] = key }
-        openNode(.conv, data: d, frame: defaultFrame(.conv))
+        let f = openNode(.conv, data: d, frame: near.map { beside($0) } ?? defaultFrame(.conv))
+        if let jump { f.jump(jump) }
+        if near != nil { NSApp.activate(ignoringOtherApps: true); f.panel.makeKey() }
+    }
+    /// A conversation's window beside another window: to its left if the screen has room there, else to its right.
+    func beside(_ r: NSRect) -> NSRect {
+        let s = (NSScreen.screens.first { $0.frame.intersects(r) } ?? NSScreen.main!).visibleFrame, sz = Kind.conv.size
+        let h = min(sz.height, s.height - 20), x = r.minX - sz.width - 12 >= s.minX ? r.minX - sz.width - 12 : min(r.maxX + 12, s.maxX - sz.width)
+        return NSRect(x: x, y: max(s.minY, r.maxY - h), width: sz.width, height: h)
+    }
+
+    /// 管理员小窗: the category's manager in a small window of its own (the one already open is brought forward).
+    func openManager(_ project: String) {
+        let m = managers[project] ?? ManagerWindow(project: project)
+        managers[project] = m; m.show()
+        UserDefaults.standard.set(project, forKey: "managerProject." + config.uid)
+    }
+    /// Every category, each to open its manager in a small window.
+    func managerMenu() -> NSMenuItem {
+        let it = NSMenuItem(title: "管理员小窗", action: nil, keyEquivalent: ""); it.image = NSImage(systemSymbolName: "person.crop.rectangle", accessibilityDescription: nil)
+        let sm = NSMenu(), counts = Dictionary(grouping: Alerts.shared.unread.compactMap(\.project)) { $0 }.mapValues(\.count)
+        for p in Alerts.shared.categoryNames {
+            let i = ActionItem(counts[p].map { "\(p)（\($0) 条新消息）" } ?? p) { self.openManager(p) }
+            if managers[p] != nil { i.state = .on }
+            sm.addItem(i)
+        }
+        if sm.items.isEmpty { sm.addItem(withTitle: "（正在读取…）", action: nil, keyEquivalent: "") }
+        it.submenu = sm; return it
+    }
+    @objc func toggleAlerts() {
+        config.alerts = !Alerts.shared.enabled; Store.write("config.json", config)
+        if !Alerts.shared.enabled { Alerts.shared.markAllRead() } else { Toasts.shared.restore() }
     }
     func defaultFrame(_ k: Kind) -> NSRect {
-        if inBench, let b = bench { return b.cascade(k, floats.filter(\.docked).count) }
         return NSRect(origin: FloatWindow.nextFrame().origin, size: k.size)
     }
 
@@ -98,10 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @discardableResult
     func openNode(_ k: Kind, data: [String: String], frame: NSRect) -> FloatWindow {
         let blank = k == .conv && data["key"] == nil
-        let f = FloatWindow(saved: nil, kind: k, key: data["key"], title: data["title"] ?? "", data: data, at: inBench ? nil : frame)
+        let f = FloatWindow(saved: nil, kind: k, key: data["key"], title: data["title"] ?? "", data: data, at: frame)
         if blank { f.focusOnLoad = true }
         floats.append(f)
-        if inBench, let b = bench { f.dock(in: b.area, frame: frame); b.show() }
         f.show(focus: blank || k == .note); saveFloats(); redrawWires()
         return f
     }
@@ -109,14 +126,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func float(id: String) -> FloatWindow? { floats.first { $0.id == id } }
     /// The PGA window (or workbench card) under a point of the screen, the frontmost one.
     func float(at p: NSPoint) -> FloatWindow? {
-        if inBench, let b = bench {
-            for v in b.area.subviews.reversed() { if let f = floats.first(where: { $0.content === v }), NSMouseInRect(p, f.screenFrame, false) { return f } }
-            return nil
-        }
         let n = NSWindow.windowNumber(at: p, belowWindowWithWindowNumber: 0)
         return floats.first { $0.panel.windowNumber == n } ?? floats.first { $0.panel.isVisible && NSMouseInRect(p, $0.panel.frame, false) }
     }
-    func redrawWires() { Wires.shared.redraw(); bench?.area.needsDisplay = true }
+    func redrawWires() { Wires.shared.redraw() }
 
     /// A wire: what `src` holds goes into the conversation `dst`. Only a conversation reads what is wired into it.
     func link(_ src: FloatWindow, into dst: FloatWindow) {
@@ -151,57 +164,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         saveFloats(); redrawWires()
     }
 
-    // ------------------------------------------------ the two ways of seeing PGA: the workbench, or the desktop
-    /// ⌥⇧Space: every window into one workbench window (an app in the Dock), or each out onto the desktop on its own.
-    @objc func toggleMode() {
-        config.mode = inBench ? "desk" : "bench"; Store.write("config.json", config)
-        if inBench { enterBench() } else { leaveBench() }
-    }
-    func enterBench(show: Bool = true) {
-        if bench == nil { bench = Bench() }
-        let b = bench!; if show { b.show() }
-        var n = 0
-        for f in floats { f.dock(in: b.area, frame: f.card ?? b.cascade(f.kind, n)); if f.card == nil { n += 1 } }
-        saveFloats(); redrawWires()
-    }
-    func leaveBench() {
-        for f in floats { f.undock(); f.show(focus: false); f.applyPin() }
-        bench?.window.orderOut(nil)
-        saveFloats(); redrawWires()
-    }
-
     func message(_ body: [String: Any]) {
         switch body["kind"] as? String {
-        case "open": openFloat(key: body["key"] as? String, title: body["title"] as? String ?? "")
-        case "new": openFloat(key: nil)
+        case "open":
+            let run = body["run"] as? String ?? "", find = body["find"] as? String ?? ""
+            openFloat(key: body["key"] as? String, title: body["title"] as? String ?? "", jump: run.isEmpty && find.isEmpty ? nil : ["run": run, "find": find])        case "new": openFloat(key: nil)
+        case "tidyProjectChats":
+            guard let project = body["project"] as? String, !project.isEmpty,
+                  let data = try? JSONEncoder().encode([project]),
+                  let args = String(data: data, encoding: .utf8) else { return }
+            showFull()
+            fullApp?.whenReady("window.pmTidyOnStage(...\(args))")
+        case "tomorrowPlan":
+            showFull()
+            if let data = try? JSONEncoder().encode([body["text"] as? String ?? ""]),
+               let args = String(data: data, encoding: .utf8) {
+                fullApp?.whenReady("openTomorrowPlan(...\(args)).catch(e => toast(e.message))")
+            }
         case "home": showHome()
-        case "mode": toggleMode()
         case "log": Log.write("page: \(body["text"] as? String ?? "")")
         default: break
         }
     }
 
     @objc func newFloat() { openFloat(key: nil) }
-    @objc func showBench() { bench?.show() }
-    @objc func showBenchOrEnter() { if inBench { showBench() } else { toggleMode() } }
     @objc func showFull() { if fullApp == nil { fullApp = FullWindow() }; fullApp!.show() }
-    @objc func showHome() { if home == nil { home = HomeWindow() }; home!.show() }
+    @objc func showHome() {
+        Alerts.shared.categories { names, _ in
+            let last = UserDefaults.standard.string(forKey: "managerProject." + self.config.uid)
+            let project = last.flatMap { names.isEmpty || names.contains($0) ? $0 : nil }
+            let selected = project ?? names.first ?? "PGA"
+            self.fullApp?.window.orderOut(nil)
+            self.hideAll()
+            for (name, manager) in self.managers where name != selected { manager.panel.orderOut(nil) }
+            self.openManager(selected)
+        }
+    }
     @objc func showAll() { floats.forEach { $0.show(focus: false) } }
     @objc func hideAll() { floats.forEach { $0.panel.orderOut(nil) } }
     @objc func bring(_ item: NSMenuItem) { (item.representedObject as? FloatWindow)?.show(focus: true) }
 
-    // ------------------------------------------------ ⌥Space anywhere: a new question; ⌥⇧Space: workbench ↔ desktop
+    // ------------------------------------------------ ⌥Space anywhere: bring PGA workbench forward
     func registerHotKey() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, ev, _ in
-            var hk = EventHotKeyID()
-            GetEventParameter(ev, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil, MemoryLayout<EventHotKeyID>.size, nil, &hk)
-            let which = hk.id
-            DispatchQueue.main.async { if which == 2 { AppDelegate.shared.toggleMode() } else { AppDelegate.shared.newFloat() } }
+            DispatchQueue.main.async { AppDelegate.shared.showFull() }
             return noErr
         }, 1, &spec, nil, nil)
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), EventHotKeyID(signature: OSType(0x5047_4144), id: 1), GetApplicationEventTarget(), 0, &hotKey)     // ⌥Space
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey | shiftKey), EventHotKeyID(signature: OSType(0x5047_4144), id: 2), GetApplicationEventTarget(), 0, &hotKey2)   // ⌥⇧Space
     }
 
     // ------------------------------------------------ the PGA service (it needs Docker for its database)
@@ -240,11 +250,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         @discardableResult func add(_ t: String, _ a: Selector?, _ k: String) -> NSMenuItem {
             let i = NSMenuItem(title: t, action: a, keyEquivalent: k); i.target = self; menu.addItem(i); return i
         }
-        add("新浮窗", #selector(newFloat), " ").keyEquivalentModifierMask = [.option]
-        add("所有对话…", #selector(showHome), "")
-        add("完整版 PGA（网页端全部功能）", #selector(showFull), "")
-        let fc = add(inBench ? "分开到桌面" : "收进工作台", #selector(toggleMode), " "); fc.keyEquivalentModifierMask = [.option, .shift]
-        if inBench { add("显示工作台", #selector(showBench), "") }
+        menu.addItem(Toasts.shared.visibilityMenuItem())
+        Alerts.shared.addItems(to: menu)
+        menu.addItem(managerMenu())
+        add("简略界面（管理员）", #selector(showHome), "")
+        add("完整版 PGA（网页端全部功能）", #selector(showFull), " ").keyEquivalentModifierMask = [.option]
         if !floats.isEmpty {
             menu.addItem(.separator())
             for f in floats {
@@ -258,6 +268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else if serviceUp { add("PGA 服务运行中", nil, "") }
         else { add("PGA 服务没在运行 — 点这里启动", #selector(startServiceItem), "") }
         add("账号 \(config.uid.prefix(8))", nil, "")
+        add("会话完成提醒（魔女猫和 Dock 红点）", #selector(toggleAlerts), "").state = Alerts.shared.enabled ? .on : .off
         menu.addItem(.separator())
         let q = NSMenuItem(title: "退出 PGA 浮窗", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); menu.addItem(q)
     }
@@ -278,29 +289,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editItem.submenu = edit
         let viewItem = NSMenuItem(); main.addItem(viewItem)
         let view = NSMenu(title: "视图")
-        let t = view.addItem(withTitle: "工作台 ⇄ 桌面浮窗", action: #selector(toggleMode), keyEquivalent: " "); t.keyEquivalentModifierMask = [.option, .shift]; t.target = self
-        view.addItem(withTitle: "新对话", action: #selector(newFloat), keyEquivalent: "n").target = self
-        view.addItem(withTitle: "所有对话…", action: #selector(showHome), keyEquivalent: "").target = self
+        view.addItem(withTitle: "简略界面（管理员）", action: #selector(showHome), keyEquivalent: "").target = self
         view.addItem(withTitle: "完整版 PGA（网页端全部功能）", action: #selector(showFull), keyEquivalent: "0").target = self
-        view.addItem(withTitle: "工作台", action: #selector(showBenchOrEnter), keyEquivalent: "9").target = self
         viewItem.submenu = view
         NSApp.mainMenu = main
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
 
-    /// A click on the Dock icon: 完整版, the whole PGA (the workbench and the floating windows are a click away in its menus).
+    /// A click on the Dock icon: while it has a red badge, the manager of the newest news in its small window; else 完整版,
+    /// the whole PGA (the workbench and the floating windows are a click away in its menus).
     func applicationShouldHandleReopen(_ s: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        showFull(); return true
+        if !Alerts.shared.openLatest() {
+            if config.chat == "light" { showHome() } else { showFull() }
+        }
+        return true
     }
     /// Right-click on the Dock icon.
     func applicationDockMenu(_ s: NSApplication) -> NSMenu? {
         let m = NSMenu()
-        m.addItem(ActionItem(inBench ? "分开到桌面（每个对话一个浮窗）" : "收回工作台（一个窗口）") { self.toggleMode() })
-        m.addItem(ActionItem("新对话") { self.newFloat() })
+        m.addItem(Toasts.shared.visibilityMenuItem())
+        Alerts.shared.addItems(to: m)
+        m.addItem(managerMenu())
         m.addItem(ActionItem("完整版 PGA（网页端全部功能）") { self.showFull() })
-        if inBench { m.addItem(ActionItem("工作台") { self.showBench() }) }
-        m.addItem(ActionItem("所有对话…") { self.showHome() })
+        m.addItem(ActionItem("简略界面（管理员）") { self.showHome() })
         return m
     }
 }

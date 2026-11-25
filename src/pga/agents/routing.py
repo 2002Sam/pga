@@ -118,7 +118,7 @@ def _save_images(images: list[dict] | None, ws: str) -> list[str]:
         d = Path(ws) / "uploads"
         d.mkdir(parents=True, exist_ok=True)
         stem = _re.sub(r"[^A-Za-z0-9_.-]", "_", str(im.get("name") or f"image-{i + 1}"))[:40].rsplit(".", 1)[0] or f"image-{i + 1}"
-        p = d / f"{int(time.time())}-{i + 1}-{stem}.{'jpg' if m.group(2) in ('jpeg', 'jpg') else m.group(2)}"
+        p = d / f"{uuid.uuid4().hex}-{i + 1}-{stem}.{'jpg' if m.group(2) in ('jpeg', 'jpg') else m.group(2)}"
         p.write_bytes(raw)
         out.append(str(p))
     return out
@@ -197,11 +197,19 @@ def signals(text: str) -> int:
     return sum(len(rx.findall(text or "")) for _, rx in RULES)
 
 
+def manager_order(names: list[str], needs_code: bool) -> list[str]:
+    """Prefer an eligible Codex for writing code, preserving the remaining ranking."""
+    if needs_code and "codex" in names:
+        return ["codex", *(name for name in names if name != "codex")]
+    return names
+
+
 class AgentRouter:
     def __init__(self, rt: "Runtime", pool: AgentPool | None = None):
         self.rt = rt
         self.pool = pool or AgentPool(rt)
         self.cfg = self.pool.cfg["routing"]
+        self.quota_deadline: float | None = None
 
     # -------------------------------------------------------------- choosing
 
@@ -211,20 +219,20 @@ class AgentRouter:
 
         from pga.db.models import AgentRun
         conv = str(conversation)[:80]
-        for r in self.rt.session.scalars(select(AgentRun).where(AgentRun.user_id == user.id, AgentRun.workflow == "ask",
-                                                                AgentRun.adapter == "pool", AgentRun.status == "SUCCEEDED")
-                                         .order_by(AgentRun.started_at.desc()).limit(200)):
-            d = r.data or {}
-            if d.get("conversation") == conv and d.get("agent") in self.pool.adapters:
-                return {"agent": d["agent"], "category": d.get("category")}
-        return None
+        agent = AgentRun.data["agent"].as_string()
+        row = self.rt.session.execute(select(agent, AgentRun.data["category"].as_string()).where(
+            AgentRun.user_id == user.id, AgentRun.workflow == "ask", AgentRun.adapter == "pool",
+            AgentRun.status == "SUCCEEDED", AgentRun.data["conversation"].as_string() == conv,
+            agent.in_(self.pool.adapters)).order_by(AgentRun.started_at.desc()).limit(1)).first()
+        return {"agent": row[0], "category": row[1]} if row else None
 
     def quota(self, name: str) -> quotas.Quota:
         """Each agent's quota is looked up once per router (one request): ranking asks for it again per category."""
         memo = self.__dict__.setdefault("_quota_memo", {})
         if name not in memo:
             ad = self.pool.adapters.get(name)
-            memo[name] = quotas.for_agent(self.rt.session, name, self.pool.cfg["agents"].get(name, {}), ad.type if ad else "")
+            memo[name] = quotas.for_agent(self.rt.session, name, self.pool.cfg["agents"].get(name, {}), ad.type if ad else "",
+                                          deadline=self.quota_deadline)
         return memo[name]
 
     def category_of_task(self, kind: str) -> str | None:
@@ -233,7 +241,7 @@ class AgentRouter:
                 return cat
         return None
 
-    def rank(self, category: str, now: datetime | None = None, user_id=None) -> list[dict]:
+    def rank(self, category: str, now: datetime | None = None, user_id=None, *, manager_codex: bool = False) -> list[dict]:
         cats = self.cfg.get("categories") or {}
         prefer = list((cats.get(category) or {}).get("prefer") or [])
         extra = [n for n, a in self.pool.cfg["agents"].items() if category in (a.get("capabilities") or []) and n not in prefer]
@@ -250,7 +258,7 @@ class AgentRouter:
         except Exception:  # noqa: BLE001
             arena = {}
         out = []
-        for i, name in enumerate(prefer + extra):
+        for i, name in enumerate(["codex"] if manager_codex else prefer + extra):
             if name not in self.pool.adapters:
                 continue
             a = self.pool.cfg["agents"][name]
@@ -263,7 +271,8 @@ class AgentRouter:
             score = (w_pref * pref + w_q * (t.get("quality", 3) / 5) + w_s * (t.get("speed", 3) / 5)
                      - w_c * (t.get("cost", 3) / 5) + w_r * rem + fb + 0.5 * arena.get(name, 0.0))
             ok, why_not = self.pool.usable(name, spent)
-            if ok and (q.exhausted or (q.remaining is not None and q.remaining < float(self.cfg.get("min_remaining", 0.1)))):
+            minimum = 0.0 if manager_codex else float(self.cfg.get("min_remaining", 0.1))
+            if ok and (q.exhausted or (q.remaining is not None and (q.remaining <= 0 or q.remaining < minimum))):
                 ok, why_not = False, f"剩余用量不足（{q.detail}）"
             out.append({"agent": name, "role": a.get("role", ""), "usable": ok, "why_not": why_not, "score": round(score, 3),
                         "preference": prefer.index(name) + 1 if name in prefer else None, "remaining": q.remaining,
@@ -312,7 +321,7 @@ class AgentRouter:
             images: list[dict] | None = None, files: list[dict] | None = None, translate: bool = False,
             project=None, tail: str | None = None, access: str | None = None, folder: str | None = None,
             mcp: bool = False, web: bool = False, earlier: str | None = None,
-            failover: bool = False, fallback: list[str] | None = None) -> dict:
+            failover: bool = False, fallback: list[str] | None = None, manager_task_id: str = "", replay_run=None, needs_code: bool | None = None) -> dict:
         """`conversation` keeps one thread/session per agent. Resumed sessions receive missing
         chat turns before the new message; fresh sessions receive the recent history.
 
@@ -324,35 +333,45 @@ class AgentRouter:
         (`bad_answer`) — hands the task on: first to `fallback` (the manager's own next choices), then down your ranking
         for the task's kind, like a router's fallback chain (LiteLLM's `fallbacks`, OpenRouter's `models` list)."""
         from pga.agents.options import options as agent_options
+        if effort == "default":
+            effort = None
         if category and category not in (self.cfg.get("categories") or {}):
             raise ValueError(f"unknown category {category!r}")
         cat, cwhy = (category, "你在这一类里提问") if category else classify(text)
+        if failover and needs_code is None:
+            from pga.manager_dispatch import needs_code as infer_needs_code
+            needs_code = infer_needs_code({"text": text, "kind": cat})
+        prefer_codex = bool(failover and needs_code)
+        if prefer_codex:
+            cat = "code"
         if agent and agent != "auto":
             if agent not in self.pool.adapters:
                 raise ValueError(f"unknown agent {agent!r}")
             order, why = [agent], f"你指定了 {agent}"
             if images and not agent_options(agent, self.pool.adapters[agent], self.pool.cfg["agents"][agent], self.rt)["images"]:
                 raise ValueError(f"{agent} 不能看图片：换一个能看图的 agent（ChatGPT、Claude、WorkBuddy），或去掉图片")
-            if failover:                                  # the manager's pick first, then its next choices, then your ranking
+            if failover and agent != "codex":             # the manager's pick first, then its next choices, then your ranking
                 ranked = self.rank(cat, now, user.id if user is not None else None)
                 usable = [x["agent"] for x in ranked if x["usable"]]
                 tools = project is not None or folder or web or access in ("write", "full")
-                nxt = [n for n in [*(fallback or []), *usable] if n in self.pool.adapters and n != agent and (n in usable or n in (fallback or []))
+                nxt = [n for n in [*(fallback or []), *usable] if n in self.pool.adapters and n != agent and n in usable
                        and not (tools and self.pool.adapters[n].type == "llm")
                        and not (images and not agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"])]
-                order = list(dict.fromkeys([agent, *nxt]))[:4]
+                order = [agent, *manager_order(list(dict.fromkeys(nxt)), prefer_codex)][:4]
                 why = f"管理员指定了 {agent}" + (f"（失败时依次换 {'、'.join(order[1:])}）" if len(order) > 1 else "")
         else:
-            ranked = self.rank(cat, now, user.id if user is not None else None)
+            ranked = self.rank(cat, now, user.id if user is not None else None, manager_codex=failover)
             order = [x["agent"] for x in ranked if x["usable"]]
             if project is not None or folder or web or access in ("write", "full"):   # files or the web: agents with tools
                 order = [n for n in order if self.pool.adapters[n].type != "llm"]
             if images:                                    # pictures: only agents that can see them
                 order = [n for n in order if agent_options(n, self.pool.adapters[n], self.pool.cfg["agents"][n], self.rt)["images"]]
+            if failover:
+                order = manager_order(order, prefer_codex)
             order = order[:3]
-            why = (ranked[0]["why"] if ranked and ranked[0]["usable"] else "没有可用的 agent") + f" · {cwhy}" + (" · 带图片" if images else "")
+            why = (next(x["why"] for x in ranked if x["agent"] == order[0]) if order else "没有可用的 agent") + f" · {cwhy}" + (" · 带图片" if images else "")
             prev = self.last_turn(user, conversation) if conversation and user is not None and not category else None
-            if prev and (signals(text) == 0 or prev.get("category") == cat):     # a follow-up stays with who answered it
+            if prev and not failover and (signals(text) == 0 or prev.get("category") == cat):     # a follow-up stays with who answered it
                 name = prev["agent"]
                 ad = self.pool.adapters[name]
                 tools = project is not None or folder or web or access in ("write", "full")
@@ -361,7 +380,7 @@ class AgentRouter:
                     usable |= {x["agent"] for x in self.rank(prev["category"], now, user.id) if x["usable"]}
                 ok = (name in usable and not (tools and ad.type == "llm")
                       and not (images and not agent_options(name, ad, self.pool.cfg["agents"][name], self.rt)["images"]))
-                if ok:
+                if ok and not (prefer_codex and name != "codex" and "codex" in order):
                     order = [name, *[n for n in order if n != name]][:3]
                     why = f"接着这段对话上一轮的 {name}" + (f" · {cwhy}" if signals(text) else "")
                     if not signals(text) and prev.get("category") in (self.cfg.get("categories") or {}):
@@ -377,18 +396,24 @@ class AgentRouter:
             except Exception:  # noqa: BLE001 - untranslated is better than nothing
                 pass
         hist = [h for h in (history or [])[-12:] if isinstance(h, dict)]  # six exchanges: enough for an agent you switch to mid-chat
-        convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {str(h.get('text') or '')[:2000]}\n" for h in hist)
         conv = f"{user.id if user else 'anon'}:{str(conversation)[:80]}" if conversation else None
         said_tail = f"\n\n{tail}" if tail else ""             # for this message only: after the question, so the opening stays cached
-        prompt = (f"Earlier in this chat:\n{convo}\nNow the user says:\n{text}" if convo else text) + said_tail
         seed = links.seed_for(conv) if conv else None       # a past conversation that could not be resumed: its summary or text
         if seed:
             earlier = f"{seed}\n\n{earlier}" if earlier else seed
-        if earlier:                                        # the older part, folded by topic (pga.fold); a held session has it already
-            prompt = f"{earlier}\n\n{prompt}"
+        original_step = None
+        if replay_run is not None:
+            from sqlalchemy import select
+            from pga.db.models import AgentRun
+            original_step = self.rt.session.scalar(select(AgentRun).where(
+                AgentRun.parent_id == replay_run.id, AgentRun.agent == agent).order_by(AgentRun.started_at.desc()).limit(1))
+            if ((replay_run.data or {}).get("images") or (replay_run.data or {}).get("attachments")) and not (
+                    original_step and (original_step.data or {}).get("question_input")):
+                raise ValueError("这条旧提问没有保存可重放的附件，请重新附上后发送")
         run_id, t0, steps, rejected = uuid.uuid4(), utcnow(), [], {}
         result_text, used, docs, attached = "", None, files, []
         files = []
+        dispatch_reports = []
         for name in order:
             ad = self.pool.adapters[name]
             perms = WORKSPACE_WRITE if cat == "office" and ad.type == "codebuddy_local" else READ_ONLY
@@ -403,26 +428,57 @@ class AgentRouter:
                 perms = ACCESS[access] if access in ACCESS else (FULL if project.full_access else READ_ONLY)
             before = time.time()
             pics = _save_images(images, ws)
-            said, prompt_now = text, prompt
+            said = text
             if docs:                                      # documents: their text goes with the question
                 from pga.agents.files import attachments_block
                 paths = _save_files(docs, ws)
                 block, attached = attachments_block(paths)
                 said = f"{text}\n\n{block}"
-                prompt_now = prompt.replace(text, said) if text in prompt else f"{prompt}\n\n{block}"
             meta = {"category": cat, "workflow": "chat", "history": [{"role": h.get("role"), "text": str(h.get("text") or "")[:4000]} for h in hist],
+                    "manager_activity": {"manager_task_id": manager_task_id, "id": str(run_id), "user_id": str(user.id) if user else "", "key": str(conversation or "")[:80], "text": asked, "at": t0.isoformat(), "requested_effort": effort or ""},
                     "new_text": said + said_tail, **({"conversation": conv} if conv else {}), **({"mcp": bool(mcp)} if access or mcp else {}), **({"model": model} if model else {}),
                     **({"translate": _live_translator(self.rt, lang)} if translate else {}),
                     **({"project": {"id": str(project.id), "name": project.name, "path": project.path}} if project is not None else {}),
                     **({"effort": effort} if effort else {}), **({"images": pics} if pics else {}), **({"earlier": earlier} if earlier else {})}
+            if failover:
+                meta.update(manager_failover=True, dispatch_reports=dispatch_reports)
             if conv:
                 meta["resume_context"] = self._resume_context(user, conversation, name, conv, said + said_tail)
             own = str(self.pool.cfg["agents"][name].get("instructions") or "").strip()   # what you told this agent on its profile
             system = ASK_SYSTEM + (f"\n\n<your_standing_instructions_for_this_agent>\n{own}\n</your_standing_instructions_for_this_agent>" if own else "") + (
                 f"\n\n{context}" if context else "") + (_project_note(project, ad.type, perms) if project is not None else "") + (
                 "\n\nThe user's message was translated into English for you. Reply in English; it is translated back." if translate else "")
+            # Keep only model inputs. Never copy mutable session IDs, permissions, or live task state into a fork.
+            source_data = (original_step.data or {}) if original_step and original_step.agent == name else {}
+            saved = source_data.get("question_input")
+            if saved:
+                system = saved["system"]
+                for field in ("new_text", "history", "earlier", "images"):
+                    if field in saved:
+                        meta[field] = saved[field]
+                    else:
+                        meta.pop(field, None)
+                pics = meta.get("images", [])
+                if any(not Path(path).is_file() for path in pics):
+                    raise ValueError("原提问的图片已移走，请重新附上后发送")
+                attached = replay_run.data.get("attachments", [])
+            convo = "".join(f"{'User' if h.get('role') == 'user' else 'Assistant'}: {h['text'][:2000]}\n" for h in meta["history"])
+            prompt_now = (f"Earlier in this chat:\n{convo}\nNow the user says:\n" if convo else "") + meta["new_text"]
+            if meta.get("earlier"):
+                prompt_now = f"{meta['earlier']}\n\n{prompt_now}"
+            if source_data.get("thread"):
+                meta["fork_before"] = {"thread": source_data["thread"], "turn": source_data.get("turn_id")}
+                if not source_data.get("turn_id"):
+                    meta["fork_before"].update(question=replay_run.prompt, prompt=original_step.prompt, answer=original_step.output)
+            # Every entry point (tree, regeneration, manager, ordinary chat) may
+            # hold preference writes. Never hold their transaction while a tool
+            # waits for the user's approval in a separate request.
+            self.rt.session.commit()
             step = self.pool._call(name, self.pool._task(name, prompt_now, system=system, kind=cat, workspace=ws, permissions=perms,
                                                          timeout_s=None, want_json=False, meta=meta), "run")
+            if user is not None and conversation:
+                step.result.data["question_input"] = {"system": system, **{
+                    k: meta[k] for k in ("new_text", "history", "earlier", "images") if k in meta}}
             steps.append(step)
             if step.result.status == "STOPPED":            # you stopped it: no other agent takes over
                 result_text, used = step.result.text, name if step.result.ok else None
@@ -431,7 +487,10 @@ class AgentRouter:
             if bad:                                       # "ok", but only an error message: the next agent takes the task
                 rejected[name] = bad
                 step.result.ok, step.result.status, step.result.error = False, "FAILED", bad
-                continue
+            if failover and not step.result.ok:
+                index = order.index(name)
+                dispatch_reports.append({"agent": name, "error": step.result.error or step.result.status,
+                                         "to": order[index + 1] if index + 1 < len(order) else None})
             if step.result.ok:
                 result_text, used = step.result.text, name
                 if project is not None or folder or home:    # a real folder: only what changed there, not a full walk
@@ -450,7 +509,10 @@ class AgentRouter:
         res = PoolResult(bool(used), result_text, "ask", "single",
                          {"agent": used, "category": cat, "why": why, "files": files, "tried": order,
                           "model": steps[-1].result.model if used else None, "effort": (steps[-1].result.data or {}).get("effort") or effort if used else None,
-                          "images": len(images or []), "attachments": attached,
+                          **({"requested_model": model} if model else {}), **({"requested_effort": effort} if effort else {}),
+                          "images": len(pics) if steps else 0, "attachments": attached,
+                          "dispatch_reports": dispatch_reports, "manager_task_id": manager_task_id,
+                          "start_check": next((s.result.data.get("start_check") for s in reversed(steps) if s.result.data.get("start_check")), None),
                           **({"project": {"id": str(project.id), "name": project.name, "full": bool(project.full_access)}} if project is not None else {}),
                           **({"translated": True, "original": original[:50000], "sent": text[:20000]} if original else {}),
                           "stopped": bool(steps and steps[-1].result.status == "STOPPED"),
@@ -464,10 +526,12 @@ class AgentRouter:
         steering = [x for step in steps for x in (step.result.data or {}).get("steering", [])]
         if steering:
             res.data["steering"] = steering
+        if res.ok and conversation and not str(conversation).startswith("chat:pm-") and not res.data["stopped"]:
+            res.data["result_unread"] = True
         self.pool._record(res, asked, user, None, None, t0)
         last = steps[-1].result if steps else None
         return {"ok": res.ok, "agent": used, "category": cat, "why": why, "text": result_text, "error": res.error,
-                "files": files, "tried": [{"agent": s.result.agent, "status": s.result.status, "error": s.result.error} for s in steps],
+                "dispatch_reports": dispatch_reports, "files": files, "tried": [{"agent": s.result.agent, "status": s.result.status, "error": s.result.error} for s in steps],
                 "duration_s": round((utcnow() - t0).total_seconds(), 1), "cost_usd": last.cost_usd if last else None,
                 "run_id": str(run_id), "model": res.data.get("model"), "effort": res.data.get("effort"),
                 "stopped": res.data.get("stopped"), "attachments": attached,

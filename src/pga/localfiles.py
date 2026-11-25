@@ -9,8 +9,10 @@ import threading
 from urllib.parse import unquote, urlsplit
 
 
+VIDEO_TYPES = {'.mp4': 'video/mp4', '.m4v': 'video/mp4', '.mov': 'video/quicktime',
+               '.webm': 'video/webm', '.ogv': 'video/ogg', '.mkv': 'video/x-matroska', '.avi': 'video/x-msvideo'}
 DOCUMENTS = {'.pdf', '.doc', '.docx', '.rtf', '.odt', '.xls', '.xlsx', '.xlsm', '.ods', '.ppt', '.pptx', '.odp', '.csv', '.tsv',
-             '.txt', '.md', '.tex', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.zip'}
+             '.txt', '.md', '.tex', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.zip', *VIDEO_TYPES}
 CODE = {'.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.htm', '.css', '.json', '.yaml', '.yml', '.toml',
         '.xml', '.sql', '.swift', '.go', '.rs', '.c', '.h', '.cpp', '.java', '.sh', '.mjs', '.svelte', '.log',
         '.cjs', '.scss', '.less', '.vue', '.kt', '.rb', '.php', '.lua', '.r', '.scala', '.dart', '.cs', '.hpp', '.cc', '.m',

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 import stat
 import sys
 import textwrap
@@ -32,10 +33,10 @@ for line in sys.stdin:
         send({"id": mid, "result": {"rateLimits": {"primary": {"usedPercent": 30, "windowDurationMins": 10080, "resetsAt": 1999999999}}}})
     elif meth == "thread/start":
         tid = "t-" + uuid.uuid4().hex[:6]; threads[tid] = 0
-        send({"id": mid, "result": {"thread": {"id": tid}}})
+        send({"id": mid, "result": {"thread": {"id": tid}, "reasoningEffort": "xhigh"}})
     elif meth == "thread/resume":
         threads.setdefault(p["threadId"], 10)              # a resumed thread remembers its earlier turns
-        send({"id": mid, "result": {"thread": {"id": p["threadId"]}}})
+        send({"id": mid, "result": {"thread": {"id": p["threadId"]}, "reasoningEffort": "high"}})
     elif meth == "turn/start":
         tid = p["threadId"]; threads[tid] += 1; turn = "u-" + uuid.uuid4().hex[:6]
         send({"id": mid, "result": {"turn": {"id": turn, "status": "inProgress"}}})
@@ -89,11 +90,106 @@ def test_codex_keeps_one_thread_per_conversation_and_resumes_it_after_a_restart(
     links.CodexServer.close_all()                                                         # PGA restarts …
     r3 = ask("third", "the whole history again")
     assert r3.text == "turn 11 heard: third" and r3.session_id == r1.session_id           # … and resumes the same thread
+    assert [r.data["effort"] for r in (r1, r2, r3)] == ["xhigh", "xhigh", "high"]
     one_off = ad.run(AgentTask(prompt="a task", workspace=str(tmp_path)))
     assert one_off.text == "turn 1 heard: a task" and one_off.session_id != r1.session_id
     c = links.probe("cx", ad, {}, None)                                                   # the heartbeat: no model call
     assert c.state == "online" and c.via == "app-server" and "plus" in c.detail
     assert c.quota["remaining"] == pytest.approx(0.7) and c.quota["source"] == "codex_live"
+
+
+def test_codex_idle_reaper_preserves_active_turn_then_reaps_and_can_restart():
+    server = links.CodexServer("cx", ["codex", "app-server"], {})
+
+    class FakeRpc:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    rpc = server.rpc = FakeRpc()
+    links.CodexServer._ALL["cx"] = server
+    server.last_used = time.monotonic() - 100
+    with server.active_turn():
+        assert links.CodexServer.reap(idle_s=0) == 0
+        assert not rpc.closed and links.CodexServer._ALL["cx"] is server
+    with server.protected_operation():
+        server.last_used = time.monotonic() - 100
+        assert links.CodexServer.reap(idle_s=0) == 0
+        assert not rpc.closed
+    server.last_used = time.monotonic() - 100
+    assert links.CodexServer.reap(idle_s=0) == 1
+    assert rpc.closed and "cx" not in links.CodexServer._ALL
+    assert server.closing
+
+
+def test_codex_ensure_does_not_restart_after_reaper_claims_server(monkeypatch):
+    server = links.CodexServer("cx", ["codex", "app-server"], {})
+    server.closing = True
+    starts = []
+    monkeypatch.setattr(links, "RpcProcess", lambda *a, **k: starts.append((a, k)))
+
+    with pytest.raises(links.LinkDown, match="closing"):
+        server.ensure()
+    assert not starts
+
+
+def test_codex_settings_replacement_does_not_close_server_with_maintenance_operation():
+    server = links.CodexServer("cx", ["old", "app-server"], {})
+
+    class FakeRpc:
+        def __init__(self):
+            self.closed = False
+
+        def alive(self):
+            return True
+
+        def close(self):
+            self.closed = True
+
+    rpc = server.rpc = FakeRpc()
+    links.CodexServer._ALL["cx"] = server
+
+    class Adapter:
+        name = "cx"
+
+        def server_command(self, full=False):
+            return ["new", "app-server"]
+
+        def env(self):
+            return {}
+
+    with server.protected_operation():
+        selected = links.CodexServer.get(Adapter())
+        assert selected is server
+        assert not rpc.closed and not server.closing
+
+
+@pytest.mark.skipif(os.name != "posix", reason="private process group cleanup is POSIX-specific")
+def test_rpc_process_close_terminates_owned_helper_and_closes_pipes(tmp_path):
+    import signal
+    import sys
+
+    child_pid_file = tmp_path / "child.pid"
+    body = """
+    import subprocess, sys, time
+    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'])
+    open(sys.argv[1], 'w').write(str(child.pid))
+    time.sleep(300)
+    """
+    proc = links.RpcProcess([sys.executable, "-c", textwrap.dedent(body), str(child_pid_file)],
+                           os.environ.copy(), str(tmp_path), lambda _m: None, lambda _m: {})
+    deadline = time.monotonic() + 3
+    while not child_pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert child_pid_file.exists()
+    child_pid = int(child_pid_file.read_text())
+    proc.close()
+    assert proc.p.poll() is not None
+    assert all(stream.closed for stream in (proc.p.stdin, proc.p.stdout, proc.p.stderr))
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
 
 
 @pytest.mark.parametrize("name", ["chatgpt", "codex"])
@@ -362,3 +458,96 @@ def test_long_conversations_complete_and_remain_stoppable(tmp_path, adapter, scr
     else:
         assert result.ok and 'finish naturally' in result.text
         assert '秒内没有完成' not in live.text(lid)
+
+
+def test_stop_interrupts_a_session_that_never_reads_a_large_prompt(tmp_path):
+    import threading
+    from pga.agents import live
+
+    ad = ClaudeLocal('blocked-pipe', {'command': _script(tmp_path, 'blocked', 'import time\ntime.sleep(60)\n')})
+    lid = live.start(ad.name)
+    task = AgentTask(prompt='x' * 2_000_000, workspace=str(tmp_path), meta={'conversation':'u:blocked','live_id':lid})
+    timer = threading.Timer(0.2, live.stop, args=(lid,))
+    timer.start()
+    # A safety timer makes a regression fail rather than hanging the test suite.
+    safety = threading.Timer(3, lambda: [s.p.kill() for s in list(links.StreamSession._ALL.values()) if s.alive()])
+    safety.start()
+    try:
+        result = ad.run(task)
+        assert result.status == 'STOPPED'
+        assert result.duration_s < 2
+        assert not links.StreamSession._ALL['blocked-pipe|u:blocked'].alive()
+    finally:
+        timer.cancel(); safety.cancel(); live.finish(lid, False)
+
+
+def test_explicit_provider_error_finishes_without_waiting_for_result(tmp_path):
+    from pga.agents import live
+
+    script = '''
+import sys,json,time
+sys.stdin.readline()
+print(json.dumps({'type':'assistant','error':'authentication_failed','message':{'content':[{'type':'text','text':"API Error: Your account can't receive replies from Claude right now."}]}}),flush=True)
+time.sleep(60)
+'''
+    ad = ClaudeLocal('denied', {'command': _script(tmp_path, 'denied', script)})
+    lid = live.start(ad.name)
+    task = AgentTask(prompt='hello', workspace=str(tmp_path), meta={'conversation':'u:denied','live_id':lid})
+    import threading
+    safety = threading.Timer(10, live.stop, args=(lid,)); safety.start()
+    try:
+        result = ad.run(task)
+        assert result.status == 'FAILED' and not result.ok
+        assert "can't receive replies" in result.error
+        assert result.duration_s < 8
+        assert not links.StreamSession._ALL['denied|u:denied'].alive()
+    finally:
+        safety.cancel(); live.finish(lid, False)
+
+
+def test_session_eof_does_not_report_partial_output_as_success(tmp_path):
+    from pga.agents import live
+
+    script = '''
+import sys,json
+sys.stdin.readline()
+print(json.dumps({'type':'assistant','message':{'content':[{'type':'text','text':'partial answer'}]}}),flush=True)
+'''
+    ad = ClaudeLocal('broken', {'command': _script(tmp_path, 'broken', script)})
+    lid = live.start(ad.name)
+    try:
+        result = ad.run(AgentTask(prompt='hello', workspace=str(tmp_path), meta={'conversation':'u:broken','live_id':lid}))
+        assert not result.ok and result.status == 'FAILED'
+        assert 'partial answer' in result.text
+        assert '未收到完成确认' in result.error
+    finally:
+        live.finish(lid, False)
+
+
+def test_codex_forks_before_selected_turn_and_checks_server_boundary():
+    from types import SimpleNamespace
+    inputs = [{"type": "text", "text": "original question"}]
+    turns = [{"id": "prior"}, {"id": "question", "items": [{"type": "userMessage", "content": inputs},
+             {"type": "agentMessage", "text": "old answer"}]}, {"id": "later"}]
+    calls = []
+    prefix = turns[:1]
+
+    def request(method, params, timeout):
+        calls.append((method, params))
+        if method == "thread/read":
+            return {"thread": {"id": "parent", "turns": turns}}
+        assert method == "thread/fork" and params["lastTurnId"] == "prior" and params["threadId"] == "parent"
+        return {"thread": {"id": "child", "turns": prefix}}
+
+    server = SimpleNamespace(rpc=SimpleNamespace(request=request))
+    fork = lambda point: links.CodexServer._fork_before(server, {"thread": "parent", "turn": point}, {})
+    assert fork("question") == ("child", inputs)
+    prefix = turns  # old server ignored lastTurnId
+    assert fork("question") is None
+    assert fork("prior") is None and fork("unknown") is None
+    legacy = {"thread": "parent", "question": "original question", "prompt": "", "answer": "old answer"}
+    prefix = turns[:1]
+    assert links.CodexServer._fork_before(server, legacy, {}) == ("child", inputs)
+    turns.append({**turns[1], "id": "duplicate"})
+    assert links.CodexServer._fork_before(server, legacy, {}) is None
+    assert sum(method == "thread/fork" for method, _ in calls) == 3

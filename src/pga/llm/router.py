@@ -267,6 +267,84 @@ class ClaudeCLIProvider:
                          model=used[0] if len(used) == 1 else model, provider=self.name, tier=-1)
 
 
+class GeminiCLIProvider:
+    """Runs each call through the official Gemini CLI (`gemini -p`), using either GEMINI_API_KEY
+    from `.env` or the CLI's own Google account OAuth login.
+
+    Supports both `--output-format json` (newer Gemini CLI releases) and plain text stdout
+    fallback so older or customized CLI builds keep working.
+    """
+
+    name = "gemini_cli"
+
+    def __init__(self, binary: str | None = None, api_key: str | None = None, timeout_s: float = 600.0,
+                 run: Callable[..., subprocess.CompletedProcess] | None = None,
+                 extra_args: list[str] | None = None):
+        from pga.agents.adapters import find_cli_binary
+        self.binary = find_cli_binary(binary, "gemini") or binary or "gemini"
+        self.api_key = api_key
+        self.timeout_s = timeout_s
+        self._run = run or subprocess.run
+        self.extra_args = list(extra_args or [])
+        self._cwd = tempfile.mkdtemp(prefix="pga-gemini-")
+
+    @staticmethod
+    def render(system: str, messages: list[dict[str, str]]) -> str:
+        parts = [system.strip()] if system and system.strip() else []
+        if len(messages) == 1:
+            parts.append(messages[0]["content"])
+        elif messages:
+            turns = "\n\n".join(f"<{m['role']}>\n{m['content']}\n</{m['role']}>" for m in messages[:-1])
+            parts.append(f"<conversation_so_far>\n{turns}\n</conversation_so_far>\n\n"
+                         f"Reply to this latest {messages[-1]['role']} message:\n{messages[-1]['content']}")
+        return "\n\n".join(p for p in parts if p)
+
+    def complete(self, *, model: str, system: str, messages: list[dict[str, str]],
+                 max_tokens: int, temperature: float | None) -> LLMResult:
+        cmd = [self.binary, "-p", "Answer the request given on standard input.", "--output-format", "json"]
+        if model:
+            cmd += ["-m", model]
+        if self.extra_args:
+            cmd += self.extra_args
+        from pga.agents.adapters import cli_env
+        env = cli_env(self.binary)
+        if self.api_key:
+            env["GEMINI_API_KEY"] = self.api_key
+        try:
+            proc = self._run(cmd, input=self.render(system, messages), capture_output=True, text=True,
+                             timeout=self.timeout_s, env=env, cwd=self._cwd)
+        except FileNotFoundError as exc:
+            raise LLMError(f"the `{self.binary}` CLI is not installed; install official Gemini CLI (`npm install -g @google/gemini-cli`)") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise LLMError(f"gemini CLI timed out after {self.timeout_s:.0f}s") from exc
+        stdout, stderr = (proc.stdout or "").strip(), (proc.stderr or "").strip()
+        if proc.returncode != 0 and not stdout:
+            raise LLMError(f"gemini CLI exited {proc.returncode}: {stderr[:300]}")
+        tokens_in, tokens_out, used_model, text = 0, 0, model, stdout
+        try:
+            data = json.loads(stdout)
+        except json.JSONDecodeError:
+            data = None
+        if isinstance(data, dict):
+            if data.get("error"):
+                err = data["error"]
+                msg = err.get("message") if isinstance(err, dict) else str(err)
+                raise LLMError(f"gemini CLI error: {str(msg)[:300]}")
+            text = str(data.get("response") or data.get("result") or data.get("text") or "").strip()
+            stats = (data.get("stats") or {}).get("models") if isinstance(data.get("stats"), dict) else None
+            if isinstance(stats, dict) and stats:
+                used_model = next(iter(stats.keys())) if len(stats) == 1 else (model or next(iter(stats.keys())))
+                for mstat in stats.values():
+                    tok = (mstat or {}).get("tokens") if isinstance(mstat, dict) else None
+                    if isinstance(tok, dict):
+                        tokens_in += int(tok.get("prompt") or tok.get("input") or 0)
+                        tokens_out += int(tok.get("candidates") or tok.get("output") or 0)
+        if proc.returncode != 0 and not text:
+            raise LLMError(f"gemini CLI exited {proc.returncode}: {(stderr or stdout)[:300]}")
+        return LLMResult(text=text, input_tokens=tokens_in, output_tokens=tokens_out,
+                         model=used_model or model, provider=self.name, tier=-1)
+
+
 @dataclass
 class FakeCall:
     model: str
@@ -368,4 +446,6 @@ def build_provider(name: str, api_key: str | None = None, base_url: str | None =
         return OpenAICompatibleProvider("deepseek", api_key, base_url or "https://api.deepseek.com")
     if name == "claude_cli":
         return ClaudeCLIProvider()
+    if name == "gemini_cli":
+        return GeminiCLIProvider(api_key=api_key)
     raise ValueError(f"unknown LLM provider {name!r}")

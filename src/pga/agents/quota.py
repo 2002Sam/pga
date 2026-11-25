@@ -17,6 +17,8 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from threading import Lock
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -79,24 +81,45 @@ class Quota:
         return asdict(self)
 
 
-def _cached(key: str, ttl: float, fn) -> Quota:
-    hit = _CACHE.get(key)
-    if hit and time.monotonic() - hit[0] < ttl:
-        return hit[1]
+_refresh_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="quota-refresh")
+_refresh_lock = Lock()
+_refreshing: dict[str, Future] = {}
+
+
+def _cached(key: str, ttl: float, fn, deadline: float | None = None) -> Quota:
+    def refresh():
+        try:
+            q = fn()
+        except Exception as exc:  # noqa: BLE001
+            log.info("quota %s failed: %s", key, exc)
+            q = Quota(None, f"读取失败：{str(exc)[:80]}", key.split(":")[0])
+        with _refresh_lock:
+            if _refreshing.get(key) is future:
+                _CACHE[key] = (time.monotonic(), q)
+                del _refreshing[key]
+        return q
+
+    with _refresh_lock:
+        hit = _CACHE.get(key)
+        if hit and time.monotonic() - hit[0] < ttl:
+            return hit[1]
+        future = _refreshing.get(key)
+        if future is None:
+            future = _refreshing[key] = _refresh_pool.submit(refresh)
     try:
-        q = fn()
-    except Exception as exc:  # noqa: BLE001 - a quota lookup failing leaves the agent usable, just "unknown"
-        log.info("quota %s failed: %s", key, exc)
-        q = Quota(None, f"读取失败：{str(exc)[:80]}", key.split(":")[0])
-    _CACHE[key] = (time.monotonic(), q)
-    return q
+        return future.result(timeout=None if deadline is None else max(0., deadline - time.monotonic()))
+    except TimeoutError:
+        # Keep confirmed limits, and leave an unverified agent out of this assignment.
+        return hit[1] if hit and hit[1].exhausted else Quota(0., "正在核实可用额度", key.split(":")[0], exhausted=True)
 
 
 def clear() -> None:
-    _CACHE.clear()
+    with _refresh_lock:
+        _CACHE.clear()
+        _refreshing.clear()
 
 
-def deepseek_balance(full: float = 50.0) -> Quota:
+def deepseek_balance(full: float = 50.0, *, deadline=None) -> Quota:
     def look() -> Quota:
         import httpx
 
@@ -114,10 +137,10 @@ def deepseek_balance(full: float = 50.0) -> Quota:
         rem = max(0.0, min(1.0, total / full)) if full else None
         return Quota(rem, f"余额 {sym}{total:.2f}" + ("" if d.get("is_available", True) else " · 不可用"), "deepseek_balance",
                      exhausted=not d.get("is_available", True) or total <= 0)
-    return _cached(f"deepseek_balance:{full}", 300, look)
+    return _cached(f"deepseek_balance:{full}", 300, look, deadline)
 
 
-def codex_sessions(root: Path | None = None) -> Quota:
+def codex_sessions(root: Path | None = None, *, deadline=None) -> Quota:
     root = root or CODEX_SESSIONS
 
     def look() -> Quota:
@@ -152,7 +175,7 @@ def codex_sessions(root: Path | None = None) -> Quota:
         stale = f" · 截至 {when.astimezone().strftime('%m-%d %H:%M')}" if when and utcnow() - when > timedelta(hours=6) else ""
         return Quota(max(0.0, 1 - used / 100), " · ".join(parts) + stale, "codex_sessions",
                      resets_at=reset.isoformat() if reset else None, exhausted=used >= 100)
-    return _cached(f"codex_sessions:{root}", 120, look)
+    return _cached(f"codex_sessions:{root}", 120, look, deadline)
 
 
 def _find_limits(o: Any) -> dict | None:
@@ -178,7 +201,7 @@ def observed(session: "Session", agent: str, window_hours: float = 5, window_run
         AgentRun.agent == agent, AgentRun.started_at >= since, AgentRun.status.in_(["SUCCEEDED", "FAILED", "TIMEOUT"]),
         AgentRun.adapter != "pool")) or 0
     # the latest limit error in the last week; it holds until the time it names (or the window), unless a run got through since
-    fails = session.scalars(select(AgentRun).where(AgentRun.agent == agent, AgentRun.started_at >= now - timedelta(days=8),
+    fails = session.execute(select(AgentRun.error, AgentRun.started_at).where(AgentRun.agent == agent, AgentRun.started_at >= now - timedelta(days=8),
                                                    AgentRun.status == "FAILED", AgentRun.error.is_not(None))
                             .order_by(AgentRun.started_at.desc()).limit(20))
     hit = next((r for r in fails if LIMIT_ERROR.search(r.error or "")), None)
@@ -198,16 +221,16 @@ def needs_login(session: "Session", agent: str, now: datetime | None = None, cle
     until a link check (`cleared`) found it signed in again."""
     now = now or utcnow()
     since = max(now - timedelta(hours=6), cleared) if cleared else now - timedelta(hours=6)
-    latest = session.scalar(select(AgentRun).where(AgentRun.agent == agent, AgentRun.adapter != "pool",
+    latest = session.execute(select(AgentRun.status, AgentRun.error, AgentRun.started_at).where(AgentRun.agent == agent, AgentRun.adapter != "pool",
                                                    AgentRun.started_at >= since)
-                            .order_by(AgentRun.started_at.desc()).limit(1))
+                            .order_by(AgentRun.started_at.desc()).limit(1)).first()
     if latest and latest.status == "FAILED" and AUTH_ERROR.search(latest.error or ""):
         return Quota(0.0, "需要登录或令牌：" + (latest.error or "")[:60], "login",
                      (latest.started_at + timedelta(hours=6)).isoformat(), exhausted=True)
     return None
 
 
-def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str) -> Quota:
+def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str, *, deadline=None) -> Quota:
     from pga.agents import links
     if adapter_type != "llm":
         blocked = needs_login(session, name, cleared=links.ok_at(name))
@@ -216,17 +239,17 @@ def for_agent(session: "Session", name: str, cfg: dict, adapter_type: str) -> Qu
     q = cfg.get("quota") or {}
     src = q.get("source") or ("observed" if adapter_type != "llm" else "none")
     if src == "deepseek_balance":
-        return deepseek_balance(float(q.get("full", 50)))
+        return deepseek_balance(float(q.get("full", 50)), deadline=deadline)
     if src == "codex_sessions" and (cfg.get("env") or {}).get("CODEX_HOME"):   # another ChatGPT account: its own limits
         live = links.live_quota(name)
         if live:
             return Quota(live.get("remaining"), live.get("detail", ""), "codex_live", live.get("resets_at"), bool(live.get("exhausted")))
-        return codex_sessions(Path(str(cfg["env"]["CODEX_HOME"])).expanduser() / "sessions")
+        return codex_sessions(Path(str(cfg["env"]["CODEX_HOME"])).expanduser() / "sessions", deadline=deadline)
     if src == "codex_sessions":
         live = links.live_quota(name) or links.shared_quota("codex_live")      # read from the app server, if fresh
         if live:
             return Quota(live.get("remaining"), live.get("detail", ""), "codex_live", live.get("resets_at"), bool(live.get("exhausted")))
-        return codex_sessions()
+        return codex_sessions(deadline=deadline)
     if src == "observed":
         return observed(session, name, float(q.get("window_hours", 5)), int(q.get("window_runs", 40)))
     return Quota(None, "", src)

@@ -276,8 +276,29 @@ def macos_channel(run: Callable[..., object] | None = None) -> Channel:
     return send
 
 
+def linux_channel(run: Callable[..., object] | None = None) -> Channel:
+    """A native Linux desktop notification via freedesktop `notify-send`."""
+    def send(user: User, n: Notification) -> None:
+        import shutil
+        import subprocess
+        import sys
+
+        if not sys.platform.startswith("linux") and run is None:
+            raise NotifyError("Linux notifications need the server to run on Linux")
+        exe = shutil.which("notify-send") or ("notify-send" if run is not None else None)
+        if not exe:
+            raise NotifyError("notify-send not found (install libnotify-bin / libnotify)")
+        title = (n.display_title or n.title_en or "PGA 助理")[:150]
+        body = (n.display_body if n.display_body is not None else n.body_en or "")[:300]
+        (run or subprocess.run)(
+            [exe, "--app-name=PGA", f"PGA · {title}", body or title],
+            check=True, timeout=10, capture_output=True,
+        )
+    return send
+
+
 def default_channels() -> dict[str, Channel]:
-    return {"ntfy": ntfy_channel(), "webhook": webhook_channel(), "macos": macos_channel()}
+    return {"ntfy": ntfy_channel(), "webhook": webhook_channel(), "macos": macos_channel(), "linux": linux_channel()}
 
 
 def resume_after_answer(session: Session, n: Notification) -> Responsibility | None:

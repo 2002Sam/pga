@@ -64,14 +64,63 @@ document.addEventListener("pointerup", async (e) => {
   }
 });
 
+function pgCopyMetaRows(rows) {
+  return Array.isArray(rows) ? rows.map(row => row && typeof row === "object" ? {...row} : row) : rows;
+}
+function pgFrameBootMetadata() {
+  if (typeof EMBED === "undefined" || !EMBED || S.view !== "chats" || window === window.top) return false;
+  let parent;
+  try { parent = window.top.S; } catch { return false; }
+  if (!S.uid || !parent || parent.uid !== S.uid || !parent.booted ||
+      !parent.forest || typeof parent.forest !== "object" ||
+      !Array.isArray(parent.chats) || !Array.isArray(parent.allChats) ||
+      !Array.isArray(parent.agents) || !parent.acctOf || typeof parent.acctOf !== "object" || Array.isArray(parent.acctOf) ||
+      !Array.isArray(parent.liveRuns)) return false;
+  const forest = {...parent.forest};
+  for (const [key, value] of Object.entries(forest)) {
+    if (Array.isArray(value)) forest[key] = pgCopyMetaRows(value);
+    else if (value && typeof value === "object") forest[key] = {...value};
+  }
+  S.forest = forest;
+  S.chats = pgCopyMetaRows(parent.chats);
+  S.allChats = pgCopyMetaRows(parent.allChats);
+  S.agents = pgCopyMetaRows(parent.agents);
+  S.acctOf = {...parent.acctOf};
+  S.liveRuns = pgCopyMetaRows(parent.liveRuns);
+  return true;
+}
 async function boot() {
   setMini(true); applySplits();                                        // the side rail (the pages, the conversation list) starts folded
   if (!S.uid) { try { S.uid = (await api("/healthz")).owner; } catch {} }
-  await Promise.all([loadForest().catch(() => {}), loadChats(), api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
+  // Fetch the requested history alongside shared navigation data, rather than
+  // waiting for forest/agent discovery before starting the first chat request.
+  if (S.view === "chats" && S.chat && !S.chat.startsWith("new:")) {
+    const request = chatHistoryRequest(S.chat);
+    S.chatBoot = {key: S.chat, controller:request.controller, result:request.result.then(data => ({data}), error => ({error}))};
+  }
+  const sharedFrameMeta = pgFrameBootMetadata();
+  const metadata = sharedFrameMeta ? Promise.resolve() : Promise.all([
+    loadForest().catch(() => {}), loadChats().catch(() => {}),
+    api(`/v1/users/${S.uid}/console`).then((d) => { S.agents = (d.agents || []).filter((a) => a.enabled !== false && a.name !== "?"); }).catch(() => {}),
     api(`/v1/agents`).then((d) => { const A = d.agents || {}; S.acctOf = Object.fromEntries(Object.entries(A).map(([k, v]) => [k, v.account || ""])); }).catch(() => {})]);
+  // A slow knowledge tree or agent discovery must not cover an already-fetched
+  // conversation. Other views still need their navigation data before opening.
+  if (S.view !== "chats") await metadata;
+  if (typeof pgStageIdleForPaint === "function") await pgStageIdleForPaint();
   show(S.view === "tree" && !S.aim ? "home" : S.view);
+  S.booted = true;                                                     // the stage may now turn this page to another conversation in place
+  if (!sharedFrameMeta) void metadata.then(() => {
+    if (S.view === 'chats' && typeof loadChatRender === 'function') loadChatRender();
+  });
   requestAnimationFrame(() => requestAnimationFrame(() => window.pgaBootDone?.()));   // the first view is painted: the splash goes
   if (S.view !== "chats") loadTimeline();
-  setInterval(() => { loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (!S.sending) { loadChats(); loadTimeline(); } }, 20000);
+  setInterval(() => {
+    if (document.hidden || S.stageDormant || S.stageMotion) return;
+    loadForest().catch(() => {}); if (S.view === "tree") loadTree(true).catch(() => {}); if (!S.sending) { loadChats(); loadTimeline(); }
+  }, 20000);
+}
+async function pgStageIdleForPaint() {
+  if (typeof EMBED === "undefined" || !EMBED || window === window.top) return;
+  try { const wait = window.top.stWhenIdle; if (typeof wait === "function") await wait(); } catch {}
 }
 boot();

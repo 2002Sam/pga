@@ -1,0 +1,469 @@
+/* settings → models & API (Hermes-style providers + standardized CLI harness pipeline) */
+#modelSettings {
+  width: min(760px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 22px 24px 20px;
+  border: 1px solid var(--line-2);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .42), 0 0 0 1px var(--line);
+  --acc: var(--accent);
+  --acc-2: var(--bad);
+}
+#modelSettings::backdrop {
+  background: rgba(0, 0, 0, .56);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+#modelSettings > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+#modelSettings > header .m-head-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+#modelSettings > header h2 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+#modelSettings > header p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+#modelSettings > header form {
+  margin: 0;
+}
+#modelSettings > header button {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+
+/* Override app.css `.models { display: grid; grid-template-columns: 1fr 1.35fr; }` collision */
+#modelSettings #modelsBox,
+#modelSettings .models {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+}
+
+#modelSettings .m-top-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+#modelSettings .m-add-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+#modelSettings .m-add-provider strong {
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+}
+#modelSettings .m-add-provider select {
+  width: auto;
+  min-width: 170px;
+  height: 32px;
+  font-size: 12.5px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--raised);
+  color: var(--text);
+}
+#modelSettings .m-quick-add {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--acc) 45%, transparent);
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 11%, transparent);
+}
+#modelSettings .m-quick-add:hover {
+  background: color-mix(in srgb, var(--acc) 18%, transparent);
+  border-color: color-mix(in srgb, var(--acc) 65%, transparent);
+}
+
+#modelSettings .m-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+}
+#modelSettings .m-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--muted);
+  box-shadow: none;
+}
+#modelSettings .m-chip:hover {
+  background: var(--soft);
+  color: var(--text);
+  border-color: var(--line);
+}
+#modelSettings .m-chip.on {
+  background: var(--raised);
+  color: var(--text);
+  border-color: var(--line-3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .14);
+}
+#modelSettings .m-chip.act::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green, #7fcf9f);
+  flex: none;
+}
+#modelSettings .m-chip i {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--green, #7fcf9f);
+  background: color-mix(in srgb, var(--green, #7fcf9f) 14%, transparent);
+  letter-spacing: 0;
+}
+#modelSettings .m-chip em.m-chip-pipe {
+  font-style: normal;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--acc) 35%, transparent);
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 8%, transparent);
+}
+
+#modelSettings .m-card {
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+}
+#modelSettings .m-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+  margin: 0;
+}
+#modelSettings .m-form .wide,
+#modelSettings .m-tiers {
+  grid-column: 1 / -1;
+}
+#modelSettings .m-tiers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px 12px;
+  padding-top: 12px;
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+}
+#modelSettings .mf {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+#modelSettings .mf > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#modelSettings .mf > span small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--dim);
+}
+#modelSettings .mf em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--acc);
+  margin-left: auto;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+#modelSettings .mf input:not([type="checkbox"]),
+#modelSettings .mf select {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--line-2);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+#modelSettings .mf input:not([type="checkbox"]):hover,
+#modelSettings .mf select:hover {
+  border-color: var(--line-3);
+}
+#modelSettings .mf input:not([type="checkbox"]):focus,
+#modelSettings .mf select:focus {
+  border-color: color-mix(in srgb, var(--acc) 65%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--acc) 14%, transparent);
+}
+#modelSettings .mf input::placeholder {
+  color: var(--dim);
+}
+
+#modelSettings .m-pipeline {
+  padding: 15px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--inset);
+}
+#modelSettings .m-pipe-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+#modelSettings .m-pipe-head strong {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+#modelSettings .m-pipe-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+#modelSettings .m-pipe-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+#modelSettings .m-pipe-step {
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--raised);
+  font-size: 11.5px;
+  color: var(--muted);
+  min-width: 0;
+}
+#modelSettings .m-pipe-step b {
+  display: block;
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+#modelSettings .m-pipe-step span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#modelSettings .m-pipe-step.ok {
+  border-color: color-mix(in srgb, var(--green, #7fcf9f) 42%, transparent);
+  background: color-mix(in srgb, var(--green, #7fcf9f) 8%, var(--raised));
+}
+#modelSettings .m-pipe-step.ok b {
+  color: var(--green, #7fcf9f);
+}
+#modelSettings .m-pipe-step.warn {
+  border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+  background: color-mix(in srgb, var(--acc) 7%, var(--raised));
+}
+#modelSettings .m-pipe-hint {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px dashed var(--line-2);
+  background: var(--soft);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+#modelSettings .m-pipe-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--text);
+}
+#modelSettings .m-harness {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+#modelSettings .m-harness .wide {
+  grid-column: 1 / -1;
+}
+#modelSettings .m-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+#modelSettings .m-check-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  cursor: pointer;
+  user-select: none;
+}
+#modelSettings .m-check-row label:hover {
+  border-color: var(--line-2);
+}
+#modelSettings .m-check-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--acc);
+}
+
+#modelSettings .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding-top: 2px;
+}
+#modelSettings .actions .grow {
+  flex: 1 1 auto;
+}
+#modelSettings .actions button {
+  height: 34px;
+  padding: 0 13px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+#modelSettings .actions button[data-mact="remove"]:hover {
+  color: var(--acc-2);
+  border-color: color-mix(in srgb, var(--acc-2) 45%, transparent);
+}
+
+#modelSettings .m-status {
+  min-height: 20px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+#modelSettings .m-status:empty {
+  display: none;
+}
+#modelSettings .m-status.ok {
+  color: var(--green, #7fcf9f);
+}
+#modelSettings .m-status.bad {
+  color: var(--acc-2);
+}
+
+#modelSettings .m-hermes {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px dashed var(--line-2);
+  background: var(--soft);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+#modelSettings .m-hermes b {
+  color: var(--text);
+  font-weight: 500;
+}
+#modelSettings .m-hermes .actions {
+  margin-top: 8px;
+  padding-top: 0;
+}
+#modelSettings .m-hermes-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+#modelSettings .m-hermes-check input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--acc);
+}
+
+#modelSettings .m-file {
+  font-size: 11px;
+  color: var(--dim);
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@media (max-width: 660px) {
+  #modelSettings {
+    padding: 16px;
+  }
+  #modelSettings .m-form,
+  #modelSettings .m-tiers,
+  #modelSettings .m-harness,
+  #modelSettings .m-pipe-steps {
+    grid-template-columns: 1fr;
+  }
+}

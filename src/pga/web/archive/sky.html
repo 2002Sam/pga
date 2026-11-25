@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title>PGA 助理</title>
-<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=witch-cat-1">
-<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png?v=witch-cat-1">
-<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=witch-cat-1">
-<link rel="manifest" href="/manifest.webmanifest?v=witch-cat-1">
+<link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png?v=witch-cat-orange-1">
+<link rel="icon" type="image/png" sizes="16x16" href="/icons/favicon-16.png?v=witch-cat-orange-1">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=witch-cat-orange-1">
+<link rel="manifest" href="/manifest.webmanifest?v=witch-cat-orange-1">
 <meta name="theme-color" content="#0b0f16">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -951,26 +951,6 @@ details.adv { margin-top: 6px; } details.adv > summary { cursor: pointer; font-s
 .ag-hist summary .s { color: var(--muted); font-size: 11px; margin-left: auto; white-space: nowrap; }
 .ag-hist pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font); margin: 6px 0; max-height: 260px; overflow: auto; color: var(--text); }
 .ag-hist .stp { font-size: 11px; color: var(--muted); }
-/* settings → models & API (Hermes-style providers) */
-.models .m-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.m-chip { padding: 5px 10px; border: 1px solid var(--line-2); background: transparent; border-radius: 3px; font-size: 12px; cursor: pointer; color: var(--muted); }
-.m-chip:hover { border-color: var(--line-3); color: var(--text); }
-.m-chip.on { border-color: var(--line-3); color: var(--text); background: rgba(220,232,238,.05); }
-.m-chip i { font-style: normal; font-size: 10px; margin-left: 6px; color: var(--acc); letter-spacing: .08em; }
-.m-chip.act::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 6px; vertical-align: 1px; background: var(--acc); }
-.m-chips select { width: auto; font-size: 12px; padding: 4px 8px; }
-.m-form { display: grid; grid-template-columns: 1fr 1fr; gap: 9px 10px; margin-top: 12px; }
-.m-form .wide, .m-tiers { grid-column: 1 / -1; }
-.m-tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px 10px; }
-.mf { display: block; min-width: 0; } .mf > span { display: block; font: var(--cap); letter-spacing: .1em; color: var(--muted); margin-bottom: 4px; }
-.mf em { font-style: normal; color: var(--acc); margin-left: 6px; letter-spacing: 0; }
-.mf input, .mf select { font-size: 13px; }
-.m-status { min-height: 18px; margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
-.m-status.ok { color: var(--acc); } .m-status.bad { color: var(--acc-2); }
-.m-hermes { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--line-2); font-size: 12px; color: var(--muted); }
-.m-hermes b { color: var(--text); font-weight: 500; }
-.m-file { margin-top: 8px; font-size: 11px; color: var(--dim); overflow-wrap: anywhere; }
-@media (max-width: 560px) { .m-form, .m-tiers { grid-template-columns: 1fr; } }
 .set-h h3 { font: var(--cap); font-size: 11px; letter-spacing: .34em; text-transform: uppercase; }
 .set-group > .t { font: var(--cap); letter-spacing: .22em; text-transform: uppercase; color: var(--dim); }
 .opt { background: transparent; } .opt:has(input:checked) { border-color: var(--line-3); background: transparent; box-shadow: inset 0 0 0 1px var(--line-3); }
@@ -1086,6 +1066,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 .pop label.f.inline { display: flex; align-items: center; gap: 8px; } .pop label.f.inline input { width: auto; margin: 0; }
 .pop label.f input[type=range] { padding: 0; accent-color: var(--acc); }
 </style>
+<link rel="stylesheet" href="/ui/model-settings.css">
 </head>
 <body>
 <div class="flip-stage"><div class="flip-card" id="flipCard">
@@ -1093,7 +1074,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 <canvas class="paint" id="paintFront" aria-hidden="true"></canvas>
 <div class="app" id="app" data-view="chat">
   <header>
-    <div class="brand"><img class="mark" src="/icons/logo-128.png?v=witch-cat-1" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
+    <div class="brand"><img class="mark" src="/icons/logo-128.png?v=witch-cat-orange-1" alt="" width="34" height="34"><span class="seal" title="PGA" hidden>通</span><span class="word">PGA</span><span class="sub hide-sm">长期通才助理</span></div>
     <span class="chip plain hide-sm" id="provider" title="当前模型通道">…</span>
     <span class="chip" id="workerChip" title="后台循环状态">…</span>
     <span class="grow"></span>
@@ -1335,6 +1316,7 @@ header, .ticker, aside, .side, .mobile-tabs { background: rgba(13,20,25,.86) !im
 </dialog>
 <div class="toast" id="toast"></div>
 
+<script src="/ui/model-settings.js"></script>
 <script>
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
@@ -2769,64 +2751,6 @@ function bindAgents() {
   });
 }
 
-/* ---------------------------------------------------------------- settings → models & API */
-const MTYPE = { openai: "OpenAI 兼容（/chat/completions）", anthropic: "Anthropic Messages API", claude_cli: "Claude Code CLI（订阅，无需密钥）", fake: "离线假模型（测试）" };
-const MTIER = { 1: "一档 · 便宜（分类、日常）", 2: "二档 · 标准", 3: "三档 · 高级（深度研究）" };
-const M = { data: null, edit: null, keys: {}, hermes: null, models: {} };
-async function loadModels() {
-  const box = $("#modelsBox");
-  try { M.data = await api("/v1/models"); } catch (e) { box.innerHTML = `<p class="small muted">读取失败：${esc(e.message)}</p>`; return; }
-  if (!M.data.providers[M.edit]) M.edit = M.data.model.provider;
-  M.keys = {};
-  try { M.hermes = await api("/v1/models/hermes"); } catch { M.hermes = null; }
-  renderModels();
-}
-function mStatus(text, cls = "") { const el = $("#mStatus"); if (el) { el.textContent = text; el.className = "m-status " + cls; } }
-function renderModels() {
-  const d = M.data, act = d.model.provider, id = M.edit, p = d.providers[id] || {};
-  const presets = Object.entries(d.presets).filter(([k]) => !d.providers[k]).map(([k, v]) => `<option value="${k}">${esc(v.name)}</option>`).join("");
-  const needsUrl = p.type === "openai" || p.type === "anthropic", needsKey = p.type === "openai" || p.type === "anthropic";
-  const list = M.models[id] || p.models || [];
-  const h = M.hermes && M.hermes.found ? M.hermes : null, hp = h ? Object.keys(h.providers || {}) : [];
-  $("#modelsBox").innerHTML = `
-    <div class="m-chips">${Object.keys(d.providers).map((k) => `<button type="button" class="m-chip ${k === id ? "on" : ""} ${k === act ? "act" : ""}" data-mp="${esc(k)}">${esc(d.providers[k].name || k)}${k === act ? "<i>使用中</i>" : ""}</button>`).join("")}
-      <select data-madd aria-label="添加通道"><option value="">＋ 添加通道…</option>${presets}<option value="__new">空白 · OpenAI 兼容</option></select></div>
-    <div class="m-form">
-      <label class="mf"><span>名称</span><input data-mf="name" value="${esc(p.name || "")}"></label>
-      <label class="mf"><span>接口类型</span><select data-mf="type">${d.types.map((t) => `<option value="${t}" ${t === p.type ? "selected" : ""}>${MTYPE[t] || t}</option>`).join("")}</select></label>
-      ${needsUrl ? `<label class="mf wide"><span>base_url${p.type === "anthropic" ? "（留空 = 官方地址）" : ""}</span><input data-mf="base_url" value="${esc(p.base_url || "")}" placeholder="https://…/v1" spellcheck="false"></label>` : ""}
-      ${needsKey ? `<label class="mf"><span>key_env · .env 变量名</span><input data-mf="key_env" value="${esc(p.key_env || "")}" placeholder="MY_PROVIDER_API_KEY" spellcheck="false"></label>
-      <label class="mf"><span>API Key ${p.key_set ? `<em>已设置 ${esc(p.key_hint)}</em>` : `<em>${p.key_env ? "未设置" : "本机服务可留空"}</em>`}</span><input type="password" data-mkey placeholder="${p.key_set ? "留空 = 保持不变" : "粘贴密钥"}" autocomplete="off" spellcheck="false" value="${esc(M.keys[p.key_env] || "")}"></label>` : ""}
-      <div class="m-tiers">${[1, 2, 3].map((t) => `<label class="mf"><span>${MTIER[t]}</span><input data-mt="${t}" list="mlist" value="${esc((p.tiers || {})[t] || "")}" placeholder="模型 id" spellcheck="false"></label>`).join("")}</div>
-      <datalist id="mlist">${list.map((m) => `<option value="${esc(m)}">`).join("")}</datalist>
-    </div>
-    <div class="actions">
-      ${id !== act ? `<button type="button" class="small" data-mact="use">设为使用中</button>` : ""}
-      <button type="button" class="small" data-mact="test">测试连接</button>
-      ${p.type !== "fake" ? `<button type="button" class="ghost small" data-mact="discover">获取模型列表</button>` : ""}
-      ${id !== act ? `<button type="button" class="ghost small" data-mact="remove">删除此通道</button>` : ""}
-      <span class="grow"></span><button type="button" class="small primary" data-mact="save">保存</button>
-    </div>
-    <div class="m-status" id="mStatus">${d.configured ? "" : "还没有 models.yaml：现在显示的是 policy.yaml 的设置，保存后生成。"}</div>
-    ${h ? `<div class="m-hermes">检测到 Hermes Agent 配置（<span class="mono">~/.hermes/config.yaml</span>）：主模型 <b>${esc(h.model.default || "—")}</b> · 通道 <b>${esc(h.model.provider || "—")}</b>${h.model.api_mode ? `（${esc(h.model.api_mode)}，需 Hermes 自己的登录，不能直接用）` : ""}。
-      ${hp.length ? `可导入的 OpenAI 兼容通道：<b>${hp.map(esc).join("、")}</b>。
-      <div class="actions"><button type="button" class="ghost small" data-mact="hermes">导入这些通道</button>
-      <label class="small" style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" id="mHermesKeys" style="width:auto"> 同时把对应密钥复制到 PGA 的 .env</label></div>` : "没有可导入的自定义通道。"}</div>` : ""}
-    <div class="m-file mono">${esc(d.file)}</div>`;
-}
-function mCurrent() {                                                     // the provider being edited, without display-only fields
-  const p = Object.assign({}, M.data.providers[M.edit]); delete p.key_set; delete p.key_hint; return p;
-}
-function mBody() {
-  const d = M.data, providers = {};
-  for (const [k, v] of Object.entries(d.providers)) { const c = Object.assign({}, v); delete c.key_set; delete c.key_hint; providers[k] = c; }
-  const act = providers[d.model.provider] || {};
-  return { model: { provider: d.model.provider, default: (act.tiers || {})[2] || "", tiers: act.tiers || {} }, providers, keys: M.keys };
-}
-async function mSave(msg = "已保存") {
-  try { M.data = await api("/v1/models", { method: "PUT", body: mBody() }); M.keys = {}; renderModels(); mStatus(msg, "ok"); refreshProvider(); return true; }
-  catch (e) { mStatus("保存失败：" + e.message, "bad"); return false; }
-}
 async function refreshProvider() {
   try {
     S.health = await api("/healthz");
@@ -2834,57 +2758,6 @@ async function refreshProvider() {
     $("#provider").textContent = S.health.llm_provider_name || names[S.health.llm_provider] || S.health.llm_provider;
   } catch {}
 }
-function bindModels() {
-  const box = $("#modelsBox");
-  box.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.matches("input")) e.preventDefault(); });   // Enter would close the dialog
-  box.addEventListener("input", (e) => {
-    const el = e.target, p = M.data?.providers[M.edit]; if (!p) return;
-    if (el.dataset.mf && el.tagName === "INPUT") p[el.dataset.mf] = el.value.trim();
-    if (el.dataset.mt) { p.tiers = Object.assign({}, p.tiers); if (el.value.trim()) p.tiers[el.dataset.mt] = el.value.trim(); else delete p.tiers[el.dataset.mt]; }
-    if (el.hasAttribute("data-mkey")) {
-      if (!p.key_env) { p.key_env = M.edit.toUpperCase().replace(/[^A-Z0-9]+/g, "_") + "_API_KEY"; const k = box.querySelector('[data-mf="key_env"]'); if (k) k.value = p.key_env; }
-      M.keys[p.key_env] = el.value.trim(); if (!el.value.trim()) delete M.keys[p.key_env];
-    }
-  });
-  box.addEventListener("change", (e) => {
-    const el = e.target, d = M.data; if (!d) return;
-    if (el.dataset.mf === "type") { d.providers[M.edit].type = el.value; renderModels(); }
-    if (el.hasAttribute("data-madd") && el.value) {
-      let id = el.value === "__new" ? "custom" : el.value, n = 2;
-      while (d.providers[id]) id = (el.value === "__new" ? "custom" : el.value) + "-" + n++;
-      const pr = d.presets[el.value === "__new" ? "custom" : el.value];
-      d.providers[id] = { name: pr.name, type: pr.type, base_url: pr.base_url, key_env: pr.key_env, tiers: Object.assign({}, pr.tiers), key_set: false, key_hint: "" };
-      M.edit = id; renderModels(); mStatus("已添加，填好后点「保存」", "");
-    }
-  });
-  box.addEventListener("click", async (e) => {
-    const chip = e.target.closest("[data-mp]"); if (chip) { M.edit = chip.dataset.mp; renderModels(); return; }
-    const b = e.target.closest("[data-mact]"); if (!b) return;
-    const act = b.dataset.mact, d = M.data, p = mCurrent();
-    if (act === "save") return mSave();
-    if (act === "use") { const prev = d.model.provider; d.model.provider = M.edit; if (!(await mSave(`已切换到 ${p.name || M.edit}`))) d.model.provider = prev; return; }
-    if (act === "remove") { delete d.providers[M.edit]; M.edit = d.model.provider; return mSave("已删除通道"); }
-    if (act === "test") {
-      const model = (p.tiers || {})[1] || (p.tiers || {})[2] || (p.tiers || {})[3];
-      if (!model && p.type !== "fake") return mStatus("先填一个模型 id", "bad");
-      mStatus(`正在用 ${model || "fake"} 测试…`); b.disabled = true;
-      try {
-        const r = await api("/v1/models/test", { body: { id: M.edit, provider: p, model, key: M.keys[p.key_env] || undefined } });
-        mStatus(r.ok ? `连接正常 · ${r.ms} ms · ${r.model} 回复「${r.reply}」` : `连接失败：${r.error}`, r.ok ? "ok" : "bad");
-      } catch (err) { mStatus("连接失败：" + err.message, "bad"); } finally { b.disabled = false; }
-    }
-    if (act === "discover") {
-      mStatus("正在获取模型列表…"); b.disabled = true;
-      try { const r = await api("/v1/models/discover", { body: { id: M.edit, provider: p, key: M.keys[p.key_env] || undefined } }); M.models[M.edit] = r.models; const keep = Object.assign({}, M.keys); renderModels(); M.keys = keep; mStatus(`找到 ${r.models.length} 个模型，在三档输入框里可直接选`, "ok"); }
-      catch (err) { mStatus(err.message, "bad"); } finally { b.disabled = false; }
-    }
-    if (act === "hermes") {
-      try { M.data = await api(`/v1/models/hermes/import?copy_keys=${$("#mHermesKeys")?.checked ? "true" : "false"}`, { method: "POST" }); renderModels(); mStatus("已从 Hermes 导入通道（使用中的通道没有改变）", "ok"); }
-      catch (err) { mStatus("导入失败：" + err.message, "bad"); }
-    }
-  });
-}
-
 /* ---------------------------------------------------------------- agents */
 async function loadResps() {
   try { S.resps = await api(`/v1/users/${S.uid}/responsibilities`); } catch (e) { return fail(e); }

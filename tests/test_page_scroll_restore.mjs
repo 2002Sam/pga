@@ -8,9 +8,10 @@ function setup(){
  const box={clientHeight:200,scrollHeight:2000,scrollTop:0,getBoundingClientRect:()=>({top:0})};
  const doc={querySelector:s=>s==='#cdlg'?box:null,querySelectorAll:()=>Array.from({length:count},(_,i)=>({getBoundingClientRect:()=>({top:i*100-box.scrollTop})})),addEventListener:(e,f)=>events[e]=f};
  const old={id:'a'},current={id:'a'},p={msg:7,msgs:10,off:25,end:false};
- const ctx={window:{},ST:{nodes:[current]},PG:{pending:new Map([['a',p]])},pgWatchScroll(){},Date:{now:()=>now},setTimeout:f=>timers.push(f),Event:class{}};
- vm.runInNewContext(source.slice(source.indexOf('window.pgRestore ='),source.indexOf('/* ------------------------------------------------ add, switch')),ctx);
- ctx.window.pgRestore(old,{contentDocument:doc,contentWindow:{S:{},eval(){}}});
+ const frame={isConnected:true,hasAttribute:n=>n==='src',contentDocument:doc,contentWindow:{S:{},eval(){}}};
+ const ctx={window:{},ST:{nodes:[current]},PG:{pending:new Map([['a',p]]),restoreTimers:new Map()},pgWatchScroll(){},Date:{now:()=>now},setTimeout:f=>timers.push(f),clearTimeout(){},Event:class{}};
+ vm.runInNewContext(source.slice(source.indexOf('window.pgCancelRestore ='),source.indexOf('/* ------------------------------------------------ add, switch')),ctx);
+ ctx.window.pgRestore(old,frame);
  return {ctx,box,current,old,p,events,setCount:n=>count=n,step(t){now=t;const work=timers.splice(0);work.forEach(f=>f());}};
 }
 test('restoration protects the current node, not the stale iframe closure',()=>{

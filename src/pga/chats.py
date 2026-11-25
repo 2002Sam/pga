@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-HIDDEN = ("node:", "exchange:", "second:", "multi:")       # conversations that are not chats of their own
+HIDDEN = ("node:", "exchange:", "second:", "multi:", "chat:mt-")       # conversations that are not chats of their own
 
 COMPARE = """Two AI agents answered the same question from a person, with the same conversation before it. Compare them
 for the person: what both say, where they really differ (facts, recommendations, assumptions — not wording), and one
@@ -39,15 +39,16 @@ class ChatError(ValueError):
     pass
 
 
-def runs_of(rt: "Runtime", user_id: uuid.UUID, key: str) -> list[AgentRun]:
+def runs_of(rt: "Runtime", user_id: uuid.UUID, key: str, *, aggregate=False) -> list[AgentRun]:
     q = select(AgentRun).where(AgentRun.user_id == user_id, AgentRun.parent_id.is_(None), AgentRun.workflow == "ask")
-    same = AgentRun.data["conversation"].as_string() == key
+    from pga.qa_pool import feed_filter, thread_filter
+    same = feed_filter(key) if aggregate else thread_filter(key)
     if key.startswith("run:"):
         try:
             same = or_(AgentRun.id == uuid.UUID(key[4:]), same)
         except ValueError as exc:
             raise ChatError("no such chat") from exc
-    return list(rt.session.scalars(q.where(same).order_by(AgentRun.started_at)))
+    return list(rt.session.scalars(q.where(same).order_by(AgentRun.started_at, AgentRun.id)))
 
 
 def fold(runs: list[AgentRun]) -> tuple[list[AgentRun], dict[str, list[AgentRun]]]:
@@ -90,7 +91,8 @@ def imported_turns(rt: "Runtime", user: User, cid: str) -> tuple[list[dict], str
     a = rt.session.get(LinkedAgent, c.linked_agent_id) if c else None
     if c is None or a is None or a.user_id != user.id:
         return [], ""
-    turns = [{"role": "user" if t["role"] == "user" else "assistant", "text": t["text"], "agent": a.name}
+    turns = [{"role": "user" if t["role"] == "user" else "assistant", "text": t["text"], "agent": a.name,
+              **({"image_source": {"import": cid, "refs": t["images"]}} if t.get("images") and t["role"] == "user" else {})}
              for t in full_turns(a.connector, c.external_id) if t.get("role") != "aside" and (t.get("text") or "").strip()]
     if not turns:                                                     # only the excerpt: "User: …" / "Assistant: …" lines
         for line in str(c.excerpt or "").split("\n"):
@@ -110,6 +112,14 @@ def branch_context(rt: "Runtime", user: User, b: dict, depth: int = 0) -> list[d
     src, upto = str(b.get("from") or ""), str(b.get("upto") or "")
     if depth >= 32:
         return []
+    if upto.startswith("context:"):
+        # The index is in this parent's frozen inherited history, never live ancestor data.
+        parent = branch_of(user, src)
+        inherited = branch_context(rt, user, parent, depth + 1) if parent else []
+        count = upto[len("context:"):]
+        if not count.isdigit() or not 0 < int(count) <= len(inherited):
+            raise ChatError("invalid continuation point")
+        return inherited[:int(count)]
     if src.startswith(IMPORTED):
         turns, _ = imported_turns(rt, user, src[len(IMPORTED):])
         if not upto.isdigit() or int(upto) > len(turns):
@@ -130,6 +140,42 @@ def branch_title(rt: "Runtime", user: User, b: dict) -> str:
         return imported_turns(rt, user, src[len(IMPORTED):])[1]
     return ((user.preferences or {}).get("chat_titles") or {}).get(src) or next(
         (" ".join(t["text"].split())[:60] for t in history(rt, user, src) if t["role"] == "user" and t["text"].strip()), "")
+
+
+def question_fork(rt: "Runtime", user: User, parent: str, point: str):
+    """Resolve the clicked question and the history strictly before it, including inherited turns."""
+    if parent.startswith(IMPORTED):
+        turns, _ = imported_turns(rt, user, parent[len(IMPORTED):])
+        index = point
+    elif point.startswith("context:"):
+        turns = branch_context(rt, user, branch_of(user, parent) or {"snapshot": []})
+        index = point.removeprefix("context:")
+    else:
+        turns = history(rt, user, parent, uuid.UUID(point))
+        index = str(next((i for i, t in enumerate(turns, 1)
+                          if t.get("run") == point and t["role"] == "user"), 0))
+    if not index.isascii() or not index.isdigit() or not 1 <= int(index) <= len(turns):
+        raise ChatError("invalid question")
+    pos = int(index) - 1
+    turn = turns[pos]
+    if turn["role"] != "user":
+        raise ChatError("select a question")
+    source = rt.session.get(AgentRun, uuid.UUID(turn["run"])) if turn.get("run") else None
+    if source and (source.user_id != user.id or (source.data or {}).get("note")):
+        raise ChatError("select a question")
+    if parent.startswith(IMPORTED):
+        upto = str(pos)
+    elif point.startswith("context:"):
+        upto = f"context:{pos}" if pos else "0"
+    else:
+        upto = turns[pos - 1].get("run") if pos else None
+        upto = upto or "0"
+    text = turn["text"]
+    if source and (text == source.prompt or text.startswith((source.prompt or "") + "\n\n[运行中补充]\n")):
+        text = source.prompt
+    else:
+        source = None  # the frozen text takes precedence if the original record has changed
+    return turns[:pos], upto, text, source, turn.get("image_source")
 
 
 def branch_reply_title(rt: "Runtime", user: User, parent: str, upto: str) -> str:
@@ -157,6 +203,10 @@ def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, 
     b = branch_of(user, key)
     if b and depth < 32:                                               # a branch of a branch of …: deep trees too (the bound only stops a loop)
         out += branch_context(rt, user, b, depth)
+    if upto is not None:
+        inherited = [i for i, t in enumerate(out) if t.get("run") == str(upto)]
+        if inherited:
+            return out[:inherited[-1] + 1]
     turns, alts = fold(runs_of(rt, user.id, key))
     if upto is not None and not any(r.id == upto for r in turns):
         raise ChatError("continuation point does not belong to this conversation")
@@ -164,7 +214,7 @@ def history(rt: "Runtime", user: User, key: str, upto: uuid.UUID | None = None, 
         out.append({"role": "user", "text": (("[the user's own note] " if (r.data or {}).get("note") else "") + prompt_with_steering(r)), "run": str(r.id)})
         if not (r.data or {}).get("note"):
             a = current(r, alts)
-            out.append({"role": "assistant", "text": _answer(a.output) or "", "agent": (a.data or {}).get("agent") or a.agent, "run": str(r.id)})
+            out.append({"role": "assistant", "text": _answer(a.output) or "", "agent": (a.data or {}).get("agent") or a.agent, "effort": (a.data or {}).get("effort"), "run": str(r.id)})
         if upto is not None and r.id == upto:
             break
     return out
@@ -179,7 +229,8 @@ def set_branch(user: User, key: str, parent: str, upto: str, copy: bool = False)
 
 def name_branch_question(rt: "Runtime", user: User, key: str, text: str) -> bool:
     b = branch_of(user, key)
-    if not b or b.get("split_lane") or b.get("manual_title") or runs_of(rt, user.id, key):
+    named = (((user.preferences or {}).get("chat_title_state") or {}).get(key) or {}).get("mode") == "manual"
+    if not b or b.get("split_lane") or b.get("manual_title") or named or runs_of(rt, user.id, key):
         return False
     title = " ".join(text.split())[:60]
     if not title:
@@ -236,7 +287,7 @@ def second_opinion(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | No
                        conversation=f"second:{run.id}")
     if not reply.get("text"):
         raise ChatError(reply.get("error") or f"{agent} did not answer")
-    out = {"agent": reply.get("agent") or agent, "text": reply["text"], "model": reply.get("model"), "at": now.isoformat()}
+    out = {"agent": reply.get("agent") or agent, "text": reply["text"], "model": reply.get("model"), "effort": reply.get("effort"), "at": now.isoformat()}
     try:
         out.update(_compare(rt, user, run.prompt or "", first, _answer(run.output), out["agent"], reply["text"], _lang(user)[0], now))
     except Exception as exc:  # noqa: BLE001 - the two answers are worth showing even without the comparison
@@ -248,15 +299,16 @@ def second_opinion(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | No
 
 def inherit_settings(user: User, key: str, parent: str) -> None:
     import copy
+    from pga.agents.access import effective_access
+    source_access = effective_access(user, parent)
     for name in ("chat_system", "chat_multi", "chat_ctx", "chat_options"):
         values = dict((user.preferences or {}).get(name) or {})
         if parent in values:
             values[key] = copy.deepcopy(values[parent])
             user.preferences = {**(user.preferences or {}), name: values}
     access = copy.deepcopy((user.preferences or {}).get("agent_access") or {})
-    if parent in (access.get("keys") or {}):
-        access["keys"][key] = copy.deepcopy(access["keys"][parent])
-        user.preferences = {**(user.preferences or {}), "agent_access": access}
+    access["keys"] = {**(access.get("keys") or {}), key: source_access}
+    user.preferences = {**(user.preferences or {}), "agent_access": access}
 
 
 def inherit(rt: "Runtime", user: User, key: str, parent: str, now: datetime | None = None) -> dict:
@@ -316,6 +368,7 @@ def second_branch(rt: "Runtime", user: User, run_id: uuid.UUID, agent: str | Non
     base = ((user.preferences or {}).get("chat_titles") or {}).get(key) or " ".join((turns[0].prompt if turns else run.prompt or "").split())[:40]
     title = f"{base} · 第二意见 · {who}"[:80]
     set_title(user, new, title)
+    inherit_settings(user, new, key)
     topic = inherit(rt, user, new, key)
     return {"key": new, "agent": who, "question": run.prompt or "", "from": key, "upto": str(prev.id) if prev is not None else None,
             "title": title, **topic}
@@ -422,13 +475,17 @@ def search(rt: "Runtime", user: User, q: str, limit: int = 30) -> list[dict]:
     return sorted(out, key=lambda x: x["at"], reverse=True)[:limit]
 
 
-def set_title(user: User, key: str, title: str) -> None:
+def set_title(user: User, key: str, title: str, *, source: str = "seed") -> None:
     titles = dict((user.preferences or {}).get("chat_titles") or {})
     if title.strip():
         titles[key[:120]] = title.strip()[:80]
     else:
         titles.pop(key[:120], None)
-    user.preferences = {**(user.preferences or {}), "chat_titles": dict(list(titles.items())[-2000:])}
+    states = dict((user.preferences or {}).get("chat_title_state") or {})
+    states[key[:120]] = {"mode": "manual" if title.strip() and source == "manual" else "seed",
+                        "revision": uuid.uuid4().hex}
+    user.preferences = {**(user.preferences or {}), "chat_titles": dict(list(titles.items())[-2000:]),
+                        "chat_title_state": states}
 
 
 def _compare(rt: "Runtime", user: User, question: str, a: str, ta: str, b: str, tb: str, lang: str, now: datetime) -> dict:
@@ -460,27 +517,34 @@ def _compare(rt: "Runtime", user: User, question: str, a: str, ta: str, b: str, 
             "answer": str(d.get("answer") or "")[:3000]}
 
 
-def start_split(rt, user, key, agents, run_id=None):
-    """Two persistent hidden lanes in one visible chat; never reuse a parent's native session."""
+def start_split(rt, user, key, agents, run_id=None, options=None):
+    """Two persistent hidden lanes in one visible chat; never reuse a parent's native session. You choose who answers on
+    each side: two agents, or one agent with two models (`options`: [{model, effort}] beside `agents`)."""
     existing = ((user.preferences or {}).get("chat_splits") or {}).get(key)
     if existing:
         return existing
-    if not isinstance(agents, list) or len(agents) != 2 or not all(isinstance(a, str) for a in agents) or len(set(agents)) != 2:
-        raise ChatError("choose two different agents")
+    if not isinstance(agents, list) or len(agents) != 2 or not all(isinstance(a, str) and a for a in agents):
+        raise ChatError("choose two agents")
+    opts = [o if isinstance(o, dict) else {} for o in (options if isinstance(options, list) else [])][:2]
+    opts += [{}] * (2 - len(opts))
+    picks = [{"agent": a, **{k: str(o[k])[:200] for k in ("model", "effort") if isinstance(o.get(k), str) and o[k]}}
+             for a, o in zip(agents, opts)]
+    if picks[0] == picks[1]:
+        raise ChatError("choose two different agents or models")
     from pga.agents.routing import AgentRouter
     router = AgentRouter(rt)
-    if any(name not in router.pool.adapters for name in agents):
+    if any(p["agent"] not in router.pool.adapters for p in picks):
         raise ChatError("unknown agent")
     snapshot = history(rt, user, key)
-    question = None
+    question = anchor = None
     if run_id:
         run = next((r for r in runs_of(rt, user.id, key) if str(r.id) == str(run_id)), None)
         if run is None:
             raise ChatError("reply does not belong to this conversation")
         snapshot = history(rt, user, key, run.id)[:-2]
-        question = run.prompt
+        question, anchor = run.prompt, str(run.id)
     lanes = []
-    for agent in agents:
+    for p in picks:
         lane = f"second:{uuid.uuid4().hex}"
         set_branch(user, lane, key, "0")
         branches = dict(user.preferences["chat_branches"])
@@ -488,7 +552,103 @@ def start_split(rt, user, key, agents, run_id=None):
         user.preferences = {**user.preferences, "chat_branches": branches}
         inherit(rt, user, lane, key)
         inherit_settings(user, lane, key)
-        lanes.append({"key": lane, "agent": agent})
-    split = {"lanes": lanes, "question": question}
+        chosen = dict(user.preferences.get("chat_options") or {})         # the side's own answerer, not the one it came from
+        chosen[lane] = {"agent": p["agent"], "model": p.get("model", ""), "effort": p.get("effort", "")}
+        user.preferences = {**user.preferences, "chat_options": chosen}
+        lanes.append({"key": lane, **p})
+    split = {"lanes": lanes, "question": question, **({"run": anchor} if anchor else {})}
     user.preferences = {**user.preferences, "chat_splits": {**(user.preferences.get("chat_splits") or {}), key: split}}
     return split
+
+
+def set_split_side(rt, user, key, lane_key, agent, model="", effort="") -> dict:
+    """Change who answers on one side of a split, at any time: that side carries on with its own history (a new agent is
+    given all of it). The two sides may not become the same agent with the same model."""
+    split = ((user.preferences or {}).get("chat_splits") or {}).get(key)
+    if not split:
+        raise ChatError("no split here")
+    lanes = [dict(l) for l in split.get("lanes") or []]
+    i = next((n for n, l in enumerate(lanes) if l.get("key") == lane_key), None)
+    if i is None:
+        raise ChatError("no such side")
+    if not isinstance(agent, str) or not agent:
+        raise ChatError("choose an agent")
+    from pga.agents.routing import AgentRouter
+    if agent not in AgentRouter(rt).pool.adapters:
+        raise ChatError("unknown agent")
+    pick = {"agent": agent, **{k: str(v)[:200] for k, v in (("model", model), ("effort", effort)) if isinstance(v, str) and v}}
+    who = lambda l: (l.get("agent"), l.get("model") or "", l.get("effort") or "")
+    if any(n != i and who(l) == who(pick) for n, l in enumerate(lanes)):
+        raise ChatError("the other side already answers with this")
+    lanes[i] = {"key": lane_key, **pick}
+    prefs = user.preferences or {}
+    split = {**split, "lanes": lanes}
+    user.preferences = {**prefs, "chat_splits": {**(prefs.get("chat_splits") or {}), key: split},
+                        "chat_options": {**(prefs.get("chat_options") or {}),
+                                         lane_key: {"agent": agent, "model": pick.get("model", ""), "effort": pick.get("effort", "")}}}
+    return split
+
+
+def adopt_split(rt, user, key, lane_key) -> dict:
+    """Carry on with one side of a split (采用): its turns become this conversation's own, after what both sides shared, and
+    its agent (and model) answers from now on. The other side's answers to the same questions stay as versions of those
+    turns, not in use: flip to them, or read them side by side. A split that redid an earlier answer: when nothing came
+    after that answer, it becomes a version of the redone turn too; when something did, that answer and what followed move
+    to a branch of their own (原来的后续), so nothing is lost."""
+    split = ((user.preferences or {}).get("chat_splits") or {}).get(key)
+    if not split:
+        raise ChatError("no split here")
+    lane = next((l for l in split.get("lanes") or [] if l.get("key") == lane_key), None)
+    if lane is None:
+        raise ChatError("no such side")
+    mine, mine_alts = fold(runs_of(rt, user.id, lane_key))
+    main, main_alts = fold(runs_of(rt, user.id, key))
+    group = lambda r, alts: [r, *alts.get(str(r.id), [])]                # a turn and its other versions
+    asked = lambda r: " ".join((r.prompt or "").split())
+    picked = {str(m.id): str(current(m, mine_alts).id) for m in mine}    # the side's own choice among its regenerated versions
+    anchor = None
+    if split.get("question"):
+        rid = str(split.get("run") or "")
+        anchor = next((r for r in main if str(r.id) == rid), None) if rid else next(
+            (r for r in reversed(main) if asked(r) == " ".join(split["question"].split())), None)
+    moved = None
+    if anchor is not None:
+        i = main.index(anchor)
+        if main[i + 1:]:
+            moved = f"chat:{uuid.uuid4().hex[:10]}"
+            set_branch(user, moved, key, str(main[i - 1].id) if i else "0")
+            base = ((user.preferences or {}).get("chat_titles") or {}).get(key) or asked(main[0])[:40]
+            set_title(user, moved, f"{base} · 原来的后续")
+            inherit(rt, user, moved, key)
+            inherit_settings(user, moved, key)
+            for r in main[i:]:
+                for x in group(r, main_alts):
+                    x.data = {**(x.data or {}), "conversation": moved}
+        elif mine and asked(mine[0]) == asked(anchor):
+            for x in group(anchor, main_alts):
+                x.data = {**(x.data or {}), "regen_of": str(mine[0].id), "split_alt": True}
+    for m in mine:
+        for x in group(m, mine_alts):
+            x.data = {**(x.data or {}), "conversation": key}
+    for other in split["lanes"]:
+        if other["key"] == lane_key:
+            continue
+        theirs, theirs_alts = fold(runs_of(rt, user.id, other["key"]))
+        j = 0
+        for t in theirs:
+            if (t.data or {}).get("note"):
+                continue
+            k = next((n for n, m in enumerate(mine[j:], j) if asked(m) == asked(t) and not (m.data or {}).get("note")), None)
+            if k is None:
+                continue
+            j = k + 1
+            for x in group(t, theirs_alts):
+                x.data = {**(x.data or {}), "conversation": key, "regen_of": str(mine[k].id), "split_alt": True}
+    for m in mine:
+        m.data = {**(m.data or {}), "pick": picked[str(m.id)]}
+    prefs = user.preferences or {}
+    chosen = {"agent": lane["agent"], "model": lane.get("model", ""), "effort": lane.get("effort", "")}
+    user.preferences = {**prefs, "chat_splits": {k: v for k, v in (prefs.get("chat_splits") or {}).items() if k != key},
+                        "chat_multi": {k: v for k, v in (prefs.get("chat_multi") or {}).items() if k != key},
+                        "chat_options": {**(prefs.get("chat_options") or {}), key: chosen}}
+    return {"key": key, **chosen, "turns": len(mine), "moved": moved}

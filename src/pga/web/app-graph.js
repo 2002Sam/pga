@@ -11,7 +11,7 @@ const GT = {
   conv: { zh: "对话", en: "Conversation", c: () => "#8fb4ff", g: "conv" },
   data: { zh: "数据集", en: "Dataset", c: () => "#5fd3a5", g: "know" }, skill: { zh: "技能", en: "Skill", c: () => "#f0c27b", g: "know" },
   doc: { zh: "文档", en: "Document", c: () => "#4fd1c5", g: "know" }, web: { zh: "网页", en: "Web page", c: () => "#63b3ed", g: "know" },
-  note: { zh: "笔记", en: "Note", c: () => "#f6ad55", g: "know" },
+  note: { zh: "计划", en: "Plan", c: () => "#f6ad55", g: "know" },
   agent: { zh: "Agent", en: "Agent", c: () => "#f08aa8", g: "agent" },
 };
 const GGROUPS = [["model", L("你和两个模型", "You and the models")], ["aim", L("抱负", "Motivations")], ["line", L("线", "Lines")], ["conv", L("对话", "Conversations")], ["know", L("知识", "Knowledge")], ["agent", "Agent"]];

@@ -4,7 +4,7 @@
    You work on one page at a time. The one you are on is the live stage (pga_st4, as before) and is saved back to its
    page as you go; switching puts it away and lays out another. A conversation may stand on several pages. */
 
-const PG = { list: [], cur: localStorage.getItem("pga_page_cur") || null, ready: false, sig: "", pending: new Map() };
+const PG = { list: [], cur: localStorage.getItem("pga_page_cur") || null, ready: false, sig: "", pending: new Map(), restoreTimers: new Map(), markReadings: new WeakMap() };
 window.PG = PG;
 const pgUrl = (id) => `/v1/users/${S.uid}/pages` + (id ? "/" + encodeURIComponent(id) : "");
 const pgCur = () => PG.list.find((p) => p.id === PG.cur) || null;
@@ -32,12 +32,34 @@ function pgProg(n, recent) {
       draft: (d.querySelector("#chatText")?.value || "").slice(0, 4000), last: it?.last || old?.last || null, title: it?.title || stTitle(n.key) };
   } catch { return old; }
 }
+// A Flag is a fixed reading location, independent of the page's latest checkpoint.
+function pgMarkReading(n) {
+  const doc = n.el?.querySelector('iframe')?.contentDocument;
+  const box = doc?.querySelector('#cdlg'), history = doc?.querySelector('#cdlgIn');
+  if (!box?.clientHeight || !history?.firstElementChild) return null;
+  const top = box.getBoundingClientRect().top;
+  const anchors = history.querySelectorAll('.tanchor[id]');
+  let lo = 0, hi = anchors.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (anchors[mid].getBoundingClientRect().top <= top) lo = mid + 1;
+    else hi = mid;
+  }
+  const anchor = anchors[lo - 1];
+  return {scrollTop:box.scrollTop, anchor:anchor?.id, offset:anchor ? top - anchor.getBoundingClientRect().top : 0};
+}
+function pgReturnToReading(n, reading) {
+  PG.markReadings.set(n, reading);
+  const frame = n.el?.querySelector('iframe');
+  if (frame?.contentDocument?.querySelector('#cdlg') && frame.contentDocument !== frame._pgaLoading?.previous)
+    window.pgRestore(n, frame);
+}
 function pgSnap() {                                 // the stage as it stands, every conversation with how far it had got
   const recent = new Map(recentItems().map(x => [x.item, x]));
   for (const n of stWins()) if (!n.pad && n.key) { const p = pgProg(n, recent); if (p) n.prog = p; }
   const a = $("#starena");
-  return { v: 5, nodes: ST.nodes.map(({ max, sent, run, runAt, done, el, _pgRestoring, ...n }) => JSON.parse(JSON.stringify(n))),
-    ws: JSON.parse(JSON.stringify(ST.ws || {})), view: { spaceLeft: ST.spaceLeft || 0, spaceRight: ST.spaceRight || 0, groupFold: ST.groupFold || {}, groupSolo: ST.groupSolo || null, sl: Math.round(a?.scrollLeft || 0), focus: ST.focus, list: !!ST.listOpen, listTop: $("#stli")?.scrollTop || 0 } };
+  return { v: 5, nodes: ST.nodes.map(({ max, sent, run, runAt, done, el, _pgRestoring, _stageSuspended, ...n }) => JSON.parse(JSON.stringify(n))),
+    ws: JSON.parse(JSON.stringify(ST.ws || {})), view: { groupFold: ST.groupFold || {}, groupSolo: ST.groupSolo || null, sl: Math.round(a?.scrollLeft || 0), focus: ST.focus, list: !!ST.listOpen, listTop: $("#stli")?.scrollTop || 0 } };
 }
 
 /* A synchronous, tab-local checkpoint survives refresh even if the final PUT is cancelled. */
@@ -52,7 +74,9 @@ function pgScheduleCheckpoint() {
   const generation = PG.scrollGeneration = (PG.scrollGeneration || 0) + 1;
   PG.scrollTimer = setTimeout(() => {
     PG.scrollTimer = null;
-    const save = () => { if (generation !== PG.scrollGeneration) return; PG.scrollIdle = null; if (PG.ready) pgLocalSave(); };
+    const save = () => { if (generation !== PG.scrollGeneration) return; PG.scrollIdle = null;
+      if (S.stageMotion) { pgScheduleCheckpoint(); return; }
+      if (PG.ready) pgLocalSave(); };
     if (window.requestIdleCallback) PG.scrollIdle = window.requestIdleCallback(save, {timeout:1500});
     else save();
   }, 600);
@@ -76,6 +100,9 @@ async function pgPut(id, body) {
 async function pgSaveCur(force) {                   // the page you are on, saved back — only when it changed
   if (!PG.ready || !PG.cur) return;
   clearTimeout(PG.t); PG.t = null;
+  // A snapshot measures reading positions inside every mounted conversation.
+  // Defer automatic saves while panning; explicit saves/page exit still flush.
+  if (!force && S.stageMotion) { PG.t = setTimeout(() => pgSaveCur(), 700); return; }
   const snap = pgSnap(), sig = JSON.stringify(snap);
   pgLocalSave(snap);
   if (!force && sig === PG.sig) return; PG.sig = sig;
@@ -92,36 +119,75 @@ addEventListener("pagehide", () => {                // leaving: the last state g
 
 /* ------------------------------------------------ laying a page out on the stage */
 function pgApply(snap) {
-  const was = new Map(stWins().map((n) => [n.id, n.key || (n.pad ? "pad" : "")]));
+  const was = new Map(stWins().map((n) => [n.id, n.file ? JSON.stringify([n.file.uid, n.file.path, !!n.file.web]) : n.key || (n.pad ? "pad" : "")]));
   ST.drag = ST.rz = ST.pan = ST.wire = null; ST.shift = null; document.querySelector(".stmenu")?.remove();
-  ST.spaceLeft = snap?.view?.spaceLeft || 0; ST.spaceRight = snap?.view?.spaceRight || 0;
+  ST.spaceRight = 0;                               // blank pulled past either end is not part of a page
   ST.nodes = snap?.nodes || []; ST.ws = snap?.ws || {}; PG.pending.clear();
   for (const n of stWins()) { delete n.done; delete n.run;
-    const key = n.key || (n.pad ? "pad" : ""), el = document.querySelector(`.stnode[data-nid="${n.id}"]`);
+    const key = n.file ? JSON.stringify([n.file.uid, n.file.path, !!n.file.web]) : n.key || (n.pad ? "pad" : ""), el = document.querySelector(`.stnode[data-nid="${n.id}"]`);
     if (was.has(n.id) && was.get(n.id) !== key) el?.remove();               // the same place, another conversation: a fresh window
-    if (!n.pad && n.prog) PG.pending.set(n.id, n.prog); }
+    if (!n.pad && !n.file && n.prog) PG.pending.set(n.id, n.prog); }
   if (!ST.nodes.some((n) => n.pad)) stPadOut();                              // the notepad is not on this page: it waits, kept
   const v = snap?.view || {}; ST.groupFold = v.groupFold || {}; ST.groupSolo = v.groupSolo || null;
   ST.focus = stWins().some((w) => w.id === v.focus) ? v.focus : stWins().find((w) => !w.pad)?.id || stWins()[0]?.id || null;
   if (typeof stDropToggle === "function" && !!v.list !== !!ST.listOpen) stDropToggle(!!v.list);
   _stSavePG(); stRender(); stContexts(); stListItems?.(); stMap?.();
   pgKick();
-  requestAnimationFrame(() => { const a = $("#starena"); if (!a) return; const sl = v.sl || 0; if (sl + a.clientWidth > a.scrollWidth) stGrow?.(sl + a.clientWidth); a.scrollLeft = sl; const list = $("#stli"); if (list) list.scrollTop = v.listTop || 0; stMap?.(); });
+  requestAnimationFrame(() => { const a = $("#starena"); if (!a) return; const sl = Math.max(0, (v.sl || 0) - (v.spaceLeft || 0)); if (sl + a.clientWidth > a.scrollWidth) stGrow?.(sl + a.clientWidth); a.scrollLeft = sl; const list = $("#stli"); if (list) list.scrollTop = v.listTop || 0; stMap?.(); if (typeof stPmRestored === "function") stPmRestored(); });
 }
 function pgKick() {                                // windows already loaded (kept across the switch, or loaded before the pages came in): no load to wait for
   for (const n of stWins()) { const f = n.el?.querySelector("iframe"); try { if (PG.pending.has(n.id) && f?.contentDocument?.readyState === "complete" && f.contentDocument.querySelector("#cdlg")) pgRestore(n, f); } catch {} }
 }
+window.pgCancelRestore = function (n) {
+  const id = typeof n === "string" ? n : n?.id, state = PG.restoreTimers.get(id);
+  if (!state) return;
+  state.cancelled = true; state.unbind?.();
+  for (const timer of state.timers) clearTimeout(timer);
+  state.timers.clear(); PG.restoreTimers.delete(id);
+  const current = ST.nodes.find((x) => x.id === id); if (current) delete current._pgRestoring;
+};
 window.pgRestore = function (n, f) {               // a window of the page you switched to has loaded: back where you were reading, your draft back in
   // iframe load handlers may still hold the node from before pgApply replaced the snapshot.
   n = ST.nodes.find((x) => x.id === n.id) || n;
-  const p = PG.pending.get(n.id); if (!p) return; PG.pending.delete(n.id);
-  n.prog = p;
+  const reading = PG.markReadings?.get(n);
+  const pending = PG.pending.get(n.id);
+  if (!pending && !reading) return;
+  const p = pending || n.prog || {};
+  const restoreDraft = !!pending || !!PG.restoreTimers.get(n.id)?.draftPending;
+  PG.markReadings?.delete(n); PG.pending.delete(n.id);
+  if (pending) n.prog = p;
   const cw = f.contentWindow; let d; try { d = f.contentDocument; } catch { return; }
-  n._pgRestoring = true; pgWatchScroll(d);
-  if (!p.stay) try { cw.eval("typeof PJ === 'object' && (PJ.jumped = true)"); if (cw.S) { cw.S.focusDone = true; cw.S.scrollChat = false; } } catch {}   // its own "start at the latest words" stands down
+  window.pgCancelRestore(n);
+  const state = { frame: f, document: d, timers: new Set(), cancelled: false, draftPending:restoreDraft };
+  PG.restoreTimers.set(n.id, state);
+  const schedule = (fn, delay) => {
+    const timer = setTimeout(() => { state.timers.delete(timer); if (!state.cancelled) fn(); }, delay);
+    state.timers.add(timer); return timer;
+  };
+  const cleanup = () => {
+    if (!state.timers.size && PG.restoreTimers.get(n.id) === state) {
+      state.unbind?.(); PG.restoreTimers.delete(n.id);
+    }
+  };
+  const currentDocument = () => {
+    if (state.cancelled || !f.isConnected || !ST.nodes.includes(n)) return false;
+    try { return f.hasAttribute("src") && f.contentDocument === d; } catch { return false; }
+  };
+  if (pending) n._pgRestoring = true;
+  pgWatchScroll(d);
+  if (reading || !p.stay) try { cw.eval("typeof PJ === 'object' && (PJ.jumped = true)"); if (cw.S) { cw.S.focusDone = true; cw.S.scrollChat = false; } } catch {}   // its own "start at the latest words" stands down
   let touched = false; const mark = () => { touched = true; delete n._pgRestoring; };
-  for (const ev of ["wheel", "keydown", "pointerdown"]) d.addEventListener(ev, mark, { capture: true, once: true, passive: true });
+  const interaction = ["wheel", "keydown", "pointerdown", "touchstart"];
+  state.unbind = () => { for (const ev of interaction) d.removeEventListener?.(ev, mark, true); };
+  for (const ev of interaction) d.addEventListener(ev, mark, { capture: true, once: true, passive: true });
   const put = () => {                               // the message that was at the top, where it was — held while the conversation fills in
+    if (reading) {
+      const box = d.querySelector('#cdlg');
+      if (!box?.clientHeight || !d.querySelector('#cdlgIn')?.firstElementChild) return false;
+      const anchor = reading.anchor && d.getElementById(reading.anchor);
+      box.scrollTop = anchor ? box.scrollTop + anchor.getBoundingClientRect().top - box.getBoundingClientRect().top + reading.offset : reading.scrollTop;
+      return !!anchor || (!reading.anchor && Math.abs(box.scrollTop - reading.scrollTop) < 1);
+    }
     const box = d.querySelector("#cdlg"), ms = [...d.querySelectorAll("#cdlgIn .cmsg")]; if (!box || !ms.length || !box.clientHeight || (p.msgs && ms.length < p.msgs)) return false;
     if (p.end) box.scrollTop = box.scrollHeight;
     else { const m = ms[Math.min(p.msg || 0, ms.length - 1)]; box.scrollTop += m.getBoundingClientRect().top - box.getBoundingClientRect().top + (p.off || 0); }
@@ -129,22 +195,31 @@ window.pgRestore = function (n, f) {               // a window of the page you s
   };
   const t0 = Date.now(); let restoredAt = null;
   const tick = () => {
-    if (touched || p.stay || n.managerProject || !ST.nodes.includes(n)) { delete n._pgRestoring; return; }
+    if (!currentDocument() || touched || (!reading && (p.stay || n.managerProject))) { delete n._pgRestoring; cleanup(); return; }
     let restored = false; try { restored = put(); } catch {}
     if (restored && restoredAt == null) restoredAt = Date.now();
-    // Slow history requests must not consume the restoration window before messages arrive.
-    if (restoredAt == null || Date.now() - restoredAt < 6000) setTimeout(tick, 250);
-    else delete n._pgRestoring;
+    // Let slow history finish, but don't retain a closed/replaced iframe forever.
+    const waitingForContent = restoredAt == null;
+    const remaining = waitingForContent ? 30000 - (Date.now() - t0) : 6000 - (Date.now() - restoredAt);
+    if (remaining > 0) schedule(tick, Math.min(250, remaining));
+    else { delete n._pgRestoring; cleanup(); }
   };
-  setTimeout(tick, 150);
-  const draft = () => { const t = d.querySelector("#chatText"); if (!t) return Date.now() - t0 < 6000 && setTimeout(draft, 250);
-    if (p.draft && !t.value.trim()) { t.value = p.draft; try { cw.S.chatDraft = p.draft; } catch {} t.dispatchEvent(new Event("input", { bubbles: true })); } };
-  setTimeout(draft, 150);
+  const draft = () => {
+    if (!currentDocument()) { cleanup(); return; }
+    const t = d.querySelector("#chatText");
+    if (!t) { const remaining = 30000 - (Date.now() - t0); if (remaining > 0) schedule(draft, Math.min(250, remaining)); else cleanup(); return; }
+    state.draftPending = false;
+    if (p.draft && !t.value.trim()) { t.value = p.draft; try { cw.S.chatDraft = p.draft; } catch {} t.dispatchEvent(new Event("input", { bubbles: true })); }
+    cleanup();
+  };
+  if (restoreDraft) schedule(draft, 150);
+  if (reading) tick(); else schedule(tick, 150);
 };
 
 /* ------------------------------------------------ add, switch, rename, write over, delete */
 async function pgGo(id) {
   if (id === PG.cur) return;
+  if (typeof stFileCanClose === "function" && stWins().some(n => n.file && !stFileCanClose(n))) return;
   await pgSaveCur(true);
   let p; try { p = await api(pgUrl(id)); } catch (e) { toast(L("打不开这个页面：", "Could not open the page: ") + e.message); return; }
   PG.cur = id; localStorage.setItem("pga_page_cur", id); PG.sig = "";
@@ -184,13 +259,19 @@ async function pgDel(id) {
   const p = PG.list.find((x) => x.id === id); if (!p) return;
   if (PG.list.length < 2) { toast(L("至少要留一个页面", "Keep at least one page")); return; }
   if (!confirm(L(`删掉页面「${pgName(p)}」？里面的对话本身不会删，只是这一页的排法和进度没了。`, `Delete the page “${pgName(p)}”? Its conversations stay; only this arrangement goes.`))) return;
-  if (id === PG.cur) await pgGo(PG.list.find((x) => x.id !== id).id);
+  if (id === PG.cur) { await pgGo(PG.list.find((x) => x.id !== id).id); if (id === PG.cur) return; }
   try { await api(pgUrl(id), { method: "DELETE" }); } catch {}
   PG.list = PG.list.filter((x) => x.id !== id); pgBtn(); pgPanelDraw();
 }
 
 /* ------------------------------------------------ the button on the map, and the panel it opens: every page, searchable */
-window.pgBtn = function () { const b = $("#stpgb"); if (b) b.innerHTML = `▤ ${esc(pgName(pgCur()))} <em>▾</em>`; };
+window.pgBtn = function () {
+  const button = $("#stpgb");
+  if (!button) return;
+  button.innerHTML = `<svg class="st-glyph" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <rect x="2" y="2.5" width="12" height="11" rx="2"/><path d="M2 6h12"/>
+  </svg><span class="stpg-name">${esc(pgName(pgCur()))}</span><em aria-hidden="true">▾</em>`;
+};
 const pgTitle = (c) => { const t = c.key && stTitle(c.key); return t && t !== c.key ? t : c.prog?.title || t || L("新对话", "New chat"); };   // known now, else as it was when saved
 function pgChatLine(c) {
   const p = c.prog || {}, t = pgTitle(c);
@@ -219,7 +300,8 @@ function pgPanel(btn) {
   if ($("#pgpanel")) { $("#pgpanel").remove(); return; }
   document.querySelector(".stmenu")?.remove();
   const b = btn.getBoundingClientRect(), m = document.createElement("div"); m.id = "pgpanel"; m.className = "pgpanel card";
-  m.style.left = Math.max(8, Math.min(b.left, innerWidth - 480)) + "px"; m.style.top = b.bottom + 6 + "px";
+  m.style.left = Math.max(8, Math.min(b.left, innerWidth - 480)) + "px"; if (btn.closest('.map-bottom')) m.style.bottom = (innerHeight - b.top + 6) + 'px';
+  else m.style.top = b.bottom + 6 + 'px';
   m.innerHTML = `<div class="pgh"><b>${L("页面", "Pages")}</b><span class="cvdim">${L("整个台面的快照：打开了哪些对话、怎么排的、每个读到哪。一次处理一个", "Snapshots of the whole stage: which conversations, how they stand, how far each got. One at a time")}</span></div>
     <div class="pgtools"><input id="pgq" placeholder="${L("搜页面名或里面的对话…", "Search pages or their conversations…")}"><button class="sm" data-pgnew>＋ ${L("新建空白", "New")}</button><button class="sm" data-pgshot title="${L("把现在的台面另存一份，你留在当前页面", "Keep the stage as it is now under a name; you stay on this page")}">📸 ${L("存快照", "Snapshot")}</button></div>
     <div class="pglist" id="pglist"></div>`;
@@ -265,7 +347,7 @@ async function pgInit() {
     else {
       // pga_st4 stores the layout but not the arena scroll offset.
       try { pgApply((await api(pgUrl(PG.cur))).snap); } catch {
-        for (const n of stWins()) if (!n.pad && n.prog) PG.pending.set(n.id, n.prog);
+        for (const n of stWins()) if (!n.pad && !n.file && n.prog) PG.pending.set(n.id, n.prog);
       }
     }
   }
@@ -275,4 +357,9 @@ async function pgInit() {
   const s = pgSnap(); PG.sig = JSON.stringify(s.nodes) + JSON.stringify(s.ws);
   PG.ready = true; pgBtn(); pgPanelDraw();
 }
-{ const w = setInterval(() => { if (S.uid && $("#vStage")?.dataset.ready) { clearInterval(w); pgInit(); } }, 300); }
+// Only opening the stage needs saved pages. Conversation frames never poll for it.
+function pgStart() {
+  if (!S.uid || PG.ready || PG.starting) return PG.starting;
+  PG.starting = pgInit().finally(() => { PG.starting = null; });
+  return PG.starting;
+}

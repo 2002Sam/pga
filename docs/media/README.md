@@ -4,6 +4,7 @@
 
 - `pga-witch-cat.png`：用户选定的完整魔女猫形象。
 - `pga-witch-cat-head.png`：透明背景的大头照，作为应用 Logo 的源图。
+- `pga-witch-cat-logo-orange.png`：大头照放在橙色圆角底上的 Logo，网页、favicon、PWA 用；`pga-witch-cat-logo-orange-macos.png` 按 Apple 图标网格留边，Dock 图标用。由 `scripts/make-orange-logo.py` 合成，`bash scripts/build-icons.sh --compose` 重新合成并出全部尺寸。
 - `../../src/pga/web/icons/`：各尺寸 PNG 与 macOS `PGA.icns`。
 
 头像使用内置 imagegen 从获选角色图编辑得到。核心指令：保留原图黑猫、慵懒眼神、歪帽和手绘质感，只保留头部与完整帽子，去掉身体和背景。用 `bash scripts/build-icons.sh` 生成不同尺寸；调整品牌时先更新源图，再执行脚本。

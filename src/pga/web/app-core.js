@@ -11,6 +11,7 @@ const S = { uid: AS_UID || store.get("pga_uid"), view: (Q.get("view") === "canva
   mode: store.get("pga_tree_mode") || "thought", dir: store.get("pga_tree_dir") || "down", beh: {}, contRefs: [], bud: null, tree: null, detail: {}, tab: store.get("pga_drawer_tab") || "overview",
   drawer: false, search: "", seen: new Set(), agents: [], sending: false, op: null, showHidden: false, forest: null, draft: "", proc: null, live: [],
   chats: null, chat: Q.get("c"), chatTurns: {}, chatDraft: "", chatRefs: [], chatAgent: Q.get("agent") || store.get("pga_chat_agent") || "auto", planting: false };
+if (EMBED && window.frameElement?._pgaInView === false) S.stageDormant = true;
 /* Explicit choices belong to a conversation, never to the other open windows. */
 const conversationDefaultAgent = S.chatAgent;
 function chatChoiceKey() { return S.lineView ? S.lineTarget || '' : S.chat || S.imp?.key || ''; }
@@ -44,7 +45,30 @@ const treeApi = () => { const p = YOU() ? `/v1/users/${S.uid}/tree` : `/v1/aims/
 const when = (iso) => iso ? new Date(iso).toLocaleString(EN ? "en-GB" : "zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
 const ago = (iso) => { if (!iso) return ""; const s = (Date.now() - new Date(iso)) / 1000;
   return s < 60 ? L("刚刚", "just now") : s < 3600 ? L(`${Math.floor(s / 60)} 分钟前`, `${Math.floor(s / 60)}m ago`) : s < 86400 ? L(`${Math.floor(s / 3600)} 小时前`, `${Math.floor(s / 3600)}h ago`) : L(`${Math.floor(s / 86400)} 天前`, `${Math.floor(s / 86400)}d ago`); };
-function toast(m) { const t = $("#toast"); t.textContent = m; t.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("on"), 3400); }
+/* 提醒: a card at the top right of the whole window (a page in a frame hands it up), one under another, newest on top —
+   an icon, what it is about, the line itself. Click it for what it points at (onClick), × to dismiss; a pointer over it
+   holds it. done / warn stay longer than a plain note. key: a later card with the same key takes this one's place, unless
+   this one carries more (prio). toast(text) is the plain note. */
+const NT_ICON = { info: "i", done: "✓", warn: "!", run: "…" };
+function notice(o) {
+  try { const top = window.top; if (top !== window && top.location.origin === location.origin && top.notice) return top.notice(o); } catch {}
+  if (o.key && o.onClick && (o.kind === 'done' || (o.kind === 'warn' && !window.PGA_NATIVE?.petNotifications)) && window.petShow) return window.petShow(o);
+  let box = document.getElementById("ntbox");
+  if (!box) { box = document.createElement("div"); box.id = "ntbox"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
+  const kind = o.kind || (/失败|出错|错误|没能|不能|无法|error|fail|cannot|could not/i.test(`${o.title || ""} ${o.text || ""}`) ? "warn" : "info");
+  const old = o.key && [...box.children].find((c) => c.dataset.key === o.key);
+  if (old && (old._prio || 0) > (o.prio || 0) && Date.now() - old._at < 15000) return old;
+  old?.remove();
+  const c = document.createElement("div"); c.className = `ntc nt-${kind}${o.onClick ? " act" : ""}`; c.dataset.key = o.key || ""; c._prio = o.prio || 0; c._at = Date.now();
+  c.innerHTML = `<i class="nti">${NT_ICON[kind] || "i"}</i><div class="ntb">${o.title ? `<b>${esc(o.title)}</b>` : ""}<span>${esc(o.text || "")}</span></div><button class="ntx" title="${L("关掉", "Dismiss")}">×</button>`;
+  const shut = () => { c.classList.add("out"); setTimeout(() => c.remove(), 260); };
+  const arm = () => { clearTimeout(c._t); c._t = setTimeout(shut, o.ms || (kind === "info" ? 4200 : 9000)); };
+  c.addEventListener("click", (e) => { if (e.target.closest(".ntx")) return shut(); if (o.onClick) { try { o.onClick(); } catch {} shut(); } });
+  c.addEventListener("pointerenter", () => clearTimeout(c._t)); c.addEventListener("pointerleave", arm);
+  box.prepend(c); while (box.children.length > 4) box.lastElementChild.remove();
+  arm(); return c;
+}
+function toast(m, o = {}) { return notice({ text: String(m ?? ""), ...o }); }
 /* The big lists every page refreshes (the forest, the chats, the time tree, the categories, the agents) are fetched once for
    the whole window: the stage and every conversation in a frame on it ask the top window, which fetches at most once per
    SHARED_MS and hands the same answer to all of them (when the server's answer did not change, the very same object, so a
@@ -58,12 +82,14 @@ if (pgaTop === window) window.__pgaShared = (() => {
     get(path) {
       const e = m.get(path); if (e && (e.busy || Date.now() - e.at < SHARED_MS)) return e.p;
       const n = { at: Date.now(), busy: true, text: e?.text, data: e?.data };
-      n.p = fetch(path).then(async (res) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      n.p = fetch(path, {signal:controller.signal}).then(async (res) => {
         const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
         if (!res.ok) throw new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText);
         if (n.text === text) return n.data;                     // unchanged: the same object as last time
         n.text = text; n.data = data; return data;
-      }).catch((err) => { m.delete(path); throw err; }).finally(() => { n.busy = false; n.at = Date.now(); });
+      }).catch((err) => { if (m.get(path) === n) m.delete(path); throw err; }).finally(() => { clearTimeout(timeout); n.busy = false; n.at = Date.now(); });
       m.set(path, n); return n.p;
     },
   };
@@ -73,7 +99,7 @@ async function api(path, opts = {}) {
   if (method === "GET" && SHARED_GET.test(path)) return pgaTop.__pgaShared.get(path);
   if (method !== "GET") pgaTop.__pgaShared?.clear();
   try {
-    const res = await fetch(path, { method, headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined });
+    const res = await fetch(path, { method, headers: opts.body ? { "Content-Type": "application/json" } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined, signal: opts.signal });
     const text = await res.text(); let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (!res.ok) throw new Error((data && (data.detail?.toString?.() || data.error)) || res.statusText);
     return data;
@@ -82,7 +108,7 @@ async function api(path, opts = {}) {
 function localFileLink(href) {
   if (!href || href.startsWith("//") || href.startsWith("#")) return false;
   if (/^(file:|sandbox:|\/Users\/|\/tmp\/|\/private\/|\/mnt\/|~\/)/i.test(href)) return true;
-  return !/^[a-z][a-z\d+.-]*:/i.test(href) && /\.(pdf|docx?|rtf|odt|ods|odp|xlsx?|xlsm|pptx?|csv|tsv|txt|md|tex|png|jpe?g|gif|webp|svg|zip|py|js|ts|jsx|tsx|html|css|json|ya?ml|toml|xml|sql|swift|go|rs|cpp|java|sh|mjs|svelte|log|cjs|scss|less|vue|kt|rb|php|lua|scala|dart|cs|hpp|cc|c|h|zsh|bash|ini|cfg|conf|jsonl|ipynb|graphql|proto|bib|diff|patch)(?:[:#?]|$)/i.test(href);
+  return !/^[a-z][a-z\d+.-]*:/i.test(href) && /\.(pdf|docx?|rtf|odt|ods|odp|xlsx?|xlsm|pptx?|csv|tsv|txt|md|tex|png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm|ogv|mkv|avi|zip|py|js|ts|jsx|tsx|html|css|json|ya?ml|toml|xml|sql|swift|go|rs|cpp|java|sh|mjs|svelte|log|cjs|scss|less|vue|kt|rb|php|lua|scala|dart|cs|hpp|cc|c|h|zsh|bash|ini|cfg|conf|jsonl|ipynb|graphql|proto|bib|diff|patch)(?:[:#?]|$)/i.test(href);
 }
 let FILE_LINKS_ON = false;
 function outputImage(href, title, alt = "", caption = "") {
@@ -105,7 +131,7 @@ function fileLinkExtensions() {
     return `<img class="pga-output-image" src="${esc(href)}" alt="${esc(text || "")}" title="${esc(title || text || "")}" loading="lazy" decoding="async">`;
   } } });
 }
-const md = (t) => (window.marked && window.DOMPurify ? (fileLinkExtensions(), typeof mathExtensions === "function" && mathExtensions(), DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"), { breaks: true, gfm: true }))) : esc(t));
+const md = (t) => (window.marked && window.DOMPurify ? (fileLinkExtensions(), typeof mathExtensions === "function" && mathExtensions(), DOMPurify.sanitize(marked.parse(String(t || "").replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>"), { breaks: true, gfm: true }))) : esc(t).replace(/\r\n?|\n/g, "<br>"));
 const asq = AS_UID ? `?as=${encodeURIComponent(AS_UID)}` : "";
 const qs = () => {
   const q = new URLSearchParams();
@@ -113,6 +139,8 @@ const qs = () => {
   if (S.view === "chats") { q.set("view", "chats"); if (S.chat) q.set("c", S.chat); }
   const manager = S.view === "chats" && window.pmProjectFor?.(S.chat);
   if (manager) q.set("manager", manager);
+  if (Q.get('embed')) q.set('embed', Q.get('embed'));
+  if (manager) for (const mode of ['pmfull', 'pmpanel', 'pmfrom']) if (Q.get(mode)) q.set(mode, Q.get(mode));
   if (["notes", "looks", "graph", "home"].includes(S.view)) q.set("view", S.view);
   if (AS_UID) q.set("as", AS_UID); if (Q.get("lang")) q.set("lang", Q.get("lang"));
   const s = q.toString(); return s ? "?" + s : location.pathname;

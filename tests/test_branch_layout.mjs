@@ -8,7 +8,7 @@ const block = source.slice(start, source.indexOf('    const zones =', start));
 function layout(count, selected, height) {
   const wins = Array.from({length:count}, (_,i)=>({id:`child-${i}`}));
   const positions = new Map();
-  const context = vm.createContext({
+  const context = vm.createContext({ST_MINW:300,
     u:{kind:'stack',wins,par:{sel:`child-${selected}`},x:200,w:600}, A:{h:height}, ST:{focus:`child-${selected}`},pos:positions,esc:x=>x,
     el:()=>({classList:{toggle(){},add(){},remove(){},contains(){return false;}},querySelector(){return null;}}),
     place(){}, stMiniLook(){},stShortLook(){},stKidKeep(){},stKidLook(){},stWsLook(){},stSmallLook(){},L:zh=>zh
@@ -26,18 +26,20 @@ for(const [count,height] of [[2,900],[3,650],[6,500]]) {
 }
 test('canvas wheel no longer selects a sibling or intercepts vertical scrolling',()=>{
   const start = source.indexOf('  arena.addEventListener("wheel",');
-  const end = source.indexOf('  arena.addEventListener("contextmenu",',start);
-  let handler;
-  const context = vm.createContext({arena:{addEventListener:(_,fn)=>{handler=fn;}},stEdgeWheel:(dx,dy)=>Math.abs(dx)>Math.abs(dy)});
+  const end = source.indexOf('  arena.addEventListener("mousedown",',start);
+  let handler, userScrolls=0;
+  const context = vm.createContext({stGlideLast:{}, stPmUser:()=>userScrolls++, arena:{addEventListener:(_,fn,opts)=>{handler=fn;assert.equal(opts.passive,true);}}});
   vm.runInContext(source.slice(start,end),context);
   let prevented=false;
   handler({deltaX:0,deltaY:120,preventDefault(){prevented=true;}});
-  assert.equal(prevented,false);
+  assert.equal(userScrolls,0);
+  handler({deltaX:120,deltaY:0,preventDefault(){prevented=true;}});
+  assert.equal(userScrolls,1);assert.equal(prevented,false);
   assert.ok(!source.includes('stBranchWheel'));
 });
 
 test('divider changes only its two neighbors and preserves total height and focus independence',()=>{
-  const context=vm.createContext({});
+  const context=vm.createContext({ST_MINW:300,});
   vm.runInContext(source.slice(source.indexOf('function stBranchHeights('),source.indexOf('function stDetachBranch(')),context);
   const wins=[{branchWeight:200},{branchWeight:200},{branchWeight:200}];
   context.stResizeBranchPair({top:wins[0],bottom:wins[1],topHeight:200,bottomHeight:200},70);
@@ -53,7 +55,7 @@ test('title drag detaches a branch without changing its identity, descendants or
   const parent={id:'p',key:'chat:parent',kids:['a','b'],sel:'a',ord:0};
   const child={id:'a',key:'chat:a',branchKey:'chat:a',par:'p',kids:['grandchild'],el:frame,branchWeight:200};
   const sibling={id:'b',key:'chat:b',par:'p'};
-  const context=vm.createContext({ST:{nodes:[parent,child,sibling],pos:new Map([['a',{w:420}]])},ST_WW:660,
+  const context=vm.createContext({ST_MINW:300,ST:{nodes:[parent,child,sibling],pos:new Map([['a',{w:420}]])},ST_WW:660,
     stFreezeWidths(){},stKids:n=>n.kids.map(id=>[child,sibling].find(k=>k.id===id)),stWins:()=>[parent,child,sibling],stRender(){},stSave(){}});
   vm.runInContext(source.slice(source.indexOf('function stDetachBranch('),source.indexOf('// A tucked branch')),context);
   context.stDetachBranch(child);

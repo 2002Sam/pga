@@ -8,7 +8,7 @@ function setup(data, wins = []) {
   const box = { innerHTML: '', scrollTop: 0 }, sent = [];
   const ctx = { S: { uid: 'u' }, ST: { nodes: wins.map(w=>({type:"win",...w})) }, stWins: () => wins, stBusy: () => false,
     api: async (url, opts) => { sent.push(opts.body); return data; }, esc: (s) => String(s ?? ''), L: (zh) => zh, ago: () => '刚刚', hueOf: () => 10,
-    document: { querySelector: (q) => q === '#pmtree' ? box : null, querySelectorAll: () => [], addEventListener() {} }, addEventListener() {}, CSS: { escape: (s) => s } };
+    document: { documentElement: { dataset: { pmfull: 'graph' } }, querySelector: (q) => q === '#pmtree' ? box : null, querySelectorAll: () => [], addEventListener() {} }, addEventListener() {}, CSS: { escape: (s) => s } };
   ctx.window = ctx; vm.runInNewContext(src, ctx);
   return { ctx, box, sent, run: (code) => vm.runInContext(code, ctx) };
 }
@@ -53,6 +53,43 @@ test('opening a category uses one stable normal stage window and deduplicates si
   assert.equal(t.sent.length, 1); assert.equal(t.ctx.ST.nodes.length, 1);
 });
 
+test('returning to a loading category opens the latest choice instead of its invalidated request', async () => {
+  const t = setup(DATA), pending = new Map(), opened = [];
+  t.ctx.S.view = 'stage';
+  t.ctx.api = (url, opts) => new Promise(resolve => pending.set(opts.body.project, resolve));
+  t.ctx.stOpen = (key, options) => { opened.push(options.managerProject); return {}; };
+  t.ctx.toast = message => assert.fail(message);
+  const first = t.ctx.mgOpen('简历投递');
+  const second = t.ctx.mgOpen('PGA');
+  const latest = t.ctx.mgOpen('简历投递');
+  assert.equal(pending.size, 2, 'lookups remain shared even when the opening intent changes');
+  pending.get('简历投递')({...DATA, project:'简历投递', manager:'chat:pm-resume'});
+  await Promise.all([first, latest]);
+  pending.get('PGA')(DATA); await second;
+  assert.deepEqual(opened, ['简历投递']);
+});
+
+for (const order of ['category then edge', 'edge then category']) test(`latest manager click wins across entries: ${order}`, async () => {
+  const t = setup(DATA), pending = new Map(), opened = [];
+  t.ctx.S.view = 'stage';
+  t.ctx.ST.nodes.push({id:'source', type:'win', key:'chat:source'});
+  t.ctx.stGroupOf = () => ({id:'pj:PGA'});
+  t.ctx.stOpen = (key, options) => { opened.push(options.managerProject); return {}; };
+  t.ctx.toast = message => assert.fail(message);
+  t.ctx.document.getElementById = () => null;
+  t.ctx.renderChat = () => {};
+  t.ctx.api = (url, opts) => new Promise(resolve => pending.set(opts.body.project, resolve));
+  vm.runInContext(fs.readFileSync(new URL('../src/pga/web/app-manager-panel.js', import.meta.url),'utf8'), t.ctx);
+  const category = () => t.ctx.mgOpen('简历投递');
+  const edge = () => t.ctx.pmPanelStageOpen('source');
+  const [first, latest] = order === 'category then edge' ? [category(), edge()] : [edge(), category()];
+  const lastProject = order === 'category then edge' ? 'PGA' : '简历投递';
+  pending.get(lastProject)({...DATA, project:lastProject, manager:'chat:pm-latest'}); await latest;
+  const oldProject = lastProject === 'PGA' ? '简历投递' : 'PGA';
+  pending.get(oldProject)({...DATA, project:oldProject, manager:'chat:pm-old'}); await first;
+  assert.deepEqual(opened, [lastProject]);
+});
+
 test('a manager frame gets references and running state from the enclosing stage', async () => {
   const t = setup(DATA);
   const wins = [{type:'win',id:'root',key:'chat:a'}, {type:'win',id:'kid',key:'chat:d',links:[{from:'root'}]}];
@@ -93,6 +130,7 @@ test('fit keeps nodes and labels above the controls in a narrow embedded graph',
 
 test('search pages render distinct sources and ignore stale responses', async () => {
   const t=setup(DATA), pending=[], box={innerHTML:'',textContent:''}, input={value:''};
+  t.ctx.document.documentElement.dataset.pmfull='search';
   t.ctx.document.querySelector=q=>q==='#pmhits'?box:q==='#pmquery'?input:null;
   t.ctx.api=url=>new Promise(resolve=>pending.push({url,resolve}));
   t.run('PM.name="PGA"');
@@ -108,4 +146,15 @@ test('search pages render distinct sources and ignore stale responses', async ()
 
 test('manager no longer exposes its conversation tree', () => {
   assert.doesNotMatch(src,/data-cvopen|function pmTree/);
+});
+
+test('a sidebar manager reaches the outer stage and follows its source conversation',()=>{
+  const t=setup(DATA), stage={mgOpen(){},ST:{nodes:[]}};stage.parent=stage;
+  const chat={mgOpen(){},parent:stage,pmPanelSource:()=> 'chat:a'};
+  t.ctx.parent=chat;t.ctx.Q=new URLSearchParams('pmpanel=1');t.ctx.S.chat='chat:pm-x';
+  assert.equal(t.run('pmHost()'),stage);assert.equal(t.run('pmSourceKey()'),'chat:a');
+  chat.pmPanelSource=()=> 'chat:b';assert.equal(t.run('pmSourceKey()'),'chat:b');
+  t.ctx.parent=stage;stage.pmPanelSource=()=> 'chat:unrelated';
+  t.ctx.Q=new URLSearchParams('pmpanel=1&pmfull=graph&pmfrom=chat:b');
+  assert.equal(t.run('pmSourceKey()'),'chat:b','full view retains the originating chat, not the stage’s old selection');
 });

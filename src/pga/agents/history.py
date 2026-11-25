@@ -62,6 +62,8 @@ def everything(session: "Session", user_id: uuid.UUID, limit: int = 200) -> list
     """PGA's own conversations with its agents, for the shared timeline (newest first)."""
     groups: dict[str, list[AgentRun]] = {}
     for r in _asks(session, user_id):
+        if _conv(r).startswith("chat:mt-"):
+            continue
         groups.setdefault(_conv(r), []).append(r)
     out = []
     for conv, runs in groups.items():

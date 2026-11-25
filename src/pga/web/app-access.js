@@ -115,7 +115,7 @@ setInterval(async () => {
     const a = row.approval;
     modal(`<h2>${L('允许这次操作？','Allow this operation?')}</h2><div class="muted">${L('自动权限：操作正在等待你的决定。','Auto access: this operation is waiting for your decision.')}</div>
       <pre style="max-height:40vh;overflow:auto;white-space:pre-wrap">${esc(JSON.stringify(a.details, null, 2))}</pre>
-      <div class="row"><button data-tool-approval="deny" data-id="${esc(a.id)}">${L('拒绝','Deny')}</button><button data-tool-approval="allow" data-id="${esc(a.id)}">${L('允许这次','Allow once')}</button><button class="primary" data-tool-approval="full" data-id="${esc(a.id)}">${L('本对话改为完全权限','Full access for this conversation')}</button></div>`);
+      <div class="row"><button data-tool-approval="deny" data-id="${esc(a.id)}">${L('拒绝','Deny')}</button><button data-tool-approval="allow" data-id="${esc(a.id)}">${L('允许这次','Allow once')}</button><button class="primary" data-tool-approval="full" data-id="${esc(a.id)}">${L('本对话改为完全权限','Full access for this conversation')}</button></div><div data-approval-status role="status"></div>`);
   } catch (e) { console.warn('approval poll', e); }
   finally { accApprovalPolling = false; }
 }, 1000);
@@ -127,10 +127,20 @@ document.addEventListener('click', async e => {
   if (e.target.closest('[data-acc-close]')) { document.querySelector('#accInline')?.remove(); return; }
   const b = e.target.closest('[data-tool-approval]'); if (!b || b.disabled) return;
   const box = b.closest('.modal'); box?.querySelectorAll('button').forEach(x => x.disabled = true);
+  const status = box?.querySelector('[data-approval-status]');
+  if (status) status.textContent = L('正在处理，请稍候…', 'Processing, please wait…');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const r = await api(`/v1/users/${S.uid}/approvals/${encodeURIComponent(b.dataset.id)}`, {method:'POST', body:{decision:b.dataset.toolApproval}});
+    const r = await api(`/v1/users/${S.uid}/approvals/${encodeURIComponent(b.dataset.id)}`, {method:'POST', body:{decision:b.dataset.toolApproval}, signal:controller.signal});
     if (r.access) S.acc[r.key] = r.access;
     box?.remove();
     if (r.access) document.querySelectorAll('[data-acc]').forEach(x => { if (x.dataset.acc === r.key) x.outerHTML = accBtn(r.key); });
-  } catch (err) { toast(err.message); box?.querySelectorAll('button').forEach(x => x.disabled = false); }
+  } catch (err) {
+    const message = controller.signal.aborted
+      ? L('审批请求超时，尚未确认是否保存。请刷新检查权限；若仍卡住，请重启 PGA 后端。', 'Approval timed out; saving is unconfirmed. Refresh to check access; if still stuck, restart the PGA backend.')
+      : err.message;
+    if (status) status.textContent = message;
+    toast(message); box?.querySelectorAll('button').forEach(x => x.disabled = false);
+  } finally { clearTimeout(timeout); }
 });

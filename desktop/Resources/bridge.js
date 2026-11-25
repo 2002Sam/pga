@@ -5,7 +5,10 @@
    - what is wired into the window's left dot goes to its conversation's agents (PUT /chat-context), as on the stage;
    - focus: into the composer;
    - in 完整版, the stage has no dark bar across its top, and the window (which has no title bar) moves by the page's
-     empty top edge. */
+     empty top edge;
+   - in a 管理员小窗 (N.manager: one category's manager on its own, no stage around it), a conversation it points to
+     floats out beside it instead of the page turning into the stage, and a double-click edit is done on 完整版's stage;
+   - jump: a conversation's page scrolled to one of your inputs (by its run, else its first words). */
 (() => {
   const N = window.PGA_NATIVE || {};
   const post = (m) => { try { webkit.messageHandlers.pga.postMessage(m); } catch (e) {} };
@@ -21,6 +24,15 @@
       if (sig !== last) { last = sig; post({ kind: "state", key: k, title: t }); }
     }, 1200);
     addEventListener("load", () => post({ kind: "ready" }));
+  }
+
+  if (N.manager) {                                 // the page's own stage functions would turn this small window into the stage
+    const open = (k, run, find) => { if (k) post({ kind: "open", key: k, run: run || "", find: find || "" }); };
+    window.pdBeside = (k, run, find) => { open(k, run, find); return null; };
+    window.mgGo = (k, text) => open(k, "", text);
+    window.pjGo = (k, run, text) => { if (k && k === key()) { if (window.pjJump) window.pjJump(run, text); } else open(k, run, text); };
+    window.stOpen = () => null;                    // a task it hands out is followed in the document, not opened beside it
+    window.pdEditBranch = (k, run, find) => post({ kind: "editOnStage", key: k, run: run || "", find: find || "" });
   }
 
   if (!N.float) {                                  // 完整版: no dark bar across the top of the stage — its hint goes, its two buttons stay in the corner
@@ -40,11 +52,6 @@
       if (c && c !== bg && !/rgba\(0, 0, 0, 0\)/.test(c)) { bg = c; post({ kind: "bg", color: c }); } };
     addEventListener("load", tell); setInterval(tell, 2000);
   }
-
-  addEventListener("contextmenu", (e) => {
-    if (!N.float || e.target.closest("textarea, input, [contenteditable]") || String(getSelection() || "")) return;
-    e.preventDefault(); post({ kind: "menu" });
-  });
 
   let inputs = [], sent = null;
   async function context() {
@@ -69,5 +76,15 @@
     focus: () => { const t = document.querySelector("#chatText"); if (t) t.focus(); },
     dropped: (paths) => { const t = document.querySelector("#chatText"); if (!t) return; t.value = (t.value ? t.value + "\n" : "") + paths.map((p) => "文件：" + p).join("\n"); t.dispatchEvent(new Event("input")); t.focus(); },
     dragging: () => {},
+    // looked at again a few times, as a page still loading re-renders (as the manager does on the stage: pdJumpIn)
+    jump: (j) => {
+      let tries = 0, found = 0;
+      const go = () => {
+        let ok = false; try { ok = !!(window.pjJump && window.pjJump(j.run || "", j.find || "", found > 0)); } catch (e) {}
+        if (ok) { if (++found < 4) setTimeout(go, 800); return; }
+        if (++tries < 30) setTimeout(go, 400);
+      };
+      setTimeout(go, 300);
+    },
   };
 })();

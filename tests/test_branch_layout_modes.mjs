@@ -7,7 +7,7 @@ test('layout toggle includes promoted and docked children without capturing othe
  const parent={id:'p',key:'chat:p',kidsCollapsed:true};
  const kids=[{id:'a',type:'win',par:'p',branchDocked:true},{id:'b',type:'win',branchParent:'p',branchFrom:'chat:p'}];
  const other={id:'c',type:'win',par:'other',branchFrom:'chat:p'};
- const ctx=vm.createContext({ST:{nodes:[parent,...kids,other]},stRender(){},stSave(){},stShow(){},ST_WW:660});
+ const ctx=vm.createContext({ST_MINW:300,ST:{nodes:[parent,...kids,other]},stRender(){},stSave(){},stShow(){},ST_WW:660});
  vm.runInContext(src.slice(src.indexOf('function stRelatedChildren('),src.indexOf('function stToggleLayer(')),ctx);
  ctx.stToggleBranchLayout(parent);
  assert.equal(parent.branchLayout,'column');assert.equal(parent.kidsCollapsed,false);

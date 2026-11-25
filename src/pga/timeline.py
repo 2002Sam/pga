@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
+from sqlalchemy.orm import load_only
 
 from pga.agent.common import UNTRUSTED_NOTE, ModelOutputError, fence, parse_json
 from pga.allocator import Estimates, Justification, RunRequest
@@ -117,17 +118,20 @@ class Timeline:
 
     # -------------------------------------------------------------- what happened
     def items(self, user: User, since: datetime) -> list[Item]:
+        from pga.qa_pool import public_key
         archived = set((user.preferences or {}).get("archived_chats") or [])
         items: dict[str, Item] = {}
         aims = {a.id: a for a in self.s.scalars(select(Aim).where(Aim.user_id == user.id))}
         nodes: dict[str, ThoughtNode | None] = {}
         for r in self.s.scalars(select(AgentRun).where(AgentRun.user_id == user.id, AgentRun.parent_id.is_(None),
                                                        AgentRun.workflow == "ask", AgentRun.started_at >= since)
-                                .order_by(AgentRun.started_at)):
+                                .options(load_only(AgentRun.id, AgentRun.data, AgentRun.prompt, AgentRun.agent,
+                                                   AgentRun.started_at, raiseload=True))
+                                .order_by(AgentRun.started_at).execution_options(yield_per=100)):
             d = r.data or {}
-            conv = str(d.get("conversation") or "")
+            conv = public_key(str(d.get("conversation") or ""))
             nid = d.get("node") or (conv[5:] if conv.startswith("node:") else None)
-            if conv.startswith(("exchange:", "second:", "regen:", "multi:", "chat:pm-")) or d.get("regen_of"):   # chat:pm-: a category's manager
+            if conv.startswith(("exchange:", "second:", "regen:", "multi:", "chat:pm-", "chat:mt-")) or d.get("regen_of"):   # managers and their internal tasks
                 continue
             if nid:                                                 # a branch of a thought tree
                 if nid not in nodes:
@@ -151,7 +155,8 @@ class Timeline:
                     continue
                 it = items.get(key)
                 if it is None:
-                    it = items[key] = Item(key, "chat", " ".join((r.prompt or "").split())[:80], agent=str(d.get("agent") or r.agent or ""),
+                    title = ((user.preferences or {}).get("chat_titles") or {}).get(key) or " ".join((r.prompt or "").split())[:80]
+                    it = items[key] = Item(key, "chat", title, agent=str(d.get("agent") or r.agent or ""),
                                            line=key, ref={"chat": key})
             it.times.append(r.started_at)
             it.runs.append(str(r.id))

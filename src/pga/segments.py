@@ -84,7 +84,7 @@ def questions(rt: "Runtime", user: User, ref: str | None) -> list[dict]:
         return _imported(rt, user, ref[2:])
     from pga.chats import ChatError, fold, runs_of
     try:
-        turns, _ = fold(runs_of(rt, user.id, ref))
+        turns, _ = fold(runs_of(rt, user.id, ref, aggregate=True))
     except ChatError:
         return []
     out = []

@@ -15,6 +15,26 @@ import threading
 import uvicorn
 
 
+def _raise_nofile_soft_limit(resource_module=None) -> bool:
+    """Raise this process's descriptor soft limit, without changing its hard limit."""
+    try:
+        if resource_module is None:
+            import resource as resource_module
+        resource_id = resource_module.RLIMIT_NOFILE
+        soft, hard = resource_module.getrlimit(resource_id)
+        infinity = getattr(resource_module, "RLIM_INFINITY", -1)
+        if soft == infinity:
+            return False  # already unlimited
+        target = 4096 if hard == infinity else min(int(hard), 4096)
+        if target <= soft:
+            return False
+        resource_module.setrlimit(resource_id, (target, hard))
+        return True
+    except (ImportError, AttributeError, OSError, ValueError, TypeError):
+        # Unsupported platforms and restricted launch environments keep their inherited limit.
+        return False
+
+
 def _make_worker():
     import pga.hub.jobs  # noqa: F401  (registers the hub.sync planner and handler)
     import pga.teams  # noqa: F401  (registers the planner for teams that meet on their own)
@@ -60,6 +80,7 @@ def _api() -> None:
 
 
 def main() -> None:
+    _raise_nofile_soft_limit()   # do this before starting API, worker, keeper, or their child processes
     logging.basicConfig(level=os.environ.get("PGA_LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     from pga.netenv import adopt_system_proxy

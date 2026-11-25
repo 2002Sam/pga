@@ -127,7 +127,7 @@ async function showSettings() {
   const t = S.proc?.task; if (!t) { toast(L("这个抱负还没有在长期运行：先按开始", "Not running yet: press Start first")); return; }
   let preset = "balanced"; try { preset = (await api(`/v1/aims/${S.aim}/allocation`)).settings?.preset || "balanced"; } catch {}
   let idl = { on: true, minutes: 60 }; try { idl = await api(`/v1/users/${S.uid}/idle`); } catch {}
-  modal(`<h2>${L("设置", "Settings")}</h2><button type="button" onclick="mrSettings()">模型快捷档位</button><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
+  modal(`<h2>${L("设置", "Settings")}</h2><button type="button" onclick="mrSettings()">选择模型</button><div class="muted" style="margin-bottom:12px">${L("这棵树的长期任务怎么跑。", "How this tree's long-running task works.")}</div>
     <div class="label">${L("驱动模式", "Drive mode")}</div>${LEVELS.map(([k, nm, d]) => `<label class="opt"><input type="radio" name="lvl" value="${k}" ${(t.autonomy || "checkpoint") === k ? "checked" : ""}><span><b style="font-weight:500">${nm}</b><div class="d">${d}</div></span></label>`).join("")}
     <div style="margin:4px 0 16px 26px;font-size:13px">${L("每想", "Stop every")} <input type="number" id="setEvery" min="1" max="50" value="${t.checkpoint_every || 6}" style="width:60px"> ${L("轮停下来一次", "rounds")}</div>
     <div class="label">${L("受控分叉 · 多次生成", "Controlled forking · samples")}</div>

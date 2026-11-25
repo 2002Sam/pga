@@ -36,7 +36,8 @@ Each conversation has its own window. Read them side by side, resize them, or fo
 
 - **Move around:** use `Shift` + scroll to pan across the workbench, or click the minimap to jump to a window.
 - **Fold and restore:** collapse a window, a category, or the entire workbench.
-- **Attach context:** connect files, notes, and related conversations to a working window.
+- **Plan tomorrow.** From the stage toolbar, choose More tools → Plan tomorrow to open a plan alongside your conversations. Describe tomorrow in a paragraph to get a timeline with actions and deliverables. Save the proposal directly or refine it with optional choices.
+- **Attach context:** connect files, plans, and related conversations to a working window.
 - **Save pages:** save the current arrangement as a page and restore windows, reading positions, and drafts when switching projects. Page snapshots are stored on the server.
 
 <details>
@@ -96,6 +97,8 @@ Six built-in styles support dark, light, and system appearance. Adjust font size
 </details>
 
 **macOS floating windows:** press `⌥ + Space` to open a floating conversation and `⌥ + ⇧ + Space` to switch between floating windows and the workbench. Drag files in from Finder. Build instructions are in [desktop/README.md](desktop/README.md).
+
+**Linux desktop & full-stack deployment:** one-command native Linux installer (`systemd` + `pga-desktop` standalone window) and Docker full-stack deployment are in [deploy/linux/README.md](deploy/linux/README.md) and [desktop-linux/README.md](desktop-linux/README.md).
 
 <a id="quick-start"></a>
 
@@ -191,8 +194,8 @@ By default, the installer places `workspaces/`, `state/`, `notes/`, `snapshots/`
 - Data is stored on your machine or server. Requests to remote models, search services, or agents send relevant content to those services. The web interface also loads some CDN resources.
 - Project context boundaries and executor file permissions are separate mechanisms. Restricting project context is not a filesystem sandbox; choose read-only, automatic, or full-approval permissions to suit the task.
 - Restoring a page restores its layout, reading positions, and drafts. It does not roll back the database or completed file operations.
-- The installer supports macOS and Linux, with most day-to-day validation on macOS. Native floating windows are macOS-only; Windows has not been validated.
-- The current distribution is installed from source. The root Compose file provides infrastructure, not a complete application deployment. A DMG installer and access authentication are planned.
+- The installer supports macOS and Linux (including a dedicated one-command Linux installer, Docker full-stack Compose in `deploy/linux/`, and standalone Linux desktop launcher in `desktop-linux/`). Native floating windows are macOS-only; Windows has not been validated.
+- The current distribution is installed from source or via `deploy/linux/docker-compose.yml`. A macOS DMG installer and access authentication are planned.
 
 <a id="development"></a>
 
@@ -210,6 +213,8 @@ src/pga/
 ├── api/                 # HTTP API
 └── web/                 # Web interface and witch cat icons
 desktop/                 # macOS floating windows
+desktop-linux/           # Linux standalone desktop launcher
+deploy/linux/            # Linux native installer & Docker full-stack deployment
 migrations/              # Database migrations
 tests/                   # Python and JavaScript tests
 scripts/                 # Installation, icons, and README screenshots

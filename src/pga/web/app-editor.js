@@ -60,13 +60,15 @@ window.addEventListener("pga:theme", () => { if (window.monaco?.editor) window.m
 function filePanel() {
   if (FILE_PANEL.host) return FILE_PANEL.host;
   const panel = document.createElement("section");
-  panel.id = "pgaFilePanel"; panel.hidden = true; panel.tabIndex = -1; panel.setAttribute("aria-label", L("文件工作区", "File workspace"));
+  panel.id = "pgaFilePanel"; panel.hidden = true; panel.tabIndex = -1; panel.setAttribute("aria-label", L("页面与文件", "Pages and files"));
   panel.innerHTML = `<div class="fp-resize" title="${L("拖动改变宽度", "Drag to resize")}"></div>
-    <div class="fp-tabbar"><nav class="filetabs" role="tablist" aria-label="${L("打开的文件", "Open files")}"></nav>
-      <div class="fp-tabacts"><button class="fp-ib" data-file-expand title="${L("展开 / 还原", "Expand / restore")}">⛶</button><button class="fp-ib" data-file-hide title="${L("收起查看器", "Hide the viewer")}">✕</button></div></div>
-    <div class="fp-crumbs"><span class="fp-path"></span><span class="grow"></span>
+    <div class="fp-tabbar"><nav class="filetabs" role="tablist" aria-label="${L("打开的网页和文件", "Open pages and files")}"></nav>
+      <div class="fp-tabacts"><button class="fp-ib" data-browser-new title="${L("打开网页", "Open a web page")}" aria-label="${L("打开网页", "Open a web page")}">＋</button><button class="fp-ib" data-file-expand title="${L("展开 / 还原", "Expand / restore")}">⛶</button><button class="fp-ib" data-file-hide title="${L("收起查看器", "Hide the viewer")}">−</button></div></div>
+    <div class="fp-crumbs"><button class="fp-tb" data-file-origin>↩ 返回会话</button><span class="fp-path"></span><span class="grow"></span>
+      <button class="fp-tb" data-file-translate hidden disabled>${L("翻译", "Translate")}</button>
       <button class="fp-tb fp-save" data-file-save disabled title="${L("保存（⌘S / Ctrl+S）", "Save (⌘S / Ctrl+S)")}">${L("保存", "Save")}</button>
       <button class="fp-ib" data-file-reload title="${L("重新载入文件", "Reload file")}" aria-label="${L("重新载入文件", "Reload file")}">↻</button>
+      <button class="fp-ib" data-file-download title="${L("下载原文件", "Download original file")}" aria-label="${L("下载原文件", "Download original file")}">⇩</button>
       <button class="fp-ib" data-file-copy title="${L("复制路径", "Copy path")}" aria-label="${L("复制路径", "Copy path")}">⧉</button>
       <button class="fp-ib" data-file-reveal title="${L("在 Finder 中显示", "Show in Finder")}" aria-label="${L("在 Finder 中显示", "Show in Finder")}">⌕</button>
       <button class="fp-tb" data-file-system>${L("用系统应用打开", "Open externally")}</button></div>
@@ -74,16 +76,28 @@ function filePanel() {
     <div class="fileframes"></div>
     <footer class="fp-status"><span class="fp-sl"></span><span class="grow"></span><span class="fp-sr"></span></footer>`;
   const w = Number(localStorage.getItem("pga_filepanel_w")); if (w >= 360) FILE_PANEL.width = w;
+  panel.querySelector("[data-file-origin]").onclick = () => fpReturnOrigin(fpActive()?.origin || (window.PGA_FILE_PAGE ? window.parent.ST?.nodes.find(n => n.id === FILE_QUERY.get("node"))?.file.origin : null));
   panel.querySelector("[data-file-hide]").onclick = () => fpDock(false);
   panel.querySelector("[data-file-expand]").onclick = () => { panel.classList.toggle("expanded"); fpSyncDock(); };
+  panel.querySelector("[data-file-translate]").onclick = () => {
+    const en=fpActive();if(!en){toast(L('请先打开一份文件','Open a file first'));return;}
+    if(en.dirty||en.saving){toast(L('请先保存修改再翻译','Save changes before translating'));return;}
+    const origin=en.origin||{};const key=origin.key||en.key;
+    if(!key){toast(L('请从来源对话打开文件再翻译','Open the file from its source conversation'));return;}
+    if(en.ext==='pdf')window.top.readingOpenPDFTranslation(en.path,{...origin,key},en.uid);
+    else window.top.readingOpen(en.path,false,{...origin,key},en.uid);
+  };
   panel.querySelector("[data-file-save]").onclick = () => { const en = fpActive(); if (en) fpSave(en); };
   panel.querySelector("[data-file-reload]").onclick = () => { const en = fpActive(); if (!en) return;
     if (en.dirty && !confirm(L("放弃未保存的修改并重新载入？", "Discard unsaved changes and reload?"))) return;
-    if (en.info?.text != null) fpReload(en, true);
+    if (en.video) en.reloadVideo();
+    else if (en.web && !en.browser) { if (typeof fpReaderDispose === 'function') fpReaderDispose(en); FILE_PANEL.entries.delete(en.id); en.tab.remove(); en.body.remove(); openPgaUrl(en.web, en.uid, false, en.origin); }
+    else if (en.sheetEditor || en.info?.text != null) fpReload(en, true);
     else en.body.querySelectorAll("iframe").forEach((f) => { f.src = f.src; });
   };
   panel.querySelector("[data-file-copy]").onclick = (e) => { const en = fpActive(); if (en) (typeof copyText === "function" ? copyText(en.web || en.path, e.currentTarget) : navigator.clipboard?.writeText(en.web || en.path)); toast(L("路径已复制", "Path copied")); };
   panel.querySelector("[data-file-reveal]").onclick = () => fpSystem(true);
+  panel.querySelector("[data-file-download]").onclick = () => fpDownload(fpActive());
   panel.querySelector("[data-file-system]").onclick = () => fpSystem(false);
   // width: drag the left edge
   const grip = panel.querySelector(".fp-resize");
@@ -99,6 +113,10 @@ function filePanel() {
   // tabs: click, middle-click, ×, drag to reorder
   const tabs = panel.querySelector(".filetabs");
   tabs.addEventListener("click", (e) => { const t = e.target.closest(".fp-tab"); if (!t) return; if (e.target.closest(".fp-x")) { fpClose(t.dataset.id); return; } selectFile(t.dataset.id); });
+  tabs.addEventListener("click", e => {
+    if (window.PGA_FILE_PAGE || e.target.closest("button") || ![2, 3].includes(e.detail)) return;
+    fpClickWidth(e.detail);
+  });
   tabs.addEventListener("keydown", (e) => { if (e.metaKey || e.ctrlKey || e.altKey || !e.target.matches(".fp-tab")) return;
     if (e.key === "ArrowRight" || e.key === "ArrowLeft") { e.preventDefault(); fpCycle(e.key === "ArrowRight" ? 1 : -1); }
     else if (e.key === "Home" || e.key === "End") { e.preventDefault(); const all = [...tabs.querySelectorAll(".fp-tab")]; selectFile((e.key === "Home" ? all[0] : all.at(-1))?.dataset.id); }
@@ -114,11 +132,18 @@ function filePanel() {
   return panel;
 }
 const fpActive = () => FILE_PANEL.entries.get(FILE_PANEL.active);
-function fpLayout() { for (const en of FILE_PANEL.entries.values()) en.editor?.layout(); }
+function fpLayout() { for (const en of FILE_PANEL.entries.values()) en.editor?.layout(); if (typeof fpBrowserSync === 'function') fpBrowserSync(); }
+function fpClickWidth(clicks) {
+  if (clicks !== 2 && clicks !== 3) return;
+  FILE_PANEL.host.classList.remove("expanded");
+  FILE_PANEL.width = Math.round(innerWidth * (clicks === 2 ? .5 : .9));
+  fpSyncDock();
+}
 function fpSyncDock() {
+  if (window.PGA_FILE_PAGE) { if (FILE_PANEL.host) FILE_PANEL.host.style.width = '100%'; requestAnimationFrame(fpLayout); return; }
   const panel = FILE_PANEL.host, shown = !!panel && !panel.hidden;
   const full = panel?.classList.contains("expanded") || innerWidth < 760;
-  const width = full ? innerWidth : Math.max(360, Math.min(innerWidth - 360, FILE_PANEL.width || Math.round(innerWidth * .52)));
+  const width = full ? innerWidth : Math.max(360, Math.min(innerWidth * .9, FILE_PANEL.width || Math.round(innerWidth * .52)));
   document.documentElement.classList.toggle("file-docked", shown);
   document.documentElement.classList.toggle("file-dock-full", shown && full);
   document.documentElement.classList.toggle("file-dock-compact", shown && innerWidth - width < 1100);
@@ -128,6 +153,15 @@ function fpSyncDock() {
 }
 function fpDock(shown) {
   const panel = filePanel(); panel.hidden = !shown; fpSyncDock();
+  if (!shown) fpActive()?.video?.pause();
+  if (!fpActive()) panel.querySelector('[data-file-translate]').disabled = true;
+  let restore = document.getElementById('fpRestore');
+  if (!restore) {
+    restore = document.createElement('button'); restore.id = 'fpRestore'; restore.textContent = '‹ 阅读'; restore.title = '恢复文件与网页阅读';
+    restore.onclick = () => fpDock(true); document.body.append(restore);
+  }
+  restore.hidden = shown || !FILE_PANEL.entries.size;
+  if (typeof fpReaderVisibility === 'function') fpReaderVisibility();
   if (shown) panel.focus({ preventScroll: true });
 }
 window.addEventListener("resize", () => { if (FILE_PANEL.host && !FILE_PANEL.host.hidden) fpSyncDock(); });
@@ -137,9 +171,53 @@ window.addEventListener("beforeunload", (e) => {
 async function fpSystem(reveal) {
   const en = fpActive(); if (!en) return;
   if (en.web) { window.open(en.web, "_blank", "noopener"); return; }   // a link: in the browser
-  try { await api(`/v1/users/${en.uid}/files/open`, { body: { path: en.path, key: en.key, reveal } }); }
+  if (reveal) { await fpReveal(en); return; }
+  try { await api(`/v1/users/${en.uid}/files/open`, { body: { path: en.path, key: en.key, reveal: false } }); }
   catch (err) { toast(err.message); }
 }
+async function fpReveal(entry, uid, key) {
+  const en = entry?.info ? entry : null;
+  const raw = en?.info || entry || {};
+  const info = raw.file ? { ...raw, ...raw.file } : raw;
+  const path = en?.path || info.path || info.source || "";
+  const user = en?.uid || uid || S.uid;
+  const conversation = en?.key || key || info.key || info.parent || "";
+  if (!path || !user) { toast(L("找不到文件位置", "File location is unavailable")); return false; }
+  try {
+    await api(`/v1/users/${user}/files/open`, { body: { path, key: conversation, reveal: true } });
+    return true;
+  }
+  catch (err) { toast(err.message); }
+  return false;
+}
+async function fpDownload(entry, uid, key) {
+  const en = entry?.info ? entry : null;
+  const raw = en?.info || entry || {};
+  const info = raw.file ? { ...raw, ...raw.file } : raw;
+  if (en?.web || info.web) { toast(L("网页请使用浏览器的下载功能", "Use the browser to download this page")); return false; }
+  if (en?.dirty || en?.saving || entry?.dirty || entry?.saving) {
+    toast(L("请先保存修改，再下载原文件", "Save your changes before downloading the original file")); return false;
+  }
+  const path = en?.path || info.path || info.source || "";
+  const user = en?.uid || uid || S.uid;
+  const conversation = en?.key || key || info.key || info.parent || "";
+  let url = info.download_url || info.file?.download_url || "";
+  if (!url && path && user) {
+    try {
+      const resolved = await api(`/v1/users/${user}/files/view`, { body: { path, key: conversation } });
+      url = resolved.download_url || "";
+    } catch (err) { toast(err.message); return false; }
+  }
+  if (!url) { toast(L("此文件暂时无法下载", "This file cannot be downloaded here")); return false; }
+  try {
+    const target = new URL(url, location.origin);
+    if (target.origin !== location.origin || !/^\/v1\/file-preview\/[^/]+\/download$/.test(target.pathname)) throw Error("下载地址无效");
+    const a = document.createElement("a"); a.href = target.href; a.rel = "noopener";
+    document.body.append(a); a.click(); a.remove(); return true;
+  } catch (err) { toast(err.message || L("下载地址无效", "Invalid download link")); return false; }
+}
+window.fpDownload = fpDownload;
+window.fpReveal = fpReveal;
 function fpTab(id, html, title) {
   const panel = filePanel(), tab = document.createElement("div");
   tab.className = "fp-tab"; tab.dataset.id = id; tab.setAttribute("role", "tab"); tab.tabIndex = -1; tab.draggable = true; tab.title = title || "";
@@ -148,6 +226,8 @@ function fpTab(id, html, title) {
 }
 function selectFile(id) {
   const panel = filePanel(), entry = FILE_PANEL.entries.get(id); if (!entry) return;
+  panel.classList.toggle('fp-browsing', !!entry.browser);
+  if (id !== FILE_PANEL.active) fpActive()?.video?.pause();
   FILE_PANEL.active = id; fpDock(true);
   for (const [key, item] of FILE_PANEL.entries) { item.tab.classList.toggle("on", key === id); item.tab.setAttribute("aria-selected", String(key === id)); item.tab.tabIndex = key === id ? 0 : -1; item.body.hidden = key !== id; }
   entry.tab.focus({ preventScroll: true });
@@ -156,24 +236,34 @@ function selectFile(id) {
   panel.querySelector(".fp-path").innerHTML = entry.web ? `<span>${esc(entry.web)}</span>` :
     parts.map((p, i) => `<span class="${i === parts.length - 1 ? "last" : ""}">${esc(p)}</span>`).join(`<i>›</i>`);
   panel.querySelector(".fp-path").title = entry.web || entry.path;
-  panel.querySelector("[data-file-system]").textContent = entry.web ? L("在浏览器打开", "Open in browser") : L("在系统应用中编辑", "Edit externally");
+  panel.querySelector("[data-file-system]").textContent = entry.web ? L("在浏览器打开", "Open in browser")
+    : entry.info?.kind === 'video' ? L("用系统播放器打开", "Open in system player") : L("在系统应用中编辑", "Edit externally");
   panel.querySelector("[data-file-reveal]").hidden = !!entry.web;
+  panel.querySelector("[data-file-download]").hidden = !!entry.web || !(entry.info?.download_url || entry.info?.file?.download_url);
   panel.querySelector("[data-file-system]").hidden = !entry.web && entry.info?.kind === "text" && !entry.info?.markdown && FP_LANG[entry.ext];
+  panel.querySelector('[data-file-translate]').hidden=!!entry.web||!(/\.(md|txt|markdown|pdf|docx?|odt|rtf|pptx?|odp|xls(?:x|m)?|ods|csv|tsv|html?)$/i.test(entry.path||''));
+  panel.querySelector('[data-file-translate]').disabled=false;
   fpBanner(entry); fpStatus(entry);
   if (entry.editor) requestAnimationFrame(() => entry.editor.layout());
   if (entry.info?.kind === "text" || entry.info?.text != null) fpCheck(entry);
+  if (typeof fpReaderVisibility === 'function') fpReaderVisibility();
 }
 async function fpClose(id) {
+  if (window.PGA_FILE_PAGE) { window.filePageClose(); return; }
   const entry = FILE_PANEL.entries.get(id); if (!entry) return;
   if (entry.dirty && !confirm(L(`「${entry.name}」有没保存的修改，仍要关闭吗？`, `“${entry.name}” has unsaved changes. Close anyway?`))) return;
   const order = [...filePanel().querySelectorAll(".fp-tab")].map((t) => t.dataset.id), i = order.indexOf(id);
   FILE_PANEL.closed.push(entry.web ? { web: entry.web, uid: entry.uid } : { path: entry.path, key: entry.key, uid: entry.uid });
   FILE_PANEL.closed = FILE_PANEL.closed.slice(-20);
+  if (typeof fpBrowserDispose === 'function') fpBrowserDispose(entry);
+  if (typeof fpReaderDispose === 'function') fpReaderDispose(entry);
+  if (entry.video) { entry.video.pause(); entry.video.removeAttribute('src'); entry.video.load(); }
   entry.resizeObserver?.disconnect(); entry.editor?.dispose(); entry.model?.dispose(); entry.tab.remove(); entry.body.remove(); FILE_PANEL.entries.delete(id);
   if (FILE_PANEL.active === id) {
     const next = order[i + 1] || order[i - 1];
     if (next && FILE_PANEL.entries.has(next)) selectFile(next); else { FILE_PANEL.active = null; fpDock(false); }
   }
+  if (typeof fpBrowserSync === 'function') fpBrowserSync();
 }
 function fpCycle(dir) {
   const order = [...filePanel().querySelectorAll(".fp-tab")].map((t) => t.dataset.id); if (order.length < 2) return;
@@ -191,17 +281,18 @@ document.addEventListener("keydown", (e) => {
   else if (mod && e.shiftKey && k === "t") { e.preventDefault(); e.stopPropagation(); fpReopen(); }
   else if (e.ctrlKey && k === "tab") { e.preventDefault(); e.stopPropagation(); fpCycle(e.shiftKey ? -1 : 1); }
   else if (mod && e.altKey && (k === "arrowright" || k === "arrowleft")) { e.preventDefault(); fpCycle(k === "arrowright" ? 1 : -1); }
-  else if (mod && !e.shiftKey && k === "s") { e.preventDefault(); e.stopPropagation(); const en = fpActive(); if (en?.model) fpSave(en); }
+  else if (mod && !e.shiftKey && k === "s") { e.preventDefault(); e.stopPropagation(); const en = fpActive(); if (en?.model || en?.sheetEditor) fpSave(en); }
 }, true);
 
 /* ------------------------------------------------ status bar and banner */
 function fpStatus(en) {
   const panel = filePanel(); if (FILE_PANEL.active !== en.id) return;
+  window.filePageStatus?.(en);
   const sl = panel.querySelector(".fp-sl"), sr = panel.querySelector(".fp-sr"), i = en.info || {};
   const save = panel.querySelector("[data-file-save]");
-  save.hidden = !i.editable; save.disabled = !en.model || !en.dirty || !!en.saving;
+  save.hidden = !i.editable; save.disabled = (!en.model && !en.sheetEditor) || !en.dirty || !!en.saving;
   save.textContent = en.saving ? L("保存中…", "Saving…") : L("保存", "Save");
-  panel.querySelector("[data-file-reload]").hidden = !!en.web;
+  panel.querySelector("[data-file-reload]").hidden = !!en.web && !en.video;
   if (en.editor && en.model) {
     const pos = en.editor.getPosition() || { lineNumber: 1, column: 1 }, sel = en.editor.getSelection();
     const picked = sel && !sel.isEmpty() ? en.model.getValueInRange(sel).length : 0;
@@ -211,6 +302,12 @@ function fpStatus(en) {
   } else if (en.basic) {
     sl.textContent = en.saving ? L('正在保存…','Saving…') : en.dirty ? L('● 未保存 · ⌘S 保存','● Unsaved · ⌘S saves') : i.editable ? L('已保存','Saved') : L('只读','Read only');
     sr.textContent = L('基础编辑器','Basic editor') + ' · UTF-8 · ' + fpSize(i.size);
+  } else if (en.sheetEditor) {
+    sl.textContent = en.saving ? L('正在保存…','Saving…') : en.dirty ? L('● 未保存 · ⌘S 保存','● Unsaved · ⌘S saves') : L('已保存','Saved');
+    sr.textContent = L('Excel单元格编辑','Excel cell editor') + ' · ' + fpSize(i.size);
+  } else if (en.video) {
+    sl.textContent = L("视频", "Video");
+    sr.textContent = [en.video.videoWidth ? `${en.video.videoWidth} × ${en.video.videoHeight}` : "", fpSize(i.size)].filter(Boolean).join(" · ");
   } else if (en.img) {
     sl.textContent = en.img.w ? `${en.img.w} × ${en.img.h} px` : "";
     sr.textContent = [en.img.w ? `${Math.round(en.img.scale * 100)}%` : "", fpSize(i.size)].filter(Boolean).join("  ·  ");
@@ -260,7 +357,7 @@ async function fpEditor(en, host, text, opts = {}) {
     model: en.model, theme: fpTheme(), automaticLayout: true, readOnly: !en.info.editable,
     fontFamily: "'SF Mono', Menlo, Monaco, 'Cascadia Code', Consolas, monospace", fontSize: 13, lineHeight: 20,
     minimap: { enabled: true, renderCharacters: false, maxColumn: 80 }, scrollBeyondLastLine: false, smoothScrolling: true,
-    wordWrap: opts.wrap ? "on" : "off", renderWhitespace: "selection", bracketPairColorization: { enabled: true },
+    wordWrap: opts.wrap ? "on" : "off", mouseWheelZoom: true, renderWhitespace: "selection", bracketPairColorization: { enabled: true },
     guides: { bracketPairs: true, indentation: true }, stickyScroll: { enabled: true }, cursorSmoothCaretAnimation: "on",
     unicodeHighlight: { ambiguousCharacters: false, invisibleCharacters: false }, fixedOverflowWidgets: true, padding: { top: 8 } });
   en.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => fpSave(en));
@@ -282,7 +379,20 @@ function fpGo(en, line, column) {
   en.flash = en.editor.deltaDecorations(en.flash || [], [{ range: new monaco.Range(ln, 1, ln, 1), options: { isWholeLine: true, className: "fp-hit" } }]);
   setTimeout(() => { if (en.editor) en.flash = en.editor.deltaDecorations(en.flash || [], []); }, 2200);
 }
+// The stage defers right-click until release so a held button can modify the
+// wheel. Use Monaco's public action for its menu rather than a synthetic DOM
+// contextmenu, which Monaco can discard after the original pointer sequence.
+window.fpStageContextMenu = function (target, x, y) {
+  const editor = fpActive()?.editor;
+  if (!editor?.getDomNode()?.contains(target)) return false;
+  const hit = editor.getTargetAtClientPoint(x, y), position = hit?.position;
+  const selection = editor.getSelection();
+  if (position && !selection?.containsPosition(position)) editor.setPosition(position);
+  editor.focus(); editor.trigger('stage', 'editor.action.showContextMenu', undefined);
+  return true;
+};
 async function fpSave(en, force = false) {
+  if (en.sheetEditor) return en.sheetEditor.save();
   if (!en.model || !en.info.editable || en.saving) return;
   en.saving = true; fpStatus(en);
   const text = en.model.getValue(), version = en.model.getAlternativeVersionId();
@@ -298,6 +408,7 @@ async function fpSave(en, force = false) {
   } finally { en.saving = false; fpStatus(en); }
 }
 async function fpReload(en, discard) {
+  if (en.sheetEditor) return en.sheetEditor.reload(discard);
   const version = en.model?.getAlternativeVersionId(), mtime = en.info.mtime;
   let info; try { info = await api(`/v1/users/${en.uid}/files/view`, { body: { path: en.path, key: en.key } }); } catch (err) { toast(err.message); return; }
   if (!FILE_PANEL.entries.has(en.id) || info.text == null || en.saving || en.info.mtime !== mtime) return;
@@ -316,7 +427,7 @@ async function fpReload(en, discard) {
   en.conflict = null; fpBanner(en); fpStatus(en);
 }
 async function fpCheck(en) {                          // changed on disk? (the active text tab, every few seconds while shown)
-  if (en.checking || en.web || !en.info?.mtime) return;
+  if (S.stageDormant || S.stageMotion || document.hidden || en.checking || en.web || !en.info?.mtime) return;
   en.checking = true;
   try {
     const st = await api(`/v1/users/${en.uid}/files/stat`, { body: { path: en.path, key: en.key } });
@@ -374,24 +485,103 @@ function fileModes(body, modes, hint, en) {
   if (hint) note.dataset.hint = hint;
   body.append(stage); show(modes.find((m) => !m.off) || modes[0]);
 }
-function fileFrame(url, title, loading) {
+function fileFrame(url, title, loading, web = false) {
   const wrap = document.createElement("div"); wrap.className = "fileframe";
-  const f = document.createElement("iframe"); f.title = title || ""; f.src = url;
-  if (loading) { const l = document.createElement("div"); l.className = "fileloading"; l.innerHTML = `<span class="spin"></span> ${esc(loading)}`; wrap.append(l); f.addEventListener("load", () => l.remove()); }
-  wrap.append(f); return wrap;
+  const f = document.createElement("iframe"); f.title = title || "";
+  if (loading) {
+    const l = document.createElement("div"); l.className = "fileloading";
+    let timer;
+    const failed = () => {
+      clearTimeout(timer);
+      if (!wrap.isConnected) return;
+      l.replaceChildren();
+      const text = document.createElement("span");
+      text.textContent = L("网页尚未载入，可能连接较慢或不允许嵌入。", "The page has not loaded; the connection may be slow or embedding may be blocked.");
+      const retry = document.createElement("button"); retry.textContent = L("重试", "Retry"); retry.className = "sm";
+      retry.onclick = () => { start(); f.src = url; };
+      const external = document.createElement("button"); external.textContent = L("在浏览器打开", "Open in browser"); external.className = "sm";
+      external.onclick = () => window.open(url, "_blank", "noopener");
+      l.append(text, retry, external); if (!l.parentNode) wrap.append(l);
+    };
+    const start = () => {
+      clearTimeout(timer); l.innerHTML = `<span class="spin"></span> ${esc(loading)}`;
+      if (!l.parentNode) wrap.append(l);
+      if (web) timer = setTimeout(failed, 15000);
+    };
+    f.addEventListener("load", () => { clearTimeout(timer); l.remove(); });
+    if (web) f.addEventListener("error", failed);
+    start();
+  }
+  wrap.append(f);
+  try { window.top.stFileGestureFrame?.(f); } catch {}
+  f.src = url; return wrap;
+}
+
+function fpShowVideo(en, url) {
+  en.body.innerHTML = `<video class="fp-video" controls playsinline preload="metadata" tabindex="0" aria-label="${esc(en.name)}"></video>
+    <div class="fp-empty" hidden><span role="status"></span><div>
+    <button class="sm" data-video-retry>${L("重试", "Retry")}</button>
+    <button class="sm" data-video-open>${en.web ? L("在浏览器打开", "Open in browser") : L("用系统播放器打开", "Open in system player")}</button></div></div>`;
+  const video = en.video = en.body.querySelector('video');
+  const error = en.body.querySelector('.fp-empty');
+  let resumeAt = 0;
+  video.onloadedmetadata = () => {
+    if (resumeAt && Number.isFinite(video.duration)) video.currentTime = Math.min(resumeAt, video.duration);
+    resumeAt = 0;
+    fpStatus(en);
+  };
+  video.onerror = () => {
+    if (!video.error || video.error.code === 1) return;
+    video.hidden = true;
+    error.hidden = false;
+    error.querySelector('[role="status"]').textContent = video.error.code === 3
+      ? L("视频解码失败", "The video could not be decoded") : L("无法载入视频，请检查文件、链接或编码格式。", "Could not load this video. Check the file, link or encoding.");
+  };
+  const retry = error.querySelector('[data-video-retry]');
+  en.reloadVideo = async () => {
+    if (retry.disabled) return;
+    retry.disabled = true;
+    try {
+      const info = en.web ? null : await api(`/v1/users/${en.uid}/files/view`, {body: {path: en.path, key: en.key}});
+      if (FILE_PANEL.entries.get(en.id) !== en) return;
+      if (info) en.info = info;
+      resumeAt = video.currentTime || resumeAt;
+      video.hidden = false;
+      error.hidden = true;
+      video.src = info?.url || url;
+    } catch (err) { toast(err.message); }
+    finally { retry.disabled = false; }
+  };
+  retry.onclick = en.reloadVideo;
+  error.querySelector('[data-video-open]').onclick = () => fpSystem(false);
+  video.src = url;
+  fpStatus(en);
 }
 
 /* ------------------------------------------------ opening a file */
-async function openPgaFile(path, key, uid = S.uid) {
+const fpSheetMode = (info, name, make = fileFrame) => ({ id: "table", label: L("表格", "Table"), make: () => make(info.url, name, L("正在读表格…", "Reading the sheet…")) });
+const fpSlideModes = (info, name) => [{ id: "pdf", label: L("幻灯片", "Slides"), make: () => fileFrame(info.url, name, L("正在把幻灯片转成可浏览的页面…第一次打开要几秒", "Turning the slides into pages… a few seconds the first time")) }];
+const fpWordModes = (info, name = info.name) => [
+  { id: "read", label: L("阅读", "Reading"), note: info.text_only ? L("只有文字 · 完整排版看「版式」", "Text only · see Layout for the full layout") : L("可重新排版 · 图片和精确排版看「版式」", "Reflowed · pictures and exact layout in Layout"),
+    make: () => fileFrame(info.url, name) },
+  { id: "pdf", label: L("版式", "Layout"), off: info.pdf_url ? "" : L("需要 LibreOffice", "Needs LibreOffice"), note: L("和打印出来一样", "As it prints"),
+    make: () => fileFrame(info.pdf_url, name, L("正在生成版式预览…第一次打开要几秒", "Laying it out… a few seconds the first time")) }];
+async function openPgaFile(path, key, uid = S.uid, origin = fpCaptureOrigin()) {
   // Conversation cards are frames: open in the surrounding PGA window rather than inside a tiny card.
-  try { if (window.top !== window && typeof window.top.openPgaFile === "function") return window.top.openPgaFile(path, key, uid); } catch {}
+  try { if (!window.PGA_FILE_PAGE && window.top !== window && typeof window.top.openPgaFile === "function") return window.top.openPgaFile(path, key, uid, origin); } catch {}
+  const pdf = /\.pdf(?:[?#]|$)/i.test(path);
+  if (!window.PGA_FILE_PAGE && (origin?.key || key) && /\.(docx?|pptx?|odt|odp)(?:[?#]|$)/i.test(path) && typeof readingOpen === 'function')
+    return readingOpen(path, false, { ...origin, key: origin?.key || key }, uid);
+  if (!pdf && !window.PGA_FILE_PAGE && typeof stOpenFile === 'function' && S.view === 'stage') {
+    try { return await stOpenFile(path, key, uid, false, origin); } catch (err) { toast(err.message); return; }
+  }
   const panel = filePanel(), wasHidden = panel.hidden; fpDock(true);
   let info;
   try { info = await api(`/v1/users/${uid}/files/view`, { body: { path, key } }); }
   catch (err) { toast(err.message); if (!FILE_PANEL.entries.size || wasHidden) fpDock(!wasHidden); return; }
   const id = `${uid}:${info.path}`;
-  if (FILE_PANEL.entries.has(id)) { selectFile(id); const en = FILE_PANEL.entries.get(id); if (info.line) { en.mode === "src" || !en.toSource ? fpGo(en, info.line, info.column) : en.toSource(info.line, info.column); } return; }
-  const ext = fpExt(info.path), en = { id, uid, key, path: info.path, name: info.name, info, ext, lang: FP_LANG[ext] || "plaintext", dirty: false };
+  if (FILE_PANEL.entries.has(id)) { if (origin) FILE_PANEL.entries.get(id).origin = origin; selectFile(id); const en = FILE_PANEL.entries.get(id); if (info.line) { en.mode === "src" || !en.toSource ? fpGo(en, info.line, info.column) : en.toSource(info.line, info.column); } return; }
+  const ext = fpExt(info.path), en = { id, uid, key, origin, path: info.path, name: info.name, info, ext, lang: FP_LANG[ext] || "plaintext", dirty: false };
   en.tab = fpTab(id, `${fpIcon(ext)}<span class="fp-name">${esc(info.name)}</span>`, fpHome(info.path));
   en.body = document.createElement("div"); en.body.className = "fileview";
   panel.querySelector(".fileframes").append(en.body);
@@ -400,6 +590,8 @@ async function openPgaFile(path, key, uid = S.uid) {
   if (info.kind === "external") {
     body.innerHTML = `<div class="fp-empty">${fpIcon(ext)}<b>${esc(info.name)}</b><p>${esc(info.message)}</p><button class="sm primary" data-fpext>${L("用系统应用打开", "Open externally")}</button></div>`;
     body.querySelector("[data-fpext]").onclick = () => fpSystem(false);
+  } else if (info.kind === "video") {
+    fpShowVideo(en, info.url);
   } else if (info.kind === "image" && info.text != null) {           // SVG: the drawing, or its source
     fileModes(body, [{ id: "img", label: L("图片", "Picture"), make: () => fpImage(en, info.url), shown: () => fpStatus(en) }, source(true)], "", en);
     en.onEdit = () => { en.svgDirty = true; };
@@ -417,25 +609,30 @@ async function openPgaFile(path, key, uid = S.uid) {
     const render = () => { if (preview) preview.srcdoc = en.model ? en.model.getValue() : en.info.text; };
     fileModes(body, [{id:'view', label:L('网页预览','Web preview'), note:L('隔离预览 · 不运行脚本','Sandboxed preview · scripts disabled'), make:()=>{
       const frame=document.createElement('div'); frame.className='fileframe';
-      preview=document.createElement('iframe'); preview.title=en.name; preview.setAttribute('sandbox',''); preview.referrerPolicy='no-referrer';
-      frame.append(preview); render(); return frame;
+      preview=document.createElement('iframe'); preview.title=en.name;
+      // Keep preview scripts, forms and navigation disabled. Same-origin DOM
+      // access lets the parent forward gestures without running document code.
+      preview.setAttribute('sandbox','allow-same-origin'); preview.referrerPolicy='no-referrer';
+      frame.append(preview);
+      try { window.top.stFileGestureFrame?.(preview); } catch {}
+      render(); return frame;
     }, shown:render}, source(false)], '', en);
     en.onReload=render;
   } else if (info.kind === "text") {
     await fpEditor(en, body, info.text, { wrap: /^(txt|log|tex|bib|csv|tsv)$/.test(ext) });
   } else if (info.kind === "sheet") {
     let frame;
-    const table = { id: "table", label: L("表格", "Table"), make: () => { frame = fileFrame(info.url, info.name, L("正在读表格…", "Reading the sheet…")); return frame; } };
+    const table = fpSheetMode(info, info.name, (...a) => (frame = fileFrame(...a)));
     en.onSave = en.onReload = () => { const f = frame?.querySelector("iframe"); if (f) f.src = en.info.url + "?t=" + Date.now(); };
-    fileModes(body, info.text != null ? [table, source(false)] : [table], "", en);
+    if (info.sheet_editable) {
+      fileModes(body, [{id:'cells',label:L('编辑表格','Edit cells'),make:(host)=>{
+        import('/ui/app-sheet-editor.js?v=20261117-inline-2').then(m=>m.mountSheetEditor(en,host,{api,toast,fpStatus,fpBanner})).catch(err=>{host.textContent='编辑器加载失败：'+err.message;});
+      }},table], "", en);
+    } else fileModes(body, info.text != null ? [table, source(false)] : [table], "", en);
   } else if (info.kind === "slides") {
-    fileModes(body, [{ id: "pdf", label: L("幻灯片", "Slides"), make: () => fileFrame(info.url, info.name, L("正在把幻灯片转成可浏览的页面…第一次打开要几秒", "Turning the slides into pages… a few seconds the first time")) }], "", en);
+    fileModes(body, fpSlideModes(info, info.name), "", en);
   } else if (info.pdf_url !== undefined) {                       // Word: the text on a page, or as it would print
-    fileModes(body, [
-      { id: "read", label: L("阅读", "Reading"), note: info.text_only ? L("只有文字 · 完整排版看「版式」", "Text only · see Layout for the full layout") : L("可重新排版 · 图片和精确排版看「版式」", "Reflowed · pictures and exact layout in Layout"),
-        make: () => fileFrame(info.url, info.name) },
-      { id: "pdf", label: L("版式", "Layout"), off: info.pdf_url ? "" : L("需要 LibreOffice", "Needs LibreOffice"), note: L("和打印出来一样", "As it prints"),
-        make: () => fileFrame(info.pdf_url, info.name, L("正在生成版式预览…第一次打开要几秒", "Laying it out… a few seconds the first time")) }], "", en);
+    fileModes(body, fpWordModes(info), "", en);
   } else {
     body.append(fileFrame(info.url + (/\.pdf$/i.test(info.path) ? "#view=FitH" : ""), info.name));   // a PDF: the browser's own viewer
   }
@@ -443,38 +640,68 @@ async function openPgaFile(path, key, uid = S.uid) {
 }
 window.openPgaFile = openPgaFile;
 
-/* 网页阅读: a link opened inside PGA. The server fetches the page and takes out its article (pga.webread); the original page
-   is offered beside it when the site lets itself be shown in a frame; ⌘-click (or the button) opens it in the browser. */
-async function openPgaUrl(url, uid = S.uid) {
-  try { if (window.top !== window && typeof window.top.openPgaUrl === "function") return window.top.openPgaUrl(url, uid); } catch {}
+/* 网页阅读: a document behind a link (PDF, Word, a sheet, slides, a picture, text) opened inside PGA; the server fetches it
+   (pga.webread). Should the link turn out to be a page after all, its article is taken out, and the original page is offered
+   beside it when the site lets itself be shown in a frame; the button opens it in the browser. */
+async function openPgaUrl(url, uid = S.uid, readerOnly = false, origin = fpCaptureOrigin()) {
+  try { if (!window.PGA_FILE_PAGE && window.top !== window && typeof window.top.openPgaUrl === "function") return window.top.openPgaUrl(url, uid, readerOnly, origin); } catch {}
+  let target;
+  try { target = new URL(url); if (!/^https?:$/.test(target.protocol) || !target.hostname || target.username || target.password) throw Error(); }
+  catch { toast(L('请输入有效的 http 或 https 网址', 'Enter a valid HTTP(S) URL')); return; }
+  const path = fpWebPath(target), video = FP_WEB_VIDEO.test(path);
+  const pdf = fpWebPDF(target);
+  const otherDocument = fpWebDoc(target) && !pdf;
+  if (!window.PGA_FILE_PAGE && !video && (readerOnly || otherDocument) && origin?.key && typeof readingOpen === 'function') return readingOpen(url, true, origin, uid);
+  if (!window.PGA_FILE_PAGE && typeof stOpenFile === 'function' && S.view === 'stage' && otherDocument) {
+    try { return await stOpenFile(url, origin?.key, uid, true, origin); } catch (err) { toast(err.message); return; }
+  }
+  // Normal browsing shares one tab strip for local PDFs, remote PDFs and sites.
+  if (!window.PGA_FILE_PAGE && !readerOnly && typeof fpBrowserAvailable === 'function' && fpBrowserAvailable() && !otherDocument) return openPgaBrowser(target.href, uid, origin);
   const panel = filePanel(); fpDock(true);
-  const id = "web:" + url;
-  if (FILE_PANEL.entries.has(id)) { selectFile(id); return; }
-  let host = url; try { host = new URL(url).hostname.replace(/^www\./, ""); } catch {}
-  const en = { id, uid, web: url, path: url, name: host };
-  en.tab = fpTab(id, `${fpIcon("", true)}<span class="fp-name">${esc(host)}</span>`, url);
+  const id = "web:" + uid + ":" + url;
+  if (FILE_PANEL.entries.has(id)) { if (origin) FILE_PANEL.entries.get(id).origin = origin; selectFile(id); return; }
+  const host = target.hostname.replace(/^www\./, "");
+  const en = { id, uid, origin, web: url, path: url, name: video ? path.split('/').pop() : host, readController: new AbortController() };
+  en.tab = fpTab(id, `${fpIcon("", true)}<span class="fp-name">${esc(en.name)}</span>`, url);
   en.body = document.createElement("div"); en.body.className = "fileview";
   en.body.innerHTML = `<div class="fileloading"><span class="spin"></span> ${L("正在打开网页…", "Opening the page…")}</div>`;
   panel.querySelector(".fileframes").append(en.body);
   FILE_PANEL.entries.set(id, en); selectFile(id);
   const body = en.body;
+  if (video) { fpShowVideo(en, url); return; }
   let r;
-  try { r = await api(`/v1/users/${uid}/web/read`, { body: { url } }); }
+  try { r = await api(`/v1/users/${uid}/web/read`, { body: { url }, signal: en.readController.signal }); }
   catch (err) {
+    if (en.readController.signal.aborted || FILE_PANEL.entries.get(id) !== en) return;
     body.innerHTML = `<div class="filehint">${esc(err.message)}</div>`;
+    const retry = document.createElement('button'); retry.textContent = L('重试', 'Retry'); retry.className = 'sm';
+    retry.onclick = () => { FILE_PANEL.entries.delete(id); en.tab.remove(); en.body.remove(); openPgaUrl(url, uid, false, origin); }; body.append(retry);
     const b = document.createElement("button"); b.textContent = L("在浏览器打开", "Open in browser"); b.className = "sm"; b.style.margin = "0 14px";
     b.onclick = () => window.open(url, "_blank", "noopener"); body.append(b); return;
   }
+  if (en.readController.signal.aborted || FILE_PANEL.entries.get(id) !== en) return;
   body.replaceChildren();
   en.webInfo = r; en.web = r.final || url; en.name = r.title || host;
   en.tab.querySelector(".fp-name").textContent = (r.title || host).slice(0, 40); en.tab.title = r.final || url;
   if (r.icon) en.tab.querySelector(".fp-ico").innerHTML = `<img src="${esc(r.icon)}" alt="" onerror="this.parentNode.textContent='◍'">`;
   const original = { id: "orig", label: L("原网页", "Original"), off: r.frameable ? "" : L("这个网站不允许在别的页面里显示，请用浏览器打开", "This site does not allow being shown in a frame: open it in the browser"),
-    note: L("原样显示 · 登录、交互以网站为准", "As the site shows it"), make: () => fileFrame(r.final || url, r.title, L("正在载入原网页…", "Loading…")) };
+    note: L("原样显示 · 登录、交互以网站为准", "As the site shows it"), make: () => fileFrame(r.final || url, r.title, L("正在载入原网页…", "Loading…"), true) };
   if (r.kind === "document" || r.kind === "image") {
     fileModes(body, [{ id: "file", label: r.kind === "image" ? L("图片", "Picture") : "PDF", make: () => r.kind === "image" ? fpImage(en, r.url_view) : fileFrame(r.url_view, r.title) }], "", en);
+  } else if (r.kind === "file") {                                 // Word, a sheet or slides: as a file here shows
+    const f = r.file, ext = fpExt(r.title || f.name);
+    en.tab.querySelector(".fp-ico").outerHTML = fpIcon(ext);
+    if (f.kind === "sheet") fileModes(body, [fpSheetMode(f, r.title)], "", en);
+    else if (f.kind === "slides") fileModes(body, fpSlideModes(f, r.title), "", en);
+    else if (f.pdf_url !== undefined) fileModes(body, fpWordModes(f, r.title), "", en);
+    else {
+      body.innerHTML = `<div class="fp-empty">${fpIcon(ext)}<b>${esc(r.title)}</b><p>${esc(f.message || "")}</p><button class="sm primary" data-fpext>${L("在浏览器打开", "Open in browser")}</button></div>`;
+      body.querySelector("[data-fpext]").onclick = () => window.open(en.web, "_blank", "noopener");
+    }
   } else if (r.kind === "text") {
     fileModes(body, [{ id: "text", label: L("文本", "Text"), make: () => { const c = document.createElement(r.markdown ? "article" : "pre"); c.className = r.markdown ? "filecontent md" : "filecontent filetext"; if (r.markdown) c.innerHTML = md(r.text); else c.textContent = r.text; return c; } }], "", en);
+  } else if (typeof fpReaderMount === 'function') {
+    fpReaderMount(en, r);
   } else {
     const reader = { id: "read", label: L("阅读模式", "Reader"), note: r.thin ? L("这一页没抽出多少正文，可以看原网页", "Little text found here: try the original") : L(`约 ${r.minutes} 分钟读完`, `About ${r.minutes} min read`),
       make: () => {
@@ -484,6 +711,7 @@ async function openPgaUrl(url, uid = S.uid) {
           <div class="website"><img src="${esc(r.icon)}" alt="" onerror="this.remove()"><span>${esc(r.site || r.host)}</span>${r.byline ? `<span>· ${esc(r.byline)}</span>` : ""}${r.published ? `<span>· ${esc(String(r.published).slice(0, 10))}</span>` : ""}</div>
           <h1>${esc(r.title || r.host)}</h1>${r.description ? `<p class="webdesc">${esc(r.description)}</p>` : ""}</div>${clean(r.html || "")}`;
         a.querySelectorAll("img").forEach((im) => { im.referrerPolicy = "no-referrer"; im.loading = "lazy"; im.addEventListener("error", () => im.remove()); });
+        if (typeof fpReaderEnhance === 'function') fpReaderEnhance(a, en);
         return a;
       } };
     fileModes(body, r.thin && r.frameable ? [original, reader] : [reader, original], "", en);
@@ -492,14 +720,61 @@ async function openPgaUrl(url, uid = S.uid) {
 }
 window.openPgaUrl = openPgaUrl;
 
-/* a link to a web page in an answer, a note or a page read here opens in the reader, not over PGA; ⌘ / Ctrl / Shift-click,
-   the middle button, or a link the app marks to open in a new tab, go to the browser as before */
+/* Ordinary web links (including Markdown target=_blank links) open in the right-hand reader.
+   Modifier/middle clicks and explicit external-open controls keep browser behavior.
+   Documents keep their existing viewer; code-host /blob/ and /tree/ paths are web pages. */
+const FP_WEB_DOC = /\.(pdf|docx?|rtf|odt|xlsx?|xlsm|ods|csv|tsv|pptx?|odp|png|jpe?g|gif|webp|svg|txt|md|markdown|json)$/i;
+const FP_WEB_VIDEO = /\.(mp4|m4v|mov|webm|ogv|mkv|avi)$/i;
+function fpWebPath(u) {
+  let p = u.pathname; try { p = decodeURIComponent(p); } catch {}
+  return /\/(blob|tree)\//.test(p) ? "" : p;
+}
+function fpWebPDF(u) {
+  return /\.pdf$/i.test(fpWebPath(u)) || (/(^|\.)(arxiv\.org|openreview\.net)$/i.test(u.hostname) && /^\/pdf(\/|$)/i.test(u.pathname));
+}
+function fpWebDoc(u) {
+  const p = fpWebPath(u);
+  return FP_WEB_DOC.test(p) || FP_WEB_VIDEO.test(p) || fpWebPDF(u);
+}
 document.addEventListener("click", (e) => {
+  if (window.PGA_FILE_PAGE) return; // the parent frame owns navigation for document readers
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const a = e.target.closest?.("a[href]"); if (!a || a.hasAttribute("data-local-file") || a.hasAttribute("download")) return;
-  if (a.target === "_blank" && !a.closest(".webread")) return;
+  if (a.hasAttribute('data-reader-external')) return;
   let u; try { u = new URL(a.getAttribute("href"), location.href); } catch { return; }
   if (!/^https?:$/.test(u.protocol) || u.origin === location.origin) return;
   e.preventDefault(); e.stopPropagation();
   openPgaUrl(u.href);
 }, true);
+
+// Capture the source before a link click changes focus or crosses a frame boundary.
+let fpOriginLink = null;
+document.addEventListener('pointerdown', e => { fpOriginLink = e.target.closest?.('a'); }, true);
+function fpCaptureOrigin() {
+  if (document.activeElement?.matches?.("a")) fpOriginLink = document.activeElement;
+  if (window.PGA_FILE_PAGE) return window.parent.ST?.nodes.find(n => n.id === FILE_QUERY.get('node'))?.file.origin;
+  const key = fpOriginLink?.closest('[data-file-key]')?.dataset.fileKey || S.chat || S.imp?.key;
+  if (!key) return null;
+  const links = [...document.querySelectorAll('a')];
+  return {key, href: fpOriginLink?.getAttribute('href'), occurrence: links.filter(a => a.getAttribute('href') === fpOriginLink?.getAttribute('href')).indexOf(fpOriginLink), scroll: document.getElementById('cdlg')?.scrollTop || 0};
+}
+async function fpReturnOrigin(origin) {
+  if (!origin?.key) { toast(L('没有关联的会话位置', 'No conversation location attached')); return; }
+  if (window.parent !== window && window.parent.fpReturnOrigin) return window.parent.fpReturnOrigin(origin);
+  if (FILE_PANEL.host && !window.PGA_FILE_PAGE) fpDock(false);
+  let target = window;
+  if (typeof stOpen === 'function' && S.view === 'stage') {
+    stOpen(origin.key);
+    const n = ST.nodes.find(n => n.key === origin.key && n.type === 'win');
+    target = n?.el?.querySelector('iframe')?.contentWindow;
+  } else if (S.chat !== origin.key) { S.chat = origin.key; S.imp = null; await loadChat(origin.key); }
+  let attempts = 0;
+  const locate = () => {
+    const doc = target?.document, sc = doc?.getElementById('cdlg');
+    const matches = [...(doc?.querySelectorAll('a') || [])].filter(a => a.getAttribute('href') === origin.href);
+    const link = matches[Math.max(0, origin.occurrence || 0)];
+    if (link) { link.scrollIntoView({block:'center'}); link.classList.add('tflash'); setTimeout(() => link.classList.remove('tflash'), 1600); }
+    else if (++attempts < 30) setTimeout(locate, 100);
+    else if (sc) sc.scrollTop = origin.scroll || 0;
+  }; locate();
+}

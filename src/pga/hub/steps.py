@@ -14,10 +14,14 @@ pictures are read again on demand, so a long session with hundreds of screenshot
 from __future__ import annotations
 
 import base64
+from array import array
 import difflib
 import json
 import re
 import sqlite3
+import threading
+from collections import OrderedDict
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +31,7 @@ TITLE_CHARS = 160
 DETAIL_CHARS = 20000
 IDLE_S = 300                     # a longer pause than this (waiting for you, a usage limit) is not time spent working
 KINDS = ("claude", "codex", "hermes")
+_CODEX_IMAGE_DATA = re.compile(r'("image_url"\s*:\s*")data:(image/[^;"\\]+);base64,[A-Za-z0-9+/=_-]*(")')
 
 
 def _ts(v: Any) -> datetime | None:
@@ -47,6 +52,15 @@ def _args(v: Any) -> Any:
         except (json.JSONDecodeError, ValueError):
             return v
     return v
+
+
+def load_codex_event(line: str) -> Any:
+    """Parse a Codex event without materializing inline screenshot base64.
+
+    The importer and step summary only need image references. Full image bytes
+    remain available through the on-demand detail reader.
+    """
+    return json.loads(_CODEX_IMAGE_DATA.sub(r"\1data:\2;base64,\3", line))
 
 
 def tool_parts(name: str, namespace: str = "") -> tuple[str, str]:
@@ -384,7 +398,10 @@ def transcript(session: str, kind: str = "claude") -> Path | None:
     return None
 
 
-_OFFSETS: dict[str, tuple[float, int, list[int]]] = {}
+_OFFSETS: OrderedDict[str, tuple[float, int, array]] = OrderedDict()
+_OFFSET_LOCK = threading.Lock()
+OFFSET_CACHE_ITEMS = 16
+OFFSET_CACHE_BYTES = 16 * 1024 * 1024
 
 
 def _line(f: Path, n: int) -> dict | None:
@@ -394,16 +411,29 @@ def _line(f: Path, n: int) -> dict | None:
     except OSError:
         return None
     key = str(f)
-    cached = _OFFSETS.get(key)
-    if cached is None or cached[0] != st.st_mtime or cached[1] != st.st_size:
-        offs, pos = [], 0
+    with _OFFSET_LOCK:
+        cached = _OFFSETS.get(key)
+        if cached is not None and cached[0] == st.st_mtime and cached[1] == st.st_size:
+            _OFFSETS.move_to_end(key)
+        else:
+            if cached is not None:
+                _OFFSETS.pop(key, None)
+            cached = None
+    if cached is None:
+        # Compact unsigned 64-bit offsets and a byte-budgeted LRU keep detail
+        # lookups useful without retaining large Python-int lists per transcript.
+        offs, pos = array("Q"), 0
         with f.open("rb") as fh:
             for raw in fh:
                 offs.append(pos)
                 pos += len(raw)
-        if len(_OFFSETS) > 16:
-            _OFFSETS.clear()
-        _OFFSETS[key] = cached = (st.st_mtime, st.st_size, offs)
+        cached = (st.st_mtime, st.st_size, offs)
+        if offs.itemsize * len(offs) <= OFFSET_CACHE_BYTES:
+            with _OFFSET_LOCK:
+                _OFFSETS[key] = cached
+                _OFFSETS.move_to_end(key)
+                while len(_OFFSETS) > OFFSET_CACHE_ITEMS or sum(x[2].itemsize * len(x[2]) for x in _OFFSETS.values()) > OFFSET_CACHE_BYTES:
+                    _OFFSETS.popitem(last=False)
     offs = cached[2]
     if not 0 <= n < len(offs):
         return None
@@ -543,28 +573,22 @@ def image(f: Path, ref: str, kind: str = "claude") -> tuple[bytes, str] | None:
 
 # ---------------------------------------------------------------- one run of PGA's own agents
 
-_ENTRIES: dict[str, tuple[float, int, list[tuple[int, dict]]]] = {}
+_WINDOWS: OrderedDict[tuple, bytes] = OrderedDict()
+_WINDOW_LOCK = threading.Lock()
+WINDOW_CACHE_BYTES = 8 * 1024 * 1024
+WINDOW_CACHE_ITEMS = 128
 
 
-def _entries(f: Path) -> list[tuple[int, dict]]:
-    """The record's entries, cached until the file changes."""
-    st = f.stat()
-    c = _ENTRIES.get(str(f))
-    if c and c[0] == st.st_mtime and c[1] == st.st_size:
-        return c[2]
-    out = []
+def _entries(f: Path, kind: str = "claude") -> Iterator[tuple[int, dict]]:
+    """Read one entry at a time; raw transcripts can contain gigabytes of images."""
     with f.open(encoding="utf-8", errors="replace") as fh:
         for i, ln in enumerate(fh):
             try:
-                e = json.loads(ln)
+                e = load_codex_event(ln) if kind == "codex" else json.loads(ln)
             except json.JSONDecodeError:
                 continue
             if isinstance(e, dict) and not e.get("isSidechain"):
-                out.append((i, e))
-    if len(_ENTRIES) > 8:
-        _ENTRIES.clear()
-    _ENTRIES[str(f)] = (st.st_mtime, st.st_size, out)
-    return out
+                yield i, e
 
 
 def window(session: str, start: datetime | None, end: datetime | None, kind: str = "claude") -> dict | None:
@@ -574,19 +598,42 @@ def window(session: str, start: datetime | None, end: datetime | None, kind: str
     if f is None or kind == "hermes":
         return None
     try:
-        entries = _entries(f)
+        stat = f.stat()
+        key = (str(f), stat.st_mtime_ns, stat.st_size, start, end, kind, session)
+        with _WINDOW_LOCK:
+            cached = _WINDOWS.get(key)
+            if cached is not None:
+                _WINDOWS.move_to_end(key)
+                return json.loads(cached)  # callers may annotate the result
+        how = _window(f, session, start, end, kind)
     except OSError:
         return None
+    # Cache compact step references, never raw tool results or base64 images.
+    payload = json.dumps(how, ensure_ascii=False).encode("utf-8")
+    if len(payload) <= WINDOW_CACHE_BYTES:
+        with _WINDOW_LOCK:
+            _WINDOWS[key] = payload
+            _WINDOWS.move_to_end(key)
+            size = sum(len(x) for x in _WINDOWS.values())
+            while len(_WINDOWS) > WINDOW_CACHE_ITEMS or size > WINDOW_CACHE_BYTES:
+                size -= len(_WINDOWS.popitem(last=False)[1])
+    return how
+
+
+def _window(f: Path, session: str, start: datetime | None, end: datetime | None, kind: str) -> dict | None:
     w = Work()
     w.start(start)
     last = None
-    for i, e in entries:
+    effort = None
+    for i, e in _entries(f, kind):
         ts = _ts(e.get("timestamp"))
         if ts is None or (start is not None and ts < start) or (end is not None and ts > end):
             continue
         if kind == "codex":
             w.feed_codex(e, i)
             p = e.get("payload") or {}
+            if e.get("type") == "turn_context":
+                effort = p.get("effort")
             if e.get("type") == "response_item" and p.get("type") == "message" and p.get("role") == "assistant":
                 w.note(_plain(p.get("content")), ts)
         elif e.get("type") in ("user", "assistant"):
@@ -600,6 +647,8 @@ def window(session: str, start: datetime | None, end: datetime | None, kind: str
     if w.steps and w.steps[-1]["t"] == "note":
         w.steps.pop()                                   # its last words are the answer shown below
     how = w.take(end or last)
+    if isinstance(effort, str) and effort:
+        how = {**(how or {"steps": []}), "effort": effort}
     if how is not None:
         how["src"] = {"kind": kind, "session": session}
         for st in how["steps"]:                          # each step knows its record, so runs can be put together
@@ -609,6 +658,51 @@ def window(session: str, start: datetime | None, end: datetime | None, kind: str
 
 
 SESSION_ADAPTERS = {"claude_local": "claude", "codebuddy_local": "claude", "codex_local": "codex"}
+
+
+def legacy_picture_count(step: Any, question: Any) -> int:
+    count = (question.data or {}).get("images")
+    if (step and step.adapter == "codex_local" and (step.data or {}).get("thread")
+            and type(count) is int and 0 < count <= 100):
+        return count
+    return 0
+
+
+def legacy_question_picture(step: Any, question: Any, index: int) -> tuple[bytes, str] | None:
+    """Read a pasted image from the original user event of an older Codex run."""
+    count = legacy_picture_count(step, question)
+    if not 0 <= index < count or not question.prompt:
+        return None
+    path = transcript(step.data["thread"], "codex")
+    if not path:
+        return None
+    with path.open("rb") as stream:
+        for line in stream:
+            if b'"input_image"' not in line or b'"response_item"' not in line:
+                continue
+            try:
+                event = json.loads(line)
+            except (ValueError, UnicodeError):
+                continue
+            at = _ts(event.get("timestamp"))
+            if not at or at < step.started_at:
+                continue
+            if step.finished_at and at > step.finished_at:
+                break
+            message = event.get("payload") or {}
+            if event.get("type") != "response_item" or message.get("role") != "user" or message.get("type") != "message":
+                continue
+            blocks = message.get("content") or []
+            text = next((b.get("text", "") for b in blocks if b.get("type") == "input_text"), "")
+            if text.startswith(("Earlier in this chat:", "Chat updates since this session last answered")):
+                text = text.partition("\nNow the user says:\n")[2]
+            prompt = question.prompt.strip()
+            if text.strip() != prompt and not text.startswith(prompt + "\n\nProject: "):
+                continue
+            images = [b for b in blocks if b.get("type") == "input_image"]
+            if len(images) == count:
+                return _data_url(images[index].get("image_url", ""))
+    return None
 
 
 def run_how(run: Any) -> dict | None:

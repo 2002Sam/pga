@@ -330,7 +330,7 @@ class AgentPool:
             return False, "unknown agent"
         if a.get("enabled", True) is False:
             return False, "disabled"
-        ok, detail = ad.available()
+        ok, detail = ad.routable()
         if not ok:
             return False, detail
         from pga.agents import links
@@ -356,11 +356,30 @@ class AgentPool:
         started = utcnow()
         proj = task.meta.get("project") if isinstance(task.meta.get("project"), dict) else {}
         tags = {k: str(task.meta[k]) for k in ("aim", "perpetual", "role", "conversation", "question") if task.meta.get(k)}
+        activity = task.meta.get("manager_activity") or {}
+        if activity.get("manager_task_id"):
+            tags["manager_task_id"] = activity["manager_task_id"]
+            tags["task_title"] = str(activity.get("text") or "")[:300]
         if proj.get("id"):
             tags["project"] = str(proj["id"])
         lid = live.start(name, category=task.meta.get("category") or task.kind, workflow=task.meta.get("workflow", ""), step=step,
                          prompt=task.prompt, task_kind=task.meta.get("task_kind", ""), tags=tags)
         task.meta["live_id"] = lid
+        adapter_type = self.adapters[name].type
+        effort = None
+        if adapter_type in ("codex_local", "claude_local", "hermes_local"):
+            default = a.get("reasoning") if adapter_type == "codex_local" else a.get("effort")
+            if adapter_type == "hermes_local" and not default:
+                default = a.get("reasoning")
+            effort = task.meta.get("effort") or default
+            if adapter_type == "codex_local" and not effort:
+                from pga.agents.options import codex_defaults
+                _, effort = codex_defaults()
+                effort = effort or "default"
+            if effort:
+                live.set_extra(lid, "effort", effort)
+        if task.meta.get("manager_activity"):
+            live.set_extra(lid, "_manager_activity", task.meta["manager_activity"])
         from pga.agents.base import PGA_MARK
         if self.adapters[name].type not in ("llm", "http") and not task.prompt.startswith(PGA_MARK):   # only agents that keep transcripts
             task.prompt = f"{PGA_MARK}\n{task.prompt}"
@@ -372,6 +391,12 @@ class AgentPool:
         acquired = []
         deadline = time.monotonic() + task.timeout_s
         res = None
+        check_timer = None
+        if task.meta.get("manager_failover"):
+            live.set_extra(lid, "_dispatch_reports", task.meta.get("dispatch_reports", []))
+            check_timer = threading.Timer(10.0, live.check_start, args=(lid,))
+            check_timer.daemon = True
+            check_timer.start()
         try:
             live.set_extra(lid, "phase", "queued")
             # Serialize a conversation before selecting/replacing its session or installing a listener.
@@ -396,12 +421,20 @@ class AgentPool:
                     res = AgentResult(ok=False, status="STOPPED", error="你停止了排队", data={"stopped": True})
                 else:
                     live.set_extra(lid, "phase", "running")
-                    res = self.adapters[name].run(task)
+                    try:
+                        res = self.adapters[name].run(task)
+                    except Exception as exc:
+                        if not task.meta.get("manager_failover"):
+                            raise
+                        res = AgentResult(ok=False, status="FAILED", error=f"{type(exc).__name__}: {exc}")
             if not res.agent:
                 res.agent = name
             if not res.adapter:
                 res.adapter = self.adapters[name].type
         finally:
+            if check_timer:
+                check_timer.cancel()
+                check_timer.join()
             for lock in reversed(acquired):
                 lock.release()
             r = locals().get("res")
@@ -409,7 +442,13 @@ class AgentPool:
             if r is not None and trace.strip() and trace.strip() != (r.text or "").strip():
                 r.data = {**(r.data or {}), "trace": trace[-20000:]}     # how it got there: files read, commands, thinking
             if r is not None:
-                r.data = {**(r.data or {}), "live_id": lid, "steering": live.steering_inputs(lid)}
+                if task.meta.get("manager_activity"):
+                    r.data = {**(r.data or {}), **live.manager_record(lid)}
+                row = next((x for x in live.snapshot() if x["id"] == lid), {})
+                env = row.get("env") or {}
+                recorded = env.get("effort") or env.get("reasoning_effort") or (r.data or {}).get("effort") or row.get("effort") or effort
+                r.data = {**(r.data or {}), **({"effort": recorded} if recorded else {}), "live_id": lid,
+                          "start_check": row.get("start_check"), "steering": live.steering_inputs(lid)}
             live.finish(lid, bool(r and r.ok), text=r.text if r else None, error=r.error if r else "interrupted")
         return Step(step=step, task=task, result=res, attempt=attempt, started=started, finished=utcnow())
 

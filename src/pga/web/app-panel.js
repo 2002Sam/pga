@@ -13,7 +13,10 @@ function recentItems() {
     if (!r) by.set(x.item, { ...x, last: x.end || x.at, n: 1 });
     else { r.n++; if ((x.end || x.at) > r.last) { r.last = x.end || x.at; r.id = x.id; } }
   }
-  for (const c of S.chats || []) if (!by.has(c.key)) by.set(c.key, { item: c.key, id: null, kind: "chat", title: c.title, last: c.last_at, agent: c.agent || "", n: 1, ref: { chat: c.key } });
+  for (const c of S.chats || []) {
+    if (by.has(c.key)) { if (c.title) by.get(c.key).title = c.title; }
+    else by.set(c.key, { item: c.key, id: null, kind: "chat", title: c.title, last: c.last_at, agent: c.agent || "", n: 1, ref: { chat: c.key } });
+  }
   return [...by.values()].sort((a, b) => String(b.last || "").localeCompare(String(a.last || "")));
 }
 const dayGroup = (iso) => { const d = new Date(iso), now = new Date(), days = Math.floor((new Date(now.toDateString()) - new Date(d.toDateString())) / 864e5);
@@ -154,9 +157,8 @@ function worldPanel() {
     const icon = n.kind === "leaf" ? (n.who === "agent" ? "◇" : "💬") : n.kind === "aim" ? "✦" : n.kind === "plan" ? "◌" : open ? "▾" : "▸";
     let h = `<div class="wtr ${n.kind} ${isCur ? "cur" : ""}" style="--d:${d}" data-wtr="${n.id}"><span class="wti">${icon}</span><span class="wtt">${esc(n.kind === "root" ? L("世界", "World") : n.title)}${W.showGist && n.gist && n.kind === "leaf" ? `<small>${esc(n.gist)}</small>` : ""}</span>${n.kind !== "leaf" && ks.length ? `<em>${ks.length}</em>` : ""}${n.kind !== "leaf" && n.kind !== "root" ? `<button class="wtz" data-wttalk="${n.id}" title="${L("和这一层对话", "Talk to this level")}">💬</button>` : ""}</div>`;
     if (isCur && S.chat && n.kind === "leaf") {                       // the conversation you are in: its turns, carry on from any
-      const tt = turnsOf(), ts = S.chatTurns[S.chat] || [];
-      h += `<div class="wtturns" style="--d:${d + 1}">${tt.map(({ t, i }) => { const prev = ts.slice(0, i).reverse().find((x) => x.role === "agent" && x.run);
-        return `<div class="wtturn" data-wtgo="${t.run}"><span>${esc(String(t.text).replace(/\s+/g, " ").slice(0, 40))}</span><button class="sm ghost" ${prev ? `data-cbranch="${prev.run}" data-ckey="${esc(S.chat)}"` : `data-wtfresh="${esc(t.text.slice(0, 2000))}"`} title="${L("从这一问之前分出一段新对话，接着从这里聊", "Branch just before this question and carry on from here")}">${L("从这里继续", "Carry on here")}</button></div>`; }).join("")}</div>`;
+      h += `<div class="wtturns" style="--d:${d + 1}">${turnsOf().map(({t}) =>
+        `<div class="wtturn" data-wtgo="${esc(t.run)}"><span>${esc(String(t.text).replace(/\s+/g, " ").slice(0, 40))}</span>${t.note ? "" : questionBranchButton(t.run, S.chat)}</div>`).join("")}</div>`;
     }
     if (open && ks.length) h += `<div class="wtkids ${W.zoomed === n.id ? "zoom" : ""}">${ks.map((k) => row(k, d + 1)).join("")}</div>`;
     return h;
@@ -204,7 +206,6 @@ document.addEventListener("click", async (e) => {
   const ri = e.target.closest("[data-ritem]"); if (ri) { openItem(ri.dataset.ritem); return; }
   if (e.target.closest("#toBottom")) { const d = $("#cdlg"); d.scrollTo({ top: d.scrollHeight, behavior: "smooth" }); return; }
   const tk = e.target.closest("[data-wttalk]"); if (tk) { e.stopPropagation(); const n = W.byId.get(tk.dataset.wttalk); if (n) talkTo(n); return; }
-  const fr = e.target.closest("[data-wtfresh]"); if (fr) { S.chat = null; S.imp = null; S.lineView = null; renderChat(); const b = $("#chatText"); if (b) { b.value = fr.dataset.wtfresh; b.focus(); } return; }
   const go = e.target.closest("[data-wtgo]"); if (go && !e.target.closest("button")) { const el = document.getElementById("t-" + go.dataset.wtgo); if (el) { const d = $("#cdlg"); d.scrollTo({ top: el.getBoundingClientRect().top - d.getBoundingClientRect().top + d.scrollTop - 12, behavior: "smooth" }); } return; }
   const r = e.target.closest("[data-wtr]"); if (!r || e.target.closest("button")) return;
   const n = W.byId.get(r.dataset.wtr); if (!n) return;
@@ -213,7 +214,10 @@ document.addEventListener("click", async (e) => {
   wtSaveOpen(); worldPanel();
 });
 window.addEventListener("pga:look", () => renderRight());
-setInterval(() => { if (S.view === "chats") wtFetch(true).then(() => worldPanel()); }, 120000);
+setInterval(() => {
+  if (S.view !== "chats" || document.hidden || S.stageDormant || S.stageMotion) return;
+  if ($("#ctree")?.hidden === false) wtFetch(true).then(worldPanel);
+}, 120000);
 
 /* the world tree page: its top-left panel folds to one line */
 W.barMin = (() => { try { return localStorage.getItem("pga_gbar_min") === "1"; } catch { return false; } })();

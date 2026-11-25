@@ -10,9 +10,9 @@ import hashlib
 import json
 import re
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, or_
-from pga import projectsort
+from pga import projectsort, qa_pool
 from pga.agent.common import fence
 from pga.db.models import User, AgentRun, AgentConversation, LinkedAgent
 from pga.db.types import utcnow
@@ -39,7 +39,7 @@ def category(user, key):
     if is_manager(key):                                   # a category's manager answers from inside that category
         return ((user.preferences or {}).get("project_managers") or {}).get(key)
     st = projectsort.state(user)
-    name = st["of"].get(canonical(key))
+    name = st["of"].get(canonical(qa_pool.public_key(key)))
     return (st.get("merged") or {}).get(name, name) if name else None
 
 
@@ -221,8 +221,10 @@ def build(rt, user, key, question, force=False):
     cfg = settings(user, name)
     if not cfg["enabled"] and not is_manager(key) and not force:
         return {"project": None if name == projectsort.EVERYDAY else name, "text": "", "sources": []}
-    hits = search(rt, user, name, question, exclude=key, limit=20 if is_manager(key) else 6, exhaustive=is_manager(key))
-    progress = recent(rt, user, name, exclude=key)[:3]
+    hits, progress = [], []
+    if not qa_pool.summary_of(key):
+        hits = search(rt, user, name, question, exclude=key, limit=20 if is_manager(key) else 6, exhaustive=is_manager(key))
+        progress = recent(rt, user, name, exclude=key)[:3]
     out = [f"Project: {name}. Shared project context snapshot, revision {cfg['revision']}. Use the user's current request as the task."]
     if cfg["instructions"]:
         out.append("Project instructions written by the user:\n" + cfg["instructions"])
@@ -271,7 +273,7 @@ def scope_of(user, key):
     """The category this conversation is held to: a manager's own, or the one its manager made it in. None: not held."""
     if not key:
         return None
-    if is_manager(key):
+    if is_manager(key) or qa_pool.summary_of(key):
         name = category(user, key)
     else:
         name = ((user.preferences or {}).get("scoped_chats") or {}).get(canonical(key))
@@ -282,6 +284,8 @@ def scope_of(user, key):
 
 def hold(user, key, name):
     """Hold a conversation a manager made to that manager's category, for good (your later messages there too)."""
+    if qa_pool.summary_of(key):
+        return  # Pool workers follow their public feed across category renames.
     held = dict((user.preferences or {}).get("scoped_chats") or {})
     if held.get(canonical(key)) == name:
         return
@@ -304,6 +308,37 @@ def manager_key(user, name):
         managers[key] = name
         user.preferences = {**(user.preferences or {}), "project_managers": managers}
     return key
+
+
+DEFAULT_CONVERSATIONS = {'qa': '知识问答和回应', 'execute': '执行'}
+
+def manager_feeds(manager):
+    base = hashlib.sha1(manager.encode()).hexdigest()[:20]
+    return {kind: {'key': f'chat:summary-{base}-{kind}', 'title': title}
+            for kind, title in DEFAULT_CONVERSATIONS.items()}
+
+
+def manager_defaults(user, name):
+    """Two public, stable conversations per manager, including after category renames."""
+    name = project_name(user, name)
+    result = manager_feeds(manager_key(user, name))
+    state = projectsort.state(user)
+    titles = dict((user.preferences or {}).get('chat_titles') or {})
+    changed = False
+    for item in result.values():
+        key = item['key']
+        if state.get('of', {}).get(key) != name:
+            state.setdefault('of', {})[key] = name
+            state.setdefault('drafts', {})[key] = {'at': utcnow().isoformat()}
+            changed = True
+        if key not in titles:
+            titles[key] = item['title']
+        hold(user, key, name)
+    if changed:
+        projectsort.save(user, state)
+    if titles != (user.preferences or {}).get('chat_titles'):
+        user.preferences = {**(user.preferences or {}), 'chat_titles': titles}
+    return result
 
 
 def save_refs(user, shown, refs):
@@ -332,6 +367,78 @@ def _said(excerpt, n=3):
     return [re.sub(r"\s+", " ", m.group(1)).strip() for m in re.finditer(r"^User: (.+?)(?=^\w+: |\Z)", excerpt or "", re.M | re.S)][-n:]
 
 
+def activity(rt, user, name):
+    """User inputs, including in-flight asks, resolved against current category membership."""
+    from pga.agents import live
+    from pga.db.models import AgentRun
+    from pga.tree import _answer
+    keys = members(user, project_name(user, name), include_archived=True)
+    stored_keys = keys | {'imp:' + k[2:] for k in keys if k.startswith('c:')}
+    gone = {canonical(k) for k in (user.preferences or {}).get("archived_chats") or []}
+    why = {canonical(k): v for k, v in ((user.preferences or {}).get("archive_meta") or {}).items()}
+    rows = {}
+    def add(row):
+        row['worker'] = row['key']
+        row['key'] = qa_pool.public_key(row['key'])
+        if canonical(row['key']) not in keys or is_manager(row['key']):
+            return
+        if canonical(row['key']) in gone:                 # archived: the manager's record says so, and why
+            m = why.get(canonical(row['key'])) or {}
+            row['archived'] = {'at': m.get('at'), 'why': m.get('why') or ('手动归档' if not m.get('auto') else ''), 'auto': bool(m.get('auto'))}
+        row.setdefault('model', '')
+        row.setdefault('effort', '')
+        row.setdefault('requested_effort', '')
+        row.setdefault('progress', [])
+        steering = row.pop('steering', [])
+        row.pop('user_id', None)
+        rows[row['id']] = row
+        for s in steering:
+            sid = row['id'] + ':steer:' + str(s['id'])
+            at = s.get('at')
+            rows[sid] = {**row, 'id': sid, 'text': s['text'],
+                         'at': datetime.fromtimestamp(at, timezone.utc).isoformat() if isinstance(at, (int, float)) else at or row['at']}
+    # Retries share the durable run id. The most recent attempt wins; committed rows below
+    # replace live entries without duplicating a question during the handoff.
+    for row in live.manager_activity(str(user.id)):
+        add(row)
+    runs = list(rt.session.scalars(select(AgentRun).where(
+            AgentRun.user_id == user.id, AgentRun.workflow == "ask",
+            or_(AgentRun.data['conversation'].as_string().in_(stored_keys),
+                *(qa_pool.feed_filter(k) for k in keys if qa_pool.worker_prefix(k))),
+            AgentRun.parent_id.is_(None)).order_by(AgentRun.started_at)))
+    children_by_run = {}
+    if runs:
+        for child in rt.session.scalars(select(AgentRun).where(
+                AgentRun.user_id == user.id, AgentRun.parent_id.in_([r.id for r in runs])
+                ).order_by(AgentRun.started_at)):
+            children_by_run.setdefault(child.parent_id, []).append(child)
+    for r in runs:
+        data = r.data or {}
+        key = data.get("conversation", "")
+        if data.get('regen_of'):
+            continue
+        progress = []
+        model = data.get('model') or ''
+        effort = data.get('actual_effort') or ''
+        requested_effort = data.get('requested_effort') or data.get('effort') or ''
+        children = children_by_run.get(r.id, [])
+        if children:
+            used = children[-1].data or {}
+            model = used.get('reported_model') or used.get('model') or model
+            effort = used.get('actual_effort') or used.get('effort') or effort
+            requested_effort = used.get('requested_effort') or requested_effort
+            for child in children:
+                progress.append({'type':'status', 'text':child.agent or '', 'status':child.status})
+                progress.extend((child.data or {}).get('manager_progress') or [])
+        add(dict(id=str(r.id), key=key, text=r.prompt or "",
+                 answer=_answer(r.output) or "", error=r.error or "", status=r.status, at=r.started_at.isoformat(),
+                 result_unread=bool(data.get("result_unread")), model=model, effort=effort,
+                 requested_effort=requested_effort, progress=progress,
+                 start_check=data.get('start_check'), agent=data.get('agent'), dispatch_reports=data.get('dispatch_reports', []),
+                 steering=data.get('steering', []), manager_task_id=data.get('manager_task_id', '')))
+    return sorted(rows.values(), key=lambda row: row['at'])
+
+
 def overview(rt, user, name, asked=40):
     """A category at a glance: its conversations, what grew from what, what was wired into what, the world-tree topics
     they sit under, and the last few questions of the most recent ones. No model call."""
@@ -339,7 +446,8 @@ def overview(rt, user, name, asked=40):
     from pga.db.models import WorldNode
     from pga.timeline import Timeline
     name = project_name(user, name)
-    keys = members(user, name)
+    defaults = manager_defaults(user, name)
+    keys = {k for k in members(user, name) if not k.startswith('chat:mt-')}
     prefs = user.preferences or {}
     titles = prefs.get("chat_titles") or {}
     items = {}
@@ -398,7 +506,7 @@ def overview(rt, user, name, asked=40):
         t = c["topic"] and parents.get(uuid.UUID(c["topic"]))
         if t is not None:
             topics[c["topic"]] = {"id": c["topic"], "title": t.title, "summary": ""}
-    return {"project": name, "manager": manager_key(user, name), "conversations": convs, "edges": edges,
+    return {"project": name, "manager": manager_key(user, name), "defaults": defaults, "conversations": convs, "edges": edges,
             "outside": list(outside.values()), "topics": list(topics.values()), "settings": settings(user, name)}
 
 

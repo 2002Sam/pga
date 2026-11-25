@@ -23,9 +23,11 @@ test('closed task opens beside source and a child can move independently while k
  c.stBringBeside('task','manager');assert.equal(task.par,undefined);assert.equal(task.from,'other');assert.equal(other.sel,undefined);
  c.stBringBeside('manager','manager');assert.equal(c.ST.nodes.length,3);
 });
-test('result comments expose an escaped direct link and keep the result preview',()=>{
+test('the manager keeps the destination link separate from task details',()=>{
  const c={chatSend(){},document:{addEventListener(){}},window:{},setInterval(){},S:{chat:'manager'},L:a=>a,esc:s=>String(s??'').replaceAll('&','&amp;').replaceAll('"','&quot;'),agentLabel:x=>x};vm.createContext(c);
  vm.runInContext(fs.readFileSync(new URL('app-pmdoc.js',root),'utf8'),c);
  const html=c.pdNoteHtml({id:'a',key:'chat:task',who:'worker',st:'done',body:'result',title:'Task'});
- assert.match(html,/href="\?v=chats&c=chat%3Atask" data-pdgo="chat:task"/);assert.match(html,/查看处理对话/);assert.doesNotMatch(html,/>result</);
+ assert.match(html,/href="\?view=chats&c=chat%3Atask" data-pdgo="chat:task"/);
+ assert.match(html,/Task ↗<\/a>/);
+ assert.doesNotMatch(html,/>result</);
 });

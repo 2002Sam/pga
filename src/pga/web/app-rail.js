@@ -29,7 +29,30 @@ async function loadForest() {
   if (!document.activeElement?.matches?.("#seedText")) renderRail();
   if (S.view === "home") renderHome();
 }
-async function loadChats() { try { const all = await api(`/v1/users/${S.uid}/chats?archived=true&limit=300`); if (all !== S.allChats) { S.allChats = all; S.chats = all.filter((c) => !c.archived); } /* the same answer as before: the same lists, so what is built from them can be kept */ } catch { S.chats = S.chats || []; } renderRail(); if (S.view === "chats") renderChatList(); }
+async function loadChats() {
+  try {
+    const all = await api(`/v1/users/${S.uid}/chats?archived=true&limit=300`);
+    const previous = new Map((S.allChats || []).map(c => [c.key, c.title]));
+    const renamed = all.some(c => previous.has(c.key) && previous.get(c.key) !== c.title);
+    if (all !== S.allChats) { S.allChats = all; S.chats = all.filter(c => !c.archived); }
+    // Only change the heading: repainting the transcript here would disturb typing
+    // and reading while the background title arrives.
+    if (S.view === 'chats' && S.chat && !S.imp && !S.lineView && !S.treeItem) {
+      const title = all.find(c => c.key === S.chat)?.title, heading = $('#chead h1');
+      if (title && heading && heading.textContent !== title) heading.textContent = title;
+    }
+    if (renamed) {
+      if (typeof loadTimeline === 'function') void loadTimeline().catch(() => {});
+      if (S.view === 'stage' && !S.stageMotion) {
+        if (typeof stMap === 'function') stMap();
+        if (typeof stListItems === 'function') stListItems();
+      }
+    }
+    clearTimeout(S.chatTitleTimer);
+    if (all.some(c => c.title_pending) && !S.stageDormant) S.chatTitleTimer = setTimeout(loadChats, 2000);
+  } catch { S.chats = S.chats || []; }
+  renderRail(); if (S.view === 'chats') renderChatList();
+}
 
 function show(view, opts = {}) {
   S.view = view; closeCtx();
@@ -39,7 +62,7 @@ function show(view, opts = {}) {
   history.replaceState(null, "", qs()); renderRail();
   if (view === "home") { document.title = "PGA"; renderHome(); }
   if (view === "tree") { $("#dlgIn").innerHTML = `<div class="empty">…</div>`; loadTree(); }
-  if (view === "notes") { showNotes(); return; }
+  if (view === "notes") return showNotes();
   if (view === "looks") { showLooks(); return; }
   if (view === "graph") { showGraph(); return; }
   if (view === "chats") { document.title = L("所有对话 · PGA", "All conversations · PGA"); S.tlScrolled = false; renderTimeline(); loadTimeline(); renderChat(); if (S.chat) { S.tlSel = S.chat; loadChat(S.chat); } }

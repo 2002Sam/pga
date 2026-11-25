@@ -1,6 +1,8 @@
 """内置文档 / 网页阅读器: Office files and web pages shown inside PGA (pga.docview, pga.webread, pga.filepreview)."""
 import zipfile
 from html import escape
+import time
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -8,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from pga import docview, webread
 from pga.filepreview import describe, router
+from pga import filepreview
 
 
 def xlsx(path, sheets):
@@ -73,9 +76,19 @@ def test_preview_routes_serve_sheets_and_layout_pdfs(tmp_path, monkeypatch):
     with TestClient(app) as c:
         r = c.get(info["url"])
         assert r.status_code == 200 and "<table>" in r.text and "sandbox" in r.headers["content-security-policy"]
+        download_url = info["download_url"]
+        r = c.get(download_url)
+        assert r.status_code == 200 and r.content == p.read_bytes()
+        assert r.headers["content-disposition"].startswith("attachment;")
+        assert "filename*=utf-8''%E8%A1%A8.xlsx" in r.headers["content-disposition"]
         r = c.get(winfo["pdf_url"])
         assert r.status_code == 200 and r.content.startswith(b"%PDF") and "content-security-policy" not in r.headers   # Chrome shows no PDF in a sandbox
         assert c.get(winfo["pdf_url"], headers={"origin": "https://evil.example"}).status_code == 403
+        assert c.get(download_url, headers={"origin": "https://evil.example"}).status_code == 403
+        assert c.get("/v1/file-preview/invalid-ticket/download").status_code == 404
+        ticket = download_url.rsplit("/", 2)[-2]
+        filepreview._grants[ticket] = (p, time.time() - 1)
+        assert c.get(download_url).status_code == 404
 
 
 PAGE = """<html lang="zh"><head><title>站点标题</title><meta property="og:title" content="一篇文章">
@@ -103,3 +116,44 @@ def test_reader_refuses_local_addresses_and_reads_frame_rules(monkeypatch):
     assert webread.frameable({}) and not webread.frameable({"x-frame-options": "SAMEORIGIN"})
     assert not webread.frameable({"content-security-policy": "frame-ancestors 'self'"})
     assert webread.frameable({"content-security-policy": "default-src *; frame-ancestors *"})
+
+
+def test_office_files_behind_links_show_as_files_here(tmp_path, monkeypatch):
+    sheet = tmp_path / "s.xlsx"
+    xlsx(sheet, {"表一": [["https://example.com", "b"]]})
+    served = {"https://site.example/files/%E9%A2%84%E7%AE%97.xlsx": ("application/octet-stream", sheet.read_bytes()),
+              "https://site.example/export": ("text/csv; charset=utf-8", "a,b\n1,2\n".encode()),
+              "https://site.example/deck": ("application/vnd.openxmlformats-officedocument.presentationml.presentation", b"PK"),
+              "https://site.example/page.docx": ("text/html", b"<html><body><p>not a file</p></body></html>")}
+    monkeypatch.setattr(docview, "CACHE", tmp_path / "cache")
+    monkeypatch.setattr(webread, "fetch", lambda url: (url, {"content-type": served[url][0]}, served[url][1]))
+    r = webread.read("https://site.example/files/%E9%A2%84%E7%AE%97.xlsx")
+    assert r["kind"] == "file" and r["title"] == "预算.xlsx" and r["file"]["kind"] == "sheet"
+    assert r["file"]["url"].startswith("/v1/file-preview/") and r["file"]["path"].endswith(".xlsx")
+    r = webread.read("https://site.example/export")
+    assert r["kind"] == "file" and r["file"]["kind"] == "sheet" and r["file"]["path"].endswith(".csv")
+    r = webread.read("https://site.example/deck")
+    assert r["kind"] == "file" and r["file"]["path"].endswith(".pptx") and r["file"]["kind"] in ("slides", "external")
+    assert webread.read("https://site.example/page.docx")["kind"] == "web"     # named like a file, but a page
+
+
+def test_remote_document_actions_accept_large_pdf_without_raising_page_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(docview, "CACHE", tmp_path / "cache")
+    body = b"%PDF-1.7\n" + b"x" * (15 * 1024 * 1024)
+    calls = []
+    def fetch(url, **kwargs):
+        calls.append((url, kwargs))
+        return "https://cdn.example/paper.pdf", {"content-type": "application/pdf"}, body
+    monkeypatch.setattr(webread, "fetch", fetch)
+    info = webread.document_for_actions("https://site.example/paper.pdf")
+    assert calls == [("https://site.example/paper.pdf", {"timeout": 30, "max_bytes": 64 * 1024 * 1024})]
+    assert info["size"] == len(body) and info["name"] == "paper.pdf"
+    assert Path(info["path"]).read_bytes() == body
+
+
+def test_extensionless_remote_pdf_download_keeps_a_usable_filename(tmp_path, monkeypatch):
+    monkeypatch.setattr(docview, "CACHE", tmp_path / "cache")
+    monkeypatch.setattr(webread, "fetch", lambda url, **kwargs: (
+        "https://arxiv.org/pdf/2610.23913v1", {"content-type": "application/pdf"}, b"%PDF-1.7 source"))
+    info = webread.document_for_actions("https://arxiv.org/pdf/2610.23913v1")
+    assert info["name"] == "2610.23913v1.pdf"

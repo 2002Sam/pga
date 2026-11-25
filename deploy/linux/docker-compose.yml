@@ -1,0 +1,51 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pga}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pga_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-pga}
+    volumes:
+      - pga_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pga} -d ${POSTGRES_DB:-pga}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  pga:
+    build:
+      context: ../..
+      dockerfile: deploy/linux/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGA_HOST: 0.0.0.0
+      PGA_PORT: 8000
+      PGA_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pga}:${POSTGRES_PASSWORD:-pga_change_me}@postgres:5432/${POSTGRES_DB:-pga}
+      PGA_LLM_PROVIDER: ${PGA_LLM_PROVIDER:-fake}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "${PGA_PORT:-8000}:8000"
+    volumes:
+      - pga_workspaces:/data/PGA/workspaces
+      - pga_state:/data/PGA/state
+      - pga_notes:/data/PGA/notes
+      - pga_snapshots:/data/PGA/snapshots
+      - pga_logs:/data/PGA/logs
+      - pga_home:/home/pga
+
+volumes:
+  pga_pgdata:
+  pga_workspaces:
+  pga_state:
+  pga_notes:
+  pga_snapshots:
+  pga_logs:
+  pga_home:

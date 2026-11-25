@@ -12,7 +12,14 @@ final class WeakHandler: NSObject, WKScriptMessageHandler {
     weak var owner: WebOwner?
     init(_ owner: WebOwner) { self.owner = owner }
     func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) {
-        if let body = m.body as? [String: Any] { owner?.message(body) }
+        guard let body = m.body as? [String: Any] else { return }
+        if body["kind"] as? String == "browser" {
+            guard m.frameInfo.isMainFrame, BrowserPolicy.isAppPage(m.frameInfo.request.url, server: AppDelegate.shared.config.server),
+                  let web = m.webView as? DropWebView else { return }
+            if web.embeddedBrowser == nil { web.embeddedBrowser = EmbeddedBrowser(host: web) }
+            web.embeddedBrowser?.handle(body); return
+        }
+        owner?.message(body)
     }
 }
 
@@ -24,7 +31,7 @@ enum Web {
         cfg.websiteDataStore = .default()
         cfg.setURLSchemeHandler(scheme, forURLScheme: "pga")
         let uc = WKUserContentController()
-        var boot = page; boot["uid"] = AppDelegate.shared.config.uid
+        var boot = page; boot["uid"] = AppDelegate.shared.config.uid; boot["petNotifications"] = true
         let json = (try? JSONSerialization.data(withJSONObject: boot)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         uc.addUserScript(WKUserScript(source: """
         window.PGA_NATIVE = \(json);
@@ -43,24 +50,33 @@ enum Web {
     /// The browser version's own pages (served by the PGA server), with bridge.js added: the full conversation page in a
     /// window (`float`), or the whole app (完整版). They keep their storage in this app's WebKit store, so the account
     /// is put there before they load.
-    static let bridge: String = {
-        guard let u = Bundle.main.url(forResource: "bridge", withExtension: "js"), let s = try? String(contentsOf: u, encoding: .utf8) else { return "" }
-        return s
-    }()
-    static func makeFull(owner: WebOwner, float: Bool) -> DropWebView {
+    private static func script(_ name: String) -> String {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "js") else { return "" }
+        return (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+    static let bridge = script("bridge")
+    static let contextMenu = script("context-menu")
+    /// `extra` goes into window.PGA_NATIVE too (`manager`: the category, in a 管理员小窗).
+    static func makeFull(owner: WebOwner, float: Bool, extra: [String: Any] = [:]) -> DropWebView {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
         let uc = WKUserContentController(), uid = AppDelegate.shared.config.uid
+        var native = extra; native["composerShortcut"] = true; native["float"] = float; native["uid"] = uid; native["petNotifications"] = true; native["browser"] = true; native["readingBrowser"] = true
+        let json = (try? JSONSerialization.data(withJSONObject: native)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
         uc.addUserScript(WKUserScript(source: """
         try { if ("\(uid)") localStorage.setItem("pga_uid", "\(uid)"); } catch (e) {}
-        window.PGA_NATIVE = { float: \(float), uid: "\(uid)" };
+        window.PGA_NATIVE = \(json);
         """, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if float && extra["manager"] == nil {
+            uc.addUserScript(WKUserScript(source: contextMenu, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        }
         uc.addUserScript(WKUserScript(source: bridge, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         uc.add(WeakHandler(owner), name: "pga")
         cfg.userContentController = uc
         cfg.preferences.setValue(true, forKey: "developerExtrasEnabled")
         cfg.mediaTypesRequiringUserActionForPlayback = []
         let web = DropWebView(frame: .zero, configuration: cfg)
+        web.composerShortcut = ComposerShortcut(web: web)
         web.takesPaths = float
         return web
     }
@@ -157,6 +173,23 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// A web view that takes files dropped from Finder as paths (the agents run on this Mac and read them where they are).
 final class DropWebView: WKWebView {
+    var composerShortcut: ComposerShortcut?
+    var embeddedBrowser: EmbeddedBrowser?
+    /// Release page processes and navigation callbacks when an owning window is
+    /// permanently closed. Hidden singleton windows deliberately do not call this.
+    func releasePageResources() {
+        stopLoading()
+        embeddedBrowser?.closeAll()
+        embeddedBrowser = nil
+        navigationDelegate = nil
+        uiDelegate = nil
+        removeFromSuperview()
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Multiple sibling web views must not consume one another's copy/paste keys.
+        if let focused = window?.firstResponder as? NSView, focused !== self, !focused.isDescendant(of: self) { return false }
+        return super.performKeyEquivalent(with: event)
+    }
     var takesPaths = true                                   // false: drops go to the page itself (the whole app has its own)
     override func acceptsFirstMouse(for e: NSEvent?) -> Bool { true }        // a click on a window in the background acts at once
     private func paths(_ s: NSDraggingInfo) -> [String] {
@@ -177,12 +210,61 @@ final class DropWebView: WKWebView {
 
 /// Browser chores WebKit leaves to its host: alerts, file pickers, links out of PGA, the microphone for voice input.
 class WebChrome: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private var downloads: [ObjectIdentifier: (WKDownload, NSWindow?)] = [:]
+
     func webView(_ w: WKWebView, decidePolicyFor a: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // The authorized download ticket is a navigation in the file-page iframe.
+        // Let its response delegate inspect it before generic main-frame navigation closes the reader.
+        if isPGAFileDownload(a.request.url) { decisionHandler(.allow); return }
+        // The reader's original-site view is a subframe, not a request to leave PGA.
+        // Keep external top-level navigation and new windows in the system browser.
+        if a.targetFrame?.isMainFrame == false,
+           let scheme = a.request.url?.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+            decisionHandler(.allow); return
+        }
         let server = URL(string: AppDelegate.shared.config.server)
         if let url = a.request.url, !["pga", "about", "blob", "data"].contains(url.scheme ?? ""), url.host != server?.host || url.port != server?.port {
             NSWorkspace.shared.open(url); decisionHandler(.cancel); return
         }
+        if a.targetFrame?.isMainFrame == true { (w as? DropWebView)?.embeddedBrowser?.closeAll() }
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor response: WKNavigationResponse,
+                 decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        guard isPGAFileDownload(response.response.url) else { decisionHandler(.allow); return }
+        let http = response.response as? HTTPURLResponse
+        let disposition = http?.value(forHTTPHeaderField: "Content-Disposition") ?? ""
+        guard let status = http?.statusCode, (200..<300).contains(status),
+              disposition.range(of: "attachment", options: .caseInsensitive) != nil else {
+            decisionHandler(.cancel)
+            showDownloadFailure(in: webView)
+            return
+        }
+        decisionHandler(.download)
+    }
+
+    private func showDownloadFailure(in webView: WKWebView) {
+        let alert = NSAlert()
+        alert.messageText = "下载失败"
+        alert.informativeText = "文件链接已过期或服务器未能提供原文件，请重新点“下载原文件”后再试。"
+        alert.addButton(withTitle: "好")
+        if let window = webView.window { alert.beginSheetModal(for: window) { _ in } }
+        else { alert.runModal() }
+    }
+
+    func isPGAFileDownload(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        let parts = url.path.split(separator: "/")
+        guard parts.count == 4 && parts[0] == "v1" && parts[1] == "file-preview" && parts[3] == "download" else { return false }
+        if url.scheme == "pga" { return url.host == "app" }     // bundled app pages proxy through SchemeHandler
+        guard let server = URL(string: AppDelegate.shared.config.server) else { return false }
+        return url.scheme == server.scheme && url.host == server.host && url.port == server.port
+    }
+
+    func webView(_ webView: WKWebView, navigationResponse response: WKNavigationResponse, didBecome download: WKDownload) {
+        downloads[ObjectIdentifier(download)] = (download, webView.window)
+        download.delegate = self
     }
 
     func webView(_ w: WKWebView, createWebViewWith c: WKWebViewConfiguration, for a: WKNavigationAction, windowFeatures f: WKWindowFeatures) -> WKWebView? {
@@ -206,5 +288,35 @@ class WebChrome: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ w: WKWebView, requestMediaCapturePermissionFor o: WKSecurityOrigin, initiatedByFrame f: WKFrameInfo, type: WKMediaCaptureType, decisionHandler: @escaping (WKPermissionDecision) -> Void) {
         decisionHandler(o.protocol == "pga" ? .grant : .prompt)
+    }
+}
+
+extension WebChrome: WKDownloadDelegate {
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let id = ObjectIdentifier(download)
+        guard let state = downloads[id] else { completionHandler(nil); return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedFilename
+        panel.canCreateDirectories = true
+        panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] result in
+            guard result == .OK, let url = panel.url else {
+                self?.downloads.removeValue(forKey: id)
+                completionHandler(nil)
+                return
+            }
+            completionHandler(url)
+        }
+        if let window = state.1 { panel.beginSheetModal(for: window, completionHandler: finish) }
+        else { panel.begin(completionHandler: finish) }
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        downloads.removeValue(forKey: ObjectIdentifier(download))
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        downloads.removeValue(forKey: ObjectIdentifier(download))
     }
 }

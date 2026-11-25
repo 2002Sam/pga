@@ -36,13 +36,13 @@ test('30-window map sorts history once per draw and retains DOM when unchanged',
  let reads=0,writes=0,html='';
  const inner={style:{},clientHeight:22,querySelectorAll:()=>[],querySelector:()=>null,get innerHTML(){return html},set innerHTML(v){writes++;html=v}};
  const stage={querySelector:()=>null,appendChild(){}};
- const els={'#starena':{scrollWidth:20000,clientWidth:1000},'#vStage':stage,'#stmap':{parentElement:stage,clientWidth:500,clientHeight:30,dataset:{},style:{setProperty(){}}},'#stmi':inner};
+ const els={'#starena':{scrollWidth:20000,clientWidth:1000},'#vStage':stage,'#stmap':{parentElement:stage,clientWidth:500,clientHeight:30,dataset:{},style:{setProperty(){}},classList:{toggle(){}}},'#stmi':inner};
  const nodes=Array.from({length:30},(_,i)=>({id:String(i),key:'chat:'+i,type:'win'}));
- const c=vm.createContext({ST:{nodes,mapExpanded:new Set(['']),pos:new Map(nodes.map((w,i)=>[w.id,{x:i*600,w:580}]))},S:{view:'stage'},window:{},ST_MAPFOLD:16,$:id=>els[id],L:a=>a,esc:String,stWins:()=>nodes,stStat:()=>new Map(),stGroupOf:()=>null,stDraft:()=>'',stMapBand:()=>({top:0,height:1}),stPanelTools(){},stMapLayout(){},stFoldedAll:()=>false,stMapView(){},recentItems:()=>{reads++;return nodes.map(w=>({item:w.key,title:'Title '+w.id}))}});
+ const c=vm.createContext({ST:{nodes,mapExpanded:new Set(['']),pos:new Map(nodes.map((w,i)=>[w.id,{x:i*600,w:580}]))},S:{view:'stage'},window:{},ST_MAPFOLD:16,ST_GAP:18,ST_WW:660,$:id=>els[id],L:a=>a,esc:String,stWins:()=>nodes,stStat:()=>new Map(),stGroupOf:w=>({id:'g'+Math.floor(Number(w.id)/5),name:'Group',c:'#888'}),stDraft:()=>'',stMapBand:()=>({top:0,height:1}),stPanelTools(){},stMapLayout(){},stMapPositionApply(){},stFoldedAll:()=>false,stMapView(){},recentItems:()=>{reads++;return nodes.map(w=>({item:w.key,title:'Title '+w.id}))}});
  const src=read('app-stage.js');
  vm.runInContext(src.slice(src.indexOf('const ST_KEEP ='),src.indexOf('// Use the full page as the reference')),c);
  vm.runInContext(src.slice(src.indexOf('function stTalkOrder('),src.indexOf('const stLastAsk =')),c);
- vm.runInContext(src.slice(src.indexOf('function stMap()'),src.indexOf('// Use the same vertical projection')),c);
+ vm.runInContext(src.slice(src.indexOf('function stMapBackgroundRuns('),src.indexOf('// Use the same vertical projection')),c);
  c.stMap();assert.equal(reads,1);assert.equal(writes,1);assert(html.includes('Title 29'));
  c.stMap();assert.equal(reads,2);assert.equal(writes,1);
  c.ST.focus='1';c.stMap();assert.equal(writes,2);
@@ -59,16 +59,28 @@ test('reading checkpoint finds the same anchor in 4096 messages with at most 14 
 });
 test('checkpoint is deferred through a scroll/input burst and stale idle jobs cannot save',()=>{
  const timers=new Map(),idles=new Map(),events={};let id=0,saves=0;
- const c=vm.createContext({PG:{ready:true},pgLocalSave:()=>saves++,setTimeout:f=>{timers.set(++id,f);return id},clearTimeout:i=>timers.delete(i),window:{requestIdleCallback:f=>{idles.set(++id,f);return id},cancelIdleCallback:i=>idles.delete(i)}});
+ const c=vm.createContext({S:{},PG:{ready:true},pgLocalSave:()=>saves++,setTimeout:f=>{timers.set(++id,f);return id},clearTimeout:i=>timers.delete(i),window:{requestIdleCallback:f=>{idles.set(++id,f);return id},cancelIdleCallback:i=>idles.delete(i)}});
  const src=read('app-pages.js');vm.runInContext(src.slice(src.indexOf('function pgScheduleCheckpoint('),src.indexOf('pgWatchScroll(document);')),c);
  c.pgWatchScroll({addEventListener:(k,f)=>events[k]=f});
  for(let i=0;i<100;i++)events.scroll();assert.equal(timers.size,1);assert.equal(saves,0);
  [...timers.values()][0]();timers.clear();const old=[...idles.values()][0];events.input();old();assert.equal(saves,0);
  [...timers.values()][0]();[...idles.values()][0]();assert.equal(saves,1);
+ // An idle callback may become due during a later horizontal gesture.
+ c.S.stageMotion=true;c.pgScheduleCheckpoint();[...timers.values()].at(-1)();[...idles.values()].at(-1)();assert.equal(saves,1);
+ c.S.stageMotion=false;[...timers.values()].at(-1)();[...idles.values()].at(-1)();assert.equal(saves,2);
+});
+test('automatic page snapshots wait for motion to stop, while explicit saves still flush',async()=>{
+ const timers=new Map();let id=0,snaps=0,puts=0,local=0;
+ const c=vm.createContext({S:{stageMotion:true},PG:{ready:true,cur:'page'},pgSnap:()=>({version:++snaps}),pgLocalSave:()=>local++,pgPut:async()=>puts++,pgBtn(){},console,
+ setTimeout:f=>{timers.set(++id,f);return id},clearTimeout:i=>timers.delete(i)});
+ const src=read('app-pages.js');vm.runInContext(src.slice(src.indexOf('async function pgSaveCur('),src.indexOf('const _stSavePG')),c);
+ await c.pgSaveCur();await c.pgSaveCur();assert.equal(snaps,0);assert.equal(timers.size,1);
+ c.S.stageMotion=false;await [...timers.values()][0]();assert.equal(snaps,1);assert.equal(puts,1);assert.equal(local,1);
+ c.S.stageMotion=true;await c.pgSaveCur(true);assert.equal(snaps,2);assert.equal(puts,2);assert.equal(local,2);
 });
 test('drag pan batches pointer events, preserves end position and cancels pending frame on release',()=>{
  let id=0,writes=0;const frames=new Map(),arena={scrollWidth:10000,clientWidth:1000,_left:500,get scrollLeft(){return this._left},set scrollLeft(v){writes++;this._left=v},scrollTo({left}){this.scrollLeft=left}};
- const c=vm.createContext({ST:{},$:s=>s==='#starena'?arena:{classList:{add(){},remove(){}}},requestAnimationFrame:f=>{frames.set(++id,f);return id},cancelAnimationFrame:i=>frames.delete(i),stMapView(){},stMap(){},stGrow(){},stRender(){},stSave(){}});
+ const c=vm.createContext({ST:{},$:s=>s==='#starena'?arena:{classList:{add(){},remove(){}}},requestAnimationFrame:f=>{frames.set(++id,f);return id},cancelAnimationFrame:i=>frames.delete(i),stMapView(){},stMap(){},stGrow(){},stRender(){},stSave(){},stScheduleFrameLoads(){}});
  const src=read('app-stage.js');vm.runInContext(src.slice(src.indexOf('function stScrollTo('),src.indexOf('try { if (window.webkit')),c);
  c.stPanStart(1000);for(let x=999;x>=900;x--)c.stPanMove(x);assert.equal(frames.size,1);assert.equal(writes,0);
  [...frames.values()][0]();frames.clear();assert.equal(arena.scrollLeft,600);assert.equal(writes,1);
@@ -76,7 +88,7 @@ test('drag pan batches pointer events, preserves end position and cancels pendin
 });
 test('activity clock ticks leave historical sections untouched and tool changes update live section',()=>{
  let writes=0,clock=0;const section={set outerHTML(v){writes++}};const box={querySelector:()=>section};
- const c=vm.createContext({S:{view:'chats',sending:true,live:{run:{text:'a'}}},$:()=>box,liveSecs:()=>clock,L:a=>a,esc:String,agentLabel:String,parseSteps:t=>({steps:[{tool:t}],words:''})});
+ const c=vm.createContext({document:{hidden:false},S:{view:'chats',sending:true,live:{run:{text:'a'}}},$:()=>box,liveSecs:()=>clock,L:a=>a,esc:String,agentLabel:String,parseSteps:t=>({steps:[{tool:t}],words:''})});
  const src=read('app-activity.js');vm.runInContext(src.slice(src.indexOf('function activityLiveHtml('),src.indexOf('function renderActivity(')),c);
  c.refreshActivityLive();assert.equal(writes,1);for(clock=1;clock<100;clock++)c.refreshActivityLive();assert.equal(writes,1);
  c.S.live.run.text='b';c.refreshActivityLive();assert.equal(writes,2);

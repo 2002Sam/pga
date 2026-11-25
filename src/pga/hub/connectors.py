@@ -339,6 +339,15 @@ def _thread_replies(content: Any) -> list[str]:
             if isinstance(x, dict) and x.get("type") == "tool_use" and str(x.get("name", "")).endswith("__reply")]
 
 
+def _iter_file_lines(path: Path):
+    """Yield a transcript one line at a time; opening failures behave like an empty source."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            yield from fh
+    except OSError:
+        return
+
+
 def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
     """One Claude-Code-format transcript (Claude Code, CodeBuddy, WorkBuddy): user/assistant turns, title, model.
     Like Open WebUI's importers, the turns are what you and the agent said to each other (no harness notes); like
@@ -360,11 +369,7 @@ def _cc_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
         if work.pending and turns and turns[-1][0] == "assistant":
             extras[-1]["how"] = merge(extras[-1].get("how"), work.take(last_ts))
 
-    try:
-        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return None
-    for i, ln in enumerate(lines):
+    for i, ln in enumerate(_iter_file_lines(f)):
         try:
             e = json.loads(ln)
         except json.JSONDecodeError:
@@ -476,7 +481,7 @@ def codex_sessions(roots: tuple[Path, ...] = CODEX_DIRS) -> list[Conv]:
 def _codex_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
     """One Codex rollout: your messages and its answers, each answer with its tool calls (scripts, functions, shell,
     patches), reasoning summaries, time and tokens."""
-    from pga.hub.steps import Work, merge
+    from pga.hub.steps import Work, load_codex_event, merge
     turns, stamps, extras, started, updated, cwd, origin, sid = [], [], [], None, None, None, "", f.stem
     models: dict[str, int] = {}
     work, last_ts = Work(), None
@@ -487,7 +492,7 @@ def _codex_file(f: Path, *, skip_pga: bool = True) -> Conv | None:
     with fh:
         for i, ln in enumerate(fh):
             try:
-                e = json.loads(ln)
+                e = load_codex_event(ln)
             except json.JSONDecodeError:
                 continue
             if not isinstance(e, dict):

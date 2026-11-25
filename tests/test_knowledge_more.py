@@ -111,3 +111,30 @@ def test_multi_answers_fold_notes_web_and_children(session_factory, policy, prov
         assert c.get(f"/v1/users/{user.id}/notes").json()[0]["text"].endswith("追加的一段")
         kinds = {k["id"]: k.get("source") for k in c.get(f"/v1/users/{user.id}/forest").json()["knowledge"]}
         assert kinds[n["id"]] == "note" and kinds[w.json()["id"]] == "web"
+
+
+def test_tomorrow_plan_endpoint_reuses_note_by_user_date_and_project(session_factory, policy, provider, backend, user):
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        url = f"/v1/users/{user.id}/plans/tomorrow"
+        one = c.post(url, json={"date": "2026-11-25", "project": "PGA", "lang": "zh"})
+        two = c.post(url, json={"date": "2026-11-25", "project": "PGA", "lang": "zh"})
+        other_project = c.post(url, json={"date": "2026-11-25", "project": "Research"})
+        assert one.status_code == 200 and one.json()["id"] == two.json()["id"]
+        assert one.json()["date"] == "2026-11-25" and one.json()["project"] == "PGA"
+        assert "最重要的一项" in one.json()["text"] and "其他待办" in one.json()["text"]
+        assert one.json()["id"] != other_project.json()["id"]
+        tomorrow = c.post(url, json={"date": "2026-11-26", "project": "PGA", "lang": "en"}).json()
+        assert tomorrow["id"] != one.json()["id"] and "Top priority" in tomorrow["text"]
+        edit_url = f"/v1/notes/{one.json()['id']}"
+        draft = {"append": True, "text": "- [ ] Write the outline", "draft_id": "b7ea4d92-3eae-4d7b-8127-11a69d41e69e"}
+        assert c.put(edit_url, json=draft).json()["text"] == draft["text"]
+        assert c.put(edit_url, json=draft).json()["text"] == draft["text"]
+        stale = c.put(edit_url, json={"expected_at": one.json()["at"], "text": "Stale local text"})
+        assert stale.status_code == 409
+        assert c.post(url, json={"date": "2026-11-25", "project": "PGA"}).json()["text"] == draft["text"]
+        listed = {x["id"]: x for x in c.get(f"/v1/users/{user.id}/notes").json()}
+        assert listed[one.json()["id"]]["date"] == "2026-11-25"
+        assert listed[one.json()["id"]]["project"] == "PGA" and listed[one.json()["id"]]["plan"] is True
+        assert c.post(url, json={"date": "tomorrow"}).status_code == 422

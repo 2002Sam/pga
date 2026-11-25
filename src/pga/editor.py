@@ -5,6 +5,7 @@ import asyncio
 import os
 from pathlib import Path
 import secrets
+import shutil
 import re
 import subprocess
 import threading
@@ -18,7 +19,32 @@ from fastapi.responses import Response
 
 ROOT = Path.home() / 'Documents/PGA/state/editor'
 CLI = Path('/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel')
+LINUX_CLI_CANDIDATES = (
+    Path('/usr/share/code/bin/code-tunnel'),
+    Path('/usr/share/code-insiders/bin/code-tunnel-insiders'),
+    Path('/usr/bin/code'),
+    Path('/snap/bin/code'),
+)
 PORT = 8012
+
+
+def resolve_cli() -> Path | None:
+    """Find the VS Code / code-tunnel binary on macOS or Linux."""
+    env_cli = os.environ.get('PGA_CODE_CLI', '').strip()
+    if env_cli:
+        p = Path(env_cli).expanduser()
+        if p.is_file():
+            return p
+    if CLI.is_file():
+        return CLI
+    for name in ('code-tunnel', 'code'):
+        hit = shutil.which(name)
+        if hit:
+            return Path(hit)
+    for cand in LINUX_CLI_CANDIDATES:
+        if cand.is_file():
+            return cand
+    return None
 _lock = threading.Lock()
 _process = None
 _checked_at = 0.0
@@ -56,8 +82,9 @@ def ensure_started() -> None:
                 return
         except httpx.HTTPError:
             pass
-        if not CLI.is_file():
-            raise RuntimeError('未找到 VS Code，请先在 Applications 安装 Visual Studio Code')
+        cli_bin = resolve_cli()
+        if cli_bin is None:
+            raise RuntimeError('未找到 VS Code（code / code-tunnel），请先安装 Visual Studio Code 或设置 PGA_CODE_CLI')
         token()
         settings = ROOT / 'server/data/Machine/settings.json'
         if not settings.exists():
@@ -71,7 +98,7 @@ def ensure_started() -> None:
             os.chmod(ROOT / 'server.log', 0o600)
             try:
                 _process = subprocess.Popen([
-                    str(CLI), 'serve-web', '--host', '127.0.0.1', '--port', str(PORT),
+                    str(cli_bin), 'serve-web', '--host', '127.0.0.1', '--port', str(PORT),
                     '--server-base-path', '/editor', '--connection-token-file', str(ROOT / 'connection-token'),
                     '--server-data-dir', str(ROOT / 'server'), '--cli-data-dir', str(ROOT / 'cli'),
                     '--accept-server-license-terms', '--disable-telemetry',

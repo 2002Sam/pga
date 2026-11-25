@@ -1,7 +1,8 @@
 """网页阅读: a link opened inside PGA. The page is fetched here (with the proxy PGA uses), and its article is taken out of
 the menus, ads and scripts around it (reader mode); the page's own title, site, description and picture make a card above it.
 Whether the original page may be shown in a frame (X-Frame-Options / CSP frame-ancestors) is said too, so the reader can
-offer it. A PDF or a picture behind the link is kept in the preview cache and shown as such.
+offer it. A PDF, a picture, or a Word file, sheet or slides behind the link is kept in the preview cache and shown as such
+(Office files the way a file here is: pga.filepreview).
 
 Only public addresses are fetched: an address on this machine or the local network is refused (a link in an answer must
 not reach your router or PGA itself)."""
@@ -13,24 +14,36 @@ import re
 import socket
 from html import escape
 from html.parser import HTMLParser
-from urllib.parse import urljoin, urlsplit
+from pathlib import Path, PurePosixPath
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
 from pga import docview
 
 MAX_BYTES = 8 * 1024 * 1024
+MAX_DOCUMENT_BYTES = 64 * 1024 * 1024
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 DROP = {"script", "style", "noscript", "template", "svg", "iframe", "form", "nav", "footer", "aside", "button", "input", "select",
         "textarea", "dialog", "canvas", "object", "embed", "head", "link", "meta"}
 KEEP = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "code", "table", "thead", "tbody", "tr", "th",
         "td", "a", "img", "strong", "em", "b", "i", "br", "hr", "figure", "figcaption", "dl", "dt", "dd", "sup", "sub", "mark", "del"}
+MATH = {"math", "mrow", "mi", "mo", "mn", "ms", "mtext", "mspace", "msup", "msub", "msubsup", "mfrac", "msqrt", "mroot",
+        "munder", "mover", "munderover", "mtable", "mtr", "mtd", "semantics", "annotation", "menclose", "mpadded", "mstyle"}
+KEEP |= MATH
 VOID = {"br", "hr", "img", "meta", "link", "input", "source", "area", "base", "col", "embed", "param", "track", "wbr"}
 NOISE = re.compile(r"comment|sidebar|footer|\bfoot\b|\bnav|menu|\bshare\b|sharing|social|related|advert|\bads?\b|promo|cookie|subscribe|breadcrumb|"
                    r"newsletter|popup|modal|banner|recommend|toolbar|login|signup", re.I)
 
 
 FAKE_IP = ipaddress.ip_network("198.18.0.0/15")
+OFFICE = {"application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx", "application/msword": ".doc",
+          "application/rtf": ".rtf", "text/rtf": ".rtf", "application/vnd.oasis.opendocument.text": ".odt",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx", "application/vnd.ms-excel": ".xls",
+          "application/vnd.ms-excel.sheet.macroenabled.12": ".xlsm", "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+          "text/csv": ".csv", "text/tab-separated-values": ".tsv",
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+          "application/vnd.ms-powerpoint": ".ppt", "application/vnd.oasis.opendocument.presentation": ".odp"}
 
 
 class ReadError(ValueError):
@@ -51,13 +64,13 @@ def _public(host: str) -> None:
             raise ReadError("这是本机或局域网里的地址，内置阅读器不打开它；可以在浏览器里打开")
 
 
-def fetch(url: str, timeout: float = 15) -> tuple[str, dict, bytes]:
+def fetch(url: str, timeout: float = 15, *, max_bytes: int = MAX_BYTES) -> tuple[str, dict, bytes]:
     """(final url, headers, body) of a public http(s) URL, following up to 5 redirects, each one checked."""
     with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": UA, "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                                                                        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}) as c:
         for _ in range(6):
             parts = urlsplit(url)
-            if parts.scheme not in ("http", "https") or not parts.hostname:
+            if parts.scheme not in ("http", "https") or not parts.hostname or parts.username is not None or parts.password is not None:
                 raise ReadError("只能打开 http 和 https 链接")
             _public(parts.hostname)
             with c.stream("GET", url) as r:
@@ -66,12 +79,13 @@ def fetch(url: str, timeout: float = 15) -> tuple[str, dict, bytes]:
                     continue
                 if r.status_code >= 400:
                     raise ReadError(f"网站返回了 {r.status_code}，内容打不开；可以在浏览器里试试")
-                body = b""
+                body = bytearray()
                 for chunk in r.iter_bytes():
-                    body += chunk
-                    if len(body) > MAX_BYTES:
-                        raise ReadError("页面太大（超过 8 MB），请在浏览器里打开")
-                return str(r.url), {k.lower(): v for k, v in r.headers.items()}, body
+                    if len(body) + len(chunk) > max_bytes:
+                        limit = max_bytes // (1024 * 1024)
+                        raise ReadError(f"文件太大（超过 {limit} MB），请在浏览器里打开")
+                    body.extend(chunk)
+                return str(r.url), {k.lower(): v for k, v in r.headers.items()}, bytes(body)
         raise ReadError("跳转次数太多")
 
 
@@ -205,6 +219,9 @@ def _serialize(n: Node, base: str, out: list, pre: bool = False) -> None:
             continue
         elif tag in ("td", "th"):
             attrs = "".join(f' {a}="{escape(k.attrs[a])}"' for a in ("colspan", "rowspan") if (k.attrs.get(a) or "").isdigit())
+        elif tag in MATH:
+            # MathML is inert; preserve layout and TeX annotations, never style, links or handlers.
+            attrs = "".join(f' {a}="{escape(k.attrs[a])}"' for a in ("display", "mathvariant", "stretchy", "encoding", "columnalign", "rowalign") if a in k.attrs)
         if tag in VOID:
             out.append(f"<{tag}>")
             continue
@@ -258,22 +275,66 @@ def article(html_text: str, base: str) -> dict:
             "minutes": max(1, round(words / 400)), "thin": len(text) < 200}
 
 
+def _keep(final: str, ext: str, body: bytes) -> Path:
+    docview.CACHE.mkdir(parents=True, exist_ok=True)
+    f = docview.CACHE / ("web-" + hashlib.sha1(final.encode()).hexdigest()[:20] + ext)
+    f.write_bytes(body)
+    return f
+
+
 def read(url: str) -> dict:
-    """What the reader shows for a link: an article, a PDF or a picture (as preview URLs), or plain text."""
-    from pga.filepreview import grant
+    """What the reader shows for a link: an article, a PDF or a picture (as preview URLs), a Word file, sheet or slides
+    (`file`: what pga.filepreview says of it), or plain text."""
+    from pga.filepreview import describe, grant
     final, headers, body = fetch(url)
     ctype = headers.get("content-type", "").split(";")[0].strip().lower()
     out = {"url": url, "final": final, "frameable": frameable(headers), "host": urlsplit(final).hostname or ""}
+    name = unquote(urlsplit(final).path.rsplit("/", 1)[-1]) or out["host"]
     if ctype == "application/pdf" or body[:5] == b"%PDF-" or ctype.startswith("image/"):
         ext = ".pdf" if ctype == "application/pdf" or body[:5] == b"%PDF-" else "." + (ctype.split("/")[1].split("+")[0] or "png")
-        docview.CACHE.mkdir(parents=True, exist_ok=True)
-        f = docview.CACHE / ("web-" + hashlib.sha1(final.encode()).hexdigest()[:20] + ext)
-        f.write_bytes(body)
-        name = urlsplit(final).path.rsplit("/", 1)[-1] or out["host"]
-        return {**out, "kind": "document" if ext == ".pdf" else "image", "url_view": grant(f), "title": name}
+        return {**out, "kind": "document" if ext == ".pdf" else "image", "url_view": grant(_keep(final, ext, body)), "title": name}
+    suffix = PurePosixPath(name).suffix.lower()
+    office = OFFICE.get(ctype) or (suffix if suffix in docview.WORD | docview.SHEETS | docview.SLIDES and "html" not in ctype else "")
+    if office:
+        return {**out, "kind": "file", "title": name, "file": describe(_keep(final, office, body), "")}
     if ctype in ("text/plain", "text/markdown", "application/json"):
-        return {**out, "kind": "text", "title": urlsplit(final).path.rsplit("/", 1)[-1] or out["host"],
+        return {**out, "kind": "text", "title": name,
                 "text": _decode(body, headers)[:400_000], "markdown": ctype == "text/markdown" or final.endswith(".md")}
     if "html" not in ctype and ctype:
         raise ReadError(f"这个链接是 {ctype} 文件，内置阅读器不支持；可以在浏览器里打开")
     return {**out, "kind": "web", **article(_decode(body, headers), final)}
+
+
+def document_for_actions(url: str) -> dict:
+    """Fetch a remote document through the normal SSRF/size-limited path and expose its cached original.
+
+    The returned `path` is only a local cache path for Finder reveal. `download_url` is a short-lived, local-only
+    capability from pga.filepreview; it downloads the original bytes, not an office-to-PDF conversion.
+    """
+    final, headers, body = fetch(url, timeout=30, max_bytes=MAX_DOCUMENT_BYTES)
+    ctype = headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    path_name = PurePosixPath(unquote(urlsplit(final).path)).name
+    path_name = "".join(ch for ch in path_name if ch.isprintable() and ch not in "/\\\\").strip(" .")
+    suffix = PurePosixPath(path_name).suffix.lower()
+    if ctype == "text/html" or ctype == "application/xhtml+xml":
+        raise ReadError("这是网页，没有可下载的文档原件")
+    if ctype == "application/pdf" or body[:5] == b"%PDF-":
+        ext = ".pdf"
+    elif ctype.startswith("image/"):
+        ext = "." + (ctype.split("/", 1)[1].split("+", 1)[0] or "png")
+    elif ctype in OFFICE:
+        ext = OFFICE[ctype]
+    elif suffix in docview.WORD | docview.SHEETS | docview.SLIDES:
+        ext = suffix
+    else:
+        raise ReadError("这个链接不是可下载的 PDF、图片或 Office 文档")
+
+    path = _keep(final, ext, body)
+    from pga.filepreview import describe
+    name = path_name or (urlsplit(final).hostname or "document")
+    if not name.lower().endswith(ext):
+        name += ext
+    info = describe(path, "", name=name)
+    # Keep the server-side cache path for “show in folder” but present the source filename.
+    info["source"] = final
+    return info

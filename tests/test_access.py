@@ -148,3 +148,112 @@ def test_split_agents_use_current_parent_permissions(session_factory, policy, pr
                 assert seen[-1]['access'] == mode
                 assert seen[-1]['folder'] == str(tmp_path)
         assert c.get(f'/v1/users/{user.id}/access',params={'key':'chat:unrelated'}).json()['current']['access'] == 'auto'
+
+
+def test_ask_releases_preference_lock_before_native_approval(engine, policy, provider, backend, monkeypatch):
+    """Use independent DB connections: a SAVEPOINT fixture cannot expose this deadlock."""
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy import select, text
+    from pga.db.models import User, PermissionPolicy
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory.begin() as s:
+        pp = PermissionPolicy(rules={})
+        s.add(pp); s.flush()
+        u = User(permission_policy_id=pp.id, preferences={})
+        s.add(u); s.flush()
+        uid, pid = u.id, pp.id
+    checked = []
+    def ask(self, user, prompt, **kw):
+        # A real router queries the DB and autoflushes pending preference writes.
+        self.rt.session.flush()
+        with factory.begin() as other:
+            other.execute(text("SET LOCAL lock_timeout = '500ms'"))
+            fresh = other.scalar(select(User).where(User.id == uid).with_for_update())
+            assert fresh.preferences['agent_access']['keys']['chat:approval-lock']['access'] == 'auto'
+            checked.append(True)
+        return {'ok': True, 'text': 'done'}
+    monkeypatch.setattr(AgentRouter, 'ask', ask)
+    monkeypatch.setattr('pga.associate.block', lambda *a, **k: ('', []))
+    app = create_app(session_factory=factory,
+        runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    try:
+        with TestClient(app) as c:
+            r = c.post(f'/v1/users/{uid}/agents/ask', json={'conversation':'chat:approval-lock', 'text':'hi', 'access':'auto'})
+            assert r.status_code == 200, r.text
+        assert checked == [True]
+    finally:
+        with factory.begin() as s:
+            s.delete(s.get(User, uid)); s.delete(s.get(PermissionPolicy, pid))
+
+
+def test_full_approval_lock_timeout_leaves_allow_once_available(engine, policy, provider, backend):
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+    from pga.db.models import User, PermissionPolicy
+    from pga.agents import approvals, live
+    from tests.test_approvals import wait_pending
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory.begin() as s:
+        pp = PermissionPolicy(rules={}); s.add(pp); s.flush()
+        u = User(permission_policy_id=pp.id, preferences={}); s.add(u); s.flush()
+        uid, pid = u.id, pp.id
+    lid = live.start('test', tags={'conversation': f'{uid}:chat:locked'})
+    task = AgentTask(prompt='test', permissions=AUTO, timeout_s=15,
+                     meta={'live_id': lid, 'conversation': f'{uid}:chat:locked'})
+    app = create_app(session_factory=factory, runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    try:
+        with TestClient(app) as client, ThreadPoolExecutor() as pool:
+            waiting = pool.submit(approvals.request, task, {'tool': 'Write'})
+            aid = wait_pending(lid)
+            with factory.begin() as blocker:
+                blocker.scalar(select(User).where(User.id == uid).with_for_update())
+                started = time.monotonic()
+                r = client.post(f'/v1/users/{uid}/approvals/{aid}', json={'decision':'full'})
+                assert r.status_code == 503, r.text
+                assert time.monotonic() - started < 6
+                assert not waiting.done()
+                assert approvals.pending(aid, uid)
+                r = client.post(f'/v1/users/{uid}/approvals/{aid}', json={'decision':'allow'})
+                assert r.status_code == 200, r.text
+                assert waiting.result(timeout=2)
+            with factory() as s:
+                assert not s.get(User, uid).preferences.get('agent_access')
+    finally:
+        live.finish(lid, True)
+        with factory.begin() as s:
+            s.delete(s.get(User, uid)); s.delete(s.get(PermissionPolicy, pid))
+
+
+def test_manager_create_uses_category_folder_and_full_access(session_factory, policy, provider, backend, user, session, tmp_path, monkeypatch):
+    from pga.db.models import Project
+    category = tmp_path / 'category'
+    category.mkdir()
+    global_folder = tmp_path / 'global'
+    global_folder.mkdir()
+    session.add(Project(user_id=user.id, name='PGA', path=str(category), full_access=False))
+    session.commit()
+    seen = []
+    monkeypatch.setattr(AgentRouter, 'ask', lambda self, u, text, **kw: seen.append(kw) or {'ok': True, 'text': 'ok'})
+    app = create_app(session_factory=session_factory,
+                     runtime_factory=lambda s: Runtime(s, policy=policy, provider=provider, translation_backend=backend))
+    with TestClient(app) as c:
+        c.put(f'/v1/users/{user.id}/access', json={'access':'read', 'folder':str(global_folder), 'as_default':True})
+        for _ in range(2):
+            made = c.post(f'/v1/users/{user.id}/conversation-projects', json={'project':'PGA', 'create':True, 'manager':True})
+            assert made.status_code == 200, made.text
+            key = made.json()['key']
+            current = c.get(f'/v1/users/{user.id}/access', params={'key':key}).json()['current']
+            assert (current['access'], current['folder']) == ('full', str(category))
+            # Simulate an older server creating the task with inherited read-only access.
+            c.put(f'/v1/users/{user.id}/access', json={'key':key, 'access':'read', 'folder':str(category)})
+            r = c.post(f'/v1/users/{user.id}/agents/ask', json={
+                'conversation':key, 'text':'check', 'scope':'PGA',
+                'access':'full', 'folder':str(category), 'mcp':False})
+            assert r.status_code == 200, r.text
+            assert (seen[-1]['access'], seen[-1]['folder']) == ('full', str(category))
+            saved = c.get(f'/v1/users/{user.id}/access', params={'key':key}).json()['current']
+            assert (saved['access'], saved['folder']) == ('full', str(category))
+        current = c.get(f'/v1/users/{user.id}/access', params={'key':'chat:unrelated'}).json()['current']
+        assert (current['access'], current['folder']) == ('read', str(global_folder))

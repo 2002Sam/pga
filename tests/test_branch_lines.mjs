@@ -20,7 +20,8 @@ test('stacked children route below the full row through the side gutter',()=>{
 test('selection lengthens only the immediately adjacent ticks and clears old state',()=>{
  const src=fs.readFileSync(new URL('../src/pga/web/app-more.js',import.meta.url),'utf8');
  const marks=Array.from({length:5},()=>{const classes=new Set();return {classes,classList:{toggle:(name,on)=>on?classes.add(name):classes.delete(name)}}});
- const c=vm.createContext({$:()=>({querySelectorAll:()=>marks})});vm.runInContext(src.slice(src.indexOf('function railSelect('),src.indexOf('function syncMap()')),c);
+ const box={firstElementChild:{querySelectorAll:()=>marks}};
+ const c=vm.createContext({$:()=>box});vm.runInContext(src.slice(src.indexOf('function railSelect('),src.indexOf('function syncMap()')),c);
  c.railSelect(marks[2]);assert(marks[2].classes.has('on'));assert(marks[1].classes.has('near'));assert(marks[3].classes.has('near'));assert(!marks[0].classes.has('near'));
  c.railSelect(marks[0]);assert(marks[1].classes.has('near'));assert(!marks[3].classes.has('near'));assert(!marks[2].classes.has('on'));
 });
@@ -33,9 +34,9 @@ test('a branch moved to the left keeps bottom endpoints',()=>{
 test('every visible sibling gets a wire; a tucked sibling loses only its own wire', () => {
  const parent={id:'p',type:'win',kids:['a','b'],sel:'b'},a={id:'a',type:'win',par:'p'},b={id:'b',type:'win',par:'p'};
  const ST={nodes:[parent,a,b],pos:new Map([['p',{x:0,y:0,w:400,h:600}],['a',{x:434,y:0,w:400,h:295,kid:true}],['b',{x:434,y:305,w:400,h:295,kid:true}]])};
- const svg={};const c=vm.createContext({ST,$:()=>svg,stWins:()=>ST.nodes,stOver(){},requestAnimationFrame:()=>1});
+ const svg={};const c=vm.createContext({railPairColor:()=>"red",ST,$:()=>svg,stWins:()=>ST.nodes,stOver(){},requestAnimationFrame:()=>1});
  vm.runInContext(stage.slice(stage.indexOf('function stBranchLine('),stage.indexOf('function stFrame(')),c);
  c.stWires();assert.equal((svg.innerHTML.match(/class="stwire fork/g)||[]).length,2);
  ST.pos.delete('a');c.stWires();assert.equal((svg.innerHTML.match(/class="stwire fork/g)||[]).length,1);
- assert.match(svg.innerHTML,/ H 428/);
+ assert.match(svg.innerHTML,/M 400 452.5 L 434 452.5/);
 });

@@ -10,7 +10,8 @@
   const type = page.type || "note";
   let data = $state({ ...(page.data || {}) });
   let dragging = $state(false);
-  let box, t;
+  let box = $state();
+  let t;
 
   function save(d) { data = { ...data, ...d }; clearTimeout(t); t = setTimeout(() => post("state", { data: d }), 350); }
   onNative("data", (d) => { data = { ...d }; });
@@ -24,8 +25,9 @@
 
 <div class="node t-{type}" class:dragging>
   {#if type === "note"}
+    <button class="tomorrow" onclick={() => post("tomorrowPlan", { text: data.text || "" })}>列明日计划</button>
     <textarea bind:this={box} value={data.text || ""} oninput={(e) => save({ text: e.target.value })}
-      placeholder="写下要给 agent 的话…（从右边的点拉一根线到一个对话窗口）"></textarea>
+      placeholder="写下计划，可连到对话窗口作为参考…"></textarea>
   {:else if type === "file"}
     <div class="file">
       <b>{data.title || "还没选文件"}</b>
@@ -45,6 +47,8 @@
   .node { height: 100%; position: relative; border-top: 2px solid var(--tc); }
   .t-note { --tc: #a1a1aa; } .t-file { --tc: #5fc9c0; } .t-skill { --tc: #e9b35f; } .t-doc { --tc: #7fcf9f; } .t-topic { --tc: #d6a75c; }
   textarea { width: 100%; height: 100%; border: 0; outline: none; resize: none; background: transparent; padding: 10px 16px 10px 14px; line-height: 1.6; font-size: 13.5px; }
+  .t-note { display: flex; flex-direction: column; }
+  .tomorrow { align-self: flex-start; margin: 5px 14px 0; font-size: 12px; }
   .file { display: grid; gap: 4px; padding: 12px 16px; align-content: start; }
   .file .path { font: 11.5px ui-monospace, Menlo, monospace; color: var(--muted); overflow-wrap: anywhere; }
   .file button { justify-self: start; margin-top: 4px; padding: 3px 10px; border-radius: 8px; background: var(--soft); font-size: 12px; }

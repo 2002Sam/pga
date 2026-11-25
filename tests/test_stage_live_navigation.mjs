@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 const source=fs.readFileSync(new URL('../src/pga/web/app-stage.js',import.meta.url),'utf8');
-const start=source.indexOf('setInterval(() => {\n  let changed = false, sent = false;');
+const start=source.indexOf('setInterval(() => {\n  let changed =');
 const code=source.slice(start,source.indexOf('/* ------------------------------------------------ the page */',start));
 function harness(){
  const running={id:'running',run:true},other={id:'reading',run:false};let poll;
- const ctx={ST:{focus:'reading',draftSig:'\u0001'},S:{view:'stage'},document:{activeElement:{tagName:'IFRAME',closest:()=>({dataset:{nid:'running'}})}},stFocus:id=>{ctx.ST.focus=id;},stWins:()=>[running,other],stSeen:()=>false,stBusy:n=>n===running&&running.run,stDraft:()=>'',stSave(){},stRender(){},stMap(){},stListItems(){},stKidLook(){},stInputs(){},setTimeout(){},setInterval:fn=>{poll=fn;}};
+ const ctx={ST:{focus:'reading',draftSig:'\u0001'},S:{view:'stage'},document:{activeElement:{tagName:'IFRAME',closest:()=>({dataset:{nid:'running'}})}},stFocus:id=>{ctx.ST.focus=id;},stWins:()=>[running,other],stSeen:()=>false,stBusy:n=>n===running&&running.run,stDoneNotice(){},stDraft:()=>'',stSave(){},stRender(){},stMap(){},stListItems(){},stKidLook(){},stInputs(){},setTimeout(){},setInterval:fn=>{poll=fn;}};
  vm.runInNewContext(code,ctx);return {ctx,running,poll:()=>poll()};
 }
 test('live polling cannot restore stale iframe focus after map navigation',()=>{
@@ -18,4 +18,11 @@ test('completion marks the background conversation unread without stealing navig
 });
 test('panning remains independent of the active iframe during output',()=>{
  const h=harness();h.ctx.ST.pan={x:100,sl:400};h.ctx.ST.focus='reading';h.poll();assert.equal(h.ctx.ST.focus,'reading');assert.deepEqual(h.ctx.ST.pan,{x:100,sl:400});
+});
+test('completion is tracked during horizontal motion and its repaint runs once after settling',()=>{
+ const h=harness();let paints=0,notices=0,drafts=0;
+ h.ctx.S.stageMotion=true;h.ctx.stBusy=()=>false;h.ctx.stRender=()=>paints++;h.ctx.stDoneNotice=()=>notices++;h.ctx.stDraft=()=>{drafts++;return ''};
+ h.poll();h.poll();assert.equal(h.running.run,false);assert(h.running.done);assert.equal(notices,1);
+ assert.equal(paints,0);assert.equal(drafts,0);assert.equal(h.ctx.ST.statusPaintPending,true);
+ h.ctx.S.stageMotion=false;h.poll();h.poll();assert.equal(paints,1);assert.equal(h.ctx.ST.statusPaintPending,false);
 });

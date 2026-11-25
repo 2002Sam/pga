@@ -52,19 +52,14 @@
   :scope .modal { background: rgba(4,4,8,.5); backdrop-filter: blur(8px) saturate(120%); }
   :scope .modal .box { box-shadow: 0 40px 120px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.05); }
   /* the brand and the rail */
-  :scope .rail .brand .t { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700; letter-spacing: .08em; }
-  :scope .rail .brand img { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 55%, transparent)); }
-  :scope .rb { transition: background .18s, color .18s, transform .18s; }
-  :scope .rb:hover { transform: translateX(1px); }
-  :scope .rb.on { background: var(--grad-soft) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent) !important; }
-  :scope .rb.on::before { content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--grad); box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 45%, transparent); }
+  :scope .rail .brand .t { color: var(--muted); font-weight: 650; letter-spacing: .08em; }
+  :scope .rb.on { background: var(--soft) !important; box-shadow: inset 2px 0 var(--muted) !important; }
   :scope .rb .line { height: 3px; background: var(--soft); }
   :scope .rb .line i { background: var(--line-3); }
-  :scope .rb.run .line i { background: linear-gradient(90deg, #e2b46a, #f3cf8a); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
-  :scope .rb.chat .line i { background: linear-gradient(90deg, #6f97ff, #b48cff); box-shadow: 0 0 10px rgba(143,180,255,.55); }
-  :scope .rb.mine .line i { background: linear-gradient(90deg, #5fc28a, #9be0b8); }
-  :scope .dot.on { background: #7fe0a8; box-shadow: 0 0 0 3px rgba(127,224,168,.16), 0 0 10px rgba(127,224,168,.8); animation: breathe 2.4s ease-in-out infinite; }
-  :scope .rail .foot a.on { background: var(--grad-soft); }
+  :scope .rb.run .line i { background: var(--accent); }
+  :scope .rb.chat .line i { background: var(--blue); }
+  :scope .rb.mine .line i, :scope .dot.on { background: var(--green); }
+  :scope .rail .foot a.on { background: var(--soft); }
   /* buttons */
   :scope button { transition: background .15s, border-color .15s, color .15s, box-shadow .2s, transform .12s, filter .15s; }
   :scope button:active:not(:disabled) { transform: translateY(1px) scale(.99); }
@@ -83,35 +78,30 @@
   box-shadow: 0 24px 60px -28px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.04); backdrop-filter: blur(24px) saturate(150%); -webkit-backdrop-filter: blur(24px) saturate(150%); transition: box-shadow .25s, border-color .25s; }
   :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { border-color: color-mix(in srgb, var(--accent) 42%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 8%, transparent), 0 24px 70px -24px color-mix(in srgb, var(--accent) 35%, transparent), inset 0 1px 0 rgba(255,255,255,.05); }
   :scope .cont { background: transparent; border-top: 0; padding: 6px 22px 16px; }
-  :scope .ccomp textarea, :scope .cont textarea { background: transparent !important; border-color: transparent !important; font-size: 14.5px; }
+  :scope .ccomp textarea, :scope .cont textarea { background: transparent !important; border-color: transparent !important; font-size: calc(14.5px * var(--ui-font-scale, 1)); }
   :scope .ccomp textarea:focus, :scope .cont textarea:focus { border-color: transparent !important; }
   :scope .ccomp .cbar button.primary, :scope .cont .cbar button.primary { height: 36px; border-radius: 12px; padding: 0 16px; }
   :scope #cdlgIn .chat, :scope #dlgIn .chat { gap: 18px; }
   :scope #cdlgIn .chat .cmsg.left { max-width: 100%; }
-  :scope #cdlgIn .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; padding: 2px 2px 0; font-size: 14.5px; line-height: 1.8; }
-  :scope #cdlgIn .chat .cmsg.right .cb, :scope #dlgIn .chat .cmsg.right .cb { background: var(--grad-soft); border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 18px 18px 6px 18px; padding: 10px 15px; font-size: 14.5px;
-  box-shadow: 0 10px 30px -18px color-mix(in srgb, var(--accent) 55%, transparent); }
-  :scope #cdlgIn .chat .cmsg.me .cav, :scope #dlgIn .chat .cmsg.me .cav { background: var(--grad); color: #120d05; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
-  :scope #cdlgIn .chat .cmsg.left .cav { box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 0 16px -2px hsl(var(--h, 220) 70% 60% / .55); }
-  :scope #cdlgIn .chat .cwho b { font-size: 12.5px; }
+  :scope #cdlgIn .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; padding: 2px 2px 0; font-size: calc(14.5px * var(--ui-font-scale, 1)); line-height: 1.8; }
+  :scope #cdlgIn .chat .cmsg.right .cb, :scope #dlgIn .chat .cmsg.right .cb { background: var(--soft); border: 1px solid var(--line); border-radius: 14px 14px 5px 14px; padding: 10px 15px; font-size: calc(14.5px * var(--ui-font-scale, 1)); }
+  :scope #cdlgIn .chat .cmsg.me .cav, :scope #dlgIn .chat .cmsg.me .cav { background: var(--soft); color: var(--text); }
+  :scope #cdlgIn .chat .cwho b { font-size: calc(12.5px * var(--ui-font-scale, 1)); }
   :scope #cdlgIn .chat .ct.md pre, :scope #dlgIn .chat .ct.md pre { background: rgba(0,0,0,.4); border: 1px solid var(--line); }
   :scope[data-theme=light] #cdlgIn .chat .ct.md pre, :scope[data-theme=light] #dlgIn .chat .ct.md pre { background: rgba(250,250,252,.9); }
   :scope .fresh .cmsg, :scope .chat.fresh { animation: rise .45s cubic-bezier(.2,.8,.2,1) both; }
   :scope .macts { opacity: .55; transition: opacity .2s; }
   :scope .macts:hover, :scope .chat:hover + .macts, :scope .macts:focus-within { opacity: 1; }
-  :scope .chello h2 { font-size: 30px; font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px; }
+  :scope .chello h2 { font-size: calc(30px * var(--ui-font-scale, 1)); font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 12px; }
   :scope .chello { animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
   :scope .lseg { transition: background .15s; }
-  /* an agent at work: a living border */
-  :scope .work { position: relative; border: 1px solid transparent !important; background: linear-gradient(var(--bg), var(--bg)) padding-box, linear-gradient(120deg, color-mix(in srgb, var(--accent) 75%, transparent), rgba(143,180,255,.55), rgba(180,140,255,.55), color-mix(in srgb, var(--accent) 75%, transparent)) border-box !important;
-  background-size: 100% 100%, 300% 300% !important; animation: flow 6s linear infinite; box-shadow: 0 18px 50px -24px color-mix(in srgb, var(--accent) 45%, transparent); }
-  :scope .work::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(600px 120px at 10% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 70%); }
+  :scope .work { background: var(--panel); border: 1px solid var(--line); box-shadow: none; }
   :scope .sbc { background: color-mix(in srgb, var(--raised) 80%, transparent); backdrop-filter: blur(10px); }
   :scope .second, :scope .bctx, :scope .lcard { background: color-mix(in srgb, var(--raised) 70%, transparent); }
   /* home, cards and the tree */
   :scope .card { background: color-mix(in srgb, var(--panel) 85%, transparent); border-color: var(--line); backdrop-filter: blur(12px); transition: border-color .2s, transform .2s, box-shadow .2s, background .2s; }
   :scope .card.click:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 30%, transparent); box-shadow: 0 18px 40px -22px color-mix(in srgb, var(--accent) 50%, transparent); }
-  :scope .home h1 { font-size: 28px; font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+  :scope .home h1 { font-size: calc(28px * var(--ui-font-scale, 1)); font-weight: 700; letter-spacing: -.03em; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
   :scope #treeSide { background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%), radial-gradient(ellipse at 50% 0%, rgba(143,180,255,.06), transparent 55%), var(--canvas); }
   :scope .split:hover::after, :scope .resizing .split.on::after { background: var(--grad); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 70%, transparent); }
   :scope #toast { border-color: color-mix(in srgb, var(--accent) 25%, transparent); box-shadow: 0 18px 50px -14px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -124,9 +114,7 @@
     radial-gradient(900px 600px at 55% 122%, rgba(180,130,255,.18), transparent 62%), var(--bg); }
   :scope .bar { background: color-mix(in srgb, var(--bg) 86%, transparent) !important; }
 }
-@keyframes breathe { 50% { box-shadow: 0 0 0 5px rgba(127,224,168,.06), 0 0 16px rgba(127,224,168,.9); } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes flow { to { background-position: 0 0, 300% 0; } }
 
 /* ================================================================ plain: app.css as it is (its colours restated, so a preview of it
    inside another look shows its own) */
@@ -189,9 +177,11 @@
   :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .second, :scope .bctx, :scope .cmap:not(.turnrail), :scope .runout, :scope .lkcard { border: 0 !important; border-radius: 22px; background: var(--raised) !important; box-shadow: var(--up); }
   :scope .ctx, :scope .cpop, :scope #toast, :scope .modal .box, :scope .shell-pop { border: 0; border-radius: 20px; background: var(--pop); box-shadow: var(--up), 0 20px 50px -20px rgba(0,0,0,.25); }
   :scope .modal { background: rgba(120,120,130,.25); }
-  :scope .ccomp > .inner, :scope .cont > .inner { border: 0; border-radius: 26px; padding: 10px 12px; background: var(--raised); box-shadow: var(--up); }
-  :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { box-shadow: var(--up), 0 0 0 2px var(--accent); }
-  :scope .ccomp textarea, :scope .cont textarea { box-shadow: none; background: transparent !important; }
+  :scope.embed .ccomp { --composer-shadow: inset 0 0 0 1px var(--line), 0 2px calc(5px * var(--sk, 1)) -2px color-mix(in srgb, var(--lo) 75%, transparent); }
+  :scope .ccomp > .inner, :scope .cont > .inner { border: 0; border-radius: 26px; padding: 10px 12px; background: var(--raised); box-shadow: var(--composer-shadow, var(--up)); }
+  :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { box-shadow: var(--composer-shadow, var(--up)), 0 0 0 2px var(--accent); }
+  /* The outer composer already marks focus; avoid a second, clipped textarea ring. */
+  :scope .ccomp textarea, :scope .cont textarea { outline: none; box-shadow: none; background: transparent !important; }
   :scope .rb { border-radius: 16px; } :scope .rb.on { background: var(--bg); box-shadow: var(--down) !important; } :scope .rb:hover { background: transparent; box-shadow: var(--up-s); }
   :scope .rb .line { background: var(--bg); box-shadow: var(--down); height: 4px; } :scope .rb .line i { background: var(--pill); }
   :scope .rb.run .line i { background: var(--accent); } :scope .rb.chat .line i { background: var(--accent); }
@@ -235,7 +225,7 @@
   :scope .card, :scope .work, :scope .sbc, :scope .lcard, :scope .modal .box, :scope .ctx, :scope .cpop, :scope .lkcard { border-radius: 6px; box-shadow: none; }
   :scope .ccomp > .inner, :scope .cont > .inner { border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel); }
   :scope .chat .ct, :scope .nprev, :scope #ntext, :scope .home h1, :scope .chello h2, :scope .dh2 h1, :scope .lkhero h1 { font-family: var(--serif); }
-  :scope .chat .ct { font-size: 15px; line-height: 1.85; }
+  :scope .chat .ct { font-size: calc(15px * var(--ui-font-scale, 1)); line-height: 1.85; }
   :scope .chat .cmsg.right .cb { background: transparent; border: 0; border-left: 2px solid var(--accent); border-radius: 0; padding: 4px 12px; }
   :scope .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; }
   :scope .chat .cav { border-radius: 4px; }
@@ -311,7 +301,7 @@
   /* the brand: a calm italic serif, like the kit's display face */
   :scope .rail .brand .t { font-family: var(--serif); font-style: italic; font-weight: 600; font-size: 1.25em; letter-spacing: .02em; color: var(--accent); }
   :scope .home h1, :scope .chello h2, :scope .lkhero h1 { font-family: var(--serif); font-style: italic; font-weight: 600; letter-spacing: 0; color: var(--accent); }
-  :scope .chello h2 { font-size: 34px; }
+  :scope .chello h2 { font-size: calc(34px * var(--ui-font-scale, 1)); }
   :scope .rb { border-radius: 14px; } :scope .rb.on { background: var(--accent-soft) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent) !important; }
   :scope .rb .line { background: var(--soft); } :scope .rb .line i { background: var(--line-3); }
   :scope .rb.run .line i { background: var(--accent); } :scope .rb.chat .line i { background: var(--sky); } :scope .rb.mine .line i { background: var(--blush); }
@@ -342,7 +332,8 @@
   :scope .ccomp, :scope .cont { background: transparent; border-top: 0; padding: 6px 22px 16px; }
   :scope .ccomp > .inner, :scope .cont > .inner { border-radius: 22px; padding: 10px 12px; background: var(--panel); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); }
   :scope .ccomp > .inner:focus-within, :scope .cont > .inner:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 4px var(--accent-soft), var(--glass-shadow); }
-  :scope .ccomp textarea, :scope .cont textarea { background: transparent !important; border-color: transparent !important; box-shadow: none; }
+  /* Keep focus on the outer composer, not a second outline around its textarea. */
+  :scope .ccomp textarea, :scope .cont textarea { outline: none; background: transparent !important; border-color: transparent !important; box-shadow: none; }
   :scope #cdlgIn .chat, :scope #dlgIn .chat { gap: 18px; }
   :scope #cdlgIn .chat .cmsg.left:not(.conv) .cb { background: transparent; border: 0; padding: 2px 2px 0; line-height: 1.8; }
   :scope .chat .cmsg.right .cb { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--glass-edge)); border-radius: 18px 18px 6px 18px; padding: 10px 15px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
@@ -382,7 +373,7 @@ html[data-skin="mist"][data-palette="earth"] #vStage { background-image: none !i
 :root[data-density=compact] :is(#cdlgIn, #dlgIn) .chat { gap: 8px !important; } :root[data-density=compact] .dlg { padding: 10px 18px 24px; }
 :root[data-density=compact] .chat .ct { line-height: 1.55 !important; } :root[data-density=compact] .rb { padding: 6px 10px 7px; }
 :root[data-density=roomy] :is(#cdlgIn, #dlgIn) .chat { gap: 28px !important; } :root[data-density=roomy] .dlg { padding: 26px 40px 48px; }
-:root[data-density=roomy] .chat .ct { line-height: 1.95 !important; } :root[data-density=roomy] .dlg > .inner { max-width: 820px; }
+:root[data-density=roomy] .chat .ct { line-height: 1.95 !important; } :root[data-density=roomy] .dlg > .inner { max-width: 1040px; }
 :root[data-glow=off] body { background: var(--bg) !important; } :root[data-glow=off] body::before { display: none; }
 :root[data-glass=off] *:not(.lkprev *) { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 :root[data-skin=aurora][data-glass=off] :is(.rail, .clist, .cpane, #dialog, .nlist, .npane, #treeSide) { background-color: color-mix(in srgb, var(--bg) 94%, var(--text)) !important; }
@@ -430,20 +421,20 @@ html[data-skin="mist"][data-palette="earth"] #vStage { background-image: none !i
 
 /* ================================================================ the appearance gallery page (外观社区) */
 #vLooks { overflow: auto; } .looks { max-width: 1240px; margin: 0 auto; padding: 30px 32px 60px; }
-.lkhero h1 { margin: 0 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -.02em; } .lkhero p { margin: 0 0 22px; color: var(--muted); max-width: 720px; }
+.lkhero h1 { margin: 0 0 6px; font-size: calc(26px * var(--ui-font-scale, 1)); font-weight: 700; letter-spacing: -.02em; } .lkhero p { margin: 0 0 22px; color: var(--muted); max-width: 720px; }
 .lkwrap { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; align-items: start; }
 .lkcfg { position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow: auto; display: grid; gap: 6px; padding: 16px 18px !important; }
-.lkcfg > label { font-size: 11.5px; color: var(--dim); margin-top: 10px; }
-.lkh { display: flex; align-items: baseline; gap: 8px; } .lkh b { font-size: 15px; } .lkh .dimt { font-size: 12px; }
+.lkcfg > label { font-size: calc(11.5px * var(--ui-font-scale, 1)); color: var(--dim); margin-top: 10px; }
+.lkh { display: flex; align-items: baseline; gap: 8px; } .lkh b { font-size: calc(15px * var(--ui-font-scale, 1)); } .lkh .dimt { font-size: calc(12px * var(--ui-font-scale, 1)); }
 .lkcfg .seg { display: flex; flex-wrap: wrap; } .lkcfg .seg button { flex: 1; padding: 0 6px; }
 .lksw { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.lksw .sw { width: 26px; height: 26px; padding: 0; border-radius: 50% !important; background: var(--c, transparent) !important; border: 1px solid var(--line-2) !important; font-size: 12px; color: var(--dim); box-shadow: none !important; }
+.lksw .sw { width: 26px; height: 26px; padding: 0; border-radius: 50% !important; background: var(--c, transparent) !important; border: 1px solid var(--line-2) !important; font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--dim); box-shadow: none !important; }
 .lksw .sw.on { outline: 2px solid var(--text); outline-offset: 2px; }
 .lksw input[type=color] { width: 30px; height: 28px; padding: 0; border: 0; background: none; cursor: pointer; box-shadow: none; }
 .lkrange { display: flex; align-items: center; gap: 10px; } .lkrange input { flex: 1; accent-color: var(--accent); }
-.lkrange em { font-style: normal; font-size: 12px; color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.lkrange em { font-style: normal; font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--muted); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 .lkfx { display: grid; gap: 8px; }
-.lktog { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 13px; } .lktog input { display: none; }
+.lktog { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: calc(13px * var(--ui-font-scale, 1)); } .lktog input { display: none; }
 .lktog i { width: 36px; height: 20px; border-radius: 999px; background: var(--line-3); position: relative; transition: background .2s; flex: none; }
 .lktog i::after { content: ""; position: absolute; left: 2px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s; }
 .lktog input:checked + i { background: var(--accent); } .lktog input:checked + i::after { transform: translateX(16px); }
@@ -451,17 +442,17 @@ html[data-skin="mist"][data-palette="earth"] #vStage { background-image: none !i
 .lkgal { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin: 10px 0 30px; }
 .lkcard { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--panel); transition: transform .2s, box-shadow .2s, border-color .2s; }
 .lkcard:hover { transform: translateY(-2px); border-color: var(--line-3); } .lkcard.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.lkc-b { padding: 12px 14px 14px; } .lkc-t { display: flex; align-items: center; gap: 8px; } .lkc-t b { font-size: 14px; } .lkc-t .pill { height: 20px; font-size: 11px; color: var(--accent); }
-.lkc-d { font-size: 12px; color: var(--dim); margin: 4px 0 10px; min-height: 34px; } .lkc-a { display: flex; gap: 6px; flex-wrap: wrap; }
+.lkc-b { padding: 12px 14px 14px; } .lkc-t { display: flex; align-items: center; gap: 8px; } .lkc-t b { font-size: calc(14px * var(--ui-font-scale, 1)); } .lkc-t .pill { height: 20px; font-size: calc(11px * var(--ui-font-scale, 1)); color: var(--accent); }
+.lkc-d { font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--dim); margin: 4px 0 10px; min-height: 34px; } .lkc-a { display: flex; gap: 6px; flex-wrap: wrap; }
 .lkempty { padding: 18px; color: var(--dim); }
-.lkprev { display: grid; grid-template-columns: 54px 1fr; height: 178px; background: var(--bg); color: var(--text); font: 12px/1.5 var(--font); pointer-events: none; overflow: hidden; user-select: none; }
+.lkprev { display: grid; grid-template-columns: 54px 1fr; height: 178px; background: var(--bg); color: var(--text); font: calc(12px * var(--ui-font-scale, 1))/1.5 var(--font); pointer-events: none; overflow: hidden; user-select: none; }
 .lkp-rail { background: var(--rail); border-right: 1px solid var(--line); padding: 10px 8px; display: grid; align-content: start; gap: 7px; }
-.lkp-rail b { font-size: 10px; letter-spacing: .08em; } .lkp-rail span { height: 18px; border-radius: 6px; background: var(--soft); } .lkp-rail span.on { background: var(--accent-soft); box-shadow: none; }
-.lkprev .chat .ct { font-size: 11.5px !important; line-height: 1.45 !important; font-family: inherit; }
+.lkp-rail b { font-size: calc(10px * var(--ui-font-scale, 1)); letter-spacing: .08em; } .lkp-rail span { height: 18px; border-radius: 6px; background: var(--soft); } .lkp-rail span.on { background: var(--accent-soft); box-shadow: none; }
+.lkprev .chat .ct { font-size: calc(11.5px * var(--ui-font-scale, 1)) !important; line-height: 1.45 !important; font-family: inherit; }
 .lkp-main { padding: 8px 10px; display: grid; gap: 7px; align-content: start; background: var(--panel); min-width: 0; }
-.lkprev .chat { gap: 6px; padding: 0; } .lkprev .chat .cb { padding: 5px 9px; font-size: 11.5px; line-height: 1.45; } .lkprev .chat .cav { width: 20px; height: 20px; font-size: 10px; } .lkprev .chat .cmsg { max-width: 96%; }
-.lkp-comp, .lkp-row { display: flex; gap: 6px; align-items: center; } .lkp-comp input { flex: 1; min-width: 0; height: 26px !important; font-size: 11.5px; }
-.lkprev button { height: 24px; font-size: 11px; padding: 0 10px; } .lkprev .seg button { height: 20px; padding: 0 7px; }
+.lkprev .chat { gap: 6px; padding: 0; } .lkprev .chat .cb { padding: 5px 9px; font-size: calc(11.5px * var(--ui-font-scale, 1)); line-height: 1.45; } .lkprev .chat .cav { width: 20px; height: 20px; font-size: calc(10px * var(--ui-font-scale, 1)); } .lkprev .chat .cmsg { max-width: 96%; }
+.lkp-comp, .lkp-row { display: flex; gap: 6px; align-items: center; } .lkp-comp input { flex: 1; min-width: 0; height: 26px !important; font-size: calc(11.5px * var(--ui-font-scale, 1)); }
+.lkprev button { height: 24px; font-size: calc(11px * var(--ui-font-scale, 1)); padding: 0 10px; } .lkprev .seg button { height: 20px; padding: 0 7px; }
 .lksheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 10px 0 30px; }
 .lks-card { display: grid; gap: 12px; } .lks-h { display: flex; justify-content: space-between; }
 .lks-f { display: flex; justify-content: space-between; align-items: center; color: var(--muted); padding-top: 10px; border-top: 1px solid var(--line); }
@@ -477,6 +468,58 @@ html[data-skin="mist"][data-palette="earth"] #vStage { background-image: none !i
   :scope .lks-r { border-top-color: var(--line); } :scope .lkcard.cur { box-shadow: var(--up), 0 0 0 2px var(--accent); }
 }
 
+/* A window moving across the stage can reuse its painted background. Blurring
+   the canvas through each window and its nested panes requires a fresh composite. */
+#vStage :is(.stwin, #stbar, #stmap),
+html.embed :is(.cpane, .ccomp > .inner, .dh2, .sbc, .work) {
+  -webkit-backdrop-filter:none !important;
+  backdrop-filter:none !important;
+}
+html.embed body::before, body:has(> .app.onstage)::before { content:none; }
+
+/* Page titles and category tints carry selection. Keep the surrounding frame quiet. */
+#vStage .stnode.t-win:not(.held) > .stwin {
+  border-color: var(--line);
+  box-shadow: none;
+}
+#vStage .stnode.t-win.focus > .stwin {
+  border-color: var(--line-3);
+}
+#vStage .stnode[data-category-color] > .stwin > .stwh {
+  box-shadow: inset 0 1px color-mix(in srgb, var(--wc) 36%, transparent);
+}
+#vStage .stnode.focus .stwt { font-weight: 650; }
+#vStage #stmap, html.deskapp #vStage #stmap {
+  border-color: var(--line);
+  box-shadow: none;
+}
+#vStage .stwsband { height: 2px; opacity: .4; }
+#vStage #stmi .mwsline { height: 1px; }
+#vStage #stmi :is(i.run, .mtime) { animation: none; }
+#vStage #stmi i.run::after {
+  content: "";
+  inset: auto auto 2px 2px;
+  width: 4px;
+  height: 4px;
+  background: var(--text);
+  border-radius: 50%;
+  animation: none;
+}
+#vStage #stmi .mtime { background: var(--panel); color: var(--text); }
+
+:root .app :is(.ccomp, .cont) > .inner {
+  box-shadow: none;
+  border-color: var(--line);
+}
+:root .app :is(.ccomp, .cont) > .inner:focus-within {
+  border-color: var(--muted);
+  box-shadow: none;
+}
+:root .app :is(.ccomp, .cont) textarea:focus-visible {
+  outline: 2px solid var(--muted);
+  outline-offset: -2px;
+}
+
 /* Position ticks must stay unpainted under every skin, even on hover/press. */
 #cmap.turnrail, #cmap.turnrail:hover, #cmap.turnrail.wide,
 #cmap.turnrail .railmarks, #cmap.turnrail .railrow,
@@ -487,32 +530,63 @@ html[data-skin="mist"][data-palette="earth"] #vStage { background-image: none !i
   backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
 }
 
-/* Category palette only: background, text, controls and skin colors remain unchanged. */
-html[data-palette="earth"] #vStage #stmi .stcategory {
-  color:color-mix(in srgb, var(--wc) 45%, var(--text));
+/* Category ribbons use tinted paper and a darker ink from the same swatch. */
+#vStage #stmi .stcategory:not(.stmapage) {
+  color:color-mix(in srgb, var(--wc) 42%, var(--text));
 }
-html[data-palette="earth"] #vStage #stmi .stcategory button { color:inherit; }
+#vStage #stmi .stcategory:not(.stmapage) > button { color:inherit; }
+#vStage #stmi i.mws {
+  background:color-mix(in srgb, var(--wc) 16%, var(--panel));
+}
+#vStage #stmi i.mws.on, #vStage #stmi i.mws.run {
+  background:color-mix(in srgb, var(--wc) 28%, var(--panel)) !important;
+  box-shadow:inset 0 -2px var(--wc);
+}
+html[data-category-palette="blues"] #vStage #stmi i.mws {
+  border-bottom:1px solid color-mix(in srgb, var(--wc) 55%, transparent);
+  box-sizing:border-box;
+}
+html[data-category-palette="blues"] #vStage #stmi i.mws.on {
+  box-shadow:inset 0 -2px var(--muted);
+}
+/* Linear-light mixing preserves the matched luminance across the five hues. */
+html[data-category-palette="orchard"] #vStage #stmi i.mws {
+  background:color-mix(in srgb-linear, var(--wc) 24%, var(--panel));
+  opacity:1;
+}
+html[data-category-palette="orchard"] #vStage #stmi i.mws:is(.on, .run) {
+  background:color-mix(in srgb-linear, var(--wc) 30%, var(--panel)) !important;
+}
+html[data-category-palette="orchard"] #vStage #stmi .stcategory:not(.stmapage) {
+  color:var(--wc);
+}
+#vStage #stmi .mseq.last { color:var(--text); border-color:var(--muted); }
 
+#vStage #stmv {
+  box-sizing:border-box;
+  z-index:4;
+  border:2px solid color-mix(in srgb, var(--text) 72%, var(--accent));
+  background:transparent;
+}
 /* Earth illustration: static vector layers, no blur or animation while panning. */
 html[data-palette="earth"] {
-  --earth-wash:linear-gradient(120deg, rgba(233,212,175,.22), rgba(108,180,165,.14));
+  --earth-wash:linear-gradient(120deg, rgba(233,212,175,.06), rgba(108,180,165,.04));
   --earth-art:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221600%22%20height%3D%221000%22%20viewBox%3D%220%200%201600%201000%22%3E%0A%3Cg%20opacity%3D%22.4%22%3E%0A%3Ccircle%20cx%3D%221390%22%20cy%3D%22120%22%20r%3D%22180%22%20fill%3D%22%23dd9b4b%22%20opacity%3D%22.55%22%2F%3E%0A%3Cpath%20d%3D%22M1120%200h480v570c-110-45-128-170-213-202-138-54-193-160-267-368Z%22%20fill%3D%22%23e9d4af%22%20opacity%3D%22.6%22%2F%3E%0A%3Cpath%20d%3D%22M0%20730c160-140%20270-80%20410%2068s320%2042%20440%20202H0Z%22%20fill%3D%22%236cb4a5%22%2F%3E%0A%3Cpath%20d%3D%22M0%20850c160-90%20270-48%20400%2050s240%2038%20370%20100H0Z%22%20fill%3D%22%23a74713%22%20opacity%3D%22.65%22%2F%3E%0A%3Cpath%20d%3D%22M1110%201000c-40-170%20150-280%20280-260s170%2090%20210%20120v140Z%22%20fill%3D%22%23dd9b4b%22%20opacity%3D%22.38%22%2F%3E%0A%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cb4a5%22%20stroke-width%3D%221.4%22%20opacity%3D%22.85%22%3E%0A%3Cpath%20d%3D%22M1170-20c-180%20130-30%20230%20110%20270s220%20120%20200%20300%22%2F%3E%0A%3Cpath%20d%3D%22M1190-20c-180%20130-30%20230%20110%20270s220%20120%20200%20300%22%2F%3E%0A%3Cpath%20d%3D%22M1210-20c-180%20130-30%20230%20110%20270s220%20120%20200%20300%22%2F%3E%0A%3Cpath%20d%3D%22M1230-20c-180%20130-30%20230%20110%20270s220%20120%20200%20300%22%2F%3E%0A%3Cpath%20d%3D%22M1250-20c-180%20130-30%20230%20110%20270s220%20120%20200%20300%22%2F%3E%0A%3C%2Fg%3E%0A%3Cg%20fill%3D%22none%22%20stroke%3D%22%23e9d4af%22%20stroke-width%3D%221%22%20opacity%3D%22.7%22%3E%0A%3Cellipse%20cx%3D%22130%22%20cy%3D%22830%22%20rx%3D%22280%22%20ry%3D%22140%22%2F%3E%3Cellipse%20cx%3D%22130%22%20cy%3D%22830%22%20rx%3D%22300%22%20ry%3D%22155%22%2F%3E%3Cellipse%20cx%3D%22130%22%20cy%3D%22830%22%20rx%3D%22320%22%20ry%3D%22170%22%2F%3E%0A%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E");
 }
-html[data-palette="earth"][data-theme="light"] {
-  --earth-wash:linear-gradient(120deg, rgba(233,212,175,.3), rgba(108,180,165,.16));
+html[data-palette="earth"] body {
+  --earth-veil: color-mix(in srgb, var(--bg) 90%, transparent);
+  background-image:linear-gradient(var(--earth-veil),var(--earth-veil)), var(--earth-art), var(--earth-wash) !important;
+  background-size:cover; background-position:center; background-repeat:no-repeat;
 }
-html[data-palette="earth"] body,
-html[data-palette="earth"] #vStage {
-  background-image:var(--earth-art), var(--earth-wash) !important;
-  background-size:cover, cover; background-position:center; background-repeat:no-repeat;
-}
-html[data-palette="earth"] #vStage > .stground { opacity:.28; }
+html:root #vStage.view { background:color-mix(in srgb, var(--bg) 95%, var(--text)) !important; }
+html:root[data-theme="light"] #vStage.view { background:color-mix(in srgb, var(--bg) 87%, var(--text)) !important; }
+#vStage > .stground { opacity:.12; }
 html[data-palette="earth"] :is(.rail, #stlist.side, .clist, .nlist, .cqs, #ctree, #treeSide, .stwh, .ccomp, .cont) {
   background-image:var(--earth-wash) !important;
 }
 /* Reading surfaces get a quieter version of the illustration. */
 html[data-palette="earth"] :is(.cpane, .npane, #dialog) {
-  background-image:linear-gradient(color-mix(in srgb,var(--bg) 52%,transparent),color-mix(in srgb,var(--bg) 52%,transparent)), var(--earth-art), var(--earth-wash) !important;
+  background-image:linear-gradient(var(--earth-veil),var(--earth-veil)), var(--earth-art), var(--earth-wash) !important;
   background-size:cover; background-position:center; background-repeat:no-repeat;
 }
 html[data-palette="earth"] :is(#stlist.side, .ccomp, .cont) {
@@ -526,3 +600,210 @@ html[data-palette="earth"][data-earth-art="2"] { --earth-art:url("data:image/svg
 html[data-palette="earth"][data-earth-art="3"] { --earth-art:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201600%201000%22%3E%3Cg%20opacity%3D%22.34%22%3E%3Cpath%20d%3D%22M0%201000V700Q240%20520%20470%20760T950%201000Z%22%20fill%3D%22%23dd9b4b%22%2F%3E%3Cpath%20d%3D%22M1600%200H1220Q1080%20240%201350%20380T1600%20640Z%22%20fill%3D%22%236cb4a5%22%2F%3E%3Ccircle%20cx%3D%221450%22%20cy%3D%2290%22%20r%3D%22100%22%20fill%3D%22%23a74713%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cb4a5%22%20stroke-width%3D%221.5%22%20transform%3D%22translate%28-800%200%29%22%3E%3Cpath%20d%3D%22M1050%200Q900%20240%201250%20420T1430%20760%22%2F%3E%3Cpath%20d%3D%22M1072%200Q922%20240%201272%20420T1452%20760%22%2F%3E%3Cpath%20d%3D%22M1094%200Q944%20240%201294%20420T1474%20760%22%2F%3E%3Cpath%20d%3D%22M1116%200Q966%20240%201316%20420T1496%20760%22%2F%3E%3Cpath%20d%3D%22M1138%200Q988%20240%201338%20420T1518%20760%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E"); }
 html[data-palette="earth"][data-earth-art="4"] { --earth-art:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201600%201000%22%3E%3Cg%20opacity%3D%22.34%22%3E%3Cpath%20d%3D%22M0%200H340Q520%20200%20290%20380T0%20650Z%22%20fill%3D%22%236cb4a5%22%2F%3E%3Cpath%20d%3D%22M1600%201000H980Q920%20790%201250%20720T1600%20460Z%22%20fill%3D%22%23e9d4af%22%2F%3E%3Ccircle%20cx%3D%221370%22%20cy%3D%22900%22%20r%3D%22130%22%20fill%3D%22%23dd9b4b%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cb4a5%22%20stroke-width%3D%221.5%22%20transform%3D%22translate%280%200%29%22%3E%3Cpath%20d%3D%22M1050%200Q900%20240%201250%20420T1430%20760%22%2F%3E%3Cpath%20d%3D%22M1072%200Q922%20240%201272%20420T1452%20760%22%2F%3E%3Cpath%20d%3D%22M1094%200Q944%20240%201294%20420T1474%20760%22%2F%3E%3Cpath%20d%3D%22M1116%200Q966%20240%201316%20420T1496%20760%22%2F%3E%3Cpath%20d%3D%22M1138%200Q988%20240%201338%20420T1518%20760%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E"); }
 html[data-palette="earth"][data-earth-art="5"] { --earth-art:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%201600%201000%22%3E%3Cg%20opacity%3D%22.34%22%3E%3Ccircle%20cx%3D%221460%22%20cy%3D%22250%22%20r%3D%22300%22%20fill%3D%22%23dd9b4b%22%2F%3E%3Ccircle%20cx%3D%221500%22%20cy%3D%22180%22%20r%3D%22200%22%20fill%3D%22%23a74713%22%2F%3E%3Cpath%20d%3D%22M0%20650Q170%20780%20400%20720T720%201000H0Z%22%20fill%3D%22%236cb4a5%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%236cb4a5%22%20stroke-width%3D%221.5%22%20transform%3D%22translate%28-800%200%29%22%3E%3Cpath%20d%3D%22M1050%200Q900%20240%201250%20420T1430%20760%22%2F%3E%3Cpath%20d%3D%22M1072%200Q922%20240%201272%20420T1452%20760%22%2F%3E%3Cpath%20d%3D%22M1094%200Q944%20240%201294%20420T1474%20760%22%2F%3E%3Cpath%20d%3D%22M1116%200Q966%20240%201316%20420T1496%20760%22%2F%3E%3Cpath%20d%3D%22M1138%200Q988%20240%201338%20420T1518%20760%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E"); }
+
+:root[data-fs] :is(#chatText, #ntext, #pdDraft, #pmdoc .pdpara, .memob, .knowledge-body) { font-size: var(--fs) !important; }
+
+/* Keep the charcoal workspace in dark mode. In daylight each skin supplies
+   its own surface and ink colours, including inside stage windows. */
+html:root[data-theme="light"] { color-scheme: light; }
+html:root[data-theme="dark"] {
+  color-scheme: dark;
+  --recessed-field-bg: #202020;
+  --bg: #181818 !important;
+  --panel: #181818 !important;
+  --raised: #303030 !important;
+  --rail: #202020 !important;
+  --canvas: #181818 !important;
+  --inset: #202020 !important;
+  --pop: #2f2f2f !important;
+  --hover: #383838 !important;
+  --soft: rgba(255,255,255,.06) !important;
+  --text: #ececef !important;
+  --muted: #b5b5bd !important;
+  --dim: #96969f !important;
+  --line: rgba(255,255,255,.12) !important;
+  --line-2: rgba(255,255,255,.2) !important;
+  --line-3: rgba(255,255,255,.32) !important;
+  --onprimary: #000 !important;
+  --blue: #8fb4ff !important;
+  --t1: #ececef !important;
+  --t2: #b5b5bd !important;
+  --t3: #96969f !important;
+  --ti: 236,236,239 !important;
+  --tf: 255,255,255 !important;
+  --tbgr: 24,24,24 !important;
+  --t3r: 181,181,189 !important;
+  --tbg: #181818 !important;
+  --tb1: #2a2a2a !important;
+  --tb2: #303030 !important;
+}
+html[data-theme="dark"] .stnode.t-win > .stwin, html.stage-page[data-theme="dark"] > body {
+  --bg: #181818;
+  --panel: #181818;
+  --text: #ececef;
+  --muted: #b5b5bd;
+  --dim: #96969f;
+  --t1: var(--text);
+  --t2: var(--muted);
+  --t3: var(--dim);
+  color: var(--text);
+}
+html:root body,
+html:root #vStage.view,
+html:root[data-theme] #vStage.view,
+html:root :is(.rail, #stlist.side, .clist, .nlist, .cqs, #ctree, #treeSide,
+  .cpane, .npane, #dialog, .stwin, .stwh, .ccomp, .cont, .bar, .dh, .dh2, .nhd) {
+  background: var(--stage-surface, var(--bg)) !important;
+}
+html:root :is(.rail, #stlist.side, .clist, .nlist, .cqs, #ctree, #treeSide) {
+  background: var(--rail) !important;
+}
+html:root[data-skin="soft"][data-theme="dark"] {
+  --hi: transparent;
+  --lo: rgba(0,0,0,.22);
+}
+html:root :is(.ccomp, .cont) > .inner {
+  background: var(--raised) !important;
+  border-color: transparent;
+  box-shadow: none;
+}
+html:root :is(.ccomp, .cont) > .inner:focus-within {
+  border-color: var(--line-2);
+  box-shadow: none;
+}
+html:root.stage-page-focused :is(.ccomp, .cont) > .inner {
+  background: transparent !important;
+  border-color: transparent;
+}
+html:root.stage-page-focused[data-theme="dark"] :is(.ccomp, .cont) textarea {
+  background: #141414 !important;
+  border-radius: 6px;
+}
+html:root body::before, html:root body::after,
+html:root #vStage > .stground {
+  display: none !important;
+}
+html.stage-page :is(input, textarea)::placeholder { color: var(--dim); opacity: 1; }
+#vStage #stmi .mlabel {
+  color: var(--text);
+  opacity: .95;
+  text-shadow: none;
+}
+#vStage #stmi .mdraft.page-focused {
+  color: var(--text);
+  opacity: 1;
+  font-weight: 600;
+}
+
+/* Keep the reply at the reader's chosen size. Scale the question and transcript furniture separately. */
+:is(#cdlgIn, #dlgIn) {
+  --turn-small: calc(10.5px * var(--ui-font-scale, 1));
+  --question-size: calc(var(--fs, calc(14px * var(--ui-font-scale, 1))) * .86);
+}
+:is(#cdlgIn, #dlgIn) .chat .cmsg.right .cb {
+  padding: 6px 10px;
+  background: var(--soft);
+  border-color: transparent;
+  box-shadow: none;
+}
+:root :is(#cdlgIn, #dlgIn) .chat .cmsg.right .ct,
+:is(#cdlgIn, #dlgIn) :is(.question-supplement .md, .mynote .md, .chat .cnote .ct) {
+  font-size: var(--question-size) !important;
+  opacity: .76;
+}
+:is(#cdlgIn, #dlgIn) .chat .cmsg.right :is(table, code) { font-size: .94em; }
+:is(#cdlgIn, #dlgIn) .chat .cav { width: 22px; height: 22px; font-size: var(--turn-small); opacity: .7; }
+:is(#cdlgIn, #dlgIn) .chat :is(.cwho, .ctime, .csub, .cq, .trbtn),
+:is(#cdlgIn, #dlgIn) :is(.rmeta, .proc, .sbh, .swap, .bctxsep, .work-actions, .work-detail > .steps, .work .wh) {
+  font-size: var(--turn-small);
+  opacity: .72;
+}
+:root :is(#cdlgIn, #dlgIn) .chat .cwho :is(b, span),
+:is(#cdlgIn, #dlgIn) .work .wh :is(.wst, .wt, .work-metrics, .work-disclosure, .work-failed) {
+  font-size: var(--turn-small);
+}
+:is(#cdlgIn, #dlgIn) .macts { opacity: .55; }
+:is(#cdlgIn, #dlgIn) .macts.right { margin-right: 0; }
+:is(#cdlgIn, #dlgIn) .macts :is(button, .vers) { font-size: var(--turn-small); }
+:is(#cdlgIn, #dlgIn) :is(.macts, .trbtn, .rmeta, .proc, .wh):is(:hover, :focus-within) { opacity: 1; }
+
+#chead :is(h1, .kind), .cpane .envbar, #ccomp .composer-options { opacity: .76; }
+#chead h1 { font-size: calc(12px * var(--ui-font-scale, 1)); }
+#ccomp .composer-options button:not(.primary) { font-size: calc(10px * var(--ui-font-scale, 1)) !important; }
+#ccomp .compact-composer > :is(#chatSend, #lineSend, #impSend) {
+  font-size: calc(11px * var(--ui-font-scale, 1));
+  background: var(--soft);
+  border: 1px solid var(--line-2);
+  color: var(--text);
+  box-shadow: none;
+  opacity: .8;
+}
+#ccomp .compact-composer > :is(#chatSend, #lineSend, #impSend):enabled:is(:hover, :focus-visible) {
+  background: var(--hover);
+  opacity: 1;
+}
+#ccomp #chatText { font-size: calc(var(--fs, calc(14px * var(--ui-font-scale, 1))) * .9) !important; }
+/* The manager and conversation share the recessed search field. The taller
+   message field uses the same surface with a softer edge around the draft. */
+html[data-theme="light"] {
+  --recessed-field-bg: rgba(255,255,255,.78);
+  --recessed-field-placeholder: #626774;
+  --recessed-field-filter: blur(8px);
+}
+.pmviewnav .pj-find-form input[type=search], .stwh .st-chat-find input[type=search], #ccomp #chatText {
+  --field-shadow: inset 3px 3px 7px rgba(158,160,170,.55), inset -3px -3px 7px rgba(255,255,255,.95);
+  appearance:none;
+  background:var(--recessed-field-bg, var(--bg)) !important;
+  color:var(--text);
+  -webkit-backdrop-filter:var(--recessed-field-filter, none);
+  backdrop-filter:var(--recessed-field-filter, none);
+  border:0;
+  border-radius:999px;
+  box-shadow:var(--field-shadow);
+}
+#ccomp #chatText {
+  --field-shadow: inset 2px 2px 5px rgba(158,160,170,.32), inset -2px -2px 5px rgba(255,255,255,.48);
+  border-radius:18px !important;
+}
+:is(.pmviewnav .pj-find-form, .stwh .st-chat-find) input::placeholder, #ccomp #chatText::placeholder {
+  color:var(--recessed-field-placeholder, var(--dim));
+  opacity:1;
+}
+.cpane .envbar:is(:hover, :focus-within), #ccomp .composer-options:is(:hover, :focus-within) { opacity: 1; }
+
+:is(#cdlg, #dlg) {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 27%, transparent) transparent;
+}
+#cmap.turnrail .railmark i { width: 9px; height: 1px; opacity: .18; }
+#cmap.turnrail .railmark.near i { width: 12px; opacity: .28; }
+#cmap.turnrail .railmark.on i { width: 16px; opacity: .42; }
+#cmap.turnrail .railmark:is(:hover, :focus-visible) i { width: 20px; opacity: .9; }
+#modelRail .mr-effort { opacity: .62; }
+#modelRail .mr-effort input { accent-color: var(--muted); }
+#modelRail .mr-effort:is(:hover, :focus-within) { opacity: 1; }
+
+/* Shared finishing for the window chrome, menus and settings. */
+:is(#stbar, .stmapacts, #stmi, .shell-pop, .pgpanel, .cvmenu) {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, "PingFang SC", sans-serif;
+}
+:where(button, summary, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+:is(.shell-pop, .pgpanel, .cvmenu, #stmoremenu) {
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .16), 0 12px 32px rgb(0 0 0 / .20);
+}
+.shell-pop .palette-grid button[aria-pressed=true]::after {
+  display:grid; place-items:center; top:4px; right:4px; width:14px; height:14px;
+  border-radius:50%; background:var(--accent); color:var(--onprimary);
+  font:600 10px/1 system-ui;
+}
+.shell-pop .palette-grid button:hover,
+.cvmenu button:focus-visible { background-color:var(--hover); }
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-motion="off"]) :where(.shell-pop, .pgpanel, .cvmenu, #stbar, .stmapacts) :is(button, summary) {
+    transition: background-color 120ms ease-out, color 120ms ease-out, border-color 120ms ease-out;
+  }
+}

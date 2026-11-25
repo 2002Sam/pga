@@ -22,6 +22,7 @@ through its local API server, and Claude through the Anthropic API when a workin
 from __future__ import annotations
 
 import dataclasses
+import collections
 import json
 import logging
 import os
@@ -42,8 +43,9 @@ from pga.agents.base import AUTO, FULL, READ_ONLY, WORKSPACE_WRITE, Adapter, Age
 @lru_cache(maxsize=32)
 def _version(binary: str) -> str:
     try:
-        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=8)
-        return (out.stdout or out.stderr).strip().splitlines()[0][:80] if (out.stdout or out.stderr).strip() else ""
+        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=8, env=cli_env(binary))
+        text = (out.stdout or "").strip() or (out.stderr or "").strip()
+        return text.splitlines()[0][:80] if text else ""
     except (OSError, subprocess.SubprocessError):
         return ""
 
@@ -56,6 +58,58 @@ def _prompt(task: AgentTask) -> str:
     if task.want_json:
         parts.append("Reply with JSON only.")
     return "\n\n".join(parts)
+
+
+COMMON_CLI_DIRS = (
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "~/.local/bin",
+    "~/.npm-global/bin",
+)
+
+
+def cli_env(exe: str | None = None, base: dict[str, str] | None = None) -> dict[str, str]:
+    """Ensure PATH includes the CLI's own directory and common user bin dirs (needed under launchd/systemd)."""
+    env = dict(os.environ if base is None else base)
+    parts = [p for p in env.get("PATH", "").split(os.pathsep) if p]
+    extras = [os.path.dirname(exe)] if exe and os.path.isabs(exe) else []
+    extras.extend(os.path.expanduser(d) for d in COMMON_CLI_DIRS)
+    for d in extras:
+        if d and d not in parts and os.path.isdir(d):
+            parts.append(d)
+    env["PATH"] = os.pathsep.join(parts)
+    return env
+
+
+def find_cli_binary(configured: str | None, fallback_binary: str = "") -> str | None:
+    """Resolve a CLI binary across desktop-bundled paths, PATH, and common user bin dirs.
+
+    If `configured` points to a macOS `/Applications/...` bundle that is absent on a clean machine,
+    fall back to `fallback_binary` so standalone CLIs (`codex`, `codebuddy`, `gemini`, `claude`)
+    work without installing desktop apps. Explicit custom/test paths outside `/Applications/` are
+    respected as-is.
+    """
+    candidates: list[str] = []
+    raw = os.path.expanduser(str(configured or "").strip())
+    if raw:
+        candidates.append(raw)
+    fb = os.path.expanduser(str(fallback_binary or "").strip())
+    if fb and (not raw or raw == fb or raw.startswith("/Applications/")):
+        if fb not in candidates:
+            candidates.append(fb)
+    for cand in candidates:
+        hit = shutil.which(cand)
+        if hit:
+            return hit
+        if os.path.isabs(cand):
+            if os.path.exists(cand):
+                return cand
+            continue
+        for d in COMMON_CLI_DIRS:
+            p = os.path.join(os.path.expanduser(d), cand)
+            if os.path.isfile(p) and os.access(p, os.X_OK):
+                return p
+    return None
 
 
 class CLIAdapter(Adapter):
@@ -81,8 +135,11 @@ class CLIAdapter(Adapter):
         return {n: bool(get_key(n)) for n in self.secret_names()}
 
     def exe(self) -> str | None:
-        b = self.config.get("command") or self.binary
-        return shutil.which(b) or (b if os.path.isabs(b) and os.path.exists(b) else None)
+        return find_cli_binary(self.config.get("command"), self.binary)
+
+    def routable(self) -> tuple[bool, str]:
+        exe = self.exe()
+        return bool(exe), exe or "command not found"
 
     def available(self) -> tuple[bool, str]:
         exe = self.exe()
@@ -101,7 +158,7 @@ class CLIAdapter(Adapter):
         return line
 
     def env(self) -> dict[str, str]:
-        env = {k: v for k, v in os.environ.items() if k not in self.strip_env}
+        env = cli_env(self.exe(), {k: v for k, v in os.environ.items() if k not in self.strip_env})
         env.update({k: str(v) for k, v in (self.config.get("env") or {}).items()})
         from pga.llm.catalog import get_key
         for name, stored in self.secret_map().items():          # never the API key: the CLI would bill it instead
@@ -120,12 +177,13 @@ class CLIAdapter(Adapter):
         env = self.env()
         cwd = task.workspace or tempfile.mkdtemp(prefix="pga-agent-")
         from pga.agents import live
+        from pga.agents.links import pump_lines
         lid = task.meta.get("live_id")
         # stream: read stdout line by line so the constellation can show the agent's words as they come
         p = subprocess.Popen(self.command(task, exe), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                              text=True, env=env, cwd=cwd, bufsize=1)
         lines: queue.Queue = queue.Queue()
-        err: list[str] = []
+        err: collections.deque[str] = collections.deque(maxlen=40)
 
         def feed() -> None:
             try:
@@ -134,8 +192,19 @@ class CLIAdapter(Adapter):
             except (BrokenPipeError, OSError):
                 pass
         threading.Thread(target=feed, daemon=True).start()
-        threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True).start()
-        threading.Thread(target=lambda: ([lines.put(x) for x in p.stdout], lines.put(None)), daemon=True).start()
+        def read_stderr() -> None:
+            # stderr is diagnostic context; retaining only its tail prevents a noisy
+            # subprocess from growing PGA's memory use without bound.
+            pump_lines(p.stderr, err.append)
+
+        def read_stdout() -> None:
+            try:
+                pump_lines(p.stdout, lines.put)
+            finally:
+                lines.put(None)
+
+        threading.Thread(target=read_stderr, daemon=True).start()
+        threading.Thread(target=read_stdout, daemon=True).start()
         out: list[str] = []
         deadline = task.response_deadline()
         while True:
@@ -356,7 +425,8 @@ class CodexLocal(CLIAdapter):
                 srv = None                                     # cannot start the app server: one-off `codex exec`
             if srv is not None:
                 try:
-                    return srv.turn(self, task)
+                    with srv.active_turn():
+                        return srv.turn(self, task)
                 except links.LinkDown as exc:                  # the thread or turn never started: same work, one-off
                     from pga.agents import live
                     live.append(task.meta.get("live_id"), f"（app-server：{exc}，改用 codex exec）\n")
@@ -388,12 +458,19 @@ class CodexLocal(CLIAdapter):
         except json.JSONDecodeError:
             return None
         item = ev.get("item") if isinstance(ev, dict) else None
+        if ev.get("type") == "item.started" and isinstance(item, dict) and item.get("type") == "file_change":
+            from pga.agents import live
+            live.file_change(task.meta.get("live_id"), item, completed=False)
+            return None
         if ev.get("type") == "item.completed" and isinstance(item, dict):
             kind = item.get("type") or item.get("item_type")
             if kind in ("agent_message", "assistant_message"):
                 return str(item.get("text") or "")
             if kind == "reasoning":
                 return "（思考）" + str(item.get("text") or item.get("summary") or "")[:400]
+            if kind == "file_change":
+                from pga.agents import live
+                return "→ Edit " + live.file_change(task.meta.get("live_id"), item, completed=True)
             if kind in ("command_execution", "local_shell_call"):
                 return "$ " + " ".join(str(item.get("command") or "").split())[:200]   # one line: a heredoc must not spill into the words
             if kind == "web_search":
@@ -496,9 +573,10 @@ def _stream_json_progress(line: str, task: AgentTask | None = None) -> str | Non
             if lid:
                 from pga.agents import live
                 from pga.hub.steps import title_of, tool_parts
+                from pga.agents.code_progress import tool_stats
                 tool, server = tool_parts(str(b.get("name") or ""))
                 live.step(lid, {"t": "tool", "tool": tool, **({"server": server} if server else {}), "id": str(b.get("id") or ""),
-                                "title": title_of(str(b.get("name") or ""), arg)})
+                                "title": title_of(str(b.get("name") or ""), arg)}, code=tool_stats(tool, arg))
             if b.get("name") == "TodoWrite" and isinstance(arg.get("todos"), list):
                 from pga.agents import live
                 live.set_extra(lid, "todos", [{"content": str(t.get("content") or ""), "status": t.get("status")} for t in arg["todos"] if isinstance(t, dict)])
@@ -530,7 +608,11 @@ class HermesLocal(CLIAdapter):
     type, binary = "hermes_local", "hermes"
     secrets = ("HERMES_API_SERVER_KEY",)        # the key of Hermes' local API server (its API_SERVER_KEY)
 
+    def env(self) -> dict[str, str]:
+        return {**super().env(), "NO_COLOR": "1", "TERM": "dumb", "PYTHONIOENCODING": "utf-8"}
+
     def _run(self, task: AgentTask) -> AgentResult:
+        task.meta.pop("_hermes_progress", None)
         from pga.agents import links
         if self.linked() and task.permissions == READ_ONLY and not task.meta.get("project"):
             api = links.HermesApi.of(self.config)
@@ -542,22 +624,25 @@ class HermesLocal(CLIAdapter):
         return super()._run(task)
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
-        cmd = [exe, "chat", "--query-file", "-", "-Q", "--max-turns", str(task.max_turns), "--run-budget", str(int(task.timeout_s))]
+        cmd = [exe, "chat", "--query-file", "-", "-Q", "--format", "stream-json", "--max-turns", str(task.max_turns), "--run-budget", str(int(task.timeout_s))]
         if task.workspace:
             cmd += ["--in", task.workspace]
-        if self.config.get("model"):
-            cmd += ["-m", str(self.config["model"])]
-        if self.config.get("provider"):
-            cmd += ["--provider", str(self.config["provider"])]
+        from pga.agents.hermes import selection
+        chosen = selection(self.config, task.meta)
+        for key, flag in (("model", "-m"), ("provider", "--provider"), ("effort", "--reasoning")):
+            if chosen[key]:
+                cmd += [flag, chosen[key]]
         return cmd
 
     def progress(self, line: str, task: AgentTask) -> str | None:
-        return None if line.lower().startswith(("session_id", "session:", "resume with")) else line
+        from pga.agents.hermes import event_from_line, progress_event
+        event = event_from_line(line)
+        # Diagnostics and terminal refresh sequences are not assistant prose.
+        return progress_event(event, task) if event else None
 
     def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
-        lines = [l for l in stdout.splitlines() if not l.lower().startswith(("session_id", "session:", "resume with"))]
-        text = "\n".join(lines).strip()
-        return AgentResult(ok=bool(text), text=text, error=None if text else stderr[-500:])
+        from pga.agents.hermes import parse_output
+        return parse_output(stdout, stderr)
 
 
 class GeminiLocal(CLIAdapter):
@@ -566,13 +651,41 @@ class GeminiLocal(CLIAdapter):
 
     def command(self, task: AgentTask, exe: str) -> list[str]:
         cmd = [exe, "-p", "Answer the request given on standard input."]
-        if task.permissions not in (AUTO, WORKSPACE_WRITE):
+        cfg_mode = str(self.config.get("approval_mode") or "").strip()
+        if task.permissions == FULL:
+            cmd += ["--approval-mode", "yolo"]
+        elif task.permissions in (AUTO, WORKSPACE_WRITE):
+            cmd += ["--approval-mode", cfg_mode if cfg_mode in ("default", "auto_edit", "yolo") else "auto_edit"]
+        else:
             cmd += ["--approval-mode", "default"]
-        elif task.permissions == AUTO:
-            cmd += ["--approval-mode", "auto_edit"]
-        if self.config.get("model"):
-            cmd += ["-m", str(self.config["model"])]
+        if self.config.get("sandbox"):
+            cmd.append("-s")
+        model = task.meta.get("model") or self.config.get("model")
+        if model:
+            cmd += ["-m", str(model)]
         return cmd
+
+    def parse(self, stdout: str, stderr: str, task: AgentTask) -> AgentResult:
+        out = (stdout or "").strip()
+        try:
+            d = json.loads(out)
+        except json.JSONDecodeError:
+            d = None
+        if isinstance(d, dict):
+            if d.get("error"):
+                err = d["error"]
+                msg = err.get("message") if isinstance(err, dict) else str(err)
+                return AgentResult(ok=False, status="FAILED", error=str(msg)[:500])
+            text = str(d.get("response") or d.get("result") or d.get("text") or "").strip()
+            model = None
+            stats = (d.get("stats") or {}).get("models") if isinstance(d.get("stats"), dict) else None
+            if isinstance(stats, dict) and stats:
+                model = next(iter(stats.keys()))
+            return AgentResult(ok=bool(text), text=text, model=model,
+                               status="SUCCEEDED" if text else "FAILED",
+                               error=None if text else (stderr[-500:] or "empty response"))
+        return AgentResult(ok=bool(out), text=out, status="SUCCEEDED" if out else "FAILED",
+                           error=None if out else (stderr[-500:] or "no output"))
 
 
 class OpencodeLocal(CLIAdapter):

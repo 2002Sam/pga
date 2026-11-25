@@ -25,3 +25,31 @@ test('malformed websocket message leaves last valid progress intact',async()=>{
  host.__pgaLive.socket.onmessage({data:'[{"text":"kept"}]'});
  host.__pgaLive.socket.onmessage({data:'broken'});assert.equal((await c.liveSnap())[0].text,'kept');
 });
+test('incremental snapshots replace changed runs, remove expired runs, and reconnect from a full snapshot',async()=>{
+ const sockets=[];let now=10000;
+ const host={location:{protocol:'http:',host:'local'},WebSocket:class{constructor(url){this.url=url;sockets.push(this);}}};host.top=host;
+ const c=vm.createContext({window:host,Date:{now:()=>now},api:async()=>[]});vm.runInContext(code,c);await c.liveSnap();
+ const emit=(socket,data)=>socket.onmessage({data:JSON.stringify(data)}),first=sockets[0];
+ assert.match(first.url,/delta=1/);
+ emit(first,[{id:'a',started:1,revision:1,text:'first'},{id:'b',started:2,revision:1,text:'second'}]);
+ const b=(await c.liveSnap())[1];
+ emit(first,{type:'live_delta',runs:[{id:'a',started:1,revision:2,text:'updated'}],removed:[]});
+ assert.equal((await c.liveSnap())[0].text,'updated');assert.equal((await c.liveSnap())[1],b);
+ emit(first,{type:'live_delta',runs:[],removed:['a']});assert.equal((await c.liveSnap()).length,1);
+ first.onclose();now+=6000;await c.liveSnap();const second=sockets[1];
+ emit(second,{type:'live_delta',runs:[],removed:['b']});assert.equal(host.__pgaLive.received,0);
+ emit(second,[{id:'new',started:3}]);emit(first,[{id:'stale'}]);
+ assert.equal((await c.liveSnap())[0].id,'new');
+});
+test('reloadable chat frames delegate the shared request to the durable top window',async()=>{
+ let resolve,topCalls=0,frameCalls=0;
+ const top={document:{}};top.top=top;
+ const root=vm.createContext({window:top,api:()=>{topCalls++;return new Promise(r=>resolve=r)}});
+ vm.runInContext(code,root);top.liveSnap=root.liveSnap;
+ const frame=vm.createContext({window:{top},api:()=>{frameCalls++;throw Error('frame request would be lost on reload')}});
+ vm.runInContext(code,frame);
+ const first=frame.liveSnap();assert.equal(topCalls,1);assert.equal(frameCalls,0);
+ const replacement=vm.createContext({window:{top},api:()=>{throw Error('must use stage')}});vm.runInContext(code,replacement);
+ const second=replacement.liveSnap();assert.equal(first,second);resolve([{id:'preserved'}]);
+ assert.equal((await second)[0].id,'preserved');assert.equal(top.__pgaLive.pending,false);
+});

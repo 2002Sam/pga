@@ -16,8 +16,8 @@ test('reopening a memo from the list clears collapsed state and reuses the node'
  assert.equal(ST.nodes.length,1);assert.equal(n.small,undefined);assert.equal(n.mini,false);assert.equal(ST.focus,n.id);assert.ok(ST.stageOpen.has(n.id));
 });
 test('folded memos leave the top bar and return when restored',()=>{
- const ctx=vm.createContext({stFoldPick:()=>({folded:new Set(['source']),total:new Map(),count:new Map()}),stRootOf:()=>({id:'source'})});
- vm.runInContext(stage.slice(stage.indexOf('function stMapSelection('),stage.indexOf('// Use the full page as the reference')),ctx);
+ const ctx=vm.createContext({ST:{mapMode:"cat",nodes:[]},stGroupOf:()=>null,stMapCategoryOrder:()=>()=>0,stFoldPick:()=>({folded:new Set(['source']),total:new Map(),count:new Map()}),stRootOf:()=>({id:'source'})});
+ vm.runInContext(stage.slice(stage.indexOf('function stMapSelection('),stage.indexOf('// The bar as a picture of the stage:', stage.indexOf('function stMapSelection('))),ctx);
  const note={id:'note',memo:'tabs:source',small:true};
  const selected=()=>[...ctx.stMapSelection([note,{id:'chat'}],new Map()).selected];
  assert.deepEqual(selected(),[]);
@@ -26,9 +26,9 @@ test('folded memos leave the top bar and return when restored',()=>{
  note.mini=false;assert.deepEqual(selected(),[note]);
 });
 test('expanded memo has a visible title in top bar, without a conversation key',()=>{
- const start=stage.indexOf('    if (w.memo) {',stage.indexOf('function stMap()'));
+ const start=stage.indexOf('    if (w.memo || w.file) {',stage.indexOf('function stMap()'));
  const snippet=stage.slice(start,stage.indexOf('    if (lab && fits)',start));
- const ctx=vm.createContext({w:{memo:'note'},memoNodeTitle:()=> '📝 备忘',p:{x:0,w:100},k:1,esc:s=>s});
+ const ctx=vm.createContext({ST:{focus:null},w:{id:'memo-1',memo:'note'},memoNodeTitle:()=> '📝 备忘',p:{x:0,w:100},k:1,esc:s=>s});
  vm.runInContext('let lab="";'+snippet+'globalThis.result=lab;',ctx);
  assert.match(ctx.result,/mlabel/);assert.match(ctx.result,/📝 备忘/);
 });

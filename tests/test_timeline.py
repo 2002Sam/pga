@@ -159,3 +159,23 @@ def test_your_words_without_the_wrapping_and_no_machine_sessions(policy, provide
                                      ("c", "<user_query>帮我整理桌面</user_query>", 3)]])
     session.commit()
     assert [x["title"] for x in Timeline(rt).build(user, 3)["sessions"]] == ["帮我整理桌面"]
+
+
+def test_timeline_metadata_does_not_load_answer_bodies(rt, user, session):
+    from sqlalchemy import event
+    now = datetime.now(timezone.utc)
+    run = _run(user, 'memory check', now, {'conversation':'chat:memory'})
+    run.output = 'large answer ' * 100_000
+    session.add(run); session.flush()
+    statements = []
+    connection = session.connection()
+    def record(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().startswith('SELECT') and 'FROM agent_runs' in statement:
+            statements.append(statement)
+    event.listen(connection, 'before_cursor_execute', record)
+    try:
+        items = Timeline(rt).items(user, now-timedelta(minutes=1))
+    finally:
+        event.remove(connection, 'before_cursor_execute', record)
+    assert any(x.key == 'chat:memory' and x.chars == len('memory check') for x in items)
+    assert statements and all('agent_runs.output' not in query for query in statements)

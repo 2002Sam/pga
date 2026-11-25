@@ -5,7 +5,7 @@ import AppKit
 enum Kind: String {
     case conv, note, file, skill, doc, topic
 
-    var label: String { ["conv": "对话", "note": "笔记", "file": "文件", "skill": "技能", "doc": "资料", "topic": "世界树主题"][rawValue]! }
+    var label: String { ["conv": "对话", "note": "计划", "file": "文件", "skill": "技能", "doc": "资料", "topic": "世界树主题"][rawValue]! }
     var color: NSColor {
         let hex: [String: UInt32] = ["conv": 0x8fb4ff, "note": 0xa1a1aa, "file": 0x5fc9c0, "skill": 0xe9b35f, "doc": 0x7fcf9f, "topic": 0xd6a75c]
         let v = hex[rawValue]!

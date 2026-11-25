@@ -7,7 +7,7 @@ function setup(){
  const options={models:[{id:'gpt-6-astra',efforts:[{id:'medium'},{id:'high'}]}],default_model:'gpt-6-astra',default_effort:'medium'};
  const S={chat:'chat:a',chatAgent:'codex',agentOpts:{codex:options},agents:[{name:'codex'},{name:'chatgpt'}],chatModel:{},chatEffort:{},view:'chats'};
  const window={parent:{},addEventListener(){}},values=new Map();let renders=0;
- const ctx=vm.createContext({S,window,localStorage:{getItem:k=>values.get(k)},store:{set(){}},api:async()=>options,rerenderComposer:()=>renders++,setInterval(){},console});
+ const ctx=vm.createContext({S,window,localStorage:{getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)},store:{set(){}},api:async()=>options,rerenderComposer:()=>renders++,setInterval(){},console});
  vm.runInContext(src,ctx);return {ctx,S,window,values,get renders(){return renders;}};
 }
 const p={label:'Codex high',agent:'codex',model:'gpt-6-astra',effort:'high'};
@@ -77,4 +77,56 @@ test('new chat does not inherit previous multi-answer or dispatch state',async()
  const button={id:'newChat',dataset:{},hasAttribute:()=>false};
  await handlers[0]({target:{closest:s=>s.includes('#newChat')?button:null}});
  assert.equal(S.chat,null);assert.equal(S.multi.length,0);assert.equal(S.dispatchPlan,null);
+});
+
+
+test('recent choices keep ten distinct models in use order regardless of effort',()=>{
+ const h=setup();h.S.uid='u';h.S.agents=[{name:'a'}];
+ const remember=(model,effort)=>h.window.mrRemember({agent:'a',model,effort});
+ const rows=()=>JSON.parse(vm.runInContext('JSON.stringify(mrRecent().map(p=>p.model))',h.ctx));
+ for(let i=0;i<11;i++)remember('m'+i,'medium');
+ remember('m4','high');remember('m4','medium');
+ assert.deepEqual(rows().slice(0,3),['m4','m10','m9']);
+ assert.equal(rows().length,10);assert.deepEqual(rows().at(-1),'m1');
+});
+test('recent models ignore unavailable entries and corrupted storage, scoped by account',()=>{
+ const h=setup();h.S.uid='u';h.values.set('pga_recent_models_v1:u','{}');
+ assert.ok(vm.runInContext('mrRecent().length<=10',h.ctx));
+ h.values.set('pga_recent_models_v1:u',JSON.stringify([{...p,agent:'missing'},p]));
+ assert.equal(vm.runInContext('mrRecent()[0].agent',h.ctx),'codex');
+ h.S.uid='other';assert.equal(vm.runInContext('mrRecent()[0].agent',h.ctx),'chatgpt');
+});
+test('picker catalog includes every backend model including a single-model agent',()=>{
+ const h=setup();h.ctx.opts={codex:{models:[{id:'new',label:'New',efforts:[{id:'ultra'}],default_effort:'ultra'},{id:'other'}]},chatgpt:{models:[{id:'only'}]}};
+ const rows=JSON.parse(vm.runInContext('JSON.stringify(mrCatalog(opts))',h.ctx));
+ assert.deepEqual(rows.map(p=>p.model),['new','other','only']);assert.equal(rows[0].effort,'ultra');
+});
+test('a picker opened for another conversation cannot change the new conversation',async()=>{
+ const h=setup();assert.equal(await h.window.mrApply(p,'chat:old'),false);assert.equal(h.renders,0);
+ assert.equal(h.values.size,0);
+});
+test('fresh picker options validate newly discovered models and record only successful selections',async()=>{
+ const h=setup();const fresh={models:[{id:'new',efforts:[{id:'high'}]}]};
+ assert.equal(await h.window.mrApply({...p,model:'new'},'chat:a',fresh),true);
+ assert.equal(h.S.chatModel['chat:a'],'new');
+ assert.equal(vm.runInContext('mrRecent()[0].model',h.ctx),'new');
+ await assert.rejects(h.window.mrApply({...p,model:'invalid'}));
+ assert.equal(vm.runInContext('mrRecent()[0].model',h.ctx),'new');
+});
+
+test('agents with implicit defaults remain selectable and unavailable agents are excluded',async()=>{
+ const h=setup();h.S.agents=[{name:'hermes'},{name:'gemini',available:false}];h.ctx.opts={hermes:{models:[],default_model:null},gemini:{models:[{id:'x'}]}};
+ assert.equal(vm.runInContext('mrCatalog(opts).length',h.ctx),1);
+ assert.equal(await h.window.mrApply({agent:'hermes',model:'',effort:''},'chat:a',h.ctx.opts.hermes),true);
+ assert.equal(h.S.chatAgent,'hermes');assert.equal(vm.runInContext('mrRecent()[0].agent',h.ctx),'hermes');
+ await assert.rejects(h.window.mrApply({agent:'gemini',model:'x',effort:''}));
+});
+
+test('Hermes native default accepts and remembers a per-conversation reasoning choice',async()=>{
+ const h=setup();h.S.agents=[{name:'hermes'}];
+ const opts={models:[{id:'',label:'Hermes 默认模型',efforts:[{id:'high'},{id:'none'}]}],default_model:null};
+ assert.equal(await h.window.mrApply({agent:'hermes',model:'',effort:'high'},'chat:a',opts),true);
+ assert.equal(h.S.chatModel['chat:a'],'');assert.equal(h.S.chatEffort['chat:a'],'high');
+ await h.window.mrApply({agent:'hermes',model:'',effort:'none'},'chat:a',opts);
+ assert.equal(h.S.chatEffort['chat:a'],'none');
 });

@@ -354,6 +354,60 @@ def test_live_steps_record_results_and_screenshots():
     live.finish(lid, True)
 
 
+def test_transcript_line_offsets_use_a_bounded_compact_cache(tmp_path, monkeypatch):
+    from pga.hub import steps
+
+    steps._OFFSETS.clear()
+    monkeypatch.setattr(steps, "OFFSET_CACHE_BYTES", 16)
+    small = tmp_path / "small.jsonl"
+    small.write_text('{"n":0}\n{"n":1}\n', encoding="utf-8")
+    assert steps._line(small, 1) == {"n": 1}
+    assert str(small) in steps._OFFSETS
+    offsets = next(iter(steps._OFFSETS.values()))[2]
+    assert offsets.itemsize * len(offsets) <= steps.OFFSET_CACHE_BYTES
+
+    large = tmp_path / "large.jsonl"
+    large.write_text('{"n":0}\n{"n":1}\n{"n":2}\n', encoding="utf-8")
+    assert steps._line(large, 2) == {"n": 2}
+    assert str(large) not in steps._OFFSETS  # oversized indexes are used once and not retained
+    assert len(steps._OFFSETS) == 1
+
+
+def test_codex_history_parser_does_not_materialize_inline_screenshot_payload():
+    import tracemalloc
+    from pga.hub.steps import load_codex_event
+
+    payload = "A" * (4 * 1024 * 1024)
+    line = json.dumps({"type": "response_item", "payload": {"output": [
+        {"type": "input_image", "image_url": "data:image/png;base64," + payload}]}})
+    tracemalloc.start()
+    try:
+        event = load_codex_event(line)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert event["payload"]["output"][0]["type"] == "input_image"
+    assert event["payload"]["output"][0]["image_url"] == "data:image/png;base64,"
+    assert peak < 1_000_000
+
+
+def test_claude_transcript_reader_streams_large_line_count(tmp_path):
+    import tracemalloc
+    from pga.hub import connectors
+
+    transcript = tmp_path / "many-metadata-lines.jsonl"
+    with transcript.open("w", encoding="utf-8") as fh:
+        for _ in range(30000):
+            fh.write('{"type":"summary","summary":"short metadata"}\n')
+    tracemalloc.start()
+    try:
+        assert connectors._cc_file(transcript, skip_pga=False) is None
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 1_000_000
+
+
 def test_edits_show_as_code():
     from pga.hub import steps
     v = steps.view_of("Edit", {"file_path": "/x/a.py", "old_string": "a = 1\nb = 2", "new_string": "a = 1\nb = 3\nc = 4"})

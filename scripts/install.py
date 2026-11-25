@@ -373,7 +373,7 @@ def initialize_agents():
     from pga.agents.pool import DEFAULT, validate
     # Pool.load replaces the agent/workflow maps, so seed the complete default configuration.
     config = copy.deepcopy(DEFAULT)
-    commands = {"codex": "codex", "chatgpt": "codex", "claude": "claude", "workbuddy": "codebuddy"}
+    commands = {"codex": "codex", "chatgpt": "codex", "claude": "claude", "workbuddy": "codebuddy", "gemini": "gemini"}
     for name, command in commands.items():
         installed = shutil.which(command)
         bundled = config["agents"][name].get("command", "")

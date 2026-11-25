@@ -14,12 +14,17 @@ function pjGo(key, run, text) {                    // open that conversation (on
 /* scroll this page to one of your questions: its turn (PGA's own conversations) or, in an imported one, the question of
    yours that starts with the same words; true when found. The page then stays there (no jump to the latest words). */
 const pjFlat = (t) => String(t || "").replace(/[\s*_#`>\[\]()|-]+/g, "").toLowerCase();
+/* once you scroll after a jump, the later looks-again leave the page where you put it (else it springs back) */
+for (const ev of ["wheel", "touchmove", "keydown", "mousedown"]) addEventListener(ev, () => { if (PJ.jumpAt) PJ.moved = Date.now(); }, { passive: true, capture: true });
 window.pjJump = (run, text, again) => {
+  if (again && PJ.moved > PJ.jumpAt) return true;
   let t = run && document.getElementById(`t-${run}`);
   if (!t && text) { const want = pjFlat(text).slice(0, 28); if (want) t = [...document.querySelectorAll("#cdlg .cmsg.question .ct, #cdlg .cmsg.me .ct")].find((e) => pjFlat(e.textContent).startsWith(want))?.closest(".cmsg"); }
   if (!t) return false;
+  if (t.classList.contains("tanchor")) { const m = t.nextElementSibling; t = (m?.matches(".cmsg") ? m : m?.querySelector(".cmsg")) || t; }   // the run's anchor: the question after it
   const r = t.getBoundingClientRect(); if (again && r.top >= 0 && r.top < innerHeight - 40) return true;   // still in view
-  PJ.jumped = true; t.scrollIntoView({ block: "center" }); t.classList.add("pjhit"); setTimeout(() => t.classList.remove("pjhit"), 2600);
+  if (!again) PJ.jumpAt = Date.now();
+  PJ.jumped = true; S.scrollChat = false; t.scrollIntoView({ block: "center" }); t.classList.add("pjhit"); setTimeout(() => t.classList.remove("pjhit"), 2600);
   return true;
 };
 /* open a conversation and, once its page has loaded, go to that question. P: the stage's window (its page is an iframe
@@ -27,14 +32,26 @@ window.pjJump = (run, text, again) => {
 function pjOpenOn(P, key, run, text) {
   if (P) P.stOpen(key);
   if (!run && !text) return;
+  const localJump = P ? null : (PJ.localJump = {});
   let k = 0, found = 0;
-  const go = () => { let ok = false; try {
+  const go = () => {
+    if (!P && localJump !== PJ.localJump) return;
+    let ok = false; try {
     let w = window;
     if (P) { const n = P.ST.nodes.find((x) => x.type === "win" && x.key === key); w = P.document.querySelector(`.stnode[data-nid="${n?.id}"] iframe`)?.contentWindow; }
     ok = !!w?.pjJump?.(run, text, found > 0); } catch {}
     if (ok) { if (++found < 4) setTimeout(go, 800); return; }      // looked at again a few times: a page still loading may re-render
     if (++k < 25) setTimeout(go, 400); };
   setTimeout(go, 300);
+}
+// A reused detail window can receive a second task in the same conversation.
+function pjOpenDetailTarget() {
+  const target = new URLSearchParams(location.hash.slice(1));
+  if (target.get('task') === '1') pjOpenOn(null, pjKey(), target.get('run'), target.get('find'));
+}
+if (window === window.top && Q.get('embed') && new URLSearchParams(location.hash.slice(1)).has('task')) {
+  pjOpenDetailTarget();
+  addEventListener('hashchange', pjOpenDetailTarget);
 }
 /* every conversation under its project: the folder it ran in (Claude Code's / Codex's working folder; PGA's own chats without
    one are 日常对话), the most recently used project first, each folded or open as you left it */
@@ -50,22 +67,23 @@ function pjGroups(xs) {
 PJ.fold = (() => { try { return JSON.parse(localStorage.getItem("pga_pj_fold_v2") || "null"); } catch { return null; } })();
 function pjShut(name) { return PJ.fold?.[name] ?? true; }
 function pjHead(g, shut) {
-  return `<div class="rproj" data-rproj="${esc(g.name)}" title="${L("点一下收起 / 展开", "Click to fold / unfold")}"><span class="rpn">${esc(g.name)}</span><span class="rpc">${g.items.length}</span><button class="rmgr" data-pjmgr="${esc(g.name)}" title="${L("管理员：这个分类的对话树、关系图和管理员 agent", "Manager: this category's tree, graph and manager agent")}">◎</button><button class="rnew" data-pjnew="${esc(g.name)}" title="${L('在这个分类中新建对话', 'New conversation in this category')}">＋</button><button class="rcons" data-rcons="${esc(g.name)}" title="${L("整理这个文件夹：近三天用过的不动，其余相近的合并成一个对话、原对话归档", "Tidy this folder: the last three days stay; similar older ones are merged into one and archived")}">🗃</button><i>${shut ? "▸" : "▾"}</i></div>`;
+  return `<div class="rproj" data-rproj="${esc(g.name)}" title="${L("点一下收起 / 展开", "Click to fold / unfold")}"><span class="rpn">${esc(g.name)}</span><span class="rpc">${g.items.length}</span><button class="rmgr" data-pjmgr="${esc(g.name)}" title="${L("管理员：这个分类的对话树、关系图和管理员 agent", "Manager: this category's tree, graph and manager agent")}">◎</button><button data-sttidycat="pj:${esc(g.name)}" title="${L('按全局整理规则整理本分类','Apply global tidy rules to this category')}">整理</button><button class="rnew" data-pjnew="${esc(g.name)}" title="${L('在这个分类中新建对话', 'New conversation in this category')}">＋</button><button class="rcons" data-rcons="${esc(g.name)}" title="${L("按主题合并对话", "Merge conversations by topic")}">${L("整理合并", "Merge conversations")}</button><i>${shut ? "▸" : "▾"}</i></div>`;
 }
 document.addEventListener("click", (e) => {
-  if (e.target.closest("[data-rcons], [data-pjnew], [data-pjmgr]")) return;
+  if (e.target.closest("[data-sttidycat], [data-rcons], [data-pjnew], [data-pjmgr]")) return;
   const h = e.target.closest("[data-rproj]"); if (!h) return;
   e.preventDefault(); e.stopPropagation(); const n = h.dataset.rproj;
   if (window.ST?.projectLimits) delete ST.projectLimits[n];
   PJ.fold = { ...(PJ.fold || {}), [n]: !pjShut(n) }; try { localStorage.setItem("pga_pj_fold_v2", JSON.stringify(PJ.fold)); } catch {}
   if (typeof stListItems === "function" && $("#stli")) stListItems(); pjStrip();
 }, true);
-PJ.fill = () => {                                  // the four latest projects start open
+PJ.fill = () => {
+  if (S.view !== "stage" || document.hidden) return;
   const xs = typeof recentItems === "function" ? recentItems() : [], next = pjGroups(xs).slice(0, 4).map((g) => g.name).join("|");
   if (next === PJ.recentSig) return; PJ.recentSig = next; PJ.recent = new Set(next ? next.split("|") : []);
   if (xs.length) setTimeout(() => { if (typeof stListItems === "function" && $("#stli")) stListItems(); pjStrip(); }, 0);
 };
-setInterval(() => PJ.fill(), 5000);
+setInterval(() => { if (!S.stageDormant && !S.stageMotion) PJ.fill(); }, 5000);
 
 async function pjRender() { pjStrip(); }
 async function pjStrip() {                         // the project strip on the left of a conversation is switched off
@@ -112,12 +130,15 @@ setTimeout(() => { try { pjRender(); } catch {} }, 1500);   // once the page has
 // Categories are persisted on the user, separately from working folders and stage workspaces.
 const pjCanonical = key => key?.startsWith('imp:') ? 'c:' + key.slice(4) : key;
 const pjBaseRecent = recentItems;
-let pjRecentMemo = null;                              // built once per change of the time tree, the chats or the categories: it is asked for
-recentItems = function () {                            // many times a second (every title on the stage), and building it sorts every session
+let pjRecentMemo = null;
+function pjRecentIndex() {
   const tl = S.tl, ch = S.chats, cat = PJ.catalog, m = pjRecentMemo;
-  if (m && m.tl === tl && m.ch === ch && m.cat === cat) return m.xs.slice();
-  const xs = pjRecentItems(); pjRecentMemo = { tl, ch, cat, xs }; return xs.slice();
-};
+  if (m && m.tl === tl && m.ch === ch && m.cat === cat) return m;
+  const xs = pjRecentItems();
+  return pjRecentMemo = {tl, ch, cat, xs, byKey: new Map(xs.map(x => [x.item, x]))};
+}
+function pjRecentByKey(key) { return pjRecentIndex().byKey.get(key); }
+recentItems = function () { return pjRecentIndex().xs.slice(); };
 function pjRecentItems() {
   const xs = pjBaseRecent(), catalog = PJ.catalog;
   if (!catalog) return xs;
@@ -128,7 +149,7 @@ function pjRecentItems() {
 };
 async function pjCatalog() {
   const catalog = await api(`/v1/users/${S.uid}/conversation-projects`);
-  PJ.catalog = catalog; return catalog;
+  PJ.catalog = catalog; window.pmRenderProjects?.(); return catalog;
 }
 function pjRefreshViews() {
   if (typeof stRender === 'function' && S.view === 'stage') { stRender(); stListItems(); }
@@ -145,7 +166,11 @@ async function pjCreate(project, { manager = false } = {}) {   // manager: the n
     if (host.stOpen) {
       if (host !== window) await host.pjCatalog();
       if (host.S.view !== 'stage') host.show('stage');
-      if (manager && host.mgOpen) await host.mgOpen(r.project); else host.stOpen(r.key);
+      if (manager && host.mgOpen) await host.mgOpen(r.project);
+      else {
+        const source = host.pmPanelStageSource?.(r.project);
+        host.stOpen(r.key, {win: source?.id, project: r.project});
+      }
       host.pjRefreshViews();
     } else { S.chat = r.key; S.imp = null; await loadChat(r.key); }
     pjRefreshViews(); document.querySelector('.modal')?.remove();
@@ -301,7 +326,7 @@ async function pjProjectPicker() {
 }
 document.addEventListener('click', async e => {
   const picker = e.target.closest('[data-pjpicker]'), open = e.target.closest('[data-pjcontext]');
-  if (picker || open) { e.preventDefault(); e.stopImmediatePropagation(); if (open) await pjShared(open.dataset.pjcontext); else await pjProjectPicker(); return; }
+  if (picker || open) { e.preventDefault(); e.stopImmediatePropagation(); window.stMoreClose?.(); if (open) await pjShared(open.dataset.pjcontext); else await pjProjectPicker(); return; }
   const save = e.target.closest('[data-pjsharedsave]');
   if (save) {
     e.preventDefault(); if (save.disabled) return; save.disabled = true;
@@ -351,3 +376,140 @@ document.addEventListener('change', async e => {
   } catch (err) { toast(err.message); }
   e.target.value = '';
 });
+
+// Match literal keywords in plain text. Keep enough context before the first match to recognize it.
+function pjFindText(value, query, preview = false) {
+  let text = String(value || '').replace(/\s+/g,' ').trim();
+  const terms = query.trim().split(/\s+/).filter(Boolean).sort((a,b)=>b.length-a.length);
+  const pattern = terms.map(term=>term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|');
+  if (!pattern) return esc(text);
+  const matches = new RegExp(pattern, 'giu');
+  if (preview) {
+    const offset = Math.max(0, text.search(matches) - 16);
+    text = (offset ? '…' : '') + text.slice(offset,offset+220) + (text.length > offset+220 ? '…' : '');
+  }
+  let html = '', last = 0;
+  for (const match of text.matchAll(matches)) {
+    html += esc(text.slice(last,match.index)) + '<mark>' + esc(match[0]) + '</mark>';
+    last = match.index + match[0].length;
+  }
+  return html + esc(text.slice(last));
+}
+
+// Search the category that owns the invoking conversation, including unmounted chats.
+window.pjFindConversations = async function (key, manager) {
+  const local = document.querySelector('#pmview .pj-find-form input');
+  if (local?.getClientRects().length) { local.focus(); local.select(); return; }
+  const stage = S.view === 'stage' && window.ST;
+  const node = stage && stage.nodes.find(n => key ? n.key === key : n.id === stage.focus);
+  let frame;
+  if (stage || S.view !== 'chats') {
+    const group = node && stGroupOf(node)?.id;
+    const project = manager || node?.managerProject || (group?.startsWith('pj:') && group.slice(3)) ||
+      recentItems().find(item => item.item === key)?.project || stage?.pmCat?.replace(/^pj:/,'') || '日常对话';
+    const target = await mgOpen(project);
+    frame = target?.el?.querySelector('iframe');
+  } else {
+    if (!MP.open || (key && key !== pmPanelKey())) await pmPanelToggle(key);
+    frame = document.querySelector('#managerPanel iframe:not([hidden])');
+  }
+  // Opening a cold manager finishes before its embedded document has mounted.
+  for (let i=0; i<100 && frame?.isConnected && !frame.hidden; i++) {
+    const input = frame.contentDocument?.querySelector('.pj-find-form input');
+    if (input?.getClientRects().length) { input.focus(); input.select(); return; }
+    await new Promise(resolve => setTimeout(resolve,50));
+  }
+};
+function pjMountManagerFind(nav, project) {
+  const dialog = document.createElement('div');
+  dialog.className = 'pj-inline-find';
+  const label = L(`搜索「${project}」`, `Search “${project}”`);
+  dialog.innerHTML = `<form class="pj-find-form" role="search"><input type="search" maxlength="600" aria-label="${esc(label)}" placeholder="${esc(label)}"></form>
+    <div class="pj-find-popup" hidden><div class="pj-find-status" role="status"></div><div class="pj-find-results"></div>
+    <nav class="pj-find-pages" hidden><button type="button" data-prev>${L('上一页','Previous')}</button><span></span><button type="button" data-next>${L('下一页','Next')}</button></nav></div>`;
+  nav.append(dialog);
+  const popup = dialog.querySelector('.pj-find-popup');
+  const form = dialog.querySelector('form'), input = form.querySelector('input');
+  const results = dialog.querySelector('.pj-find-results'), status = dialog.querySelector('.pj-find-status');
+  const pages = dialog.querySelector('.pj-find-pages');
+  let revision = 0, timer;
+  const close = () => { clearTimeout(timer); revision++; popup.hidden = true; };
+  dialog.addEventListener('focusout', e => { if (!dialog.contains(e.relatedTarget)) close(); });
+  input.onfocus = () => { if (popup.hidden && input.value.trim()) search(); };
+  const hint = L('可搜索本分区已保存的问答，包括已归档对话。','Search saved messages in this category, including archived conversations.');
+  status.textContent = hint;
+  async function search(page = 1) {
+    clearTimeout(timer);
+    const query = input.value.trim(), version = ++revision;
+    results.replaceChildren(); pages.hidden = true;
+    status.textContent = query ? L('正在搜索…','Searching…') : hint;
+    popup.hidden = !query;
+    if (!query) return;
+    try {
+      const params = new URLSearchParams({project,q:query,page,page_size:12});
+      const data = await api('/v1/users/'+S.uid+'/project-context/search?'+params);
+      if (!dialog.isConnected || version !== revision) return;
+      const hits = (data.sources || []).filter(hit => hit.key);
+      status.textContent = hits.length ? L(`本页 ${hits.length} 个对话`, `${hits.length} conversations on this page`)
+        : L('本页没有匹配的对话，试试其他关键词。','No conversations match on this page. Try another keyword.');
+      for (const hit of hits) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'pj-find-hit';
+        const title = document.createElement('strong'), excerpt = document.createElement('small');
+        title.innerHTML = pjFindText(hit.title || hit.key, query);
+        excerpt.innerHTML = pjFindText(hit.text, query, true);
+        button.append(title, excerpt); results.append(button);
+        button.onclick = () => {
+          close();
+          pdBeside(hit.key,hit.run,'');
+        };
+      }
+      results.scrollTop = 0;
+      if (data.pages > 1) {
+        const current = data.page || page;
+        pages.hidden = false;
+        pages.querySelector('span').textContent = `${current} / ${data.pages}`;
+        for (const [selector, next] of [['[data-prev]',current-1],['[data-next]',current+1]]) {
+          const button = pages.querySelector(selector);
+          button.disabled = next < 1 || next > data.pages;
+          button.onclick = () => { input.focus(); search(next); };
+        }
+      }
+    } catch(error) { if(version===revision && dialog.isConnected) status.textContent=error.message; }
+  }
+  input.oninput=()=>{
+    revision++; clearTimeout(timer); results.replaceChildren(); pages.hidden = true;
+    status.textContent = input.value.trim() ? L('正在搜索…','Searching…') : hint;
+    popup.hidden = !input.value.trim();
+    if (!popup.hidden) timer=setTimeout(search,220);
+  };
+  form.onsubmit=e=>{
+    e.preventDefault();
+    if (!popup.hidden && results.firstElementChild) results.firstElementChild.click();
+    else search();
+  };
+  dialog.onkeydown=e=>{
+    if (e.isComposing || e.keyCode === 229) return;
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();return;}
+    const hits = [...results.children], index = hits.indexOf(document.activeElement);
+    if (hits.length && (index >= 0 || document.activeElement === input) && ['ArrowDown','ArrowUp'].includes(e.key)) {
+      e.preventDefault();
+      const next = e.key === 'ArrowDown' ? Math.min(index+1,hits.length-1) : index-1;
+      (next < 0 ? input : hits[next]).focus();
+    }
+  };
+}
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase()!=='f' || e.isComposing) return;
+  const chatWindow = window.frameElement?.closest('.stwin') ||
+    (S.view === 'stage' ? ST.nodes.find(n => n.id === ST.focus)?.el : null);
+  const chatInput = chatWindow?.querySelector('.st-chat-find input');
+  if (chatInput?.getClientRects().length) {
+    e.preventDefault(); e.stopPropagation(); chatInput.focus(); chatInput.select(); return;
+  }
+  const host = !document.querySelector('.pj-inline-find') && window.parent !== window && window.parent.pjFindConversations ? window.parent : window;
+  const open = host.document.querySelector('.pj-find-form input');
+  e.preventDefault(); e.stopPropagation();
+  if(open?.getClientRects().length){open.focus();open.select();return;}
+  host.pjFindConversations(S.view==='stage' ? null : pjKey(), Q.get('manager'));
+}, true);

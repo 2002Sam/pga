@@ -13,6 +13,7 @@ from xml.etree import ElementTree as ET
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from pga.editor import local_request
+from pga.localfiles import VIDEO_TYPES
 
 router = APIRouter()
 _grants = {}
@@ -21,25 +22,32 @@ IMAGES = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'}
 BINARY = {'.zip', '.7z', '.rar', '.dmg', '.key', '.numbers', '.pages'}
 
 
-def grant(path: Path) -> str:
+def grant(path: Path, *, name: str | None = None) -> str:
     """A preview URL for this file, good for four hours."""
     ticket = secrets.token_urlsafe(24)
     with _lock:
         now = time.time()
-        for key, (_, expires) in list(_grants.items()):
-            if expires < now:
+        for key, grant_ in list(_grants.items()):
+            if grant_[1] < now:
                 _grants.pop(key, None)
         while len(_grants) >= 256:
             _grants.pop(next(iter(_grants)))
-        _grants[ticket] = (path, now + 4 * 3600)
+        _grants[ticket] = (path, now + 4 * 3600, name)
     return '/v1/file-preview/' + ticket
 
 
-def describe(path: Path, authority: str) -> dict:
+def describe(path: Path, authority: str, *, name: str | None = None) -> dict:
     from pga import docview
     st = path.stat()
-    result = {'name': path.name, 'path': str(path), 'size': st.st_size, 'mtime': str(st.st_mtime_ns)}
+    # The ticket resolves to an already-authorized local file and expires with
+    # the same short lifetime as the preview URL. The UI can download the
+    # original document without exposing a filesystem path in a GET request.
+    url = grant(path, name=name)
+    result = {'name': name or path.name, 'path': str(path), 'size': st.st_size, 'mtime': str(st.st_mtime_ns),
+              'download_url': url + '/download'}
     ext = path.suffix.lower()
+    if ext in VIDEO_TYPES:
+        return {**result, 'kind': 'video', 'url': url}
     if ext in BINARY:
         return {**result, 'kind': 'external', 'message': '此格式暂不支持内置预览，请用系统应用查看完整内容。'}
     if ext in IMAGES or ext == '.pdf':
@@ -103,7 +111,7 @@ def _granted(ticket: str, request: Request) -> Path:
     return path
 
 
-@router.get('/v1/file-preview/{ticket}', include_in_schema=False)
+@router.api_route('/v1/file-preview/{ticket}', methods=['GET', 'HEAD'], include_in_schema=False)
 def preview(ticket: str, request: Request):
     from pga import docview
     path = _granted(ticket, request)
@@ -122,7 +130,8 @@ def preview(ticket: str, request: Request):
             return FileResponse(docview.convert(path), media_type='application/pdf', content_disposition_type='inline', headers=PDF_HEADERS)
     except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError, OSError) as exc:
         raise HTTPException(422, str(exc) if isinstance(exc, ValueError) else '无法预览这个文件，请用系统应用打开') from exc
-    return FileResponse(path, filename=path.name, content_disposition_type='inline', headers=PDF_HEADERS if ext == '.pdf' else HEADERS)
+    return FileResponse(path, filename=path.name, media_type=VIDEO_TYPES.get(ext), content_disposition_type='inline',
+                        headers=PDF_HEADERS if ext == '.pdf' else HEADERS)
 
 
 @router.get('/v1/file-preview/{ticket}/pdf', include_in_schema=False)
@@ -136,3 +145,14 @@ def preview_pdf(ticket: str, request: Request):
         return FileResponse(docview.convert(path), media_type='application/pdf', content_disposition_type='inline', headers=PDF_HEADERS)
     except (ValueError, OSError) as exc:
         raise HTTPException(422, str(exc) if isinstance(exc, ValueError) else '无法生成版式预览') from exc
+
+
+@router.get('/v1/file-preview/{ticket}/download', include_in_schema=False)
+def download(ticket: str, request: Request):
+    """Download the original file behind a preview ticket."""
+    path = _granted(ticket, request)
+    with _lock:
+        ticket_info = _grants.get(ticket)
+    filename = ticket_info[2] if ticket_info and len(ticket_info) > 2 and ticket_info[2] else path.name
+    return FileResponse(path, filename=filename, content_disposition_type='attachment',
+                        headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})

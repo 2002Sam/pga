@@ -10,47 +10,52 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+import os
+import tomllib
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from pga.agents.base import Adapter
 
-_CACHE: dict[str, tuple[float, dict]] = {}
+_CACHE: dict[str, tuple[float, dict, dict]] = {}
 TTL = 600
 CLAUDE_MODELS = [("fable", "Claude Fable（最新最强）"), ("opus", "Claude Opus"), ("sonnet", "Claude Sonnet"), ("haiku", "Claude Haiku（快）")]
 CLAUDE_API_MODELS = [("claude-fable-5-1", "Claude Fable 5.1"), ("claude-opus-5-5", "Claude Opus 5.5"),
                      ("claude-sonnet-5-5", "Claude Sonnet 5.5"), ("claude-haiku-5-5", "Claude Haiku 5.5")]
+GEMINI_MODELS = [("gemini-2.5-pro", "Gemini 2.5 Pro（强推理）"), ("gemini-2.5-flash", "Gemini 2.5 Flash（均衡快）"),
+                 ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite（轻量）"), ("gemini-2.0-flash", "Gemini 2.0 Flash")]
 CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"]
 CODEBUDDY_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "max"]
-EFFORT_ZH = {"minimal": "极低", "low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高", "ultra": "极限"}
+EFFORT_ZH = {"none": "关闭", "minimal": "极低", "low": "低", "medium": "中", "high": "高", "xhigh": "很高", "max": "最高", "ultra": "极限"}
 
 
-def _codex_default() -> tuple[str | None, str | None]:
+def codex_defaults() -> tuple[str | None, str | None]:
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
     try:
-        txt = (Path.home() / ".codex" / "config.toml").read_text(encoding="utf-8")
-    except OSError:
+        with (home / "config.toml").open("rb") as stream:
+            config = tomllib.load(stream)
+    except (OSError, tomllib.TOMLDecodeError):
         return None, None
-    m = re.search(r'^model\s*=\s*"([^"]+)"', txt, re.M)
-    e = re.search(r'^model_reasoning_effort\s*=\s*"([^"]+)"', txt, re.M)
-    return (m.group(1) if m else None), (e.group(1) if e else None)
+    return config.get("model"), config.get("model_reasoning_effort")
 
 
 def options(name: str, ad: "Adapter", cfg: dict, rt: Any = None) -> dict:
     hit = _CACHE.get(name)
-    if hit and time.monotonic() - hit[0] < TTL:
+    if hit and time.monotonic() - hit[0] < TTL and hit[2] == cfg:
         return hit[1]
     out = _look(name, ad, cfg, rt)
     for m in out["models"]:
         m["efforts"] = [{"id": e, "label": EFFORT_ZH.get(e, e)} for e in m.get("efforts") or []]
-    _CACHE[name] = (time.monotonic(), out)
+    _CACHE[name] = (time.monotonic(), out, deepcopy(cfg))
     return out
 
 
 def _look(name: str, ad: "Adapter", cfg: dict, rt: Any) -> dict:
     t = ad.type
     if t == "codex_local":
-        dm, de = _codex_default()
+        dm, de = codex_defaults()
         models = []
         try:
             from pga.agents.links import CodexServer
@@ -85,6 +90,33 @@ def _look(name: str, ad: "Adapter", cfg: dict, rt: Any) -> dict:
                 pass
         return {"models": [{"id": i, "label": i, "efforts": CODEBUDDY_EFFORTS, "images": True} for i in ids],
                 "default_model": cfg.get("model") or ("auto" if "auto" in ids else None), "default_effort": None, "images": True, "via": "codebuddy"}
+    if t == "hermes_local":
+        from pga.agents.hermes import EFFORTS, selection
+        chosen = selection(cfg)
+        model = chosen["model"]
+        return {"models": [{"id": model, "label": model or "Hermes 默认模型", "efforts": list(EFFORTS), "images": False}],
+                "default_model": model or None, "default_effort": chosen["effort"] or None,
+                "images": False, "via": "hermes"}
+    if t == "gemini_local":
+        known = dict(GEMINI_MODELS)
+        ordered = [m for m, _ in GEMINI_MODELS]
+        default = str(cfg.get("model") or "").strip() or "gemini-2.5-pro"
+        if default and default not in known:
+            ordered.insert(0, default)
+            known[default] = default
+        try:
+            from pga.llm import catalog
+            for p in (catalog.load().get("providers") or {}).values():
+                if p.get("type") == "gemini_cli":
+                    for v in (p.get("tiers") or {}).values():
+                        sv = str(v or "").strip()
+                        if sv and sv not in known:
+                            ordered.append(sv)
+                            known[sv] = sv
+        except Exception:  # noqa: BLE001 - fall back to curated Gemini CLI models
+            pass
+        return {"models": [{"id": i, "label": known[i], "efforts": [], "images": True} for i in ordered],
+                "default_model": default, "default_effort": None, "images": True, "via": "gemini cli"}
     if t == "llm" and rt is not None:
         tiers = getattr(rt.router.policy, "tiers", {}) or {}
         ids = list(dict.fromkeys(str(v) for v in (tiers.values() if isinstance(tiers, dict) else [])))

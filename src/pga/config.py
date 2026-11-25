@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_POLICY_FILE = Path(__file__).resolve().parent / "policy.yaml"  # shipped as package data
@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/pga"
     policy_file: str | None = None
     llm_provider: str | None = None  # overrides policy.llm.provider
+    reader_models_dir: Path = Path("~/.local/share/pga/reader-models")
+    azure_translator_key: SecretStr | None = None
+    azure_translator_region: str | None = None
+    google_translation_key: SecretStr | None = None
+    youdao_app_id: str | None = None
+    youdao_app_secret: SecretStr | None = None
     anthropic_api_key: str | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
     anthropic_base_url: str | None = Field(default=None, validation_alias="ANTHROPIC_BASE_URL")  # relay/proxy
     deepseek_api_key: str | None = Field(default=None, validation_alias="DEEPSEEK_API_KEY")

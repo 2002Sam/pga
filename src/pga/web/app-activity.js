@@ -17,7 +17,7 @@ function activityLiveHtml(clock = liveSecs()) {
         <small>${steps.length ? esc(`${steps.length} ${L("步", "steps")} · ${steps[steps.length - 1].tool} ${steps[steps.length - 1].target || ""}`) : words ? L("正在写回答", "Writing") : L("在想", "Thinking")}</small></div></section>`;
 }
 function refreshActivityLive() {
-  if (S.view !== "chats") return;
+  if (S.view !== "chats" || document.hidden || S.stageDormant || S.stageMotion) return;
   const box = $("#cactBody"), section = box?.querySelector(".ca-live");
   if (!section) return;
   const signature = activityLiveHtml(0);

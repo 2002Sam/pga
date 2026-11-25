@@ -11,6 +11,8 @@ function harness(){
  const doc={getElementById:id=>els[id],querySelector:()=>({getBoundingClientRect:()=>({top:0,bottom:700,right:640})}),createElement:()=>({dataset:{},style:{setProperty(k,v){this[k]=v}},setAttribute(){},remove(){delete els.railReturn}}),body:{append:b=>{els[b.id]=b}}};
  const window={parent:host,frameElement:{getBoundingClientRect:()=>({top:100})},addEventListener(){}};
  const context=vm.createContext({S,document:doc,window,innerHeight:700,L:x=>x});
+ const chats = fs.readFileSync(new URL('../src/pga/web/app-chats.js', import.meta.url), 'utf8');
+ vm.runInContext(chats.slice(chats.indexOf('function executionFeedOf('), chats.indexOf('async function openSourceChat(')), context);
  vm.runInContext(src.slice(src.indexOf('// One deterministic color')),context);
  return {context,S,els,calls};
 }
@@ -30,4 +32,13 @@ test('return tick clears when switching away, including empty conversations',()=
 });
 test('an off-screen parent marker is clamped to visible child bounds',()=>{
  const h=harness();assert.equal(h.context.parentRailPosition(50,100,48,600),48);assert.equal(h.context.parentRailPosition(900,100,48,600),600);
+});
+
+test('a worker links back to its execution feed without a saved fork', () => {
+ const h=harness();
+ h.S.chat='chat:mt-'+'a'.repeat(20)+'-execute-'+'b'.repeat(32);
+ h.S.chatTurns={[h.S.chat]:[{role:'user',run:'original'}]};
+ h.context.updateParentRail();
+ assert.equal(h.els.railReturn.dataset.mparent,'chat:summary-'+'a'.repeat(20)+'-execute');
+ assert.equal(h.els.railReturn.dataset.parentPoint,'original');
 });

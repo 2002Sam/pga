@@ -11,12 +11,13 @@ if [[ ! -d ui/node_modules ]]; then (cd ui && npm install --no-audit --no-fund);
 
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -swift-version 5 -target "$(uname -m)-apple-macos13" -o "$APP/Contents/MacOS/PGADesktop" Sources/*.swift \
-  -framework AppKit -framework WebKit -framework Carbon
+  -framework AppKit -framework WebKit -framework Carbon -framework ScreenCaptureKit -framework CoreMedia -framework AudioToolbox
 cp Info.plist "$APP/Contents/"
 cp -R ui/dist "$APP/Contents/Resources/ui"
 cp Resources/* "$APP/Contents/Resources/"
 ICON=../src/pga/web/icons/PGA.icns; [[ -f $ICON ]] && cp "$ICON" "$APP/Contents/Resources/PGA.icns"
 cp ../src/pga/web/icons/logo-128.png "$APP/Contents/Resources/PGA-status.png"
+cp ../docs/media/pga-witch-cat-broom.png "$APP/Contents/Resources/PGA-pet.png"
 codesign --force --deep -s - "$APP" >/dev/null 2>&1
 echo "built $APP"
 
