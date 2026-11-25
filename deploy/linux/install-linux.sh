@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # One-command Linux installer for PGA (Ubuntu/Debian/Fedora/Arch).
+# Works directly on a brand-new Linux machine via curl | bash (auto-installs missing system dependencies).
 #
 # Direct remote install (one-liner):
 #   curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash
@@ -21,6 +22,9 @@ PGA_DIR="${PGA_DIR:-$HOME/PGA/pga}"
 INSTALL_DESKTOP="auto"
 INSTALL_CLIS=0
 USE_DOCKER=0
+AUTO_DEPS=1
+CHECK_ONLY=0
+SKIP_DOCKER_DEP=0
 PORT_OVERRIDE=""
 FORWARD_ARGS=()
 
@@ -30,6 +34,26 @@ while [[ $# -gt 0 ]]; do
         --headless)      INSTALL_DESKTOP="no"; shift ;;
         --install-clis)  INSTALL_CLIS=1; shift ;;
         --docker)        USE_DOCKER=1; shift ;;
+        --no-auto-deps)  AUTO_DEPS=0; shift ;;
+        --check)
+            CHECK_ONLY=1
+            AUTO_DEPS=0
+            FORWARD_ARGS+=("$1")
+            shift
+            ;;
+        --database)
+            [[ $# -ge 2 ]] || { echo "--database 需要指定 auto/docker/existing" >&2; exit 2; }
+            [[ "$2" == "existing" ]] && SKIP_DOCKER_DEP=1
+            FORWARD_ARGS+=("$1" "$2")
+            shift 2
+            ;;
+        --database-url)
+            [[ $# -ge 2 ]] || { echo "--database-url 需要指定数据库连接串" >&2; exit 2; }
+            SKIP_DOCKER_DEP=1
+            export PGA_DATABASE_URL="$2"
+            FORWARD_ARGS+=("--database" "existing")
+            shift 2
+            ;;
         --dir)
             [[ $# -ge 2 ]] || { echo "--dir 需要指定安装目录路径" >&2; exit 2; }
             PGA_DIR="$2"
@@ -43,9 +67,9 @@ while [[ $# -gt 0 ]]; do
             ;;
         -h|--help)
             cat <<'EOF'
-PGA Linux 一键安装器（支持 curl | bash 远程一键部署或本地仓库执行）
+PGA Linux 一键安装器（支持在新 Linux 电脑上通过 curl | bash 一行直接部署）
 
-远程一行部署:
+远程一行部署（新机器直接粘贴）:
   curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash
   curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash -s -- --docker
   curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash -s -- --headless --port 8010
@@ -61,6 +85,7 @@ PGA Linux 一键安装器（支持 curl | bash 远程一键部署或本地仓库
   --install-clis    顺手通过 npm 安装官方 CLI（claude / codex / gemini）
   --port PORT       指定监听端口（默认 8000）
   --no-service      仅安装与迁移数据库，不注册 systemd 服务
+  --no-auto-deps    不自动调用系统包管理器安装缺失依赖
   --database-url U  使用已有 PostgreSQL（跳过 Docker Postgres）
   --check           仅检查环境依赖，不修改文件
 EOF
@@ -78,15 +103,106 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
+run_root() {
+    if [[ "$(id -u)" -eq 0 ]]; then
+        "$@"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo "$@"
+    else
+        echo "需要 root 或 sudo 权限来自动安装系统依赖，请先以 root 执行或安装 sudo。" >&2
+        return 1
+    fi
+}
+
 distro_hint() {
     if command -v apt-get >/dev/null 2>&1; then
-        echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip git docker.io docker-compose-v2"
+        echo "  sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip git docker.io docker-compose-v2 libnotify-bin poppler-utils"
     elif command -v dnf >/dev/null 2>&1; then
-        echo "  sudo dnf install -y python3 python3-pip git docker docker-compose-plugin"
+        echo "  sudo dnf install -y python3 python3-pip git docker docker-compose-plugin libnotify poppler-utils"
     elif command -v pacman >/dev/null 2>&1; then
-        echo "  sudo pacman -S --needed python git docker docker-compose"
+        echo "  sudo pacman -S --needed python git docker docker-compose libnotify poppler"
     else
         echo "  请通过系统包管理器安装 Python 3.11+（含 venv/pip）、Git 与 Docker Compose。"
+    fi
+}
+
+has_python_ready() {
+    command -v python3 >/dev/null 2>&1 &&
+        python3 -c 'import sys, venv, ensurepip; sys.exit(sys.version_info < (3, 11))' >/dev/null 2>&1
+}
+
+has_docker_compose() {
+    command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1
+}
+
+need_docker() {
+    [[ $USE_DOCKER -eq 1 ]] && return 0
+    [[ $SKIP_DOCKER_DEP -eq 0 && -z "${PGA_DATABASE_URL:-}" ]]
+}
+
+auto_install_deps() {
+    echo "==> 检测到缺失系统依赖，正在自动安装（可能需要输入 sudo 密码）…"
+    if command -v apt-get >/dev/null 2>&1; then
+        run_root apt-get update
+        local pkgs=(git curl ca-certificates libnotify-bin poppler-utils)
+        if [[ $USE_DOCKER -eq 0 ]]; then
+            pkgs+=(python3 python3-venv python3-pip)
+        fi
+        if need_docker; then
+            if apt-cache show docker-compose-v2 >/dev/null 2>&1; then
+                pkgs+=(docker.io docker-compose-v2)
+            elif apt-cache show docker-compose-plugin >/dev/null 2>&1; then
+                pkgs+=(docker.io docker-compose-plugin)
+            else
+                pkgs+=(docker.io)
+            fi
+        fi
+        run_root apt-get install -y "${pkgs[@]}"
+        if need_docker && ! has_docker_compose; then
+            echo "==> 当前 apt 源未包含 docker compose v2 插件，尝试通过官方脚本补装 Docker Compose…"
+            curl -fsSL https://get.docker.com | run_root sh
+        fi
+    elif command -v dnf >/dev/null 2>&1; then
+        local pkgs=(git curl libnotify poppler-utils)
+        if [[ $USE_DOCKER -eq 0 ]]; then
+            pkgs+=(python3 python3-pip)
+        fi
+        if need_docker; then
+            pkgs+=(docker docker-compose-plugin)
+        fi
+        run_root dnf install -y "${pkgs[@]}"
+    elif command -v pacman >/dev/null 2>&1; then
+        local pkgs=(git curl libnotify poppler)
+        if [[ $USE_DOCKER -eq 0 ]]; then
+            pkgs+=(python)
+        fi
+        if need_docker; then
+            pkgs+=(docker docker-compose)
+        fi
+        run_root pacman -Sy --noconfirm --needed "${pkgs[@]}"
+    else
+        echo "无法识别当前 Linux 包管理器，请手动安装依赖：" >&2
+        distro_hint >&2
+        return 1
+    fi
+}
+
+ensure_docker_running() {
+    if ! need_docker; then
+        return 0
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        if command -v systemctl >/dev/null 2>&1; then
+            run_root systemctl enable --now docker >/dev/null 2>&1 || true
+        elif command -v service >/dev/null 2>&1; then
+            run_root service docker start >/dev/null 2>&1 || true
+        fi
+    fi
+    if [[ "$(id -u)" -ne 0 ]] && ! docker info >/dev/null 2>&1 && run_root docker info >/dev/null 2>&1; then
+        if ! id -nG "$USER" | grep -qw docker; then
+            echo "==> 将当前用户 $USER 加入 docker 组…"
+            run_root usermod -aG docker "$USER"
+        fi
     fi
 }
 
@@ -101,21 +217,37 @@ if [[ -n "$SCRIPT_SOURCE" && -f "$SCRIPT_SOURCE" ]]; then
 fi
 
 echo "==> [1/3] 检查 Linux 基础依赖…"
+NEED_INSTALL=0
+if ! command -v git >/dev/null 2>&1; then
+    NEED_INSTALL=1
+fi
+if [[ $USE_DOCKER -eq 0 ]] && ! has_python_ready; then
+    NEED_INSTALL=1
+fi
+if need_docker && ! has_docker_compose; then
+    NEED_INSTALL=1
+fi
+
+if [[ $NEED_INSTALL -eq 1 && $AUTO_DEPS -eq 1 ]]; then
+    auto_install_deps
+fi
+
+if [[ $CHECK_ONLY -eq 0 ]]; then
+    ensure_docker_running
+fi
+
 MISSING=0
 if ! command -v git >/dev/null 2>&1; then
     echo "缺少 git" >&2
     MISSING=1
 fi
-if [[ $USE_DOCKER -eq 1 ]]; then
-    if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-        echo "缺少 docker 或 docker compose 插件" >&2
-        MISSING=1
-    fi
-else
-    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
-        echo "缺少 Python 3.11+" >&2
-        MISSING=1
-    fi
+if [[ $USE_DOCKER -eq 0 ]] && ! has_python_ready; then
+    echo "缺少 Python 3.11+（含 python3-venv 与 pip）" >&2
+    MISSING=1
+fi
+if need_docker && ! has_docker_compose; then
+    echo "缺少 docker 或 docker compose v2 插件" >&2
+    MISSING=1
 fi
 if [[ $MISSING -ne 0 ]]; then
     echo "可运行以下命令补齐依赖：" >&2
@@ -133,6 +265,19 @@ if [[ -z "$REPO_DIR" ]]; then
     fi
     REPO_DIR="$PGA_DIR"
 fi
+
+# Helper to run a command with docker group access even if usermod was just applied in this session
+run_with_docker_access() {
+    if docker info >/dev/null 2>&1; then
+        "$@"
+    elif [[ "$(id -u)" -ne 0 ]] && command -v sg >/dev/null 2>&1 && getent group docker 2>/dev/null | grep -qw "$USER"; then
+        local cmd_str
+        cmd_str="$(printf '%q ' "$@")"
+        sg docker -c "$cmd_str"
+    else
+        run_root "$@"
+    fi
+}
 
 if [[ $USE_DOCKER -eq 1 ]]; then
     echo "==> [2/3] 准备 Docker 全栈配置…"
@@ -161,7 +306,7 @@ EOF
     fi
 
     echo "==> [3/3] 启动 PostgreSQL + PGA Docker 全栈服务…"
-    docker compose --env-file "$ENV_FILE" -f "$REPO_DIR/deploy/linux/docker-compose.yml" up -d --build
+    run_with_docker_access docker compose --env-file "$ENV_FILE" -f "$REPO_DIR/deploy/linux/docker-compose.yml" up -d --build
     FINAL_PORT="$(grep -E '^PGA_PORT=' "$ENV_FILE" | tail -n1 | cut -d= -f2- || echo "${PORT_OVERRIDE:-8000}")"
     FINAL_PORT="${FINAL_PORT:-8000}"
     echo "Docker 全栈部署完成！"
@@ -172,7 +317,12 @@ EOF
 fi
 
 echo "==> [2/3] 安装 PGA 后端、数据库与 systemd 服务…"
-bash "$REPO_DIR/install.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
+if need_docker && ! docker info >/dev/null 2>&1 && [[ "$(id -u)" -ne 0 ]] && command -v sg >/dev/null 2>&1; then
+    CMD_STR="$(printf '%q ' bash "$REPO_DIR/install.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"})"
+    sg docker -c "$CMD_STR"
+else
+    bash "$REPO_DIR/install.sh" ${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}
+fi
 
 if [[ $INSTALL_CLIS -eq 1 ]]; then
     echo "==> 正在安装官方 Agent CLI（claude / codex / gemini）…"
