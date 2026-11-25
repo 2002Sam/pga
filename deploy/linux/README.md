@@ -1,10 +1,23 @@
 # PGA Linux 部署与使用指南
 
-支持两种开箱即用的 Linux 运行方式：**本机一键版（推荐，最方便调用本机 CLI 与桌面窗口）** 和 **Docker 全栈版（适合云服务器 / 零本机 Python 依赖）**。
+支持 **一行命令远程一键部署**，提供两种开箱即用的运行方式：**本机一键版（推荐，最方便调用本机 CLI 与桌面窗口）** 和 **Docker 全栈版（适合云服务器 / 零本机 Python 依赖）**。
+
+## 一行命令直接部署（无需手动 clone）
+
+```bash
+# 本机版（自动拉取到 ~/PGA/pga + PostgreSQL + systemd + 桌面图标）
+curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash
+
+# Docker 全栈版（零 Python/Node 环境依赖，适合云服务器）
+curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash -s -- --docker
+
+# 纯命令行服务器 + 自定义端口 + 顺手装官方 CLI
+curl -fsSL https://raw.githubusercontent.com/2002Sam/pga/main/deploy/linux/install-linux.sh | bash -s -- --headless --port 8010 --install-clis
+```
 
 ---
 
-## 方式一：Linux 本机一键安装（Ubuntu / Debian / Fedora / Arch）
+## 方式一：本地仓库一键安装（Ubuntu / Debian / Fedora / Arch）
 
 前置依赖：Python 3.11+（含 `venv`/`pip`）、Git、Docker Compose（或已有 PostgreSQL）。
 
